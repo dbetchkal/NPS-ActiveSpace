@@ -15,7 +15,7 @@ from sqlalchemy.exc import OperationalError
 from active_space_utils import *
 from NestablePool import NestablePool
 
-sys.path.append(r"C:\Users\kheck\PythonScripts\NMSIM-Python")
+sys.path.append(os.path.join(os.getcwd(), "NMSIM-Python"))
 from ActiveSpace import CreateActiveSpace
 
 

@@ -15,8 +15,9 @@ import time
 
 import rasterio.plot
 
-sys.path.append(r"C:\Users\kheck\PythonScripts\iyore-master")
-sys.path.append(r"C:\Users\kheck\PythonScripts\soundDB-master")
+cd = os.getcwd()
+sys.path.append(os.path.join(cd, "iyore-master"))
+sys.path.append(os.path.join(cd, "soundDB-master"))
 from soundDB import *
 import iyore
 
@@ -27,7 +28,8 @@ sys.path.append(os.path.join(RDS, "scripts"))
 from query_tracks import query_tracks
 
 # need the active space scripts as well
-sys.path.append(r"C:\Users\kheck\PythonScripts\NMSIM-Python")
+cd = os.getcwd()
+sys.path.append(os.path.join(cd, "NMSIN-Python"))
 from ActiveSpace import CreateActiveSpace
 from active_space_utils import *
 

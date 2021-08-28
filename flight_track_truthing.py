@@ -24,8 +24,9 @@ import sys
 import matplotlib.dates as mdates
 import rasterio.plot
 
-sys.path.append(r"C:\Users\kheck\PythonScripts\iyore-master")
-sys.path.append(r"C:\Users\kheck\PythonScripts\soundDB-master")
+cd = os.getcwd()
+sys.path.append(os.path.join(cd, "iyore-master"))
+sys.path.append(os.path.join(cd, "soundDB-master"))
 from soundDB import *
 import iyore
 
