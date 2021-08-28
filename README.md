@@ -1,7 +1,7 @@
 # DENA-overflights
 
-Authors: 
-Kirby Heck (Denali 2021 SIP - Computing)
+Authors: <br>
+Kirby Heck (Denali 2021 SIP - Computing) <br>
 Davyd Betchkal
 
 
