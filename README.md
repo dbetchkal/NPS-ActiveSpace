@@ -5,7 +5,7 @@ The DENA-overflights repository includes two components: overflight audiblity gr
 DENA-overflights has several dependencies. Dependencies are found at the Github links below: 
   > Iyore: <a href="https://github.com/nationalparkservice/iyore">NPS/Iyore</a> <br>
   > NMSIM-Python: <a href="https://github.com/dbetchkal/NMSIM-Python">dbetchkal/NMSIM-Python</a> <br>
-  > soundDB: <a href="https://github.com/gjoseph92/soundDB">gjoseph92/soundDB</a>
+  > soundDB: <a href="https://github.com/gjoseph92/soundDB">gjoseph92/soundDB</a> <br>
   > GDAL Translate: <a href="https://apps.nationalmap.gov/raster-conversion/gdal-installation-and-setup-guide.html">USGS Instructions</a>
 
 Additionally, overflights are queried from a databased developed by <a href="https://github.com/smHooper/flightsdb">smHooper</a>. 
