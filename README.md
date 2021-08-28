@@ -1,5 +1,10 @@
 # DENA-overflights
 
+Authors: 
+Kirby Heck (Denali 2021 SIP - Computing)
+Davyd Betchkal
+
+
 The DENA-overflights repository includes two components: overflight audiblity ground-truthing and creation and analysis of a representative 'active space' corresponding to propeller noise for a geographic region. 
 
 DENA-overflights has several dependencies. Dependencies are found at the Github links below: 
