@@ -53,7 +53,7 @@ def get_utm_zone(project_dir):
     elev_filename = os.path.basename(glob.glob(project_dir + os.sep + r"Input_Data\01_ELEVATION\*.flt")[0])
 
     # this will glean the UTM zone from the filename as an integer
-    UTM_zone = int(elev_filename.split("_")[-1][3:-4])
+    UTM_zone = str(elev_filename.split("_")[-1][3:-4])
 
     return UTM_zone
 
@@ -125,10 +125,10 @@ def get_extent(project_dir):
     zone = get_utm_zone(project_dir)
 
     # epsg codes for UTM zones in the United States (haven't tested Hawaii yet!)
-    epsg_lookup = {1: 'epsg:26901', 2: 'epsg:26902', 3: 'epsg:26903', 4: 'epsg:26904', 5: 'epsg:26905',
-                   6: 'epsg:26906', 7: 'epsg:26907', 8: 'epsg:26908', 9: 'epsg:26909', 10: 'epsg:26910',
-                   11: 'epsg:26911', 12: 'epsg:26912', 13: 'epsg:26913', 14: 'epsg:26914', 15: 'epsg:26915',
-                   16: 'epsg:26916', 17: 'epsg:26917'}
+    epsg_lookup = {"1": 'epsg:26901', "2": 'epsg:26902', "3": 'epsg:26903', "4": 'epsg:26904', "5": 'epsg:26905',
+                   "6": 'epsg:26906', "7": 'epsg:26907', "8": 'epsg:26908', "9": 'epsg:26909', "10": 'epsg:26910',
+                   "11": 'epsg:26911', "12": 'epsg:26912', "13": 'epsg:26913', "14": 'epsg:26914', "15": 'epsg:26915',
+                   "16": 'epsg:26916', "17": 'epsg:26917'}
 
     # find the elevation .tif and open it read only
     full_dir = project_dir + os.sep + r"Input_Data\01_ELEVATION"
