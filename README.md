@@ -1,13 +1,13 @@
-# DENA-overflights
+# NPS-ActiveSpace
 
 Authors: <br>
 Kirby Heck (Denali 2021 SIP - Computing) <br>
 Davyd Betchkal
 
 
-The DENA-overflights repository includes two components: overflight audiblity ground-truthing and creation and analysis of a representative 'active space' corresponding to propeller noise for a geographic region. 
+The NPS-ActiveSpace repository includes two components: overflight audiblity ground-truthing and creation and analysis of a representative 'active space' corresponding to propeller noise for a geographic region. 
 
-DENA-overflights has several dependencies. Dependencies are found at the Github links below: 
+NPS-ActiveSpace has several dependencies. Dependencies are found at the Github links below: 
   > Iyore: <a href="https://github.com/nationalparkservice/iyore">NPS/Iyore</a> <br>
   > NMSIM-Python: <a href="https://github.com/dbetchkal/NMSIM-Python">dbetchkal/NMSIM-Python</a> <br>
   > soundDB: <a href="https://github.com/gjoseph92/soundDB">gjoseph92/soundDB</a> <br>
