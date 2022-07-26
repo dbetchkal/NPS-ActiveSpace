@@ -1,0 +1,16 @@
+[project]
+name = "NPS-ActiveSpace"
+version = "2.0"
+description = "An NPS Sound Active Space Project."
+authors = ["Kirby Heck", "Adina Zucker", "Davyd Betchkal"]
+maintainers = ["Davyd Betchkal <davyd_betchkal@nps.gov>"]
+readme = "README.md"
+repository = "https://github.com/dbetchkal/NPS-ActiveSpace"
+requires-python =  ">=3.8"
+
+[project.urls]
+homepage = "https://github.com/dbetchkal/NPS-ActiveSpace"
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"

@@ -1,0 +1,15 @@
+# Pycharm
+.idea
+
+# venv
+.venv*
+
+# python
+__pycache__
+
+# pyenv
+.python-version
+
+# config files
+_DENA/config/*
+!_DENA/config/template.config
