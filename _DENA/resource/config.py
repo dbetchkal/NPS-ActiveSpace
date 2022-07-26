@@ -14,16 +14,16 @@ def initialize(config_dir: str, environment: str):
 
     Parameters
     ----------
-        config_dir : str
-            The name of the directory where the config file is stored.
-        environment: str
-            The name of the environment of the configuration file to read.
+    config_dir : str
+        The name of the directory where the config file is stored.
+    environment: str
+        The name of the environment of the configuration file to read.
 
     Example
     -------
-        import _DENA.resource.config as cfg
+    import _DENA.resource.config as cfg
 
-        cfg.initialize('../', 'production')
+    cfg.initialize('../', 'production')
     """
     global _config
 
@@ -38,22 +38,22 @@ def read(section: str, option: Optional[str] = None) -> Union[Dict, Any]:
 
     Parameters
     ----------
-        section : str
-            Section of the configuration file to read from.
-        option : str, default None
-            Option in the requested section of the configuration file to return.
+    section : str
+        Section of the configuration file to read from.
+    option : str, default None
+        Option in the requested section of the configuration file to return.
 
     Returns
     ------
-        If a section is requested, a dictionary of all options and values.
-        If an option is requested, the option value.
+    If a section is requested, a dictionary of all options and values.
+    If an option is requested, the option value.
 
     Example
     -------
-        import _DENA.resource.config as cfg
+    import _DENA.resource.config as cfg
 
-        cfg.initialize('../', 'production')
-        user = cfg.read('database', 'username')
+    cfg.initialize('../', 'production')
+    user = cfg.read('database', 'username')
     """
     assert _config, "Config file initialization required before reading."
 

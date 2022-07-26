@@ -134,8 +134,8 @@ def get_logger(name: str, level: str = 'INFO') -> logging.Logger:
 
     Returns
     -------
-        logger : logging.Logger
-            A python logger object
+    logger : logging.Logger
+        A python logger object
     """
     logger = logging.getLogger(name)
     logger.setLevel(level)
