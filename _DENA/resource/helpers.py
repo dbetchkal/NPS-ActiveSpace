@@ -6,7 +6,7 @@ import pandas as pd
 from sqlalchemy.engine import Engine
 from tqdm import tqdm
 
-from nps_active_space.utils import coords_to_utm, Microphone
+from nps_active_space.utils import coords_to_utm, Microphone, Tracks
 
 
 __all__ = [
@@ -52,7 +52,7 @@ def get_deployment(unit: str, site: str, year: int, filename: str) -> Microphone
 
 
 def query_tracks(engine: Engine, start_date: str, end_date: str, mask: Optional[gpd.GeoDataFrame] = None,
-                 crs: Optional[str] = None) -> gpd.GeoDataFrame:
+                 crs: Optional[str] = None) -> Tracks:
     """
     Query flight tracks from the FlightsDB for a specific date range and optional within a specific area.
 
@@ -71,8 +71,8 @@ def query_tracks(engine: Engine, start_date: str, end_date: str, mask: Optional[
 
     Returns
     -------
-    data : gpd.GeoDataFrame
-        A GeoDataFrame of the metadata from the specific unit/site/year combination. If no crs is specified,
+    data : Tracks
+        A Tracks object of the metadata from the specific unit/site/year combination. If no crs is specified,
         data will be returned in WGS84 (epsg=4326).
     """
     wheres = [f"fp.ak_datetime::date BETWEEN '{start_date}' AND '{end_date}'"]
@@ -104,7 +104,7 @@ def query_tracks(engine: Engine, start_date: str, end_date: str, mask: Optional[
         WHERE {' AND '.join(wheres)}
         ORDER BY fp.ak_datetime asc
         """
-    flight_tracks = gpd.GeoDataFrame.from_postgis(query, engine, geom_col='geom')
+    flight_tracks = Tracks(gpd.GeoDataFrame.from_postgis(query, engine, geom_col='geom'), 'flight_id')
 
     if crs:
         flight_tracks.to_crs(crs)

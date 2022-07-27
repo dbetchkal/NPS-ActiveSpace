@@ -6,6 +6,7 @@
 
 # python
 **/__pycache__
+*.pyc
 
 
 # pyenv
