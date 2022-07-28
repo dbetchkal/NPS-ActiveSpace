@@ -2,7 +2,7 @@ import glob
 import re
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional, Union
+from typing import List, Union
 
 import geopandas as gpd
 import pandas as pd
@@ -19,14 +19,42 @@ __all__ = [
 
 @dataclass
 class Microphone:
-    """An object representing a microphone deployment location and time."""
+    """
+    An object representing a microphone deployment location.
 
+    Parameters
+    ----------
+    unit : str
+        The NPS unit of the microphone deployment. E.g. DENA
+    site : str
+        The specific site in the NPS unit of the microphone deployment.
+    year : int
+        The year of the microphone deployment location.
+    lat : float
+        The latitude of the microphone deployment location in WGS84 (epsg:4326)
+    lon : float
+        The longitude of the microphone deployment location in WGS84 (epsg:4326)
+    z : float
+        The elevation of the microphone deployment location in meters.
+    name : str, default None
+        A name for the Microphone instance. If not provided, a name will be created from the unit, site, and year.
+    crs : str, default None
+        Epsg projected coordinated system to calculate the x, y values in. E.g. 'epsg:4326'
+        Latitude and Longitude will not be projected if no crs is provided.
+
+    Instance Variables
+    ------------------
+    x : float
+        The longitude value projected into the current crs.
+    y : float
+        The latitude value projected into the current crs.
+    """
     unit: str
     site: str
     year: int   # TODO: Should this be a date instead of year?
-    lat: float  # WGS84, epsg=4326
-    lon: float  # WGS84, epsg=4326
-    z: float    # In meters
+    lat: float
+    lon: float
+    z: float
     name: str = None
     crs: str = None
     x: float = field(init=False)
@@ -43,12 +71,14 @@ class Microphone:
             self.name = f"{self.unit}{self.site}{self.year}"
 
     def to_crs(self, crs: str):
-        """Project instance x,y values to a new coordinate system.
+        """
+        Project instance x,y values to a new coordinate system.
 
         Parameters
         ----------
         crs : str
-            The coordinate system to project the instance to. Format: epsg:XXXX. E.g. epsg:26906
+            The coordinate system to project the instance to.
+                Format: epsg:XXXX. E.g. epsg:26906
         """
         projection = Transformer.from_crs('epsg:4326', crs, always_xy=True)
         self.x, self.y = projection.transform(self.lon, self.lat)
@@ -56,7 +86,14 @@ class Microphone:
 
 
 class Nvspl(pd.DataFrame):
-    """A pandas DataFrame wrapper class to ensure consistent NVSPL data."""
+    """
+    A pandas DataFrame wrapper class to ensure consistent NVSPL data.
+
+    Parameters
+    ----------
+    filepaths_or_data : List, str, or pd.DataFrame
+        A directory containing NVSPL files, a list of NVSPL files, or an existing pd.DataFrame of NVSPL data.
+    """
 
     standard_fields = {
         'SiteID', 'STime', 'dbA', 'dbC', 'dbF',
@@ -70,20 +107,21 @@ class Nvspl(pd.DataFrame):
     octave_regex = re.compile(r"^H[0-9]+$|^H[0-9]+p[0-9]$")
 
     def __init__(self, filepaths_or_data: Union[List[str], str, pd.DataFrame]):
-        """
-
-        Parameters
-        ----------
-        filepaths_or_data : List, str, or pd.DataFrame
-            A directory containing NVSPL files, a list of NVSPL files, or an existing pd.DataFrame of
-            NVSPL data.
-        """
         data = self._read(filepaths_or_data)
         data.set_index('STime', inplace=True)
         super().__init__(data=data)
 
-    def _read(self, filepaths_or_data):
-        # TODO: for speed, usecols and define datatype, drop empty columns
+    def _read(self, filepaths_or_data: Union[List[str], str, pd.DataFrame]):
+        """
+        Read in and validate the NVSPL data.
+
+        # TODO: for speed and memory improvements, use usecols, define datatypes, and drop empty columns.
+
+        Parameters
+        ----------
+        filepaths_or_data : List, str, or pd.DataFrame
+            A directory containing NVSPL files, a list of NVSPL files, or an existing pd.DataFrame of NVSPL data.
+        """
 
         if isinstance(filepaths_or_data, pd.DataFrame):
             self._validate(filepaths_or_data.columns)
@@ -106,11 +144,18 @@ class Nvspl(pd.DataFrame):
 
         return data
 
-    def _validate(self, columns):
+    def _validate(self, columns: List[str]):
         """
+        Ensure that the provided data has only the standard
+
         Parameters
         ----------
-        columns
+        columns : List of strs
+            List of NVSPL DataFrame columns.
+
+        Raises
+        ------
+        AssertionError if any standard column is missing or if any non-standard and non-octave column is present.
         """
         # Verify that all NVSPL standard columns exist.
         missing_standard_cols = self.standard_fields - set(columns)
@@ -122,18 +167,21 @@ class Nvspl(pd.DataFrame):
 
 
 class Tracks(gpd.GeoDataFrame):
-    """A geopandas GeoDataFrame wrapper class to standardize track points.
+    """
+    A geopandas GeoDataFrame wrapper class to standardize track points.
 
     Parameters
     ----------
     data : gpd.GeoDataFrame
-    id_col : str, default None
-        name of the columns
+        A GeoDataFrame of track points.
+    id_col : str
+        The name of the column containing aa unique identifier to group track points by.
+            E.g. flight id, license plate
+    datetime_col : str
+        A tracks GeoDataFrame is required to have a column with the datetime of each track point.
+        This column will be given a standardized name of "point_dt".
     """
-
-    def __init__(self, data: gpd.GeoDataFrame, id_col: Optional[str] = None):
-        # TODO: time column
-
+    def __init__(self, data: gpd.GeoDataFrame, id_col: str, datetime_col: str):
         data.set_index(id_col, inplace=True)
-
-        super().__init__(data=self._read(data))
+        data.rename(columns={datetime_col: 'point_dt'}, inplace=True)
+        super().__init__(data=data)

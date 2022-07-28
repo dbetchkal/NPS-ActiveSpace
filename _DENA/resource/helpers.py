@@ -17,7 +17,8 @@ __all__ = [
 
 
 def get_deployment(unit: str, site: str, year: int, filename: str) -> Microphone:
-    """Obtain all metadata for a specific microphone deployment from a metadata file.
+    """
+    Obtain all metadata for a specific microphone deployment from a metadata file.
 
     Parameters
     ----------
@@ -51,8 +52,7 @@ def get_deployment(unit: str, site: str, year: int, filename: str) -> Microphone
     return mic
 
 
-def query_tracks(engine: Engine, start_date: str, end_date: str, mask: Optional[gpd.GeoDataFrame] = None,
-                 crs: Optional[str] = None) -> Tracks:
+def query_tracks(engine: Engine, start_date: str, end_date: str, mask: Optional[gpd.GeoDataFrame] = None) -> Tracks:
     """
     Query flight tracks from the FlightsDB for a specific date range and optional within a specific area.
 
@@ -66,8 +66,6 @@ def query_tracks(engine: Engine, start_date: str, end_date: str, mask: Optional[
         ISO date string (YYYY-mm-dd) indicating the end of the date range to query within
     mask : gpd.GeoDataFrame, default None
         Geopandas.GeoDataframe instance to spatially filter query results.
-    crs : str, default None
-        epsg projected coordinated system to project tracks onto. E.g. 'epsg:4326'
 
     Returns
     -------
@@ -104,17 +102,20 @@ def query_tracks(engine: Engine, start_date: str, end_date: str, mask: Optional[
         WHERE {' AND '.join(wheres)}
         ORDER BY fp.ak_datetime asc
         """
-    flight_tracks = Tracks(gpd.GeoDataFrame.from_postgis(query, engine, geom_col='geom'), 'flight_id')
 
-    if crs:
-        flight_tracks.to_crs(crs)
+    flight_tracks = Tracks(
+        gpd.GeoDataFrame.from_postgis(query, engine, geom_col='geom'),
+        'flight_id',
+        'ak_datetime'
+    )
 
     data = flight_tracks.loc[~(flight_tracks.geometry.is_empty)]
     return data
 
 
 class _TqdmStream:
-    """A Logger Stream so Tqdm loading bars work with python loggers.
+    """
+    A Logger Stream so Tqdm loading bars work with python loggers.
     https://github.com/tqdm/tqdm/issues/313#issuecomment-346819396
     """
     def write(cls, msg: str):
@@ -123,7 +124,8 @@ class _TqdmStream:
 
 
 def get_logger(name: str, level: str = 'INFO') -> logging.Logger:
-    """General purpose function for creating a console logger.
+    """
+    General purpose function for creating a console logger.
 
     Parameters
     ----------

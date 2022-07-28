@@ -10,7 +10,8 @@ _config = None
 
 
 def initialize(config_dir: str, environment: str):
-    """Initialize a connection to a configuration file.
+    """
+    Initialize a connection to a configuration file.
 
     Parameters
     ----------
@@ -33,7 +34,8 @@ def initialize(config_dir: str, environment: str):
 
 
 def read(section: str, option: Optional[str] = None) -> Union[Dict, Any]:
-    """Read in a specific section or option from a specific section from the loaded configuration file.
+    """
+    Read in a specific section or option from a specific section from the loaded configuration file.
     The global configuration file variable must be initialized prior to reading from it.
 
     Parameters
@@ -47,6 +49,10 @@ def read(section: str, option: Optional[str] = None) -> Union[Dict, Any]:
     ------
     If a section is requested, a dictionary of all options and values.
     If an option is requested, the option value.
+
+    Raises
+    ------
+    AssertionError is config file has not been initialized
 
     Example
     -------
