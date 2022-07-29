@@ -2,7 +2,7 @@ import glob
 import re
 import os
 from dataclasses import dataclass, field
-from typing import List, Union
+from typing import List, Optional, Union
 
 import geopandas as gpd
 import pandas as pd
@@ -70,7 +70,7 @@ class Microphone:
         if not self.name:
             self.name = f"{self.unit}{self.site}{self.year}"
 
-    def to_crs(self, crs: str):
+    def to_crs(self, crs: str, inplace: Optional[bool] = False) -> Optional['Microphone']:
         """
         Project instance x,y values to a new coordinate system.
 
@@ -79,10 +79,15 @@ class Microphone:
         crs : str
             The coordinate system to project the instance to.
                 Format: epsg:XXXX. E.g. epsg:26906
+        inplace : bool, default False
+            If True, crs will be updated and no instance will be returned.
+            If False, crs will be updated an the updated instance will be returned.
         """
         projection = Transformer.from_crs('epsg:4326', crs, always_xy=True)
         self.x, self.y = projection.transform(self.lon, self.lat)
         self.crs = crs
+        if not inplace:
+            return self
 
 
 class Nvspl(pd.DataFrame):
@@ -121,26 +126,33 @@ class Nvspl(pd.DataFrame):
         ----------
         filepaths_or_data : List, str, or pd.DataFrame
             A directory containing NVSPL files, a list of NVSPL files, or an existing pd.DataFrame of NVSPL data.
-        """
 
+        Raises
+        ------
+        AssertionError if directory path or file path does not exists or is of the wrong format.
+        """
         if isinstance(filepaths_or_data, pd.DataFrame):
             self._validate(filepaths_or_data.columns)
-            return filepaths_or_data
-
-        elif isinstance(filepaths_or_data, str):
-            assert os.path.isdir(filepaths_or_data), f"{filepaths_or_data} does not exist."
-            filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.txt")
+            data = filepaths_or_data
 
         else:
-            for file in filepaths_or_data:
-                assert os.path.isfile(file), f"{file} does not exist."
-                assert file.endswith('.txt'), f"Only .txt NVSPL files accepted."
+            if isinstance(filepaths_or_data, str):
+                assert os.path.isdir(filepaths_or_data), f"{filepaths_or_data} does not exist."
+                filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.txt")
 
-        data = pd.DataFrame()
-        for file in tqdm(filepaths_or_data, desc='Loading NVSPL files', unit='files', colour='green'):
-            df = pd.read_csv(file)
-            self._validate(df.columns)
-            data = data.append(df)
+            else:
+                for file in filepaths_or_data:
+                    assert os.path.isfile(file), f"{file} does not exist."
+                    assert file.endswith('.txt'), f"Only .txt NVSPL files accepted."
+
+            data = pd.DataFrame()
+            for file in tqdm(filepaths_or_data, desc='Loading NVSPL files', unit='files', colour='green'):
+                df = pd.read_csv(file)
+                self._validate(df.columns)
+                data = data.append(df)
+
+        octave_columns = {c: c.replace('H', '').replace('p', '.') for c in filter(self.octave_regex.match, data.columns)}
+        data.rename(columns=octave_columns, inplace=True)
 
         return data
 
@@ -176,12 +188,25 @@ class Tracks(gpd.GeoDataFrame):
         A GeoDataFrame of track points.
     id_col : str
         The name of the column containing aa unique identifier to group track points by.
+        This  column will be given the standardized name of track_id
             E.g. flight id, license plate
     datetime_col : str
         A tracks GeoDataFrame is required to have a column with the datetime of each track point.
-        This column will be given a standardized name of "point_dt".
+        This column will be given the standardized name of "point_dt".
+    z_col : str, default None
+        A tracks GeoDataFrame can have a column with the altitude of the points.
+        This column will be given the standardized name of "z".
+
+    Notes
+    -----
+    Currently, there is a bug with GeoPandas where running to_crs() will delete the z values of Points as mentioned
+    in this post https://stackoverflow.com/questions/72987452/geopands-to-crs-dropping-z-values. Therefore, z values must
+    be kept in a searate standard column until this bug has been resolved.
     """
-    def __init__(self, data: gpd.GeoDataFrame, id_col: str, datetime_col: str):
-        data.set_index(id_col, inplace=True)
-        data.rename(columns={datetime_col: 'point_dt'}, inplace=True)
+    def __init__(self, data: gpd.GeoDataFrame, id_col: str, datetime_col: str, z_col: Optional[str]=None):
+        col_renames = {id_col: 'track_id', datetime_col: 'point_dt'}
+        if z_col:
+            col_renames[z_col] = 'z'
+        data.rename(columns=col_renames, inplace=True)
+        data.sort_values(by=['track_id', 'point_dt'], ascending=True, inplace=True)
         super().__init__(data=data)

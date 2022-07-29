@@ -6,8 +6,7 @@ import pandas as pd
 from sqlalchemy.engine import Engine
 from tqdm import tqdm
 
-from nps_active_space.utils import coords_to_utm, Microphone, Tracks
-
+from nps_active_space.utils import coords_to_utm, Microphone
 
 __all__ = [
     'get_deployment',
@@ -52,7 +51,8 @@ def get_deployment(unit: str, site: str, year: int, filename: str) -> Microphone
     return mic
 
 
-def query_tracks(engine: Engine, start_date: str, end_date: str, mask: Optional[gpd.GeoDataFrame] = None) -> Tracks:
+def query_tracks(engine: Engine, start_date: str, end_date: str,
+                 mask: Optional[gpd.GeoDataFrame] = None) -> gpd.GeoDataFrame:
     """
     Query flight tracks from the FlightsDB for a specific date range and optional within a specific area.
 
@@ -69,9 +69,8 @@ def query_tracks(engine: Engine, start_date: str, end_date: str, mask: Optional[
 
     Returns
     -------
-    data : Tracks
-        A Tracks object of the metadata from the specific unit/site/year combination. If no crs is specified,
-        data will be returned in WGS84 (epsg=4326).
+    data : gpd.GeoDataFrame
+        A GeoDataFrame of flight track points.
     """
     wheres = [f"fp.ak_datetime::date BETWEEN '{start_date}' AND '{end_date}'"]
 
@@ -93,7 +92,7 @@ def query_tracks(engine: Engine, start_date: str, end_date: str, mask: Optional[
             fp.latitude,
             fp.heading,
             fp.knots, 
-            fp.altitude_ft,
+            fp.altitude_ft * 0.3048 as altitude_m,
             fp.ak_datetime,
             fp.geom, 
             date_trunc('hour', fp.ak_datetime) as ak_hourtime
@@ -103,11 +102,7 @@ def query_tracks(engine: Engine, start_date: str, end_date: str, mask: Optional[
         ORDER BY fp.ak_datetime asc
         """
 
-    flight_tracks = Tracks(
-        gpd.GeoDataFrame.from_postgis(query, engine, geom_col='geom'),
-        'flight_id',
-        'ak_datetime'
-    )
+    flight_tracks = gpd.GeoDataFrame.from_postgis(query, engine, geom_col='geom', crs='epsg:4326')
 
     data = flight_tracks.loc[~(flight_tracks.geometry.is_empty)]
     return data
