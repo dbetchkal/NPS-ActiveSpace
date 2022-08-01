@@ -30,7 +30,7 @@ def launch(*args, **kwargs):
     _app.mainloop()
 
 
-class _AppFrame(tk.Frame):
+class _AppFrame(ABC, tk.Frame):
     """Abstract base class for all application frames."""
 
     def __init__(self, master):
@@ -38,7 +38,7 @@ class _AppFrame(tk.Frame):
         self.master = master
 
 
-class _App(ABC, tk.Tk):
+class _App(tk.Tk):
 
     def __init__(self, outfile: str, tracks: Tracks, nvspl: Nvspl, mic: Microphone, crs,
                  site_shp: Optional[gpd.GeoDataFrame] = None, clip: Optional[bool] = False):

@@ -6,7 +6,7 @@ import sqlalchemy
 
 import iyore
 import nps_active_space.ground_truthing as app
-from nps_active_space.utils import Nvspl
+from nps_active_space.utils import Nvspl, Tracks
 
 import _DENA.resource.config as cfg
 from _DENA import _DENA_DIR
@@ -65,11 +65,10 @@ if __name__ == '__main__':
     logger.info("Launching application...")
     app.launch(
         outfile=outfile,
-        tracks=tracks,
-        tracks_datetime='ak_datetime',
+        tracks=Tracks(tracks, 'flight_id', 'ak_datetime', 'altitude_m'),
         nvspl=nvspl,
         mic=microphone,
-        site_shp=study_area,
         crs=microphone.crs,
+        site_shp=study_area,
         clip=False
     )
