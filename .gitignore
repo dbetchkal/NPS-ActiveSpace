@@ -8,9 +8,11 @@
 **/__pycache__
 *.pyc
 
-
 # pyenv
 .python-version
+
+# .egg-info
+*.egg-info/
 
 # config files
 _DENA/config/*

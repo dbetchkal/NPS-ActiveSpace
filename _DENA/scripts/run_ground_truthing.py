@@ -12,6 +12,7 @@ import _DENA.resource.config as cfg
 from _DENA import _DENA_DIR
 from _DENA.resource.helpers import get_deployment, get_logger, query_tracks
 
+
 if __name__ == '__main__':
 
     argparse = ArgumentParser()
@@ -69,6 +70,6 @@ if __name__ == '__main__':
         nvspl=nvspl,
         mic=microphone,
         crs=microphone.crs,
-        site_shp=study_area,
+        study_area=study_area,
         clip=False
     )

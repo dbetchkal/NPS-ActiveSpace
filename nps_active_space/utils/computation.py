@@ -1,12 +1,13 @@
 import datetime as dt
-from typing import Iterable, Optional, Tuple, Union
+from typing import Iterable, TYPE_CHECKING
 
 import geopandas as gpd
 import numpy as np
 from scipy import interpolate
 from shapely.geometry import Point
 
-from nps_active_space.utils.models import Tracks
+if TYPE_CHECKING:
+    from nps_active_space.utils.models import Tracks
 
 
 __all__ = [
@@ -25,7 +26,7 @@ def coords_to_utm(lat: float, lon: float) -> str:
     ----------
     lat : float
         Latitude of a point in decimal degrees in a WGS84 projection (EPSG:4326)
-    lon: float
+    lon : float
         Longitude of a point in decimal degrees in a WGS84 projection (EPSG:4326)
 
     Returns
@@ -65,18 +66,30 @@ def climb_angle(v: Iterable) -> np.ndarray:
     return degrees
 
 
-def interpolate_spline(points: Tracks, ds: float = 1):
+def interpolate_spline(points: 'Tracks', ds: int = 1) -> gpd.GeoDataFrame:
     """
-    # TODO
+    Interpolate points with a cubic spline between flight points, if possible.
+    See https://docs.scipy.org/doc/scipy/reference/tutorial/interpolate.html#spline-interpolation for docs
 
     Parameters
     ----------
-    points: Tracks
-    ds : float
-        delta seconds
+    points : Tracks
+        A Track gpd.GeoDataframe object containing known track points in a path. A minimum of 2 points is required.
+    ds : int, default 1
+        The second interval in which to calculate the spline for.
+        E.g. ds = 1 is "calculate a spline point at every 1 second delta"
+
+    Returns
+    -------
+    gpd.GeoDataFrame of all points in the interpolated spline.
+    Columns: point_dt, geometry
+
+    Raises
+    ------
+    AssertionError if there is fewer than 1 Track point.
     """
     # Calculate the order of polynomial to fit to the spline. The maximum is a cubic spline. If there are fewer than
-    # 3 points, a cubic spline cannot be fit and lower order must be chosen.
+    #  3 points, a cubic spline cannot be fit and lower order must be chosen.
     assert points.shape[0] > 1, "A minimum of 2 points is required for calculate a spline."
     k = min(points.shape[0] - 1, 3)
 
@@ -88,11 +101,10 @@ def interpolate_spline(points: Tracks, ds: float = 1):
     coords = [points.geometry.x, points.geometry.y, points.z] if 'z' in points else [points.geometry.x, points.geometry.y]
     tck, u = interpolate.splprep(coords, u=flight_times, k=k)
 
-    # parametric interpolation on the time interval provided
+    # Parametric interpolation on the time interval provided.
     duration = (endtime - starttime).total_seconds()
-    tnew = np.arange(0, duration + ds, ds)  # new spline fit with dS
+    tnew = np.arange(0, duration + ds, ds)
     spl_out = interpolate.splev(tnew, tck)
-
     track_spline = gpd.GeoDataFrame({'point_dt': [starttime + dt.timedelta(seconds=offset) for offset in tnew]},
                                     geometry=[Point(xyz) for xyz in zip(spl_out[0], spl_out[1], spl_out[2])],
                                     crs=points.crs)
@@ -100,12 +112,35 @@ def interpolate_spline(points: Tracks, ds: float = 1):
     return track_spline
 
 
-def audible_time_delay(points: gpd.GeoDataFrame, time_col: str, target: Point, m1: float = 343.,
-                       drop_cols: Optional[bool] = False):
-    # TODO: same crs??
-    # TODO: does this give the right value?
+def audible_time_delay(points: gpd.GeoDataFrame, time_col: str, target: Point,
+                       m1: float = 343., drop_cols: bool = False) -> gpd.GeoDataFrame:
+    """
+    Given a set of points and a target location, calculate when a sound made at each point could be heard at
+    the target.
 
-    points['distance_to_target'] = points.geometry.apply(lambda geom: target.distance(geom))  # TODO What are the metrics here.
+    **IMPORTANT**: The points GeoDataFrame and the target Point should be in the same crs for accurate calculations.
+
+    Parameters
+    ----------
+    points : gpd.GeoDataFrame
+        A gpd.GeoDataFrame of sound location points.
+    time_col : str
+        Name of the column in the points gpd.GeoDataFrame with time of sound occurrence at each point.
+    target : Point
+        The target point.
+    m1 : float, default 343 m/s
+        The speed of sound to use for calculations. Make sure this value uses the same units as the crs of
+        the points GeoDataFrame and the target Point.
+    drop_cols : bool, default False
+        If True, drop the intermediate columns used to determine time of audibility.
+
+    Returns
+    -------
+    The points GeoDataFrame with added columns:
+    Standard: time_audible
+    Optional: distance_to_target, audible_delay_sec
+    """
+    points['distance_to_target'] = points.geometry.apply(lambda geom: target.distance(geom))
     points['audible_delay_sec'] = points['distance_to_target'] / m1
     points['time_audible'] = points.apply(lambda row: row[time_col] + dt.timedelta(seconds=row.audible_delay_sec), axis=1)
 

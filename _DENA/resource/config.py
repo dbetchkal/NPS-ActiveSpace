@@ -17,7 +17,7 @@ def initialize(config_dir: str, environment: str):
     ----------
     config_dir : str
         The name of the directory where the config file is stored.
-    environment: str
+    environment : str
         The name of the environment of the configuration file to read.
 
     Example

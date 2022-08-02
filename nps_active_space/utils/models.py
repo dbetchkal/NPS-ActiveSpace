@@ -70,7 +70,7 @@ class Microphone:
         if not self.name:
             self.name = f"{self.unit}{self.site}{self.year}"
 
-    def to_crs(self, crs: str, inplace: Optional[bool] = False) -> Optional['Microphone']:
+    def to_crs(self, crs: str, inplace: bool = False) -> Optional['Microphone']:
         """
         Project instance x,y values to a new coordinate system.
 
@@ -201,9 +201,9 @@ class Tracks(gpd.GeoDataFrame):
     -----
     Currently, there is a bug with GeoPandas where running to_crs() will delete the z values of Points as mentioned
     in this post https://stackoverflow.com/questions/72987452/geopands-to-crs-dropping-z-values. Therefore, z values must
-    be kept in a searate standard column until this bug has been resolved.
+    be kept in a separate standard column until this bug has been resolved.
     """
-    def __init__(self, data: gpd.GeoDataFrame, id_col: str, datetime_col: str, z_col: Optional[str]=None):
+    def __init__(self, data: gpd.GeoDataFrame, id_col: str, datetime_col: str, z_col: Optional[str] = None):
         col_renames = {id_col: 'track_id', datetime_col: 'point_dt'}
         if z_col:
             col_renames[z_col] = 'z'

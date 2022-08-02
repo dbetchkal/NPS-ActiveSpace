@@ -1,12 +1,15 @@
 import logging
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import geopandas as gpd
 import pandas as pd
-from sqlalchemy.engine import Engine
 from tqdm import tqdm
 
 from nps_active_space.utils import coords_to_utm, Microphone
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Engine
+
 
 __all__ = [
     'get_deployment',
@@ -51,7 +54,7 @@ def get_deployment(unit: str, site: str, year: int, filename: str) -> Microphone
     return mic
 
 
-def query_tracks(engine: Engine, start_date: str, end_date: str,
+def query_tracks(engine: 'Engine', start_date: str, end_date: str,
                  mask: Optional[gpd.GeoDataFrame] = None) -> gpd.GeoDataFrame:
     """
     Query flight tracks from the FlightsDB for a specific date range and optional within a specific area.
