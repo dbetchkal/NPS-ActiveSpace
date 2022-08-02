@@ -1,10 +1,9 @@
 import datetime as dt
-import math
 import tkinter as tk
 import traceback
 from abc import ABC
 from tkinter import filedialog, messagebox
-from typing import Any, Optional, Type
+from typing import Any, Optional, Type, TYPE_CHECKING
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -14,10 +13,14 @@ from matplotlib.dates import date2num, DateFormatter
 from matplotlib.gridspec import GridSpec
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.widgets import RangeSlider
+from PIL import Image, ImageTk
 from shapely.geometry import Point
 
 from nps_active_space import _ACTIVE_SPACE_DIR
-from nps_active_space.utils import audible_time_delay, interpolate_spline, Microphone, Nvspl, Tracks
+from nps_active_space.utils import audible_time_delay, interpolate_spline
+
+if TYPE_CHECKING:
+    from nps_active_space.utils import Microphone, Nvspl, Tracks
 
 
 _app = None
@@ -31,24 +34,50 @@ def launch(*args, **kwargs):
 
 
 class _AppFrame(ABC, tk.Frame):
-    """Abstract base class for all application frames."""
+    """
+    Abstract base class for all application frames.
 
-    def __init__(self, master):
+    Parameters
+    ----------
+    master : tk.Tk
+        A tkinter app instance that will display the frame.
+    """
+    def __init__(self, master: tk.Tk):
         super().__init__(master)
         self.master = master
 
 
 class _App(tk.Tk):
+    """
+    Main ground truthing application window.
 
-    def __init__(self, outfile: str, tracks: Tracks, nvspl: Nvspl, mic: Microphone, crs,
-                 site_shp: Optional[gpd.GeoDataFrame] = None, clip: Optional[bool] = False):
+    Parameters
+    ----------
+    outfile : str
+        Absolute path to the csv file where annotation should be output. Format: /path/to/file.csv
+    mic : Microphone
+        A Microphone object of the microphone deployment to be used for ground truthing.
+    nvspl : Nvspl
+        An Nvspl object of sound data record at the input microphone locations.
+    tracks : Tracks
+        a Tracks object of points to classify as audible, inaudible, or unknown from the microphone location.
+    crs : str
+        The projected coordinate system to be used for the Tracks, study area, and microphone.
+        Format of 'epsg:XXXX...', E.g. 'epsg:32632'
+    study_area : gpd.GeoDataFrame
+        A gpd.GeoDataFrame of polygon(s) that make up the study area.
+    clip : bool, default False
+        If True, clip the Tracks to the study area.
+    """
+    def __init__(self, outfile: str, mic: 'Microphone', nvspl: 'Nvspl', tracks: 'Tracks',
+                 crs: str, study_area: gpd.GeoDataFrame, clip: bool = False):
         super().__init__()
 
         self.outfile = outfile
         self.crs = crs
         self.mic = mic.to_crs(crs)
-        self.site_shp = site_shp.to_crs(crs)
-        self.tracks = gpd.clip(tracks.to_crs(crs), self.site_shp) if clip else tracks.to_crs(crs)
+        self.study_area = study_area.to_crs(crs)
+        self.tracks = gpd.clip(tracks.to_crs(crs), self.study_area) if clip else tracks.to_crs(crs)
         self.nvspl = nvspl
 
         # Set app features.
@@ -66,7 +95,7 @@ class _App(tk.Tk):
         self.menu.add_cascade(label='File', menu=self.file_menu)
         self.config(menu=self.menu)
 
-        # Create the starting state.
+        # Create the application starting state.
         self.annotations = pd.DataFrame(columns={'_id', 'valid', 'audible', 'starttime', 'endtime'})
         self._saved = True
         self._frame = None
@@ -76,7 +105,17 @@ class _App(tk.Tk):
     def run(self):
         """Run the main application frame."""
         self.protocol("WM_DELETE_WINDOW", self._close)
-        self.switch_frame(_GroundTruthingFrame) # TODO: try accept here with traceback
+        try:
+            self.switch_frame(_GroundTruthingFrame)
+        except Exception:
+            tk.messagebox.showerror(
+                title='Error',
+                message=f"An unexpected error occurred:\n\n{traceback.print_exc()}\n\nAttempting to save an exit.",
+                icon='error',
+                default='no'
+            )
+            self._save()
+            self._close()
 
     def switch_frame(self, frame_class: Type[_AppFrame]):
         """
@@ -94,17 +133,23 @@ class _App(tk.Tk):
         self._frame = new_frame
         self._frame.pack(expand=True, anchor='nw', fill=tk.BOTH)
 
-    def add_annotation(self, id_: Any, valid: bool, audible: bool, starttime: str, endtime: str):
+    def add_annotation(self, id_: Any, valid: bool, audible: bool = False,
+                       starttime: Optional[str] = None, endtime: Optional[str] = None):
         """
-        Add a new annotation.
+        Add a new track audibility annotation.
 
-        Parameters # TODO
+        Parameters
         ----------
-        id_
-        valid: bool
-        audible : bool, default None
-        starttime: str, default None
-        endtime: str, default None
+        id_ : Any
+            The track unique identifier.
+        valid : bool
+            If the track was valid.
+        audible : bool
+            If the track was valid, was it audible.
+        starttime : str, default None
+            If the track was audible, when does audibility start.
+        endtime : str, default None
+            If the track was audible, when does audibility end.
         """
         new_record = pd.DataFrame.from_records([
             {'_id': id_,
@@ -114,13 +159,18 @@ class _App(tk.Tk):
              'endtime': endtime}
         ])
         self.annotations = pd.concat([self.annotations, new_record], ignore_index=True)
-
-    def load_annotations(self, filename):
-        self.annotations = pd.read_csv(filename, usecols=self.annotations.columns)
-        print(self.annotations)
-    
-    def unsave(self):
         self._saved = False
+
+    def load_annotations(self, filename: str):
+        """
+        Simple function to load existing annotations from a csv file.
+
+        Parameters
+        ----------
+        filename : str
+            Absolute path to csv file to load previous annotations from.
+        """
+        self.annotations = pd.read_csv(filename, usecols=self.annotations.columns)
 
     def _close(self):
         """
@@ -146,7 +196,7 @@ class _App(tk.Tk):
         self._saved = True
 
     def _plot(self):
-        # TODO
+        # TODO this function....
 
         # plotting CRS, lat/long looks nicer here...
 
@@ -157,39 +207,47 @@ class _App(tk.Tk):
         #     rasterio.plot.show(raster, ax=ax, alpha=0.6)
 
         # plot study area bounding box
-        study_area = self.site_shp.to_crs('epsg:4326')
+        study_area = self.study_area.to_crs('epsg:4326')
         study_area.geometry.boundary.plot(ax=ax, ls="--", color="navy")
 
-        # # # plot microphone position
-        # ax.plot(site_info["long"], site_info["lat"], ls="", marker="*", ms=6, color="black",
-        #         zorder=3, label="microphone\n" + u + s + str(y))
+        # # plot microphone position
+        ax.plot(
+            self.mic.lon,
+            self.mic.lat,
+            ls="",
+            marker="*",
+            ms=6,
+            color="black",
+            zorder=3,
+            label=self.mic.name
+        )
 
-        # # audible vs inaudible points:
-        # valid_points = valid_points.to_crs(plot_CRS)
-        # valid_points.loc[valid_points.audible].plot(ax=ax, color='deepskyblue', alpha=0.05, markersize=3, zorder=3,
-        #                                             label="Audible points")
-        # valid_points.loc[~valid_points.audible].plot(ax=ax, color='red', alpha=0.05, markersize=3, zorder=2,
-        #                                              label="Inaudible points")
-        #
-        # # create a legend at the bottom center
-        # leg = plt.legend(loc="lower center", bbox_to_anchor=(0.5, -0.25), markerscale=2)
-        # for lh in leg.legendHandles:
-        #     lh.set_alpha(1)  # set legend handles to opaque for visibility
-        #
-        # xmin, ymin, xmax, ymax = study_area.total_bounds
-        # pad = np.array([(xmax - xmin) * 0.1, (ymax - ymin) * 0.1])
-        #
-        # # this will result in a square map
-        # ax.set(xlim=(xmin - pad[0], xmax + pad[0]), ylim=(ymin - pad[1], ymax + pad[1]))
-        # ax.set_title("Annotated audible overflights segments")
-        # ax.tick_params(axis='both', labelsize=6)
-        #
-        # plt.show()
+        # audible vs inaudible points:
+        valid_points = self.annotations[self.annotations.valid == True].copy().to_crs('epsg:4326')
+        valid_points.loc[valid_points.audible].plot(ax=ax, color='deepskyblue', alpha=0.05, markersize=3, zorder=3,
+                                                    label="Audible points")
+        valid_points.loc[~valid_points.audible].plot(ax=ax, color='red', alpha=0.05, markersize=3, zorder=2,
+                                                     label="Inaudible points")
+
+        # create a legend at the bottom center
+        leg = plt.legend(loc="lower center", bbox_to_anchor=(0.5, -0.25), markerscale=2)
+        for lh in leg.legendHandles:
+            lh.set_alpha(1)  # set legend handles to opaque for visibility
+
+        xmin, ymin, xmax, ymax = study_area.total_bounds
+        pad = np.array([(xmax - xmin) * 0.1, (ymax - ymin) * 0.1])
+
+        # this will result in a square map
+        ax.set(xlim=(xmin - pad[0], xmax + pad[0]), ylim=(ymin - pad[1], ymax + pad[1]))
+        ax.set_title("Annotated audible overflights segments")
+        ax.tick_params(axis='both', labelsize=6)
+
+        plt.show()
 
 
 class _WelcomeFrame(_AppFrame):
     """
-    The opening frame for the Ground Truthing application welcome the user.
+    The opening frame for the Ground Truthing application that welcomes the user.
 
     Parameters
     ----------
@@ -214,11 +272,14 @@ class _WelcomeFrame(_AppFrame):
             bg='ivory2',
             command=lambda: self.master.switch_frame(_AnnotationLoadFrame)
         )
-
-        # TODO: logo??
+        im = Image.open(f"{_ACTIVE_SPACE_DIR}/img/flat-four-color.png").resize((138, 181))
+        nps_logo = ImageTk.PhotoImage(im)
+        label = tk.Label(self, image=nps_logo, bg='ivory2')
+        label.image = nps_logo  # NOTE: This re-definition is required for windows machines.
 
         # Place widgets.
-        frame_label.place(relx=0.5, rely=0.45, anchor='center')
+        label.place(relx=0.5, rely=0.3, anchor='center')
+        frame_label.place(relx=0.5, rely=0.55, anchor='center')
         continue_button.place(relx=0.9, rely=0.9, anchor='center')
 
 
@@ -297,12 +358,14 @@ class _AnnotationLoadFrame(_AppFrame):
         self.continue_button.place(relx=0.9, rely=0.9, anchor='center')
 
     def _clear(self):
+        """Remove the Select File and related widgets if No option is selected."""
         self.select_file_button.place_forget()
         self.select_file_label.place_forget()
         self.select_file_label.config(text='')
         self.annotation_filename.set('')
 
     def _select_file(self):
+        """Open File Dialog and save the selected file."""
         filetypes = (('csv files', '*.csv'),)
         filename = filedialog.askopenfilename(
             title='Open file',
@@ -315,16 +378,10 @@ class _AnnotationLoadFrame(_AppFrame):
             self.select_file_label.place(relx=0.66, rely=0.48, anchor='w')
 
     def _option_selected(self):
-        """
-        Determine what app frame should be shown next depending on if the user would like saved annotations to
-        be loaded or not.
-        """
-        if self.load_annotations.get() is False:
-            self.master.switch_frame(_InstructionsFrame)
-
-        elif self.load_annotations.get() is True and self.annotation_filename.get():
+        """If user wants to load existing annotations, load them before proceeding to the app instructions frame."""
+        if self.load_annotations.get() is True and self.annotation_filename.get():
             self.master.load_annotations(self.annotation_filename.get())
-            self.master.switch_frame(_InstructionsFrame)
+        self.master.switch_frame(_InstructionsFrame)
 
 
 class _InstructionsFrame(_AppFrame):
@@ -399,15 +456,28 @@ class _CompletionFrame(_AppFrame):
 
 
 class _GroundTruthingFrame(_AppFrame):
+    """
+    Main application frame that allows the users to mark the audibility of each track.
 
+    Parameters
+    ----------
+        master : tk.Tk
+            The tkinter window this frame will be shown in.
+    """
     def __init__(self, master):
         super().__init__(master)
 
+        # Set frame variables to starting values.
         self.data = iter(self.master.tracks.groupby(by='track_id'))
         self.canvas = None
         self.i = 1
 
         # Define widgets.
+        self.track_label = tk.Label(
+            self,
+            bg='ivory2',
+            font=('Avenir', 10, 'bold')
+        )
         self.audible_button = tk.Button(
             self,
             text='Audible >>',
@@ -443,38 +513,85 @@ class _GroundTruthingFrame(_AppFrame):
         self.grid_rowconfigure(0, weight=2)
         self.grid_rowconfigure(1, weight=1)
         self.grid_rowconfigure(2, weight=2)
+        self.track_label.grid(row=0, column=1, pady=20)
         self.audible_button.grid(row=1, column=1, sticky='n')
         self.inaudible_button.grid(row=1, column=1)
         self.unknown_button.grid(row=1, column=1, sticky='s')
         self.progress_label.grid(row=0, column=1, sticky='ne', padx=10, pady=5)
 
-        self.next()
+        self._next()
 
-    def next(self):
+    def _next(self):
+        """Grab the next set of track points."""
 
         try:
             idx, points = next(self.data)
         except StopIteration:
             self.master.switch_frames(_CompletionFrame)
 
-        if points.shape[0] >= 3:
-            pass
-            # TODO
+        if points.shape[0] < 3:
+            tk.messagebox.showwarning(
+                title='Data Warning',
+                message=f"Track {idx} has fewer than 3 points and therefore cannot be processed. Skipping...",
+                icon='warning'
+            )
 
         # TODO: Load prior annotation
         self._build_plot(idx, points)
         self.i += 1
 
-    def _build_plot(self, idx, points):
+    def _build_plot(self, idx: Any, points: 'Tracks'):
+        """
+
+        Parameters
+        ----------
+        idx :
+        points :
+        """
+
+        def _slider_update(val):
+
+            # The val passed to a callback by the RangeSlider will
+            # be a tuple of (min, max)
+
+            # read the slider values
+            lower_t = start_time + dt.timedelta(seconds=int(slider.val[0]))
+            upper_t = start_time + dt.timedelta(seconds=int(slider.val[1]))
+            lower_date = date2num(lower_t)
+            upper_date = date2num(upper_t)
+
+            # update the vertical lines on the spectrogram
+            lower_limit_line.set_xdata([lower_date, lower_date])
+            upper_limit_line.set_xdata([upper_date, upper_date])
+
+            subset = xy_UTM.loc[np.all([spline.time_audible >= lower_t,
+                                        spline.time_audible <= upper_t],
+                                       axis=0)]  # subset of entire flight spline
+            highlight.set_data(subset.minx, subset.miny)
+
+            self.audible_button.config(command=lambda: self._click(idx, True, True, lower_t, upper_t))
+
+            # Redraw the figure to ensure it updates
+            fig.canvas.draw_idle()
 
         points.sort_values(by='point_dt', ascending=True, inplace=True)
         start_time = points.point_dt.iat[0]
         end_time = points.point_dt.iat[-1]
         duration_s = (end_time - start_time).total_seconds()
+        spectrogram = self.master.nvspl.loc[str(start_time):str(end_time), '12.5':'20000']  # Time slice of NVSPL record
+
+        # If no spectrogram exists, warn the user and move to the next track.
+        if spectrogram.empty:
+            tk.messagebox.showwarning(
+                title='Data Warning',
+                message=f"Track {idx} has no accompanying spectrogram. Skipping...",
+                icon='warning'
+            )
+            self._next()
 
         spline = interpolate_spline(points)
         spline = audible_time_delay(spline, 'point_dt', Point(self.master.mic.x, self.master.mic.y, self.master.mic.z))
-        closest_time = spline.loc[spline.distance_to_target.idxmin()]['point_dt']
+        closest_time = spline.loc[spline.distance_to_target.idxmin()]['time_audible']
 
         fig = plt.figure(constrained_layout=True)
         spec = GridSpec(ncols=1, nrows=10, figure=fig)
@@ -483,125 +600,155 @@ class _GroundTruthingFrame(_AppFrame):
         ax3 = fig.add_subplot(spec[9, 0])
 
         # ---- Plot Track ---- #
-        # we could plot with geopandas, but using pyplot will allow for a dynamic plot that reacts to the range slider input
-        # that is, xy_UTM is a copy of the flight_spline geometry for plotting ONLY
-        xy_UTM = spline.geometry.bounds.iloc[:, 0:2]
-        xy_UTM['time_audible'] = spline['time_audible']  # when we can actually HEAR the noise, mic time
 
-        #`highlight` is a dynamic line object that will update with the range slider
+        # Display the study area, track points, and microphone
+        self.master.study_area.geometry.boundary.plot(
+            label='study area',
+            ax=ax1,
+            ls="--",
+            lw=0.5,
+            color="blue"
+        )
+        points.plot(
+            label='track point',
+            ax=ax1,
+            color="blue",
+            zorder=1,
+            markersize=3,
+        )
+        ax1.plot(
+            self.master.mic.x,
+            self.master.mic.y,
+            label='microphone',
+            ls="",
+            marker="x",
+            ms=5,
+            color="red",
+            zorder=10
+        )
+
+        # Using pyplot will allow for a dynamic line plot that reacts to the range slider input.
+        xy_UTM = spline.geometry.bounds.iloc[:, 0:2]
+        xy_UTM['time_audible'] = spline['time_audible']
         highlight, = ax1.plot(xy_UTM.minx, xy_UTM.miny, lw=5, color='deepskyblue', ls='-', zorder=1, alpha=0.4)
 
-        self.master.site_shp.geometry.boundary.plot(ax=ax1, ls="--", lw=0.5, color="blue", label='study area')
-        points.plot(ax=ax1, color="blue", zorder=1, markersize=3, label='track point')
-        ax1.plot(self.master.mic.x, self.master.mic.y, ls="", marker="x", ms=5, color="red",
-                 zorder=10, label='microphone')
-        # TODO: rasterio.plot.show(raster, ax=ax[0], alpha=0.6)  # show basemap? - makes annotating much slower
-
-        # glean the spatial extent of the points
-        xmin, ymin, xmax, ymax = self.master.site_shp.total_bounds
-
-        # this will result in a square map
+        # Glean the spatial extent of the points. This will result in a square map.
+        xmin, ymin, xmax, ymax = self.master.study_area.total_bounds
         ax1.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
         ax1.set_aspect((xmax - xmin) / (ymax - ymin))
         ax1.tick_params(axis='both', labelsize=6)
         ax1.ticklabel_format(style='plain')  # disable scientific notation
+
+        # Add a legend for readability.
         ax1.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
         # ---- Plot Slider ---- #
 
-        slider = RangeSlider(ax3, "Audible Window [flight duration, s]", 0, duration_s)
-        # slider.set_val([-60, 60] + (closest_time - start_time).total_seconds())
-        self._slider_update(None)  # update highlight
-        slider.on_changed(self._slider_update)
+        slider = RangeSlider(
+            ax3,
+            label="Audible Window [flight duration, s]",
+            valmin=0,
+            valmax=duration_s
+        )
+
+        buffer = (closest_time - start_time).total_seconds()
+        slider.set_val([-60 + buffer, 60 + buffer])
 
         # ---- Plot Spectrogram ---- #
 
-        # TODO: make sure spectrogram exists
-        spectrogram = self.master.nvspl.loc[str(start_time):str(end_time), '12.5':'20000']  # Time slice of NVSPL record
         x_lims = date2num(spectrogram.index)  # convert the NVSPL's nice datetime axis to numbers
         aspect = (x_lims[-1] - x_lims[0]) / (8 * 33)
 
-        ax2.imshow(spectrogram.T, origin="lower", aspect=aspect, cmap="plasma",
-                   extent=[x_lims[0], x_lims[-1], 0, spectrogram.shape[1]],
-                   interpolation=None, vmin=-10, vmax=80)
+        ax2.imshow(
+            spectrogram.T,
+            origin="lower",
+            aspect=aspect,
+            cmap="plasma",
+            extent=[x_lims[0], x_lims[-1], 0, spectrogram.shape[1]],
+            interpolation=None,
+            vmin=-10,
+            vmax=80
+        )
 
-        # add in the time of closest approach in red
-        ax2.axvline(date2num(closest_time), alpha=0.7, color="red", zorder=2, linewidth=3)
+        # add in the time of closest approach in red.
+        ax2.axvline(
+            date2num(closest_time),
+            alpha=0.7,
+            color="red",
+            zorder=2,
+            linewidth=3
+        )
 
         # Create the moving vertical lines on the histogram with axvline()
-        lower_limit_line = ax2.axvline(date2num(start_time + dt.timedelta(seconds=slider.val[0])),
-                                         ls="--", alpha=0.7, color="white", zorder=2, linewidth=1)
-        upper_limit_line = ax2.axvline(date2num(start_time + dt.timedelta(seconds=slider.val[1])),
-                                         ls="--", alpha=0.7, color="white", zorder=2, linewidth=1)
+        lower_limit_line = ax2.axvline(
+            date2num(start_time + dt.timedelta(seconds=int(slider.val[0]))),
+            ls="--",
+            alpha=0.7,
+            color="white",
+            zorder=2,
+            linewidth=1
+        )
+        upper_limit_line = ax2.axvline(
+            date2num(start_time + dt.timedelta(seconds=int(slider.val[1]))),
+            ls="--",
+            alpha=0.7,
+            color="white",
+            zorder=2,
+            linewidth=1
+        )
 
         ax2.set_yticks(np.arange(spectrogram.shape[1])[::6])
         ax2.set_yticklabels(spectrogram.columns.astype('float')[::6])
         ax2.set_ylabel("Freq. (Hz)", labelpad=15)
-
-        # tell matplotlib that the numeric axis should be formatted as dates
-        ax2.xaxis_date()
+        ax2.xaxis_date()  # tell matplotlib that the numeric axis should be formatted as dates
         ax2.xaxis.set_major_formatter(DateFormatter("%b-%d\n%H:%M"))  # tidy them!
 
         # ---- Show Plot ---- #
-        # TODO: add times
-        self.audible_button.config(command=lambda: self._click(idx, True, True), state=tk.NORMAL)
-        self.inaudible_button.config(command=lambda: self._click(idx, True, False),  state=tk.NORMAL)
-        self.unknown_button.config(command=lambda: self._click(idx, False),  state=tk.NORMAL)
-        self.progress_label.config(text=f"{self.i}/{self.master.tracks.track_id.nunique()}") # todo: wrong?
+
+        self.track_label.config(text=f"Microphone: {self.master.mic.name}\nTrack Id: {idx}")
+        self.inaudible_button.config(command=lambda: self._click(idx, True, False))
+        self.unknown_button.config(command=lambda: self._click(idx, False, False))
+        self.progress_label.config(text=f"{self.i}/{self.master.tracks.track_id.nunique()}")
+
+        _slider_update(None)
+        slider.on_changed(_slider_update)
 
         self.canvas = FigureCanvasTkAgg(fig, master=self)
         self.canvas.draw()
         self.canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=3)
 
     def _click(self, id_: Any, valid: bool, audible: Optional[bool] = None,
-              starttime: Optional[str] = None, endtime: Optional[bool] = None):
+               starttime: Optional[str] = None, endtime: Optional[bool] = None):
+        """
+        Save an annotation depending on what button what audibility button was clicked and clear
+        the frame to be able to show the next plot.
 
-        # Disable buttons
-        self.audible_button.config(state=tk.DISABLED)
-        self.inaudible_button.config(state=tk.DISABLED)
-        self.unknown_button.config(state=tk.DISABLED)
-
-        # Record the new annotation and set the window as unsaved.
+        Parameters
+        ----------
+        id_ : Any
+            The track unique identifier.
+        valid : bool
+            If the track was valid.
+        audible : bool
+            If the track was valid, was it audible.
+        starttime : str, default None
+            If the track was audible, when does audibility start.
+        endtime : str, default None
+            If the track was audible, when does audibility end.
+        """
         self.master.add_annotation(id_, valid, audible, starttime, endtime)
-        self.master.unsave()
 
         # Close the plot and canvas to clear the window for the next one.
         plt.close()
         if self.canvas:
             self.canvas.get_tk_widget().destroy()
 
-        self.next()
+        self._next()
 
-    @staticmethod
-    def _slider_update(val):
-        pass
+# TODO:
+# speed up slider
+# plots
+# what to do when annotations are loaded...
 
-        # # The val passed to a callback by the RangeSlider will
-        # # be a tuple of (min, max)
-        #
-        # # read the slider values
-        # lower_t = start + dt.timedelta(seconds=slider.val[0])
-        # upper_t = start + dt.timedelta(seconds=slider.val[1])
-        # lower_date = date2num(lower_t)
-        # upper_date = date2num(upper_t)
-        #
-        # # update the vertical lines on the spectrogram
-        # lower_limit_line.set_xdata([lower_date, lower_date])
-        # upper_limit_line.set_xdata([upper_date, upper_date])
-        #
-        # subset = xy_UTM.loc[np.all([flight_spline.time_audible >= lower_t,
-        #                             flight_spline.time_audible <= upper_t],
-        #                            axis=0)]  # subset of entire flight spline
-        # highlight.set_data(subset.minx, subset.miny)
-        #
-        # # Redraw the figure to ensure it updates
-        # fig.canvas.draw_idle()
-        #
-        #
-        # slider_update(None)  # update highlight
-        # slider.on_changed(slider_update)
-        #
-        # # add radio buttons (selection) too:
-        # ax_buttons = plt.axes([0.125, 0.02, 0.1, 0.18])
-        # radio_buttons = RadioButtons(ax_buttons, ['Audible', 'Inaudible', 'Unknown', 'Exit'], active=None)
-
+# requirements/set/toml thingy...
+# READ ME

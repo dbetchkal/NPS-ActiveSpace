@@ -18,13 +18,13 @@ if __name__ == '__main__':
     argparse = ArgumentParser()
 
     argparse.add_argument('-e', '--environment', required=True,
-                          help="")
+                          help="The configuration environment to run the script in.")
     argparse.add_argument('-u', '--unit', required=True,
                           help="Four letter unit code. E.g. DENA")
     argparse.add_argument('-s', '--site', required=True,
                           help="Four letter site code. E.g. TRLA")
     argparse.add_argument('-y', '--year', type=int, required=True,
-                          help="")
+                          help="Four digit year. E.g. 2018")
     argparse.add_argument('-o', '--outfile', required=False,
                           help='A specific file to output annotations to.')
 
