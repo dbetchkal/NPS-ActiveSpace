@@ -1,4 +1,4 @@
-# Ground Truthing
+# _DENA
 
 ## About
 
@@ -23,12 +23,12 @@ Then, run the following commands:
 
 ```bash
 $ python -m pip install --upgrade pip
-$ pip install --find-links==</path/to/binaries> -e .[ground-truthing]
+$ pip install --find-links==</path/to/binaries> -r requirements.txt
 ```
 
 **For all other users:**
 
 ```bash
 $ python -m pip install --upgrade pip
-$ pip install -e .[ground-truthing]
+$ pip install -r requirements.txt
 ```

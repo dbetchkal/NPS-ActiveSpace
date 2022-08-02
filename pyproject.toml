@@ -1,16 +1,46 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "NPS-ActiveSpace"
 version = "2.0"
 description = "An NPS Sound Active Space Project."
-authors = ["Kirby Heck", "Adina Zucker", "Davyd Betchkal"]
-maintainers = ["Davyd Betchkal <davyd_betchkal@nps.gov>"]
-readme = "README.md"
-repository = "https://github.com/dbetchkal/NPS-ActiveSpace"
-requires-python =  ">=3.7"
+requires-python = ">=3.7"
+authors = [
+    {name="Kirby Heck"},
+    {name="Adina Zucker"},
+    {name="Davyd Betchkal"}
+]
+maintainers = [
+    {name="Davyd Betchkal", email="davyd_betchkal@nps.gov"}
+]
 
 [project.urls]
-homepage = "https://github.com/dbetchkal/NPS-ActiveSpace"
+repository = "https://github.com/dbetchkal/NPS-ActiveSpace"
 
-[build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+[project.optional-dependencies]
+ground-truthing = [
+    "Fiona==1.8.21",
+    "GDAL==3.4.2",
+    "geopandas==0.10.2",
+    "matplotlib==3.5.2",
+    "numpy==1.21.6",
+    "pandas==1.1.5",
+    "Pillow==9.1.1",
+    "pyproj==3.2.1",
+    "scipy==1.7.3",
+    "Shapely==1.8.2",
+    "tqdm==4.64.0"
+]
+utils = [
+    "Fiona==1.8.21",
+    "GDAL==3.4.2",
+    "geopandas==0.10.2",
+    "numpy==1.21.6",
+    "pandas==1.1.5",
+    "pyproj==3.2.1",
+    "scipy==1.7.3",
+    "Shapely==1.8.2",
+    "tqdm==4.64.0"
+]
