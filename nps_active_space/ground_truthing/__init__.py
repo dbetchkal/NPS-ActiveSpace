@@ -3,13 +3,13 @@ import tkinter as tk
 import traceback
 from abc import ABC
 from tkinter import filedialog, messagebox
-from typing import Any, Optional, Type, TYPE_CHECKING
+from typing import Any, List, Optional, Type, TYPE_CHECKING
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.dates import date2num, DateFormatter
+from matplotlib.dates import date2num, DateFormatter, num2date
 from matplotlib.gridspec import GridSpec
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.widgets import RangeSlider
@@ -542,34 +542,41 @@ class _GroundTruthingFrame(_AppFrame):
 
     def _build_plot(self, idx: Any, points: 'Tracks'):
         """
+        Build the matplotlib GridSpec plot for a track.
 
         Parameters
         ----------
-        idx :
-        points :
+        idx : Any
+            The track id.
+        points : Track
+            The subset of Track points for the track id.
         """
+        def _slider_update(val: List):
+            """
+            Update spline highlight and spectrogram lines based on slider values.
 
-        def _slider_update(val):
+            Parameters
+            ----------
+            val : List
+                A two item list with the [min, max] values of the range slider.
+            """
+            lower_t = val[0]
+            upper_t = val[1]
 
-            # The val passed to a callback by the RangeSlider will
-            # be a tuple of (min, max)
+            # Update the vertical lines on the spectrogram
+            lower_limit_line.set_xdata([lower_t, lower_t])
+            upper_limit_line.set_xdata([upper_t, upper_t])
 
-            # read the slider values
-            lower_t = start_time + dt.timedelta(seconds=int(slider.val[0]))
-            upper_t = start_time + dt.timedelta(seconds=int(slider.val[1]))
-            lower_date = date2num(lower_t)
-            upper_date = date2num(upper_t)
+            # Highlight the section of the track that falls within the date window
+            #
+            # NOTE: .replace(tzinfo) is required to prevent errors from comparing tz-naive again tz-aware datetimes
+            subset = spline.loc[np.all([spline.time_audible >= num2date(lower_t).replace(tzinfo=None),
+                                        spline.time_audible <= num2date(upper_t).replace(tzinfo=None)],
+                                       axis=0)]
+            highlight.set_data(subset.geometry.x, subset.geometry.y)
 
-            # update the vertical lines on the spectrogram
-            lower_limit_line.set_xdata([lower_date, lower_date])
-            upper_limit_line.set_xdata([upper_date, upper_date])
-
-            subset = xy_UTM.loc[np.all([spline.time_audible >= lower_t,
-                                        spline.time_audible <= upper_t],
-                                       axis=0)]  # subset of entire flight spline
-            highlight.set_data(subset.minx, subset.miny)
-
-            self.audible_button.config(command=lambda: self._click(idx, True, True, lower_t, upper_t))
+            # todo: CHECK THIS, valid point spline?
+            self.audible_button.config(command=lambda: self._click(idx, True, True,  num2date(lower_t),  num2date(upper_t)))
 
             # Redraw the figure to ensure it updates
             fig.canvas.draw_idle()
@@ -577,11 +584,10 @@ class _GroundTruthingFrame(_AppFrame):
         points.sort_values(by='point_dt', ascending=True, inplace=True)
         start_time = points.point_dt.iat[0]
         end_time = points.point_dt.iat[-1]
-        duration_s = (end_time - start_time).total_seconds()
         spectrogram = self.master.nvspl.loc[str(start_time):str(end_time), '12.5':'20000']  # Time slice of NVSPL record
 
         # If no spectrogram exists, warn the user and move to the next track.
-        if spectrogram.empty:
+        if spectrogram.empty:   # TODO: what about if it doesnt have the whole thing...
             tk.messagebox.showwarning(
                 title='Data Warning',
                 message=f"Track {idx} has no accompanying spectrogram. Skipping...",
@@ -626,11 +632,15 @@ class _GroundTruthingFrame(_AppFrame):
             color="red",
             zorder=10
         )
-
-        # Using pyplot will allow for a dynamic line plot that reacts to the range slider input.
-        xy_UTM = spline.geometry.bounds.iloc[:, 0:2]
-        xy_UTM['time_audible'] = spline['time_audible']
-        highlight, = ax1.plot(xy_UTM.minx, xy_UTM.miny, lw=5, color='deepskyblue', ls='-', zorder=1, alpha=0.4)
+        highlight, = ax1.plot(
+            spline.geometry.x,
+            spline.geometry.y,
+            lw=5,
+            color='deepskyblue',
+            ls='-',
+            zorder=1,
+            alpha=0.4
+        )
 
         # Glean the spatial extent of the points. This will result in a square map.
         xmin, ymin, xmax, ymax = self.master.study_area.total_bounds
@@ -642,27 +652,14 @@ class _GroundTruthingFrame(_AppFrame):
         # Add a legend for readability.
         ax1.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
-        # ---- Plot Slider ---- #
-
-        slider = RangeSlider(
-            ax3,
-            label="Audible Window [flight duration, s]",
-            valmin=0,
-            valmax=duration_s
-        )
-
-        buffer = (closest_time - start_time).total_seconds()
-        slider.set_val([-60 + buffer, 60 + buffer])
-
         # ---- Plot Spectrogram ---- #
 
         x_lims = date2num(spectrogram.index)  # convert the NVSPL's nice datetime axis to numbers
-        aspect = (x_lims[-1] - x_lims[0]) / (8 * 33)
 
         ax2.imshow(
             spectrogram.T,
             origin="lower",
-            aspect=aspect,
+            aspect=(x_lims[-1] - x_lims[0]) / (8 * 33),
             cmap="plasma",
             extent=[x_lims[0], x_lims[-1], 0, spectrogram.shape[1]],
             interpolation=None,
@@ -681,15 +678,15 @@ class _GroundTruthingFrame(_AppFrame):
 
         # Create the moving vertical lines on the histogram with axvline()
         lower_limit_line = ax2.axvline(
-            date2num(start_time + dt.timedelta(seconds=int(slider.val[0]))),
+            date2num(closest_time - dt.timedelta(seconds=60)),
             ls="--",
             alpha=0.7,
             color="white",
             zorder=2,
-            linewidth=1
+            linewidth=1,
         )
         upper_limit_line = ax2.axvline(
-            date2num(start_time + dt.timedelta(seconds=int(slider.val[1]))),
+            date2num(closest_time + dt.timedelta(seconds=60)),
             ls="--",
             alpha=0.7,
             color="white",
@@ -703,15 +700,28 @@ class _GroundTruthingFrame(_AppFrame):
         ax2.xaxis_date()  # tell matplotlib that the numeric axis should be formatted as dates
         ax2.xaxis.set_major_formatter(DateFormatter("%b-%d\n%H:%M"))  # tidy them!
 
+        # ---- Plot Slider ---- #
+
+        slider = RangeSlider(
+            ax3,
+            label="Audible Window",
+            valmin=x_lims[0],
+            valmax=x_lims[-1],
+        )
+
+        slider_staring_vals = [date2num(closest_time - dt.timedelta(seconds=60)),
+                               date2num(closest_time + dt.timedelta(seconds=60))]
+        slider.set_val(slider_staring_vals)
+        slider.valtext.set_visible(False)  # Turn off range slider value label.
+        _slider_update(slider_staring_vals)
+        slider.on_changed(_slider_update)
+
         # ---- Show Plot ---- #
 
         self.track_label.config(text=f"Microphone: {self.master.mic.name}\nTrack Id: {idx}")
         self.inaudible_button.config(command=lambda: self._click(idx, True, False))
         self.unknown_button.config(command=lambda: self._click(idx, False, False))
         self.progress_label.config(text=f"{self.i}/{self.master.tracks.track_id.nunique()}")
-
-        _slider_update(None)
-        slider.on_changed(_slider_update)
 
         self.canvas = FigureCanvasTkAgg(fig, master=self)
         self.canvas.draw()
@@ -749,6 +759,4 @@ class _GroundTruthingFrame(_AppFrame):
 # speed up slider
 # plots
 # what to do when annotations are loaded...
-
-# requirements/set/toml thingy...
-# READ ME
+# make sure slider bar s odnt get crossed
