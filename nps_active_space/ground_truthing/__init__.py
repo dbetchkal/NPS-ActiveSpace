@@ -107,7 +107,7 @@ class _App(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self._close)
         try:
             self.switch_frame(_GroundTruthingFrame)
-        except Exception:
+        except Exception:   # TODO: not working....
             tk.messagebox.showerror(
                 title='Error',
                 message=f"An unexpected error occurred:\n\n{traceback.print_exc()}\n\nAttempting to save an exit.",
@@ -423,12 +423,21 @@ class _InstructionsFrame(_AppFrame):
             bg='ivory2',
             command=lambda: self.master.run()
         )
+        back_button = tk.Button(
+            self,
+            text='<< Back',
+            font=('Avenir', 8),
+            width=20,
+            bg='ivory2',
+            command=lambda: self.master.switch_frame(_AnnotationLoadFrame)
+        )
 
         # Place widgets.
         frame_label.place(relx=0.5, rely=0.35, anchor='center')
         instructions.place(relx=0.5, rely=0.45, anchor='center')
         save_reminder.place(relx=0.5, rely=0.5, anchor='center')
         start_button.place(relx=0.9, rely=0.9, anchor='center')
+        back_button.place(relx=0.1, rely=0.9, anchor='center')
 
 
 class _CompletionFrame(_AppFrame):
@@ -470,7 +479,7 @@ class _GroundTruthingFrame(_AppFrame):
         # Set frame variables to starting values.
         self.data = iter(self.master.tracks.groupby(by='track_id'))
         self.canvas = None
-        self.i = 1
+        self.i = 0
 
         # Define widgets.
         self.track_label = tk.Label(
@@ -522,25 +531,49 @@ class _GroundTruthingFrame(_AppFrame):
         self._next()
 
     def _next(self):
-        """Grab the next set of track points."""
+        """
+        Get the next track ready for plotting.
 
+
+        Notes
+        -----
+        There is a bit of weird recursion logic here. In order to only show one plot at a time, we need to use the
+        next() method instead of for _ in iter() to loop through the track data. But, to go to the next track we
+        need to call self._next() from itself. To eliminate unwanted effects from this necessary recursion, the
+        if/elif/else statements are required.
+        """
         try:
             idx, points = next(self.data)
+            self.i += 1
+            start_time = points.point_dt.iat[0]
+            end_time = points.point_dt.iat[-1]
+            spectrogram = self.master.nvspl.loc[str(start_time):str(end_time), '12.5':'20000']
+
+            if idx in self.master.annotations._id.values:  # Track already annotated
+                self._next()
+
+            elif points.shape[0] < 3:  # Not enough points for processing
+                tk.messagebox.showwarning(
+                    title='Data Warning',
+                    message=f"Track {idx} has fewer than 3 points and therefore cannot be processed. Skipping...",
+                    icon='warning'
+                )
+                self._click(idx, False, False)
+
+            elif spectrogram.empty:  # Spectrogram data must exist. # TODO: something might be wrong here...
+                tk.messagebox.showwarning(
+                    title='Data Warning',
+                    message=f"Track {idx} has no accompanying spectrogram. Skipping...",
+                    icon='warning'
+                )
+                self._click(idx, False, False)
+            else:
+                self._build_plot(idx, points, spectrogram)
+
         except StopIteration:
-            self.master.switch_frames(_CompletionFrame)
+            self.master.switch_frame(_CompletionFrame)
 
-        if points.shape[0] < 3:
-            tk.messagebox.showwarning(
-                title='Data Warning',
-                message=f"Track {idx} has fewer than 3 points and therefore cannot be processed. Skipping...",
-                icon='warning'
-            )
-
-        # TODO: Load prior annotation
-        self._build_plot(idx, points)
-        self.i += 1
-
-    def _build_plot(self, idx: Any, points: 'Tracks'):
+    def _build_plot(self, idx: Any, points: 'Tracks', spectrogram: 'Nvspl'):
         """
         Build the matplotlib GridSpec plot for a track.
 
@@ -550,6 +583,8 @@ class _GroundTruthingFrame(_AppFrame):
             The track id.
         points : Track
             The subset of Track points for the track id.
+        spectrogram : Nvspl
+            Nvspl data that aligns with the track points times.
         """
         def _slider_update(val: List):
             """
@@ -582,22 +617,12 @@ class _GroundTruthingFrame(_AppFrame):
             fig.canvas.draw_idle()
 
         points.sort_values(by='point_dt', ascending=True, inplace=True)
-        start_time = points.point_dt.iat[0]
-        end_time = points.point_dt.iat[-1]
-        spectrogram = self.master.nvspl.loc[str(start_time):str(end_time), '12.5':'20000']  # Time slice of NVSPL record
-
-        # If no spectrogram exists, warn the user and move to the next track.
-        if spectrogram.empty:   # TODO: what about if it doesnt have the whole thing...
-            tk.messagebox.showwarning(
-                title='Data Warning',
-                message=f"Track {idx} has no accompanying spectrogram. Skipping...",
-                icon='warning'
-            )
-            self._next()
 
         spline = interpolate_spline(points)
         spline = audible_time_delay(spline, 'point_dt', Point(self.master.mic.x, self.master.mic.y, self.master.mic.z))
         closest_time = spline.loc[spline.distance_to_target.idxmin()]['time_audible']
+
+        ###################################### Build Plot #################################
 
         fig = plt.figure(constrained_layout=True)
         spec = GridSpec(ncols=1, nrows=10, figure=fig)
@@ -605,7 +630,7 @@ class _GroundTruthingFrame(_AppFrame):
         ax2 = fig.add_subplot(spec[6:9, 0])
         ax3 = fig.add_subplot(spec[9, 0])
 
-        # ---- Plot Track ---- #
+        # --------------------------------- Plot Track --------------------------------- #
 
         # Display the study area, track points, and microphone
         self.master.study_area.geometry.boundary.plot(
@@ -652,7 +677,7 @@ class _GroundTruthingFrame(_AppFrame):
         # Add a legend for readability.
         ax1.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
-        # ---- Plot Spectrogram ---- #
+        # --------------------------------- Plot Spectrogram --------------------------------- #
 
         x_lims = date2num(spectrogram.index)  # convert the NVSPL's nice datetime axis to numbers
 
@@ -673,7 +698,8 @@ class _GroundTruthingFrame(_AppFrame):
             alpha=0.7,
             color="red",
             zorder=2,
-            linewidth=3
+            linewidth=3,
+            label='closest track point'
         )
 
         # Create the moving vertical lines on the histogram with axvline()
@@ -693,14 +719,14 @@ class _GroundTruthingFrame(_AppFrame):
             zorder=2,
             linewidth=1
         )
-
+        ax2.legend(bbox_to_anchor=(0.25, 1.4))
         ax2.set_yticks(np.arange(spectrogram.shape[1])[::6])
         ax2.set_yticklabels(spectrogram.columns.astype('float')[::6])
         ax2.set_ylabel("Freq. (Hz)", labelpad=15)
         ax2.xaxis_date()  # tell matplotlib that the numeric axis should be formatted as dates
         ax2.xaxis.set_major_formatter(DateFormatter("%b-%d\n%H:%M"))  # tidy them!
 
-        # ---- Plot Slider ---- #
+        # --------------------------------- Plot Slider --------------------------------- #
 
         slider = RangeSlider(
             ax3,
@@ -716,7 +742,7 @@ class _GroundTruthingFrame(_AppFrame):
         _slider_update(slider_staring_vals)
         slider.on_changed(_slider_update)
 
-        # ---- Show Plot ---- #
+        # --------------------------------- Show Plot --------------------------------- #
 
         self.track_label.config(text=f"Microphone: {self.master.mic.name}\nTrack Id: {idx}")
         self.inaudible_button.config(command=lambda: self._click(idx, True, False))
@@ -760,3 +786,11 @@ class _GroundTruthingFrame(_AppFrame):
 # plots
 # what to do when annotations are loaded...
 # make sure slider bar s odnt get crossed
+
+# 4016 - The maximal number of iterations (20) allowed for finding smoothing
+# spline with fp=s has been reached. Probable cause: s too small.
+# (abs(fp-s)/s>0.001)
+#   warnings.warn(RuntimeWarning(_iermess[ier][0]))
+
+# no spectrogram
+# 4025 - 4041
