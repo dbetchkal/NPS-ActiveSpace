@@ -19,6 +19,9 @@ maintainers = [
 [project.urls]
 repository = "https://github.com/dbetchkal/NPS-ActiveSpace"
 
+[tool.setuptools]
+py-modules = ['nps_active_space']
+
 [project.optional-dependencies]
 ground-truthing = [
     "Fiona==1.8.21",

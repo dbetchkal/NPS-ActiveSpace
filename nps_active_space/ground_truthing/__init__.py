@@ -105,17 +105,7 @@ class _App(tk.Tk):
     def run(self):
         """Run the main application frame."""
         self.protocol("WM_DELETE_WINDOW", self._close)
-        try:
-            self.switch_frame(_GroundTruthingFrame)
-        except Exception:   # TODO: not working....
-            tk.messagebox.showerror(
-                title='Error',
-                message=f"An unexpected error occurred:\n\n{traceback.print_exc()}\n\nAttempting to save an exit.",
-                icon='error',
-                default='no'
-            )
-            self._save()
-            self._close()
+        self.switch_frame(_GroundTruthingFrame)
 
     def switch_frame(self, frame_class: Type[_AppFrame]):
         """
@@ -786,11 +776,3 @@ class _GroundTruthingFrame(_AppFrame):
 # plots
 # what to do when annotations are loaded...
 # make sure slider bar s odnt get crossed
-
-# 4016 - The maximal number of iterations (20) allowed for finding smoothing
-# spline with fp=s has been reached. Probable cause: s too small.
-# (abs(fp-s)/s>0.001)
-#   warnings.warn(RuntimeWarning(_iermess[ier][0]))
-
-# no spectrogram
-# 4025 - 4041

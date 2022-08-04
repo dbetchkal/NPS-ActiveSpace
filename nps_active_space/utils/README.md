@@ -13,6 +13,8 @@ git clone https://github.com/dbetchkal/NPS-ActiveSpace.git
 
 **For Windows users:**
 
+https://www.lfd.uci.edu/~gohlke/pythonlibs/
+
 Two dependencies, GDAL and Fiona, need to be installed from `.whl` files. Please download a GDAL
 and Fiona binary that matches the version number specified in `pyproject.toml` and that matches
 the python version you will be running the NPS-ActiveSpace code with. For example `Fiona‑1.8.21‑cp310‑cp310‑win32.whl` is Fiona version 1.8.21 for python 3.10.
