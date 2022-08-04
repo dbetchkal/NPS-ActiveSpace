@@ -161,7 +161,7 @@ class _App(tk.Tk):
         filename : str
             Absolute path to csv file to load previous annotations from.
         """
-        self.annotations = pd.read_csv(filename, usecols=self.annotations.columns)
+        self.annotations = pd.read_csv(filename, usecols=self.annotations.columns) # TODO: error saving a closing
 
     def _close(self):
         """
@@ -469,7 +469,7 @@ class _GroundTruthingFrame(_AppFrame):
 
         # Set frame variables to starting values.
         self.data = iter(self.master.tracks.groupby(by='track_id'))
-        self.canvas = None
+        self.slider = None
         self.i = 0
 
         # Define widgets.
@@ -537,14 +537,14 @@ class _GroundTruthingFrame(_AppFrame):
         try:
             idx, points = next(self.data)
             self.i += 1
-            start_time = points.point_dt.iat[0]
-            end_time = points.point_dt.iat[-1]
-            spectrogram = self.master.nvspl.loc[str(start_time):str(end_time), '12.5':'20000']
+            spectro = self.master.nvspl.loc[str(points.point_dt.iat[0]):str(points.point_dt.iat[-1]), '12.5':'20000']
 
-            if idx in self.master.annotations._id.values:  # Track already annotated
+            # If the track is already annotated, move on.
+            if idx in self.master.annotations._id.values:
                 self._next()
 
-            elif points.shape[0] < 3:  # Not enough points for processing
+            # If the track does not have enough points for processing, mark it as invalid and move on.
+            elif points.shape[0] < 3:
                 tk.messagebox.showwarning(
                     title='Data Warning',
                     message=f"Track {idx} has fewer than 3 points and therefore cannot be processed. Skipping...",
@@ -552,15 +552,18 @@ class _GroundTruthingFrame(_AppFrame):
                 )
                 self._click(idx, False, False)
 
-            elif spectrogram.empty:  # Spectrogram data must exist.
+            # If there is no spectrogram data for the track, mark it as invalid and move on.
+            elif spectro.empty:
                 tk.messagebox.showwarning(
                     title='Data Warning',
                     message=f"Track {idx} has no accompanying spectrogram. Skipping...",
                     icon='warning'
                 )
                 self._click(idx, False, False)
+
+            # If this is an un-annotated track with 3+ points and corresponding SPL data, display its plot.
             else:
-                self._build_plot(idx, points, spectrogram)
+                self._build_plot(idx, points, spectro)
 
         except StopIteration:
             self.master.switch_frame(_CompletionFrame)
@@ -612,72 +615,37 @@ class _GroundTruthingFrame(_AppFrame):
             fig.canvas.draw_idle()
 
         points.sort_values(by='point_dt', ascending=True, inplace=True)
-
         spline = interpolate_spline(points)
         spline = audible_time_delay(spline, 'point_dt', Point(self.master.mic.x, self.master.mic.y, self.master.mic.z))
         closest_time = spline.loc[spline.distance_to_target.idxmin()]['time_audible']
 
-        ###################################### Build Plot #################################
+        # ************************************ Build Plot ************************************#
 
         fig = plt.figure(figsize=(9, 5), constrained_layout=True)
         fig.canvas.manager.set_window_title(f"Microphone: {self.master.mic.name}, Track Id: {idx}")
         spec = GridSpec(ncols=1, nrows=10, figure=fig)
-        ax1 = fig.add_subplot(spec[0:6, 0])
+        ax1 = fig.add_subplot(spec[9, 0])
         ax2 = fig.add_subplot(spec[6:9, 0])
-        ax3 = fig.add_subplot(spec[9, 0])
+        ax3 = fig.add_subplot(spec[0:6, 0])
 
-        # --------------------------------- Plot Track --------------------------------- #
-
-        # Display the study area, track points, and microphone
-        self.master.study_area.geometry.boundary.plot(
-            label='study area',
-            ax=ax1,
-            ls="--",
-            lw=0.5,
-            color="blue"
-        )
-        points.plot(
-            label='track point',
-            ax=ax1,
-            color="blue",
-            zorder=1,
-            markersize=3,
-        )
-        ax1.plot(
-            self.master.mic.x,
-            self.master.mic.y,
-            label='microphone',
-            ls="",
-            marker="x",
-            ms=5,
-            color="red",
-            zorder=10
-        )
-        highlight, = ax1.plot(
-            spline.geometry.x,
-            spline.geometry.y,
-            lw=5,
-            color='deepskyblue',
-            ls='-',
-            zorder=1,
-            alpha=0.4
-        )
-
-        # Glean the spatial extent of the points. This will result in a square map.
-        xmin, ymin, xmax, ymax = self.master.study_area.total_bounds
-        ax1.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
-        ax1.set_aspect((xmax - xmin) / (ymax - ymin))
-        ax1.tick_params(axis='both', labelsize=6)
-        ax1.ticklabel_format(style='plain')  # disable scientific notation
-
-        # Add a legend for readability.
-        ax1.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-
-        # --------------------------------- Plot Spectrogram --------------------------------- #
+        # --------------------------------- Plot Slider --------------------------------- #
 
         x_lims = date2num(spectrogram.index)  # convert the NVSPL's nice datetime axis to numbers
         lower_limit_start = max(date2num(closest_time - dt.timedelta(seconds=60)), x_lims[0])
         upper_limit_start = min(date2num(closest_time + dt.timedelta(seconds=60)), x_lims[-1])
+
+        self.slider = RangeSlider(
+            ax1,
+            label="Audible Window",
+            valmin=x_lims[0],
+            valmax=x_lims[-1],
+            valinit=[lower_limit_start, upper_limit_start],
+        )
+
+        self.slider.valtext.set_visible(False)  # Turn off range slider value label.
+        self.slider.on_changed(_slider_update)
+
+        # --------------------------------- Plot Spectrogram --------------------------------- #
 
         ax2.imshow(
             spectrogram.T,
@@ -724,28 +692,67 @@ class _GroundTruthingFrame(_AppFrame):
         ax2.xaxis_date()  # tell matplotlib that the numeric axis should be formatted as dates
         ax2.xaxis.set_major_formatter(DateFormatter("%b-%d\n%H:%M"))  # tidy them!
 
-        # --------------------------------- Plot Slider --------------------------------- #
+        # --------------------------------- Plot Track --------------------------------- #
 
-        slider = RangeSlider(
-            ax3,
-            label="Audible Window",
-            valmin=x_lims[0],
-            valmax=x_lims[-1],
-            valinit=[lower_limit_start, upper_limit_start],
+        # Display the study area, track points, and microphone
+        self.master.study_area.geometry.boundary.plot(
+            label='study area',
+            ax=ax3,
+            ls="--",
+            lw=0.5,
+            color="blue"
+        )
+        points.plot(
+            label='track point',
+            ax=ax3,
+            color="blue",
+            zorder=1,
+            markersize=3,
+        )
+        ax3.plot(
+            self.master.mic.x,
+            self.master.mic.y,
+            label='microphone',
+            ls="",
+            marker="x",
+            ms=5,
+            color="red",
+            zorder=10
         )
 
-        slider.valtext.set_visible(False)  # Turn off range slider value label.
-        _slider_update([lower_limit_start, upper_limit_start])
-        slider.on_changed(_slider_update)
+        # Highlight the points within the currently selected SPL region.
+        subset = spline.loc[np.all([spline.time_audible >= num2date(lower_limit_start).replace(tzinfo=None),
+                                    spline.time_audible <= num2date(upper_limit_start).replace(tzinfo=None)],
+                                   axis=0)]
+        highlight, = ax3.plot(
+            subset.geometry.x,
+            subset.geometry.y,
+            lw=5,
+            color='deepskyblue',
+            ls='-',
+            zorder=1,
+            alpha=0.4
+        )
+
+        # Glean the spatial extent of the points. This will result in a square map.
+        xmin, ymin, xmax, ymax = self.master.study_area.total_bounds
+        ax3.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
+        ax3.set_aspect((xmax - xmin) / (ymax - ymin))
+        ax3.tick_params(axis='both', labelsize=6)
+        ax3.ticklabel_format(style='plain')  # disable scientific notation
+        ax3.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
         # --------------------------------- Show Plot --------------------------------- #
 
         self.track_label.config(text=f"Microphone: {self.master.mic.name}\nTrack Id: {idx}")
+        self.audible_button.config(command=lambda: self._click(idx, True, True, num2date(lower_limit_start), num2date(upper_limit_start)),
+                                   state=tk.NORMAL, )
         self.inaudible_button.config(command=lambda: self._click(idx, True, False), state=tk.NORMAL)
         self.unknown_button.config(command=lambda: self._click(idx, False, False), state=tk.NORMAL)
         self.progress_label.config(text=f"{self.i}/{self.master.tracks.track_id.nunique()}")
 
-        plt.show()
+        canvas = FigureCanvasTkAgg(fig, master=self)  # A tk.DrawingArea.
+        canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=3)
 
     def _click(self, id_: Any, valid: bool, audible: Optional[bool] = None,
                starttime: Optional[str] = None, endtime: Optional[bool] = None):
