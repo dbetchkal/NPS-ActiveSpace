@@ -25,7 +25,7 @@ Then, run the following commands:
 
 ```bash
 $ python -m pip install --upgrade pip
-$ pip install --find-links==</path/to/binaries> -e .[ground-truthing]
+$ pip install --find-links </path/to/binaries> -e .[ground-truthing]
 ```
 
 **For all other users:**

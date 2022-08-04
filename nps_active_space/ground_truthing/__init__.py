@@ -6,6 +6,7 @@ from tkinter import filedialog, messagebox
 from typing import Any, List, Optional, Type, TYPE_CHECKING
 
 import geopandas as gpd
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -518,12 +519,13 @@ class _GroundTruthingFrame(_AppFrame):
         self.unknown_button.grid(row=1, column=1, sticky='s')
         self.progress_label.grid(row=0, column=1, sticky='ne', padx=10, pady=5)
 
+        mpl.rcParams['toolbar'] = 'None'    # Remove matplotlib toolbar
+
         self._next()
 
     def _next(self):
         """
         Get the next track ready for plotting.
-
 
         Notes
         -----
@@ -550,7 +552,7 @@ class _GroundTruthingFrame(_AppFrame):
                 )
                 self._click(idx, False, False)
 
-            elif spectrogram.empty:  # Spectrogram data must exist. # TODO: something might be wrong here...
+            elif spectrogram.empty:  # Spectrogram data must exist.
                 tk.messagebox.showwarning(
                     title='Data Warning',
                     message=f"Track {idx} has no accompanying spectrogram. Skipping...",
@@ -601,7 +603,10 @@ class _GroundTruthingFrame(_AppFrame):
             highlight.set_data(subset.geometry.x, subset.geometry.y)
 
             # todo: CHECK THIS, valid point spline?
-            self.audible_button.config(command=lambda: self._click(idx, True, True,  num2date(lower_t),  num2date(upper_t)))
+            self.audible_button.config(
+                state=tk.NORMAL,
+                command=lambda: self._click(idx, True, True,  num2date(lower_t),  num2date(upper_t))
+            )
 
             # Redraw the figure to ensure it updates
             fig.canvas.draw_idle()
@@ -614,7 +619,8 @@ class _GroundTruthingFrame(_AppFrame):
 
         ###################################### Build Plot #################################
 
-        fig = plt.figure(constrained_layout=True)
+        fig = plt.figure(figsize=(9, 5), constrained_layout=True)
+        fig.canvas.manager.set_window_title(f"Microphone: {self.master.mic.name}, Track Id: {idx}")
         spec = GridSpec(ncols=1, nrows=10, figure=fig)
         ax1 = fig.add_subplot(spec[0:6, 0])
         ax2 = fig.add_subplot(spec[6:9, 0])
@@ -670,6 +676,8 @@ class _GroundTruthingFrame(_AppFrame):
         # --------------------------------- Plot Spectrogram --------------------------------- #
 
         x_lims = date2num(spectrogram.index)  # convert the NVSPL's nice datetime axis to numbers
+        lower_limit_start = max(date2num(closest_time - dt.timedelta(seconds=60)), x_lims[0])
+        upper_limit_start = min(date2num(closest_time + dt.timedelta(seconds=60)), x_lims[-1])
 
         ax2.imshow(
             spectrogram.T,
@@ -694,7 +702,7 @@ class _GroundTruthingFrame(_AppFrame):
 
         # Create the moving vertical lines on the histogram with axvline()
         lower_limit_line = ax2.axvline(
-            date2num(closest_time - dt.timedelta(seconds=60)),
+            lower_limit_start,
             ls="--",
             alpha=0.7,
             color="white",
@@ -702,7 +710,7 @@ class _GroundTruthingFrame(_AppFrame):
             linewidth=1,
         )
         upper_limit_line = ax2.axvline(
-            date2num(closest_time + dt.timedelta(seconds=60)),
+            upper_limit_start,
             ls="--",
             alpha=0.7,
             color="white",
@@ -723,25 +731,21 @@ class _GroundTruthingFrame(_AppFrame):
             label="Audible Window",
             valmin=x_lims[0],
             valmax=x_lims[-1],
+            valinit=[lower_limit_start, upper_limit_start],
         )
 
-        slider_staring_vals = [date2num(closest_time - dt.timedelta(seconds=60)),
-                               date2num(closest_time + dt.timedelta(seconds=60))]
-        slider.set_val(slider_staring_vals)
         slider.valtext.set_visible(False)  # Turn off range slider value label.
-        _slider_update(slider_staring_vals)
+        _slider_update([lower_limit_start, upper_limit_start])
         slider.on_changed(_slider_update)
 
         # --------------------------------- Show Plot --------------------------------- #
 
         self.track_label.config(text=f"Microphone: {self.master.mic.name}\nTrack Id: {idx}")
-        self.inaudible_button.config(command=lambda: self._click(idx, True, False))
-        self.unknown_button.config(command=lambda: self._click(idx, False, False))
+        self.inaudible_button.config(command=lambda: self._click(idx, True, False), state=tk.NORMAL)
+        self.unknown_button.config(command=lambda: self._click(idx, False, False), state=tk.NORMAL)
         self.progress_label.config(text=f"{self.i}/{self.master.tracks.track_id.nunique()}")
 
-        self.canvas = FigureCanvasTkAgg(fig, master=self)
-        self.canvas.draw()
-        self.canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=3)
+        plt.show()
 
     def _click(self, id_: Any, valid: bool, audible: Optional[bool] = None,
                starttime: Optional[str] = None, endtime: Optional[bool] = None):
@@ -762,17 +766,13 @@ class _GroundTruthingFrame(_AppFrame):
         endtime : str, default None
             If the track was audible, when does audibility end.
         """
+        self.audible_button.config(state=tk.DISABLED)
+        self.inaudible_button.config(state=tk.DISABLED)
+        self.unknown_button.config(state=tk.DISABLED)
+
         self.master.add_annotation(id_, valid, audible, starttime, endtime)
 
-        # Close the plot and canvas to clear the window for the next one.
+        # Close the plot to clear the window for the next one.
         plt.close()
-        if self.canvas:
-            self.canvas.get_tk_widget().destroy()
 
         self._next()
-
-# TODO:
-# speed up slider
-# plots
-# what to do when annotations are loaded...
-# make sure slider bar s odnt get crossed
