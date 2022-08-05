@@ -8,12 +8,11 @@ Created 2021-08-13 16:20
 """
 
 import multiprocessing
-import subprocess
 import sys
 
 # need the active space scripts as well
 sys.path.append(r"C:\Users\kheck\PythonScripts\NMSIM-Python")
-from active_space_utils import *
+from legacy_code.active_space_utils import *
 
 
 def main():

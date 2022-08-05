@@ -323,7 +323,6 @@ for _id, start, end in temporal_boundaries:
     ax_buttons = plt.axes([0.125, 0.02, 0.1, 0.18])
     radio_buttons = RadioButtons(ax_buttons, ['Audible', 'Inaudible', 'Unknown', 'Exit'], active=None)
 
-
     def radio_clicked(event):
         # for radio buttons, `event` is a string of the label selected
         # This is the audibility selector panel on the annotations screen

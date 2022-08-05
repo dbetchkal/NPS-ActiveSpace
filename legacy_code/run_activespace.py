@@ -7,10 +7,9 @@ Created 2021-08-16 13:10
 @author: Kirby Heck
 """
 
-import os
 import sys
-from active_space_utils import *
-from ModelManager import ModelManager
+from legacy_code.active_space_utils import *
+from legacy_code.ModelManager import ModelManager
 import argparse
 import time
 

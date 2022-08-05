@@ -20,11 +20,9 @@ Created 2021-07-06 11:30
 
 # geospatial libraries
 import shapely.errors
-import tempfile
-import warnings
 import os
 from shapely.ops import triangulate
-from shapely.geometry import Polygon, MultiPoint
+from shapely.geometry import MultiPoint
 
 # other libraries
 from matplotlib.tri import Triangulation
@@ -42,10 +40,10 @@ sys.path.append(os.path.join(cd, "iyore-master"))
 import iyore
 
 sys.path.append(os.path.join(cd, "soundDB-master"))
-from soundDB import nvspl, srcid
+from soundDB import nvspl
 
 sys.path.append(os.path.dirname(cd))  # is this necessary?
-from active_space_utils import *
+from legacy_code.active_space_utils import *
 
 
 class CreateActiveSpace(object):

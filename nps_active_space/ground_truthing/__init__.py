@@ -554,7 +554,7 @@ class _GroundTruthingFrame(_AppFrame):
             # If the track does not have enough points for processing, mark it as invalid and move on.
             elif points.shape[0] < 3:
                 tk.messagebox.showwarning(
-                    ritle='Data Warning',
+                    title='Data Warning',
                     message=f"Track {idx} has fewer than 3 points and therefore cannot be processed. Skipping...",
                     icon='warning'
                 )
@@ -626,9 +626,6 @@ class _GroundTruthingFrame(_AppFrame):
         points.sort_values(by='point_dt', ascending=True, inplace=True)
         spline = interpolate_spline(points)
         spline = audible_time_delay(spline, 'point_dt', Point(self.master.mic.x, self.master.mic.y, self.master.mic.z))
-        spline['track_id'] = idx
-        spline['valid'] = True
-        spline['audible'] = False
 
         # Determine the closest spline point to the mic.
         closest_point = spline[spline.distance_to_target == spline.distance_to_target.min()]
