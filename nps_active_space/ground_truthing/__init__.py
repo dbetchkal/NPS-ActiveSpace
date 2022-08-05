@@ -524,8 +524,6 @@ class _GroundTruthingFrame(_AppFrame):
         self.unknown_button.grid(row=1, column=1, sticky='s')
         self.progress_label.grid(row=0, column=1, sticky='ne', padx=10, pady=5)
 
-        mpl.rcParams['toolbar'] = 'None'    # Remove matplotlib toolbar
-
         self._next()
 
     def _next(self):
