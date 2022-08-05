@@ -161,7 +161,7 @@ class _App(tk.Tk):
         filename : str
             Absolute path to csv file to load previous annotations from.
         """
-        self.annotations = pd.read_csv(filename, usecols=self.annotations.columns) # TODO: error saving a closing
+        self.annotations = pd.read_csv(filename, usecols=self.annotations.columns)
 
     def _close(self):
         """
@@ -617,6 +617,7 @@ class _GroundTruthingFrame(_AppFrame):
         points.sort_values(by='point_dt', ascending=True, inplace=True)
         spline = interpolate_spline(points)
         spline = audible_time_delay(spline, 'point_dt', Point(self.master.mic.x, self.master.mic.y, self.master.mic.z))
+        closest_point = spline[spline.distance_to_target == spline.distance_to_target.min()]
         closest_time = spline.loc[spline.distance_to_target.idxmin()]['time_audible']
 
         # ************************************ Build Plot ************************************#
@@ -694,7 +695,7 @@ class _GroundTruthingFrame(_AppFrame):
 
         # --------------------------------- Plot Track --------------------------------- #
 
-        # Display the study area, track points, and microphone
+        # Display the study area, track points, spline points, closest point, and microphone
         self.master.study_area.geometry.boundary.plot(
             label='study area',
             ax=ax3,
@@ -702,10 +703,25 @@ class _GroundTruthingFrame(_AppFrame):
             lw=0.5,
             color="blue"
         )
+        spline.plot(
+            label='interpolated spline point',
+            ax=ax3,
+            color="grey",
+            zorder=1,
+            markersize=0.5,
+            alpha=0.1
+        )
         points.plot(
             label='track point',
             ax=ax3,
             color="blue",
+            zorder=1,
+            markersize=3,
+        )
+        closest_point.plot(
+            label='closest point',
+            ax=ax3,
+            color="red",
             zorder=1,
             markersize=3,
         )
@@ -715,8 +731,8 @@ class _GroundTruthingFrame(_AppFrame):
             label='microphone',
             ls="",
             marker="x",
-            ms=5,
-            color="red",
+            ms=7,
+            color="magenta",
             zorder=10
         )
 
