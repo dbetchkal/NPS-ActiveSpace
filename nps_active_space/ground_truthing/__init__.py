@@ -97,7 +97,8 @@ class _App(tk.Tk):
         self.config(menu=self.menu)
 
         # Create the application starting state.
-        self.annotations = pd.DataFrame(columns={'_id', 'valid', 'audible', 'starttime', 'endtime'})
+        self.annotations = pd.DataFrame(columns=['_id', 'valid', 'audible', 'starttime', 'endtime'])
+        self.valid_points = gpd.GeoDataFrame(columns=['_id', 'audible', 'geom'], geometry='geom', crs='epsg:4326')
         self._saved = True
         self._frame = None
 
@@ -125,7 +126,8 @@ class _App(tk.Tk):
         self._frame.pack(expand=True, anchor='nw', fill=tk.BOTH)
 
     def add_annotation(self, id_: Any, valid: bool, audible: bool = False,
-                       starttime: Optional[str] = None, endtime: Optional[str] = None):
+                       starttime: Optional[str] = None, endtime: Optional[str] = None,
+                       valid_points: Optional[gpd.GeoDataFrame] = None):
         """
         Add a new track audibility annotation.
 
@@ -141,6 +143,7 @@ class _App(tk.Tk):
             If the track was audible, when does audibility start.
         endtime : str, default None
             If the track was audible, when does audibility end.
+            # TODO
         """
         new_record = pd.DataFrame.from_records([
             {'_id': id_,
@@ -150,6 +153,7 @@ class _App(tk.Tk):
              'endtime': endtime}
         ])
         self.annotations = pd.concat([self.annotations, new_record], ignore_index=True)
+        # TODO valid points
         self._saved = False
 
     def load_annotations(self, filename: str):
@@ -185,6 +189,10 @@ class _App(tk.Tk):
         """Save current annotations to the output file."""
         self.annotations.to_csv(self.outfile, mode='w')
         self._saved = True
+        tk.messagebox.showinfo(
+            title='Save Status',
+            message=f"Saved!",
+        )
 
     def _plot(self):
         # TODO this function....
@@ -546,7 +554,7 @@ class _GroundTruthingFrame(_AppFrame):
             # If the track does not have enough points for processing, mark it as invalid and move on.
             elif points.shape[0] < 3:
                 tk.messagebox.showwarning(
-                    title='Data Warning',
+                    ritle='Data Warning',
                     message=f"Track {idx} has fewer than 3 points and therefore cannot be processed. Skipping...",
                     icon='warning'
                 )
@@ -614,9 +622,15 @@ class _GroundTruthingFrame(_AppFrame):
             # Redraw the figure to ensure it updates
             fig.canvas.draw_idle()
 
+        # Interpolate a track spline.
         points.sort_values(by='point_dt', ascending=True, inplace=True)
         spline = interpolate_spline(points)
         spline = audible_time_delay(spline, 'point_dt', Point(self.master.mic.x, self.master.mic.y, self.master.mic.z))
+        spline['track_id'] = idx
+        spline['valid'] = True
+        spline['audible'] = False
+
+        # Determine the closest spline point to the mic.
         closest_point = spline[spline.distance_to_target == spline.distance_to_target.min()]
         closest_time = spline.loc[spline.distance_to_target.idxmin()]['time_audible']
 
@@ -771,7 +785,8 @@ class _GroundTruthingFrame(_AppFrame):
         canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=3)
 
     def _click(self, id_: Any, valid: bool, audible: Optional[bool] = None,
-               starttime: Optional[str] = None, endtime: Optional[bool] = None):
+               starttime: Optional[str] = None, endtime: Optional[bool] = None,
+               valid_points: Optional[gpd.GeoDataFrame] = None):
         """
         Save an annotation depending on what button what audibility button was clicked and clear
         the frame to be able to show the next plot.
@@ -788,14 +803,13 @@ class _GroundTruthingFrame(_AppFrame):
             If the track was audible, when does audibility start.
         endtime : str, default None
             If the track was audible, when does audibility end.
+        # TODO
         """
+        # Deactivate the decision buttons.
         self.audible_button.config(state=tk.DISABLED)
         self.inaudible_button.config(state=tk.DISABLED)
         self.unknown_button.config(state=tk.DISABLED)
 
-        self.master.add_annotation(id_, valid, audible, starttime, endtime)
-
-        # Close the plot to clear the window for the next one.
+        self.master.add_annotation(id_, valid, audible, starttime, endtime, valid_points)
         plt.close()
-
         self._next()
