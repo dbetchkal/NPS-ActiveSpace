@@ -97,8 +97,8 @@ class _App(tk.Tk):
         self.config(menu=self.menu)
 
         # Create the application starting state.
-        self.annotations = pd.DataFrame(columns=['_id', 'valid', 'audible', 'starttime', 'endtime'])
-        self.valid_points = gpd.GeoDataFrame(columns=['_id', 'audible', 'geom'], geometry='geom', crs='epsg:4326')
+        self.annotations = gpd.GeoDataFrame(columns=['_id', 'point_dt', 'valid', 'audible', 'geometry', 'note'],
+                                            geometry='geometry', crs='epsg:4326')
         self._saved = True
         self._frame = None
 
@@ -125,35 +125,17 @@ class _App(tk.Tk):
         self._frame = new_frame
         self._frame.pack(expand=True, anchor='nw', fill=tk.BOTH)
 
-    def add_annotation(self, id_: Any, valid: bool, audible: bool = False,
-                       starttime: Optional[str] = None, endtime: Optional[str] = None,
-                       valid_points: Optional[gpd.GeoDataFrame] = None):
+    def add_annotation(self, annotated_points: gpd.GeoDataFrame):
         """
-        Add a new track audibility annotation.
+        Add new track audibility annotations.
 
         Parameters
         ----------
-        id_ : Any
-            The track unique identifier.
-        valid : bool
-            If the track was valid.
-        audible : bool
-            If the track was valid, was it audible.
-        starttime : str, default None
-            If the track was audible, when does audibility start.
-        endtime : str, default None
-            If the track was audible, when does audibility end.
-            # TODO
+        annotated_points: gpd.GeoDataFrame
+            a GeoDataFrame of annotated points for a track to add to the overall annotations GeoDataFrame
         """
-        new_record = pd.DataFrame.from_records([
-            {'_id': id_,
-             'valid': valid,
-             'audible': audible,
-             'starttime': starttime,
-             'endtime': endtime}
-        ])
-        self.annotations = pd.concat([self.annotations, new_record], ignore_index=True)
-        # TODO valid points
+        annotated_points = annotated_points.to_crs('epsg:4326')
+        self.annotations = pd.concat([self.annotations, annotated_points], ignore_index=True)
         self._saved = False
 
     def load_annotations(self, filename: str):
@@ -187,17 +169,24 @@ class _App(tk.Tk):
 
     def _save(self):
         """Save current annotations to the output file."""
-        self.annotations.to_csv(self.outfile, mode='w')
-        self._saved = True
-        tk.messagebox.showinfo(
-            title='Save Status',
-            message=f"Saved!",
-        )
+        if self._saved is True:
+            return
+
+        try:
+            self.annotations.to_csv(self.outfile, mode='w')
+            self._saved = True
+            tk.messagebox.showinfo(
+                title='Save Status',
+                message=f"Saved!",
+            )
+        except Exception:
+            tk.messagebox.showerror(
+                title='Save Status',
+                message=f"Unable to save.\n\n{traceback.format_exc()}",
+            )
 
     def _plot(self):
-        # TODO this function....
-
-        # plotting CRS, lat/long looks nicer here...
+        """Plot all annotated tracks and points."""
 
         fig, ax = plt.subplots(1, 1, figsize=(6, 9))
 
@@ -205,11 +194,11 @@ class _App(tk.Tk):
         # with rasterio.open(r"T:\ResMgmt\WAGS\Sound\Users\Kirby_Heck\DENA Park Brochure Map wi.tif") as raster:
         #     rasterio.plot.show(raster, ax=ax, alpha=0.6)
 
-        # plot study area bounding box
+        # Plot study area.
         study_area = self.study_area.to_crs('epsg:4326')
         study_area.geometry.boundary.plot(ax=ax, ls="--", color="navy")
 
-        # # plot microphone position
+        # Plot microphone position.
         ax.plot(
             self.mic.lon,
             self.mic.lat,
@@ -221,27 +210,35 @@ class _App(tk.Tk):
             label=self.mic.name
         )
 
-        # audible vs inaudible points:
-        valid_points = self.annotations[self.annotations.valid == True].copy().to_crs('epsg:4326')
-        valid_points.loc[valid_points.audible].plot(ax=ax, color='deepskyblue', alpha=0.05, markersize=3, zorder=3,
-                                                    label="Audible points")
-        valid_points.loc[~valid_points.audible].plot(ax=ax, color='red', alpha=0.05, markersize=3, zorder=2,
-                                                     label="Inaudible points")
+        # Plot track audibility.
+        valid_points = self.annotations[self.annotations.valid]
+        valid_points[valid_points.audible == True].plot(
+            ax=ax,
+            color='deepskyblue',
+            alpha=0.05,
+            markersize=3,
+            zorder=3,
+            label="Audible points"
+        )
+        valid_points[valid_points.audible == False].plot(
+            ax=ax,
+            color='red',
+            alpha=0.05,
+            markersize=3,
+            zorder=2,
+            label="Inaudible points"
+        )
 
-        # create a legend at the bottom center
-        leg = plt.legend(loc="lower center", bbox_to_anchor=(0.5, -0.25), markerscale=2)
-        for lh in leg.legendHandles:
-            lh.set_alpha(1)  # set legend handles to opaque for visibility
-
+        # This will result in a square map
         xmin, ymin, xmax, ymax = study_area.total_bounds
         pad = np.array([(xmax - xmin) * 0.1, (ymax - ymin) * 0.1])
-
-        # this will result in a square map
         ax.set(xlim=(xmin - pad[0], xmax + pad[0]), ylim=(ymin - pad[1], ymax + pad[1]))
-        ax.set_title("Annotated audible overflights segments")
+        ax.set_title("Annotated Track Segments")
         ax.tick_params(axis='both', labelsize=6)
+        plt.legend(loc="lower center", bbox_to_anchor=(0.5, -0.25), markerscale=2)
 
-        plt.show()
+        fig.show()
+        # TODO save
 
 
 class _WelcomeFrame(_AppFrame):
@@ -558,7 +555,7 @@ class _GroundTruthingFrame(_AppFrame):
                     message=f"Track {idx} has fewer than 3 points and therefore cannot be processed. Skipping...",
                     icon='warning'
                 )
-                self._click(idx, False, False)
+                self._click(idx, points, valid=False, audible=False, note='Too few points')
 
             # If there is no spectrogram data for the track, mark it as invalid and move on.
             elif spectro.empty:
@@ -567,7 +564,7 @@ class _GroundTruthingFrame(_AppFrame):
                     message=f"Track {idx} has no accompanying spectrogram. Skipping...",
                     icon='warning'
                 )
-                self._click(idx, False, False)
+                self._click(idx, points, valid=False, audible=False, note='No SPL data')
 
             # If this is an un-annotated track with 3+ points and corresponding SPL data, display its plot.
             else:
@@ -575,6 +572,52 @@ class _GroundTruthingFrame(_AppFrame):
 
         except StopIteration:
             self.master.switch_frame(_CompletionFrame)
+
+    def _click(self, id_: Any, points: gpd.GeoDataFrame, valid: bool, audible: bool,
+               starttime: Optional[dt.datetime] = None, endtime: Optional[dt.datetime] = None,
+               note: Optional[str] = None):
+        """
+        Save an annotation depending on what button what audibility button was clicked and clear
+        the frame to be able to show the next plot.
+
+        Parameters
+        ----------
+        id_ : Any
+            The track unique identifier.
+        points: gpd.GeoDataFrame:
+
+        valid : bool
+            If the track was valid.
+        audible : bool
+            If the track was valid, was it audible.
+        starttime : dt.datetime, default None
+            If the track was audible, when does audibility start.
+        endtime : dt.datetime, default None
+            If the track was audible, when does audibility end.
+        note: str, default None
+            Any note to be added to all points passed for annotation.
+        """
+        # Deactivate the decision buttons.
+        self.audible_button.config(state=tk.DISABLED)
+        self.inaudible_button.config(state=tk.DISABLED)
+        self.unknown_button.config(state=tk.DISABLED)
+
+        # Add annotations to the points based on what decision was made about audibility.
+        points['_id'] = id_
+        points['note'] = note
+        if valid is False and audible is False:
+            points['valid'] = False
+            points['audible'] = False
+        elif valid is True and audible is False:
+            points['valid'] = True
+            points['audible'] = False
+        elif valid is True and audible is True:
+            points['valid'] = True
+            points['audible'] = np.all([points.time_audible >= starttime, points.time_audible <= endtime], axis=0)
+
+        self.master.add_annotation(points[self.master.annotations.columns])
+        plt.close()
+        self._next()
 
     def _build_plot(self, idx: Any, points: 'Tracks', spectrogram: 'Nvspl'):
         """
@@ -608,15 +651,21 @@ class _GroundTruthingFrame(_AppFrame):
             # Highlight the section of the track that falls within the date window
             #
             # NOTE: .replace(tzinfo) is required to prevent errors from comparing tz-naive again tz-aware datetimes
-            subset = spline.loc[np.all([spline.time_audible >= num2date(lower_t).replace(tzinfo=None),
-                                        spline.time_audible <= num2date(upper_t).replace(tzinfo=None)],
-                                       axis=0)]
+            subset = spline.loc[np.all(
+                [spline.time_audible >= num2date(lower_t).replace(tzinfo=None),
+                 spline.time_audible <= num2date(upper_t).replace(tzinfo=None)],
+                axis=0)]
             highlight.set_data(subset.geometry.x, subset.geometry.y)
 
-            # todo: CHECK THIS, valid point spline?
             self.audible_button.config(
                 state=tk.NORMAL,
-                command=lambda: self._click(idx, True, True,  num2date(lower_t),  num2date(upper_t))
+                command=lambda: self._click(
+                    idx,
+                    spline,
+                    valid=True,
+                    audible=True,
+                    starttime=num2date(lower_t).replace(tzinfo=None),
+                    endtime=num2date(upper_t).replace(tzinfo=None))
             )
 
             # Redraw the figure to ensure it updates
@@ -631,31 +680,80 @@ class _GroundTruthingFrame(_AppFrame):
         closest_point = spline[spline.distance_to_target == spline.distance_to_target.min()]
         closest_time = spline.loc[spline.distance_to_target.idxmin()]['time_audible']
 
+        # Calculate some datetime starting points.
+        x_lims = date2num(spectrogram.index)  # convert the NVSPL's nice datetime axis to numbers
+        lower_limit_start = max(date2num(closest_time - dt.timedelta(seconds=60)), x_lims[0])
+        upper_limit_start = min(date2num(closest_time + dt.timedelta(seconds=60)), x_lims[-1])
+
         # ************************************ Build Plot ************************************#
 
         fig = plt.figure(figsize=(9, 5), constrained_layout=True)
         fig.canvas.manager.set_window_title(f"Microphone: {self.master.mic.name}, Track Id: {idx}")
         spec = GridSpec(ncols=1, nrows=10, figure=fig)
-        ax1 = fig.add_subplot(spec[9, 0])
+        ax1 = fig.add_subplot(spec[0:6, 0])
         ax2 = fig.add_subplot(spec[6:9, 0])
-        ax3 = fig.add_subplot(spec[0:6, 0])
+        ax3 = fig.add_subplot(spec[9, 0])
 
-        # --------------------------------- Plot Slider --------------------------------- #
+        # --------------------------------- Plot Track --------------------------------- #
 
-        x_lims = date2num(spectrogram.index)  # convert the NVSPL's nice datetime axis to numbers
-        lower_limit_start = max(date2num(closest_time - dt.timedelta(seconds=60)), x_lims[0])
-        upper_limit_start = min(date2num(closest_time + dt.timedelta(seconds=60)), x_lims[-1])
-
-        self.slider = RangeSlider(
-            ax1,
-            label="Audible Window",
-            valmin=x_lims[0],
-            valmax=x_lims[-1],
-            valinit=[lower_limit_start, upper_limit_start],
+        # Display the study area, track points, spline points, closest point, and microphone
+        self.master.study_area.geometry.boundary.plot(
+            label='study area',
+            ax=ax1,
+            ls="--",
+            lw=0.5,
+            color="blue"
+        )
+        spline.plot(
+            label='interpolated spline point',
+            ax=ax1,
+            color="grey",
+            zorder=1,
+            markersize=0.5,
+            alpha=0.1
+        )
+        points.plot(
+            label='track point',
+            ax=ax1,
+            color="blue",
+            zorder=1,
+            markersize=3,
+        )
+        closest_point.plot(
+            label='closest point',
+            ax=ax1,
+            color="red",
+            zorder=1,
+            markersize=3,
+        )
+        ax1.plot(
+            self.master.mic.x,
+            self.master.mic.y,
+            label='microphone',
+            ls="",
+            marker="x",
+            ms=7,
+            color="magenta",
+            zorder=10
         )
 
-        self.slider.valtext.set_visible(False)  # Turn off range slider value label.
-        self.slider.on_changed(_slider_update)
+        highlight, = ax1.plot(
+            spline.geometry.x,
+            spline.geometry.y,
+            lw=5,
+            color='deepskyblue',
+            ls='-',
+            zorder=1,
+            alpha=0.4
+        )
+
+        # Glean the spatial extent of the points. This will result in a square map.
+        xmin, ymin, xmax, ymax = self.master.study_area.total_bounds
+        ax1.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
+        ax1.set_aspect((xmax - xmin) / (ymax - ymin))
+        ax1.tick_params(axis='both', labelsize=6)
+        ax1.ticklabel_format(style='plain')  # disable scientific notation
+        ax1.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
         # --------------------------------- Plot Spectrogram --------------------------------- #
 
@@ -704,109 +802,26 @@ class _GroundTruthingFrame(_AppFrame):
         ax2.xaxis_date()  # tell matplotlib that the numeric axis should be formatted as dates
         ax2.xaxis.set_major_formatter(DateFormatter("%b-%d\n%H:%M"))  # tidy them!
 
-        # --------------------------------- Plot Track --------------------------------- #
+        # --------------------------------- Plot Slider --------------------------------- #
 
-        # Display the study area, track points, spline points, closest point, and microphone
-        self.master.study_area.geometry.boundary.plot(
-            label='study area',
-            ax=ax3,
-            ls="--",
-            lw=0.5,
-            color="blue"
-        )
-        spline.plot(
-            label='interpolated spline point',
-            ax=ax3,
-            color="grey",
-            zorder=1,
-            markersize=0.5,
-            alpha=0.1
-        )
-        points.plot(
-            label='track point',
-            ax=ax3,
-            color="blue",
-            zorder=1,
-            markersize=3,
-        )
-        closest_point.plot(
-            label='closest point',
-            ax=ax3,
-            color="red",
-            zorder=1,
-            markersize=3,
-        )
-        ax3.plot(
-            self.master.mic.x,
-            self.master.mic.y,
-            label='microphone',
-            ls="",
-            marker="x",
-            ms=7,
-            color="magenta",
-            zorder=10
+        self.slider = RangeSlider(
+            ax3,
+            label="Audible Window",
+            valmin=x_lims[0],
+            valmax=x_lims[-1],
+            valinit=[lower_limit_start, upper_limit_start]
         )
 
-        # Highlight the points within the currently selected SPL region.
-        subset = spline.loc[np.all([spline.time_audible >= num2date(lower_limit_start).replace(tzinfo=None),
-                                    spline.time_audible <= num2date(upper_limit_start).replace(tzinfo=None)],
-                                   axis=0)]
-        highlight, = ax3.plot(
-            subset.geometry.x,
-            subset.geometry.y,
-            lw=5,
-            color='deepskyblue',
-            ls='-',
-            zorder=1,
-            alpha=0.4
-        )
-
-        # Glean the spatial extent of the points. This will result in a square map.
-        xmin, ymin, xmax, ymax = self.master.study_area.total_bounds
-        ax3.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
-        ax3.set_aspect((xmax - xmin) / (ymax - ymin))
-        ax3.tick_params(axis='both', labelsize=6)
-        ax3.ticklabel_format(style='plain')  # disable scientific notation
-        ax3.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+        self.slider.valtext.set_visible(False)  # Turn off range slider value label.
+        self.slider.on_changed(_slider_update)
+        _slider_update([lower_limit_start, upper_limit_start])
 
         # --------------------------------- Show Plot --------------------------------- #
 
         self.track_label.config(text=f"Microphone: {self.master.mic.name}\nTrack Id: {idx}")
-        self.audible_button.config(command=lambda: self._click(idx, True, True, num2date(lower_limit_start), num2date(upper_limit_start)),
-                                   state=tk.NORMAL, )
-        self.inaudible_button.config(command=lambda: self._click(idx, True, False), state=tk.NORMAL)
-        self.unknown_button.config(command=lambda: self._click(idx, False, False), state=tk.NORMAL)
         self.progress_label.config(text=f"{self.i}/{self.master.tracks.track_id.nunique()}")
+        self.inaudible_button.config(command=lambda: self._click(idx, spline, valid=True, audible=False), state=tk.NORMAL)
+        self.unknown_button.config(command=lambda: self._click(idx, spline, valid=False, audible=False), state=tk.NORMAL)
 
-        canvas = FigureCanvasTkAgg(fig, master=self)  # A tk.DrawingArea.
+        canvas = FigureCanvasTkAgg(fig, master=self)
         canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=3)
-
-    def _click(self, id_: Any, valid: bool, audible: Optional[bool] = None,
-               starttime: Optional[str] = None, endtime: Optional[bool] = None,
-               valid_points: Optional[gpd.GeoDataFrame] = None):
-        """
-        Save an annotation depending on what button what audibility button was clicked and clear
-        the frame to be able to show the next plot.
-
-        Parameters
-        ----------
-        id_ : Any
-            The track unique identifier.
-        valid : bool
-            If the track was valid.
-        audible : bool
-            If the track was valid, was it audible.
-        starttime : str, default None
-            If the track was audible, when does audibility start.
-        endtime : str, default None
-            If the track was audible, when does audibility end.
-        # TODO
-        """
-        # Deactivate the decision buttons.
-        self.audible_button.config(state=tk.DISABLED)
-        self.inaudible_button.config(state=tk.DISABLED)
-        self.unknown_button.config(state=tk.DISABLED)
-
-        self.master.add_annotation(id_, valid, audible, starttime, endtime, valid_points)
-        plt.close()
-        self._next()

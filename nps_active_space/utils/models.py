@@ -208,5 +208,6 @@ class Tracks(gpd.GeoDataFrame):
         if z_col:
             col_renames[z_col] = 'z'
         data.rename(columns=col_renames, inplace=True)
+        data.rename_geometry('geometry', inplace=True)
         data.sort_values(by=['track_id', 'point_dt'], ascending=True, inplace=True)
         super().__init__(data=data)
