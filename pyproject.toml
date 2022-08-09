@@ -24,6 +24,7 @@ py-modules = ['nps_active_space']
 
 [project.optional-dependencies]
 ground-truthing = [
+    "contextily==1.2.0",
     "Fiona==1.8.21",
     "GDAL==3.4.2",
     "geopandas==0.10.2",

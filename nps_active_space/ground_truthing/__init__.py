@@ -5,8 +5,8 @@ from abc import ABC
 from tkinter import filedialog, messagebox
 from typing import Any, List, Optional, Type, TYPE_CHECKING
 
+import contextily as cx
 import geopandas as gpd
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -15,7 +15,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.widgets import RangeSlider
 from PIL import Image, ImageTk
-from shapely.geometry import Point
+from shapely.geometry import LineString, Point
 
 from nps_active_space import _ACTIVE_SPACE_DIR
 from nps_active_space.utils import audible_time_delay, interpolate_spline
@@ -55,7 +55,7 @@ class _App(tk.Tk):
     Parameters
     ----------
     outfile : str
-        Absolute path to the csv file where annotation should be output. Format: /path/to/file.csv
+        Absolute path to the geojson file where annotation should be output. Format: /path/to/file.geojson
     mic : Microphone
         A Microphone object of the microphone deployment to be used for ground truthing.
     nvspl : Nvspl
@@ -73,6 +73,8 @@ class _App(tk.Tk):
     def __init__(self, outfile: str, mic: 'Microphone', nvspl: 'Nvspl', tracks: 'Tracks',
                  crs: str, study_area: gpd.GeoDataFrame, clip: bool = False):
         super().__init__()
+
+        assert outfile.endswith('.geojson'), "Outfile must be a geojson file."
 
         self.outfile = outfile
         self.crs = crs
@@ -97,7 +99,7 @@ class _App(tk.Tk):
         self.config(menu=self.menu)
 
         # Create the application starting state.
-        self.annotations = gpd.GeoDataFrame(columns=['_id', 'point_dt', 'valid', 'audible', 'geometry', 'note'],
+        self.annotations = gpd.GeoDataFrame(columns=['_id', 'start_dt', 'end_dt', 'valid', 'audible', 'geometry', 'note'],
                                             geometry='geometry', crs='epsg:4326')
         self._saved = True
         self._frame = None
@@ -125,29 +127,38 @@ class _App(tk.Tk):
         self._frame = new_frame
         self._frame.pack(expand=True, anchor='nw', fill=tk.BOTH)
 
-    def add_annotation(self, annotated_points: gpd.GeoDataFrame):
+    def add_annotation(self, annotated_lines: gpd.GeoDataFrame):
         """
         Add new track audibility annotations.
 
         Parameters
         ----------
-        annotated_points: gpd.GeoDataFrame
-            a GeoDataFrame of annotated points for a track to add to the overall annotations GeoDataFrame
+        annotated_lines: gpd.GeoDataFrame
+            a GeoDataFrame of annotated lines for a track to add to the overall annotations GeoDataFrame.
         """
-        annotated_points = annotated_points.to_crs('epsg:4326')
-        self.annotations = pd.concat([self.annotations, annotated_points], ignore_index=True)
+        annotated_lines = annotated_lines.to_crs('epsg:4326')
+        self.annotations = pd.concat([self.annotations, annotated_lines], ignore_index=True)
         self._saved = False
 
     def load_annotations(self, filename: str):
         """
-        Simple function to load existing annotations from a csv file.
+        Simple function to load existing annotations from a geojson file.
 
         Parameters
         ----------
         filename : str
-            Absolute path to csv file to load previous annotations from.
+            Absolute path to the geojson file to load previous annotations from.
         """
-        self.annotations = pd.read_csv(filename, usecols=self.annotations.columns)
+        self.annotations = gpd.read_file(filename)
+        self.annotations = self.annotations.astype({'start_dt': 'datetime64[ns]', 'end_dt': 'datetime64[ns]'})
+
+        # Sometimes the annotation file is read in with the valid and audible columns as booleans and other times
+        #  as objects depending on what values are stored.
+        try:
+            self.annotations.valid.replace({'1': True, '0': False}, inplace=True)
+            self.annotations.audible.replace({'1': True, '0': False}, inplace=True)
+        except TypeError:
+            pass
 
     def _close(self):
         """
@@ -173,7 +184,7 @@ class _App(tk.Tk):
             return
 
         try:
-            self.annotations.to_csv(self.outfile, mode='w')
+            self.annotations.to_file(self.outfile, driver='GeoJSON', mode='w', index=False)
             self._saved = True
             tk.messagebox.showinfo(
                 title='Save Status',
@@ -190,13 +201,9 @@ class _App(tk.Tk):
 
         fig, ax = plt.subplots(1, 1, figsize=(6, 9))
 
-        # # show basemap in lat/long # TODO
-        # with rasterio.open(r"T:\ResMgmt\WAGS\Sound\Users\Kirby_Heck\DENA Park Brochure Map wi.tif") as raster:
-        #     rasterio.plot.show(raster, ax=ax, alpha=0.6)
-
         # Plot study area.
         study_area = self.study_area.to_crs('epsg:4326')
-        study_area.geometry.boundary.plot(ax=ax, ls="--", color="navy")
+        study_area.geometry.boundary.plot(ax=ax, ls="--", color="navy", label='study area')
 
         # Plot microphone position.
         ax.plot(
@@ -211,23 +218,24 @@ class _App(tk.Tk):
         )
 
         # Plot track audibility.
-        valid_points = self.annotations[self.annotations.valid]
-        valid_points[valid_points.audible == True].plot(
+        valid_segments = self.annotations[self.annotations.valid]
+        valid_segments[valid_segments.audible == True].plot(
             ax=ax,
             color='deepskyblue',
-            alpha=0.05,
+            alpha=0.5,
             markersize=3,
             zorder=3,
-            label="Audible points"
+            label="Audible segments"
         )
-        valid_points[valid_points.audible == False].plot(
+        valid_segments[valid_segments.audible == False].plot(
             ax=ax,
             color='red',
-            alpha=0.05,
+            alpha=0.5,
             markersize=3,
             zorder=2,
-            label="Inaudible points"
+            label="Inaudible segments"
         )
+        #cx.add_basemap(ax, crs='epsg:4326', source=cx.providers.OpenStreetMap.Mapnik) # TODO
 
         # This will result in a square map
         xmin, ymin, xmax, ymax = study_area.total_bounds
@@ -235,10 +243,9 @@ class _App(tk.Tk):
         ax.set(xlim=(xmin - pad[0], xmax + pad[0]), ylim=(ymin - pad[1], ymax + pad[1]))
         ax.set_title("Annotated Track Segments")
         ax.tick_params(axis='both', labelsize=6)
-        plt.legend(loc="lower center", bbox_to_anchor=(0.5, -0.25), markerscale=2)
+        plt.legend(loc="lower center", bbox_to_anchor=(0.5, -0.35), markerscale=2)
 
         fig.show()
-        # TODO save
 
 
 class _WelcomeFrame(_AppFrame):
@@ -360,9 +367,10 @@ class _AnnotationLoadFrame(_AppFrame):
         self.select_file_label.config(text='')
         self.annotation_filename.set('')
 
+
     def _select_file(self):
         """Open File Dialog and save the selected file."""
-        filetypes = (('csv files', '*.csv'),)
+        filetypes = (('geojson files', '*.geojson'),)
         filename = filedialog.askopenfilename(
             title='Open file',
             initialdir='/',
@@ -543,7 +551,7 @@ class _GroundTruthingFrame(_AppFrame):
             spectro = self.master.nvspl.loc[str(points.point_dt.iat[0]):str(points.point_dt.iat[-1]), '12.5':'20000']
 
             # If the track is already annotated, move on.
-            if idx in self.master.annotations._id.values:
+            if str(idx) in self.master.annotations._id.values:
                 self._next()
 
             # If the track does not have enough points for processing, mark it as invalid and move on.
@@ -572,7 +580,7 @@ class _GroundTruthingFrame(_AppFrame):
             self.master.switch_frame(_CompletionFrame)
 
     def _click(self, id_: Any, points: gpd.GeoDataFrame, valid: bool, audible: bool,
-               starttime: Optional[dt.datetime] = None, endtime: Optional[dt.datetime] = None,
+               audibility_start: Optional[dt.datetime] = None, audibility_end: Optional[dt.datetime] = None,
                note: Optional[str] = None):
         """
         Save an annotation depending on what button what audibility button was clicked and clear
@@ -588,9 +596,9 @@ class _GroundTruthingFrame(_AppFrame):
             If the track was valid.
         audible : bool
             If the track was valid, was it audible.
-        starttime : dt.datetime, default None
+        audibility_start : dt.datetime, default None
             If the track was audible, when does audibility start.
-        endtime : dt.datetime, default None
+        audibility_end : dt.datetime, default None
             If the track was audible, when does audibility end.
         note: str, default None
             Any note to be added to all points passed for annotation.
@@ -600,20 +608,45 @@ class _GroundTruthingFrame(_AppFrame):
         self.inaudible_button.config(state=tk.DISABLED)
         self.unknown_button.config(state=tk.DISABLED)
 
-        # Add annotations to the points based on what decision was made about audibility.
-        points['_id'] = id_
-        points['note'] = note
-        if valid is False and audible is False:
-            points['valid'] = False
-            points['audible'] = False
-        elif valid is True and audible is False:
-            points['valid'] = True
-            points['audible'] = False
-        elif valid is True and audible is True:
-            points['valid'] = True
-            points['audible'] = np.all([points.time_audible >= starttime, points.time_audible <= endtime], axis=0)
+        # Unknown and inaudible tracks can be saved as a single line.
+        if valid is False or audible is False:
+            lines = gpd.GeoDataFrame(
+                {
+                    '_id': [id_],
+                    'start_dt': [points.point_dt.iat[0]],
+                    'end_dt': [points.point_dt.iat[-1]],
+                    'valid': [valid],
+                    'audible': [audible],
+                    'note': [note],
+                    'geometry': [LineString(points.geometry.tolist())]
+                },
+                geometry='geometry',
+                crs=points.crs
+            )
 
-        self.master.add_annotation(points[self.master.annotations.columns])
+        else:
+
+            audible_segment = points[(points.time_audible >= audibility_start) &
+                                     (points.time_audible <= audibility_end)]
+
+            inaudible_segment_1 = points[points.point_dt <= audible_segment.point_dt.iat[0]]
+            inaudible_segment_2 = points[points.point_dt >= audible_segment.point_dt.iat[-1]]
+
+            line_segments = []
+            for i, segment in enumerate([inaudible_segment_1, audible_segment, inaudible_segment_2]):
+                if segment.shape[0] > 1:
+                    line_segments.append(
+                        {'_id': id_,
+                         'start_dt': segment.point_dt.iat[0],
+                         'end_dt': segment.point_dt.iat[-1],
+                         'valid': True,
+                         'audible': True if i == 1 else False,
+                         'note': note,
+                         'geometry': LineString(segment.geometry.tolist())}
+                    )
+            lines = gpd.GeoDataFrame(line_segments, geometry='geometry', crs=points.crs)
+
+        self.master.add_annotation(lines)
         plt.close()
         self._next()
 
@@ -662,8 +695,8 @@ class _GroundTruthingFrame(_AppFrame):
                     spline,
                     valid=True,
                     audible=True,
-                    starttime=num2date(lower_t).replace(tzinfo=None),
-                    endtime=num2date(upper_t).replace(tzinfo=None))
+                    audibility_start=num2date(lower_t).replace(tzinfo=None),
+                    audibility_end=num2date(upper_t).replace(tzinfo=None))
             )
 
             # Redraw the figure to ensure it updates
