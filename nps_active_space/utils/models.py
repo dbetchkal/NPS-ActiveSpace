@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 
 __all__ = [
+    'Annotations',
     'Microphone',
     'Nvspl',
     'Tracks'
@@ -210,4 +211,35 @@ class Tracks(gpd.GeoDataFrame):
         data.rename(columns=col_renames, inplace=True)
         data.rename_geometry('geometry', inplace=True)
         data.sort_values(by=['track_id', 'point_dt'], ascending=True, inplace=True)
+        super().__init__(data=data)
+
+
+class Annotations(gpd.GeoDataFrame):
+    """
+    A geopandas GeoDataFrame wrapper class to standardize track annotations.
+
+    Parameters
+    ----------
+   filename : str, default None
+       Filename to read annotation data from. If no filename is passed, an empty Annotations GeoDataFrame
+       will be created.
+    """
+    def __init__(self, filename: Optional[str] = None):
+
+        if filename:
+            data = gpd.read_file(filename).astype({'start_dt': 'datetime64[ns]', 'end_dt': 'datetime64[ns]'})
+
+            # Sometimes the annotation file is read in with the valid and audible columns as booleans and other times
+            #  as objects depending on what values are stored.
+            try:
+                data.valid.replace({'1': True, '0': False}, inplace=True)
+                data.audible.replace({'1': True, '0': False}, inplace=True)
+            except TypeError:
+                pass
+
+        else:
+
+            data = gpd.GeoDataFrame(columns=['_id', 'start_dt', 'end_dt', 'valid', 'audible', 'geometry', 'note'],
+                                    geometry='geometry', crs='epsg:4326')
+
         super().__init__(data=data)

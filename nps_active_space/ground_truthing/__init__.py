@@ -18,7 +18,7 @@ from PIL import Image, ImageTk
 from shapely.geometry import LineString, Point
 
 from nps_active_space import _ACTIVE_SPACE_DIR
-from nps_active_space.utils import audible_time_delay, interpolate_spline
+from nps_active_space.utils import Annotations, audible_time_delay, interpolate_spline
 
 if TYPE_CHECKING:
     from nps_active_space.utils import Microphone, Nvspl, Tracks
@@ -99,8 +99,7 @@ class _App(tk.Tk):
         self.config(menu=self.menu)
 
         # Create the application starting state.
-        self.annotations = gpd.GeoDataFrame(columns=['_id', 'start_dt', 'end_dt', 'valid', 'audible', 'geometry', 'note'],
-                                            geometry='geometry', crs='epsg:4326')
+        self.annotations = Annotations()
         self._saved = True
         self._frame = None
 
@@ -149,16 +148,7 @@ class _App(tk.Tk):
         filename : str
             Absolute path to the geojson file to load previous annotations from.
         """
-        self.annotations = gpd.read_file(filename)
-        self.annotations = self.annotations.astype({'start_dt': 'datetime64[ns]', 'end_dt': 'datetime64[ns]'})
-
-        # Sometimes the annotation file is read in with the valid and audible columns as booleans and other times
-        #  as objects depending on what values are stored.
-        try:
-            self.annotations.valid.replace({'1': True, '0': False}, inplace=True)
-            self.annotations.audible.replace({'1': True, '0': False}, inplace=True)
-        except TypeError:
-            pass
+        self.annotations = Annotations(filename)
 
     def _close(self):
         """

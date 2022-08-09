@@ -1,10 +1,11 @@
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING
 
 import geopandas as gpd
 import pandas as pd
 from tqdm import tqdm
 
+from nps_active_space import _ACTIVE_SPACE_DIR
 from nps_active_space.utils import coords_to_utm, Microphone
 
 if TYPE_CHECKING:
@@ -136,3 +137,38 @@ def get_logger(name: str, level: str = 'INFO') -> logging.Logger:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     return logger
+
+
+def get_omni_sources(lower: int, upper: int) -> List[str]:
+    """
+    Get a list of omni source files for tuning NMSim within a specific gain range.
+    Source files are provided in the data directory for gains between -30 and +50.
+
+    Parameters
+    ----------
+    lower: int
+        The lowest gain omni source file to pull.
+    upper : int
+        The high gain omni source file to pull
+
+    Returns
+    -------
+    A list of omni source files within the specified gain range.
+
+    Raises
+    ------
+    AssertionError if the lower or upper gain bound is out of range or of the upper gain bound is lower than
+    the lower gain bound.
+    """
+    assert -30 <= upper <= 50 and -30 <= lower <= 50 and upper > lower, "Bounds must be between [-30, 50]"
+
+    omni_source_dir = f"{_ACTIVE_SPACE_DIR}/data/tuning"
+    omni_sources = []
+
+    for i in range(lower*10, upper*10+5, 5):
+        if i < 0:
+            omni_sources.append(f"{omni_source_dir}/O_{i:04}.src")
+        elif i >= 0:
+            omni_sources.append(f"{omni_source_dir}/O_+{i:03}.src")
+
+    return omni_sources
