@@ -422,8 +422,10 @@ class _AnnotationLoadFrame(_AppFrame):
     def _option_selected(self):
         """If user wants to load existing annotations, load them before proceeding to the app instructions frame."""
         if self.annotation_filename.get():
+
             if self.load_annotations.get() is True:
                 self.master.load_annotations(self.annotation_filename.get())
+
             self.master.outfile = self.annotation_filename.get()
             self.master.switch_frame(_InstructionsFrame)
 
@@ -649,6 +651,7 @@ class _GroundTruthingFrame(_AppFrame):
         self.unknown_button.config(state=tk.DISABLED)
 
         # Unknown and inaudible tracks can be saved as a single line.
+
         if valid is False or audible is False:
             lines = gpd.GeoDataFrame(
                 {
@@ -658,7 +661,8 @@ class _GroundTruthingFrame(_AppFrame):
                     'valid': [valid],
                     'audible': [audible],
                     'note': [note],
-                    'geometry': [LineString(points.geometry.tolist())]
+                    'geometry': [points.geometry.iat[0] if points.shape[0] == 1
+                                 else LineString(points.geometry.tolist())]
                 },
                 geometry='geometry',
                 crs=points.crs
