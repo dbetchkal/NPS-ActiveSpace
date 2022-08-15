@@ -25,8 +25,6 @@ if __name__ == '__main__':
                           help="Four letter site code. E.g. TRLA")
     argparse.add_argument('-y', '--year', type=int, required=True,
                           help="Four digit year. E.g. 2018")
-    argparse.add_argument('-o', '--outfile', required=False,
-                          help='A specific file to output annotations to.')
 
     args = argparse.parse_args()
 
@@ -41,7 +39,6 @@ if __name__ == '__main__':
     # Set the various path variables.
     archive = iyore.Dataset(cfg.read('data', 'archive'))
     project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
-    outfile = args.outfile if args.outfile else f"{project_dir}/{args.unit}{args.site}{args.year}_saved_annotations"
 
     # Load the microphone deployment site metadata and the study area shapefile.
     microphone = get_deployment(args.unit, args.site, args.year, cfg.read('data', 'site_metadata'))
@@ -65,7 +62,6 @@ if __name__ == '__main__':
 
     logger.info("Launching application...")
     app.launch(
-        outfile=outfile,
         tracks=Tracks(tracks, 'flight_id', 'ak_datetime', 'altitude_m'),
         nvspl=nvspl,
         mic=microphone,

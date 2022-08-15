@@ -54,8 +54,6 @@ class _App(tk.Tk):
 
     Parameters
     ----------
-    outfile : str
-        Absolute path to the geojson file where annotation should be output. Format: /path/to/file.geojson
     mic : Microphone
         A Microphone object of the microphone deployment to be used for ground truthing.
     nvspl : Nvspl
@@ -70,18 +68,16 @@ class _App(tk.Tk):
     clip : bool, default False
         If True, clip the Tracks to the study area.
     """
-    def __init__(self, outfile: str, mic: 'Microphone', nvspl: 'Nvspl', tracks: 'Tracks',
+    def __init__(self, mic: 'Microphone', nvspl: 'Nvspl', tracks: 'Tracks',
                  crs: str, study_area: gpd.GeoDataFrame, clip: bool = False):
         super().__init__()
 
-        assert outfile.endswith('.geojson'), "Outfile must be a geojson file."
-
-        self.outfile = outfile
         self.crs = crs
         self.mic = mic.to_crs(crs)
         self.study_area = study_area.to_crs(crs)
         self.tracks = gpd.clip(tracks.to_crs(crs), self.study_area) if clip else tracks.to_crs(crs)
         self.nvspl = nvspl
+        self.outfile = None
 
         # Set app features.
         self.title('NPS Active Space: Ground Truthing Module')
@@ -108,7 +104,12 @@ class _App(tk.Tk):
     def run(self):
         """Run the main application frame."""
         self.protocol("WM_DELETE_WINDOW", self._close)
-        self.switch_frame(_GroundTruthingFrame)
+
+        if set(self.tracks.track_id.unique()) - set(self.annotations._id.unique()) == set():
+            self.switch_frame(_CompletionFrame)
+
+        else:
+            self.switch_frame(_GroundTruthingFrame)
 
     def switch_frame(self, frame_class: Type[_AppFrame]):
         """
@@ -172,7 +173,6 @@ class _App(tk.Tk):
         """Save current annotations to the output file."""
         if self._saved is True:
             return
-
         try:
             self.annotations.to_file(self.outfile, driver='GeoJSON', mode='w', index=False)
             self._saved = True
@@ -195,18 +195,6 @@ class _App(tk.Tk):
         study_area = self.study_area.to_crs('epsg:4326')
         study_area.geometry.boundary.plot(ax=ax, ls="--", color="navy", label='study area')
 
-        # Plot microphone position.
-        ax.plot(
-            self.mic.lon,
-            self.mic.lat,
-            ls="",
-            marker="*",
-            ms=6,
-            color="black",
-            zorder=3,
-            label=self.mic.name
-        )
-
         # Plot track audibility.
         valid_segments = self.annotations[self.annotations.valid]
         valid_segments[valid_segments.audible == True].plot(
@@ -224,6 +212,18 @@ class _App(tk.Tk):
             markersize=3,
             zorder=2,
             label="Inaudible segments"
+        )
+
+        # Plot microphone position.
+        ax.plot(
+            self.mic.lon,
+            self.mic.lat,
+            ls="",
+            marker="*",
+            ms=6,
+            color="black",
+            zorder=3,
+            label=self.mic.name
         )
         #cx.add_basemap(ax, crs='epsg:4326', source=cx.providers.OpenStreetMap.Mapnik) # TODO
 
@@ -304,6 +304,17 @@ class _AnnotationLoadFrame(_AppFrame):
             bg='ivory2'
         )
 
+        self.create_file_button = tk.Button(
+            self,
+            text='Create File',
+            bg='ivory2',
+            command=lambda: self._create_file()
+        )
+        self.create_file_label = tk.Label(
+            self,
+            bg='ivory2'
+        )
+
         self.frame_label = tk.Label(
             self,
             text='Would you like to check for saved annotations?',
@@ -323,7 +334,7 @@ class _AnnotationLoadFrame(_AppFrame):
             value=True,
             variable=self.load_annotations,
             bg='ivory2',
-            command=lambda: self.select_file_button.place(relx=0.6, rely=0.48, anchor='w')
+            command=lambda: self._clear_no()
         )
         self.no_button = tk.Radiobutton(
             self,
@@ -332,7 +343,7 @@ class _AnnotationLoadFrame(_AppFrame):
             value=False,
             variable=self.load_annotations,
             bg='ivory2',
-            command=lambda: self._clear()
+            command=lambda: self._clear_yes()
         )
         self.continue_button = tk.Button(
             self,
@@ -348,18 +359,29 @@ class _AnnotationLoadFrame(_AppFrame):
         self.select_label.place(relx=0.5, rely=0.4, anchor='center')
         self.yes_button.place(relx=0.41, rely=0.48, anchor='w')
         self.no_button.place(relx=0.41, rely=0.53, anchor='w')
+        self.create_file_button.place(relx=0.6, rely=0.53, anchor='w')
         self.continue_button.place(relx=0.9, rely=0.9, anchor='center')
 
-    def _clear(self):
+    def _clear_yes(self):
         """Remove the Select File and related widgets if No option is selected."""
         self.select_file_button.place_forget()
         self.select_file_label.place_forget()
         self.select_file_label.config(text='')
         self.annotation_filename.set('')
 
+        self.create_file_button.place(relx=0.6, rely=0.53, anchor='w')
+
+    def _clear_no(self):
+        """Remove the Create File and related widgets if Yes option is selected."""
+        self.create_file_button.place_forget()
+        self.create_file_label.place_forget()
+        self.create_file_label.config(text='')
+        self.annotation_filename.set('')
+
+        self.select_file_button.place(relx=0.6, rely=0.48, anchor='w')
 
     def _select_file(self):
-        """Open File Dialog and save the selected file."""
+        """Open File Dialog and save the existing selected annotation file."""
         filetypes = (('geojson files', '*.geojson'),)
         filename = filedialog.askopenfilename(
             title='Open file',
@@ -368,14 +390,34 @@ class _AnnotationLoadFrame(_AppFrame):
         )
         if filename:
             self.annotation_filename.set(filename)
-            self.select_file_label.config(text=f"{filename[:50]}...")
+            self.select_file_label.config(text=f"...{filename[-50:]}")
             self.select_file_label.place(relx=0.66, rely=0.48, anchor='w')
+
+    def _create_file(self):
+        """Open File Dialog and save the new annotation file."""
+        filetypes = (('geojson files', '*.geojson'),)
+        filename = filedialog.asksaveasfilename(
+            title='Create annotation file',
+            filetypes=filetypes,
+            initialdir='/',
+            initialfile=f"{self.master.mic.name}_saved_annotations",
+            defaultextension=".geojson",
+        )
+
+        if filename:
+            self.annotation_filename.set(filename)
+            self.create_file_label.config(text=f"...{filename[-50:]}")
+            self.create_file_label.place(relx=0.66, rely=0.53, anchor='w')
 
     def _option_selected(self):
         """If user wants to load existing annotations, load them before proceeding to the app instructions frame."""
-        if self.load_annotations.get() is True and self.annotation_filename.get():
-            self.master.load_annotations(self.annotation_filename.get())
-        self.master.switch_frame(_InstructionsFrame)
+        if self.annotation_filename.get():
+
+            if self.load_annotations.get() is True:
+                self.master.load_annotations(self.annotation_filename.get())
+
+            self.master.outfile = self.annotation_filename.get()
+            self.master.switch_frame(_InstructionsFrame)
 
 
 class _InstructionsFrame(_AppFrame):
@@ -599,6 +641,7 @@ class _GroundTruthingFrame(_AppFrame):
         self.unknown_button.config(state=tk.DISABLED)
 
         # Unknown and inaudible tracks can be saved as a single line.
+
         if valid is False or audible is False:
             lines = gpd.GeoDataFrame(
                 {
@@ -608,7 +651,8 @@ class _GroundTruthingFrame(_AppFrame):
                     'valid': [valid],
                     'audible': [audible],
                     'note': [note],
-                    'geometry': [LineString(points.geometry.tolist())]
+                    'geometry': [points.geometry.iat[0] if points.shape[0] == 1
+                                 else LineString(points.geometry.tolist())]
                 },
                 geometry='geometry',
                 crs=points.crs

@@ -189,7 +189,7 @@ class Tracks(gpd.GeoDataFrame):
         A GeoDataFrame of track points.
     id_col : str
         The name of the column containing aa unique identifier to group track points by.
-        This  column will be given the standardized name of track_id
+        This column will be given the standardized name of track_id and converted to a string.
             E.g. flight id, license plate
     datetime_col : str
         A tracks GeoDataFrame is required to have a column with the datetime of each track point.
@@ -210,6 +210,7 @@ class Tracks(gpd.GeoDataFrame):
             col_renames[z_col] = 'z'
         data.rename(columns=col_renames, inplace=True)
         data.rename_geometry('geometry', inplace=True)
+        data['track_id'] = data.track_id.astype(str)
         data.sort_values(by=['track_id', 'point_dt'], ascending=True, inplace=True)
         super().__init__(data=data)
 
