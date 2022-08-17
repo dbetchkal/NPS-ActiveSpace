@@ -177,6 +177,100 @@ class Nvspl(pd.DataFrame):
         only_standard_cols = all(re.match(self.octave_regex, col) for col in (set(columns) - self.standard_fields))
         assert only_standard_cols is True, "NVSPL data contains unexpected NVSPL columns."
 
+class Adsb(gpd.GeoDataFrame):
+    """
+    A geopandas GeoDataFrame wrapper class to ensure consistent ADS-B data.
+
+    Parameters
+    ----------
+    filepaths_or_data : List, str, or gpd.GeoDataFrame
+        A directory containing ADS-B TSV files, a list of ADS-B TSV files, or an existing gpd.GeoDataFrame of ADS-B data.
+    """
+
+    # standard_fields = {
+    #     'timestamp', 'ICAO_address', 'lat', 'lon', 'altitude', 'heading',
+    #     'hor_velocity', 'ver_velocity', 'valid_flags', 'alt_type',
+    #     'callsign', 'emitter_type', 'tslc'
+    # }
+    #
+    
+    standard_fields = {
+        'TIME', 'ICAO_address', 'lat', 'lon', 'altitude', 'heading',
+        'hor_velocity', 'ver_velocity', 'valid_flags', 'callsign', 'tslc'
+    }
+
+    def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
+        data = self._read(filepaths_or_data)
+        data.set_index('TIME', inplace=True)
+        super().__init__(data=data)
+
+    def _read(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
+        """
+        Read in and validate the ADS-B data.
+
+        # TODO: for speed and memory improvements, use usecols, define datatypes, and drop empty columns.
+
+        Parameters
+        ----------
+        filepaths_or_data : List, str, or gpd.GeoDataFrame
+            A directory containing ADS-B files, a list of ADS-B files, or an existing gpd.GeoDataFrame of ADS-B data.
+
+        Raises
+        ------
+        AssertionError if directory path or file path does not exists or is of the wrong format.
+        """
+        if isinstance(filepaths_or_data, gpd.GeoDataFrame):
+            #self._validate(filepaths_or_data.columns)
+            data = filepaths_or_data
+
+        else:
+            if isinstance(filepaths_or_data, str):
+                assert os.path.isdir(filepaths_or_data), f"{filepaths_or_data} does not exist."
+                filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.TSV")
+
+            else:
+                for file in filepaths_or_data:
+                    assert os.path.isfile(file), f"{file} does not exist."
+                    assert file.endswith('.TSV'), f"Only .TSV ADS-B files accepted."
+
+            data = pd.DataFrame()
+            for file in tqdm(filepaths_or_data, desc='Loading ADS-B files', unit='files', colour='green'):
+                df = pd.read_csv(file, sep="\t")
+                df = df[df[["TIME","ICAO_address","lat","lon","validFlags", "tslc"]].notna().any(axis=1)]
+                df["TIME"] = df["TIME"].apply(lambda t: dt.datetime.utcfromtimestamp(t))
+                df[['lat','lon']] = df[["lat","lon"]]/1e7
+                df['altitude'] = df['altitude']/1e3
+                df[['heading','hor_velocity','ver_velocity']] = df[['heading','hor_velocity','ver_velocity']]/1e2
+                df = df.loc[df["callsign"].str[:1] == "N", :] # only return N-number callsigns
+                #self._validate(df.columns) TO DO: write validation
+                data = data.append(df)
+
+            data = gpd.GeoDataFrame(data, 
+                                    geometry=gpd.points_from_xy(data["lon"], data["lat"]),
+                                    crs="EPSG:4326")
+
+        return data
+
+    # def _validate(self, columns: List[str]):
+    #     """
+    #     Ensure that the provided data has only the standard
+
+    #     Parameters
+    #     ----------
+    #     columns : List of strs
+    #         List of NVSPL DataFrame columns.
+
+    #     Raises
+    #     ------
+    #     AssertionError if any standard column is missing or if any non-standard and non-octave column is present.
+    #     """
+    #     # Verify that all NVSPL standard columns exist.
+    #     missing_standard_cols = self.standard_fields - set(columns)
+    #     assert missing_standard_cols == set(), f"Missing the following standard NVSPL columns: {missing_standard_cols}"
+
+    #     # Verify all non-standard columns are octave columns.
+    #     only_standard_cols = all(re.match(self.octave_regex, col) for col in (set(columns) - self.standard_fields))
+    #     assert only_standard_cols is True, "NVSPL data contains unexpected NVSPL columns."
 
 class Tracks(gpd.GeoDataFrame):
     """
