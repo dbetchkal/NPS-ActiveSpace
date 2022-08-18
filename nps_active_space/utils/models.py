@@ -202,8 +202,29 @@ class Adsb(gpd.GeoDataFrame):
 
     def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
         data = self._read(filepaths_or_data)
-        data["DateTime"] = data["DateTime"].apply(lambda t: dt.datetime.strptime(t, "%Y/%m/%d %H:%M:%S.%f").replace(microsecond=0))
-        data.drop_duplicates(subset=['DateTime'], inplace=True, ignore_index=True)
+        data.columns = ["ICAO_address", "TIME", "lat", "lon", "Altitude", "geometry"]
+        data["TIME"] = data["TIME"].apply(lambda t: dt.datetime.strptime(t, "%Y/%m/%d %H:%M:%S.%f").replace(microsecond=0))
+        data["DATE"] = data["TIME"].dt.strftime("%Y%m%d")
+
+        # Sort records by ICAO Address and TIME then reset dataframe index
+        data.sort_values(["ICAO_address", "TIME"], inplace=True)
+        data = data.reset_index(drop=True)
+        
+        # Calculate time difference between sequential waypoints for each aircraft
+        data["dur_secs"] = data.groupby("ICAO_address")["TIME"].diff().dt.total_seconds()
+        data["dur_secs"] = data["dur_secs"].fillna(0)
+
+        # Use threshold waypoint duration value to identify separate flights by an aircraft 
+        # then sum the number of "true" conditions to assign unique ID's
+        data['diff_flight'] = data['dur_secs'] >= 900
+        data['cumsum'] = data.groupby('ICAO_address')['diff_flight'].cumsum()
+        data['flight_id'] = data['ICAO_address'] + "_" + data['cumsum'].astype(str) + "_" + data['DATE']
+
+        # Remove records where there is only one recorded waypoint for an aircraft
+        data = data[data.groupby("flight_id").flight_id.transform(len) > 1]
+
+        data.drop_duplicates(subset=['ICAO_address', 'TIME', 'lat', 'lon'], inplace=True, keep = 'last')
+
         super().__init__(data=data)
 
     def _read(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
@@ -233,7 +254,7 @@ class Adsb(gpd.GeoDataFrame):
             else:
                 for file in filepaths_or_data:
                     assert os.path.isfile(file), f"{file} does not exist."
-                    assert file.endswith('.txt'), f"Only .TSV ADS-B files accepted."
+                    assert (file.endswith('.txt')|file.endswith('.txt')), f"Only .txt or .TSV ADS-B files accepted."
 
             data = pd.DataFrame()
             for file in tqdm(filepaths_or_data, desc='Loading ADS-B files', unit='files', colour='green'):
@@ -262,13 +283,14 @@ class Adsb(gpd.GeoDataFrame):
     #     ------
     #     AssertionError if any standard column is missing or if any non-standard and non-octave column is present.
     #     """
-    #     # Verify that all NVSPL standard columns exist.
-    #     missing_standard_cols = self.standard_fields - set(columns)
-    #     assert missing_standard_cols == set(), f"Missing the following standard NVSPL columns: {missing_standard_cols}"
 
-    #     # Verify all non-standard columns are octave columns.
-    #     only_standard_cols = all(re.match(self.octave_regex, col) for col in (set(columns) - self.standard_fields))
-    #     assert only_standard_cols is True, "NVSPL data contains unexpected NVSPL columns."
+    #     # # Verify that all NVSPL standard columns exist.
+    #     # missing_standard_cols = self.standard_fields - set(columns)
+    #     # assert missing_standard_cols == set(), f"Missing the following standard NVSPL columns: {missing_standard_cols}"
+
+    #     # # Verify all non-standard columns are octave columns.
+    #     # only_standard_cols = all(re.match(self.octave_regex, col) for col in (set(columns) - self.standard_fields))
+    #     # assert only_standard_cols is True, "NVSPL data contains unexpected NVSPL columns."
 
 
 class Tracks(gpd.GeoDataFrame):

@@ -127,7 +127,7 @@ def query_adsb(adsb_files: List[str],  start_date: str, end_date: str,
         A ADSB object of flight track points.
     """
     adsb = Adsb(adsb_files)
-    adsb = adsb.loc[(adsb["DateTime"] > start_date) & (adsb["DateTime"] < end_date)]
+    adsb = adsb.loc[(adsb["TIME"] > start_date) & (adsb["TIME"] < end_date)]
 
     if mask is not None:
         if not mask.crs.to_epsg() == 4326:  # If mask is not already in WGS84, project it.
