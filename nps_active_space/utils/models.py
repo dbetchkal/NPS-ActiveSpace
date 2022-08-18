@@ -202,6 +202,8 @@ class Adsb(gpd.GeoDataFrame):
 
     def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
         data = self._read(filepaths_or_data)
+        data["DateTime"] = data["DateTime"].apply(lambda t: dt.datetime.strptime(t, "%Y/%m/%d %H:%M:%S.%f").replace(microsecond=0))
+        data.drop_duplicates(subset=['DateTime'], inplace=True, ignore_index=True)
         super().__init__(data=data)
 
     def _read(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
@@ -221,7 +223,7 @@ class Adsb(gpd.GeoDataFrame):
         """
         if isinstance(filepaths_or_data, gpd.GeoDataFrame):
             #self._validate(filepaths_or_data.columns)
-            data = filepaths_or_data.to_crs("EPSG:4326")
+            data = filepaths_or_data.to_crs("epsg:4326")
 
         else:
             if isinstance(filepaths_or_data, str):
@@ -236,14 +238,14 @@ class Adsb(gpd.GeoDataFrame):
             data = pd.DataFrame()
             for file in tqdm(filepaths_or_data, desc='Loading ADS-B files', unit='files', colour='green'):
                 df = pd.read_csv(file, sep="\t")
-                df["DateTime"] = df["DateTime"].apply(lambda t: dt.datetime.strptime(t, "%Y/%m/%d %H:%M:%S.%f").replace(microsecond=0))
-
                 #self._validate(df.columns) TO DO: write validation
                 data = data.append(df)
 
-            data = gpd.GeoDataFrame(data, 
-                                    geometry=gpd.points_from_xy(data["Longitude"], data["Latitude"]),
-                                    crs="EPSG:4326")
+            data = gpd.GeoDataFrame(
+                data,
+                geometry=gpd.points_from_xy(data["Longitude"], data["Latitude"]),
+                crs="epsg:4326"
+            )
 
         return data
 
