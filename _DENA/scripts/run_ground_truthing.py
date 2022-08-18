@@ -61,8 +61,8 @@ if __name__ == '__main__':
             end_date=nvspl_dates[-1],
             mask=study_area
         )
+        raw_tracks["local_hourtime"] = raw_tracks["DateTime"].apply(lambda t: t.replace(minute=0, second=0, microsecond=0))
         tracks = Tracks(raw_tracks, id_col='HexID', datetime_col='DateTime', z_col='Altitude')
-        tracks["local_hourtime"] = tracks["DateTime"].apply(lambda t: t.replace(minute=0, second=0, microsecond=0))
         hourtimes = tracks.local_hourtime.astype(object).unique()
 
     elif args.track_source == 'Database':
