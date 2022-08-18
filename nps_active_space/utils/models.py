@@ -115,6 +115,7 @@ class Nvspl(pd.DataFrame):
 
     def __init__(self, filepaths_or_data: Union[List[str], str, pd.DataFrame]):
         data = self._read(filepaths_or_data)
+        data['STime'] = data['STime'].astype('datetime64[s]')
         data.set_index('STime', inplace=True)
         super().__init__(data=data)
 
@@ -179,6 +180,7 @@ class Nvspl(pd.DataFrame):
         only_standard_cols = all(re.match(self.octave_regex, col) for col in (set(columns) - self.standard_fields))
         assert only_standard_cols is True, "NVSPL data contains unexpected NVSPL columns."
 
+
 class Adsb(gpd.GeoDataFrame):
     """
     A geopandas GeoDataFrame wrapper class to ensure consistent ADS-B data.
@@ -196,15 +198,10 @@ class Adsb(gpd.GeoDataFrame):
     # }
     #
     
-    standard_fields = {
-        'HexID', 'DateTime', 'Latitude', 'Longitude', 'Altitude'
-    }
+    standard_fields = {'HexID', 'DateTime', 'Latitude', 'Longitude', 'Altitude'}
 
     def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
         data = self._read(filepaths_or_data)
-        #data.set_index('DateTime', inplace=True, drop=False)
-        # data["local_hourtime"] = data.index.to_series().apply(lambda t: t.replace(minute=0, second=0, microsecond=0))
-
         super().__init__(data=data)
 
     def _read(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
@@ -224,7 +221,7 @@ class Adsb(gpd.GeoDataFrame):
         """
         if isinstance(filepaths_or_data, gpd.GeoDataFrame):
             #self._validate(filepaths_or_data.columns)
-            data = filepaths_or_data
+            data = filepaths_or_data.to_crs("EPSG:4326")
 
         else:
             if isinstance(filepaths_or_data, str):
@@ -240,7 +237,6 @@ class Adsb(gpd.GeoDataFrame):
             for file in tqdm(filepaths_or_data, desc='Loading ADS-B files', unit='files', colour='green'):
                 df = pd.read_csv(file, sep="\t")
                 df["DateTime"] = df["DateTime"].apply(lambda t: dt.datetime.strptime(t, "%Y/%m/%d %H:%M:%S.%f").replace(microsecond=0))
-                df["local_hourtime"] = df["DateTime"].apply(lambda t: t.replace(minute=0, second=0, microsecond=0))
 
                 #self._validate(df.columns) TO DO: write validation
                 data = data.append(df)
@@ -271,6 +267,7 @@ class Adsb(gpd.GeoDataFrame):
     #     # Verify all non-standard columns are octave columns.
     #     only_standard_cols = all(re.match(self.octave_regex, col) for col in (set(columns) - self.standard_fields))
     #     assert only_standard_cols is True, "NVSPL data contains unexpected NVSPL columns."
+
 
 class Tracks(gpd.GeoDataFrame):
     """

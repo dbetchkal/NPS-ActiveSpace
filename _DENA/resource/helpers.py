@@ -1,12 +1,12 @@
 import logging
 import datetime as dt
-from typing import Optional, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING
 
 import geopandas as gpd
 import pandas as pd
 from tqdm import tqdm
 
-from nps_active_space.utils import coords_to_utm, Microphone
+from nps_active_space.utils import Adsb, coords_to_utm, Microphone
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 __all__ = [
     'get_deployment',
     'get_logger',
+    'query_adsb',
     'query_tracks'
 ]
 
@@ -103,15 +104,16 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
     data = flight_tracks.loc[~(flight_tracks.geometry.is_empty)]
     return data
 
-def query_adsb(tracks: gpd.GeoDataFrame, start_date: str, end_date: str,
+
+def query_adsb(adsb_files: List[str],  start_date: str, end_date: str,
                  mask: Optional[gpd.GeoDataFrame] = None) -> gpd.GeoDataFrame:
     """
     Query flight tracks from the FlightsDB for a specific date range and optional within a specific area.
 
     Parameters
     ----------
-    tracks : gpd.GeoDataFrmae 
-        raw ADS-B points loaded using `Adsb`
+    adsb_files : List of str
+        A list of adsb data files to read in.
     start_date : str
         ISO date string (YYYY-mm-dd) indicating the beginning of the date range to query within
     end_date : str
@@ -121,25 +123,21 @@ def query_adsb(tracks: gpd.GeoDataFrame, start_date: str, end_date: str,
 
     Returns
     -------
-    data : gpd.GeoDataFrame
-        A GeoDataFrame of flight track points.
+    adsb : ADSB
+        A ADSB object of flight track points.
     """
-    
-    tracks = tracks.to_crs(epsg='4326') # for some reason I need to assert this here
+    adsb = Adsb(adsb_files)
+    adsb = adsb.loc[(adsb["DateTime"] > start_date) & (adsb["DateTime"] < end_date)]
 
     if mask is not None:
         if not mask.crs.to_epsg() == 4326:  # If mask is not already in WGS84, project it.
             mask = mask.to_crs(epsg='4326')
+        adsb = gpd.clip(adsb, mask)
 
-    data = gpd.clip(tracks, mask)
-    print("spatial filter applied!")
-    data = data.loc[(data["DateTime"] > start_date)&(data["DateTime"] < end_date), :]
-    print("temporal filter applied!")
-    data = data.loc[~(data.geometry.is_empty)]
-    print("ADS-B successfully queried. Moving on...")
+    adsb = adsb.loc[~(adsb.geometry.is_empty)] #   TODO: do we need this..?
 
+    return adsb
 
-    return data
 
 class _TqdmStream:
     """

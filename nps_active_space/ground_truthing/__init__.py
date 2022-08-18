@@ -151,7 +151,7 @@ class _App(tk.Tk):
             Absolute path to the geojson file to load previous annotations from.
         """
         self.annotations = gpd.read_file(filename)
-        self.annotations = self.annotations.astype({'start_dt': 'datetime64[ns]', 'end_dt': 'datetime64[ns]'})
+        self.annotations = self.annotations.astype({'start_dt': 'datetime64[s]', 'end_dt': 'datetime64[s]'})
 
         # Sometimes the annotation file is read in with the valid and audible columns as booleans and other times
         #  as objects depending on what values are stored.

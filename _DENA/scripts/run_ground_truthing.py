@@ -7,7 +7,7 @@ import sqlalchemy
 
 import iyore
 import nps_active_space.ground_truthing as app
-from nps_active_space.utils import Nvspl, Adsb, Tracks
+from nps_active_space.utils import Nvspl, Tracks
 
 import _DENA.resource.config as cfg
 from _DENA import _DENA_DIR
@@ -26,10 +26,8 @@ if __name__ == '__main__':
                           help="Four letter site code. E.g. TRLA")
     argparse.add_argument('-y', '--year', type=int, required=True,
                           help="Four digit year. E.g. 2018")
-    argparse.add_argument('-t', '--tracksource', required=False,
-                          help="Enter 'Database', 'ADS-B' or 'AIS'",
-                          default='Database',
-                          choices=["Database", "ADS-B", "ADSB", "AIS"])
+    argparse.add_argument('-t', '--track-source', default='Database', choices=["Database", "ADSB", "AIS"],
+                          help="Enter 'Database', 'ADSB', or 'AIS")
 
     args = argparse.parse_args()
 
@@ -55,53 +53,42 @@ if __name__ == '__main__':
     # Query flight tracks from days there is NVSPL data for.
     logger.info("Querying tracks...")
 
-    if((args.tracksource == "ADS-B")|(args.tracksource == "ADSB")):
+    if args.track_source == 'ADSB':
 
-        raw_tracks = Adsb(glob.glob(os.path.join(cfg.read('data', 'adsb'),"*.txt")))
-        # raw_tracks = Adsb(glob.glob(os.path.join(cfg.read('data', 'adsb'),"*.TSV")))
-        tracks = query_adsb(tracks=raw_tracks, start_date=nvspl_dates[0], end_date=nvspl_dates[-1], mask=study_area)
-
-        track_hours = [{'year': hourtime.year,
-                        'month': hourtime.month,
-                        'day': hourtime.day,
-                        'hour': hourtime.hour}
-                        for hourtime in tracks.local_hourtime.astype(object).unique()]
-        print("Compiled `iyore` items list!")
-        # Open NVSPL data files during hours in which there is flight data.
-        nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year), items=track_hours)]
-        print("Compiled nvspl paths\n\n", nvspl_files)
-        nvspl = Nvspl(nvspl_files)
-
-        # data: gpd.GeoDataFrame, id_col: str, datetime_col: str, z_col: Optional[str] = None
-        logger.info("Launching application...")
-        app.launch(
-            tracks=Tracks(tracks, id_col='HexID', datetime_col='DateTime', z_col='Altitude'),
-            nvspl=nvspl,
-            mic=microphone,
-            crs=microphone.crs,
-            study_area=study_area,
-            clip=False
+        raw_tracks = query_adsb(
+            adsb_files=glob.glob(os.path.join(cfg.read('data', 'adsb'), "*.txt")),
+            start_date=nvspl_dates[0],
+            end_date=nvspl_dates[-1],
+            mask=study_area
         )
+        tracks = Tracks(raw_tracks, id_col='HexID', datetime_col='DateTime', z_col='Altitude')
+        tracks["local_hourtime"] = tracks["DateTime"].apply(lambda t: t.replace(minute=0, second=0, microsecond=0))
+        hourtimes = tracks.local_hourtime.astype(object).unique()
+
+    elif args.track_source == 'Database':
+        raw_tracks = query_tracks(engine=engine, start_date=nvspl_dates[0], end_date=nvspl_dates[-1], mask=study_area)
+        tracks = Tracks(raw_tracks, 'flight_id', 'ak_datetime', 'altitude_m')
+        hourtimes = tracks.ak_hourtime.astype(object).unique()
 
     else:
+        raise NotImplementedError('Code for AIS is not ready yet.')
 
-        tracks = query_tracks(engine=engine, start_date=nvspl_dates[0], end_date=nvspl_dates[-1], mask=study_area)
-        track_hours = [{'year': hourtime.year,
-                        'month': hourtime.month,
-                        'day': hourtime.day,
-                        'hour': hourtime.hour}
-                       for hourtime in tracks.ak_hourtime.astype(object).unique()]
+    track_hours = [{'year': hourtime.year,
+                    'month': hourtime.month,
+                    'day': hourtime.day,
+                    'hour': hourtime.hour}
+                   for hourtime in hourtimes]
 
-        # Open NVSPL data files during hours in which there is flight data.
-        nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year), items=track_hours)]
-        nvspl = Nvspl(nvspl_files)
+    # Open NVSPL data files during hours in which there is flight data.
+    nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year), items=track_hours)]
+    nvspl = Nvspl(nvspl_files)
 
-        logger.info("Launching application...")
-        app.launch(
-            tracks=Tracks(tracks, 'flight_id', 'ak_datetime', 'altitude_m'),
-            nvspl=nvspl,
-            mic=microphone,
-            crs=microphone.crs,
-            study_area=study_area,
-            clip=False
-        )
+    logger.info("Launching application...")
+    app.launch(
+        tracks=tracks,
+        nvspl=nvspl,
+        mic=microphone,
+        crs=microphone.crs,
+        study_area=study_area,
+        clip=False
+    )
