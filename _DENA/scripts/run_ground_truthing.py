@@ -11,6 +11,7 @@ from nps_active_space.utils import Nvspl, Tracks
 import _DENA.resource.config as cfg
 from _DENA import _DENA_DIR
 from _DENA.resource.helpers import get_deployment, get_logger, query_tracks
+from nps_active_space.utils import coords_to_utm
 
 
 if __name__ == '__main__':
@@ -42,12 +43,12 @@ if __name__ == '__main__':
 
     # Load the microphone deployment site metadata and the study area shapefile.
     microphone = get_deployment(args.unit, args.site, args.year, cfg.read('data', 'site_metadata'))
-    study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])
+    study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])  # In NAD83, epsg:4269
 
     # Retrieve the days for which at least some NVSPL data exist.
     nvspl_dates = sorted(set([f"{e.year}-{e.month}-{e.day}" for e in archive.nvspl(unit=args.unit, site=args.site, year=args.year)]))
 
-    # Query flight tracks from days there is NVSPL data for.
+    # Query flight tracks from days there is NVSPL data for. Tracks are in WGS84, epsg:4326
     logger.info("Querying tracks...")
     tracks = query_tracks(engine=engine, start_date=nvspl_dates[0], end_date=nvspl_dates[-1], mask=study_area)
     track_hours = [{'year': hourtime.year,
@@ -65,7 +66,7 @@ if __name__ == '__main__':
         tracks=Tracks(tracks, 'flight_id', 'ak_datetime', 'altitude_m'),
         nvspl=nvspl,
         mic=microphone,
-        crs=microphone.crs,
+        crs=coords_to_utm(microphone.lat, microphone.lon),
         study_area=study_area,
         clip=False
     )

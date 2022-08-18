@@ -61,7 +61,7 @@ class _App(tk.Tk):
     tracks : Tracks
         a Tracks object of points to classify as audible, inaudible, or unknown from the microphone location.
     crs : str
-        The projected coordinate system to be used for the Tracks, study area, and microphone.
+        The PROJECTED coordinate system to be used for the Tracks, study area, and microphone.
         Format of 'epsg:XXXX...', E.g. 'epsg:32632'
     study_area : gpd.GeoDataFrame
         A gpd.GeoDataFrame of polygon(s) that make up the study area.
@@ -623,7 +623,7 @@ class _GroundTruthingFrame(_AppFrame):
         id_ : Any
             The track unique identifier.
         points: gpd.GeoDataFrame:
-
+            Track and spline points to annotate.
         valid : bool
             If the track was valid.
         audible : bool

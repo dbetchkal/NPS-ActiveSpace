@@ -14,8 +14,33 @@ __all__ = [
     'audible_time_delay',
     'climb_angle',
     'coords_to_utm',
-    'interpolate_spline'
+    'interpolate_spline',
+    'NMSIM_bbox_utm'
 ]
+
+
+def NMSIM_bbox_utm(study_area: gpd.GeoDataFrame) -> str:
+    """
+    NMSIM references an entire project to the westernmost extent of the elevation (or landcover) file.
+    Given that, return the UTM Zone the project will eventually use. NMSIM uses NAD83 as its geographic
+    coordinate system, so the study area will be projected into NAD83 before calculating the UTM zone.
+
+    Parameters
+    ----------
+    study_area : gpd.GeoDataFrame
+        A study area (Polygon) to find the UTM zone of the westernmost extent for.
+
+    Returns
+    -------
+    UTM zone projection name (e.g.  'epsg:26905' for UTM 5N) that aligns with the westernmost extent of a study area.
+    """
+    if study_area.crs.to_epsg() != 4269:
+        study_area = study_area.to_crs(epsg='4269')
+    study_area_bbox = study_area.geometry.iloc[0].bounds  # (minx, miny, maxx, maxy)
+    lat = study_area_bbox[3]  # maxy
+    lon = study_area_bbox[0]  # minx
+
+    return coords_to_utm(lat, lon)
 
 
 def coords_to_utm(lat: float, lon: float) -> str:
@@ -32,7 +57,7 @@ def coords_to_utm(lat: float, lon: float) -> str:
     Returns
     -------
     utm_proj : str
-        UTM zone projection name (e.g. 'epsg:26905' for UTM 5N)
+        UTM zone projection name (e.g.  'epsg:26905' for UTM 5N)
 
     Notes
     -----

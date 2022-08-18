@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 __all__ = [
     'get_deployment',
     'get_logger',
+    'get_omni_sources',
     'query_tracks'
 ]
 
@@ -42,6 +43,7 @@ def get_deployment(unit: str, site: str, year: int, filename: str) -> Microphone
     metadata = pd.read_csv(filename, delimiter='\t', encoding='ISO-8859-1')
     site_meta = metadata.loc[(metadata['unit'] == unit) & (metadata['code'] == site) & (metadata['year'] == year)]
 
+    # Microphone coordinates are stored in WGS84, epsg:4326
     mic = Microphone(
         unit=unit,
         site=site,
@@ -49,7 +51,6 @@ def get_deployment(unit: str, site: str, year: int, filename: str) -> Microphone
         lat=site_meta.lat.iat[0],
         lon=site_meta.long.iat[0],
         z=site_meta.elevation.iat[0],
-        crs=coords_to_utm(site_meta.lat.iat[0], site_meta.long.iat[0])
     )
 
     return mic
@@ -79,7 +80,7 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
     wheres = [f"fp.ak_datetime::date BETWEEN '{start_date}' AND '{end_date}'"]
 
     if mask is not None:
-        if not mask.crs.to_epsg() == 4326:  # If mask is not already in WGS84, project it.
+        if mask.crs.to_epsg() != 4326:  # If mask is not already in WGS84, project it.
             mask = mask.to_crs(epsg='4326')
         mask['dissolve_field'] = 1
         mask_wkt = mask.dissolve(by='dissolve_field').squeeze()['geometry'].wkt
@@ -104,14 +105,14 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
     return data
 
 
-class _TqdmStream:
+class _TqdmStreamHandler(logging.StreamHandler):
     """
-    A Logger Stream so Tqdm loading bars work with python loggers.
-    https://github.com/tqdm/tqdm/issues/313#issuecomment-346819396
+    A Logger Stream Hanlder so Tqdm loading bars work with python loggers.
+    https://stackoverflow.com/questions/14897756/python-progress-bar-through-logging-module
     """
-    def write(cls, msg: str):
-        tqdm.write(msg, end='', )
-    write = classmethod(write)
+    @classmethod
+    def write(cls, msg):
+        tqdm.write(msg, end='')
 
 
 def get_logger(name: str, level: str = 'INFO') -> logging.Logger:
@@ -132,7 +133,7 @@ def get_logger(name: str, level: str = 'INFO') -> logging.Logger:
     """
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    handler = logging.StreamHandler(stream=_TqdmStream)
+    handler = _TqdmStreamHandler()
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
     logger.addHandler(handler)
