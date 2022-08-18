@@ -1,4 +1,5 @@
 import logging
+import datetime as dt
 from typing import Optional, TYPE_CHECKING
 
 import geopandas as gpd
@@ -102,6 +103,43 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
     data = flight_tracks.loc[~(flight_tracks.geometry.is_empty)]
     return data
 
+def query_adsb(tracks: gpd.GeoDataFrame, start_date: str, end_date: str,
+                 mask: Optional[gpd.GeoDataFrame] = None) -> gpd.GeoDataFrame:
+    """
+    Query flight tracks from the FlightsDB for a specific date range and optional within a specific area.
+
+    Parameters
+    ----------
+    tracks : gpd.GeoDataFrmae 
+        raw ADS-B points loaded using `Adsb`
+    start_date : str
+        ISO date string (YYYY-mm-dd) indicating the beginning of the date range to query within
+    end_date : str
+        ISO date string (YYYY-mm-dd) indicating the end of the date range to query within
+    mask : gpd.GeoDataFrame, default None
+        Geopandas.GeoDataframe instance to spatially filter query results.
+
+    Returns
+    -------
+    data : gpd.GeoDataFrame
+        A GeoDataFrame of flight track points.
+    """
+    
+    tracks = tracks.to_crs(epsg='4326') # for some reason I need to assert this here
+
+    if mask is not None:
+        if not mask.crs.to_epsg() == 4326:  # If mask is not already in WGS84, project it.
+            mask = mask.to_crs(epsg='4326')
+
+    data = gpd.clip(tracks, mask)
+    print("spatial filter applied!")
+    data = data.loc[(data["DateTime"] > start_date)&(data["DateTime"] < end_date), :]
+    print("temporal filter applied!")
+    data = data.loc[~(data.geometry.is_empty)]
+    print("ADS-B successfully queried. Moving on...")
+
+
+    return data
 
 class _TqdmStream:
     """

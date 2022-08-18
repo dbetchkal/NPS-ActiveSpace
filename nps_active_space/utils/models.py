@@ -1,6 +1,7 @@
 import glob
 import re
 import os
+import datetime as dt
 from dataclasses import dataclass, field
 from typing import List, Optional, Union
 
@@ -13,6 +14,7 @@ from tqdm import tqdm
 __all__ = [
     'Microphone',
     'Nvspl',
+    'Adsb',
     'Tracks'
 ]
 
@@ -195,13 +197,14 @@ class Adsb(gpd.GeoDataFrame):
     #
     
     standard_fields = {
-        'TIME', 'ICAO_address', 'lat', 'lon', 'altitude', 'heading',
-        'hor_velocity', 'ver_velocity', 'valid_flags', 'callsign', 'tslc'
+        'HexID', 'DateTime', 'Latitude', 'Longitude', 'Altitude'
     }
 
     def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
         data = self._read(filepaths_or_data)
-        data.set_index('TIME', inplace=True)
+        #data.set_index('DateTime', inplace=True, drop=False)
+        # data["local_hourtime"] = data.index.to_series().apply(lambda t: t.replace(minute=0, second=0, microsecond=0))
+
         super().__init__(data=data)
 
     def _read(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
@@ -226,27 +229,24 @@ class Adsb(gpd.GeoDataFrame):
         else:
             if isinstance(filepaths_or_data, str):
                 assert os.path.isdir(filepaths_or_data), f"{filepaths_or_data} does not exist."
-                filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.TSV")
+                filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.txt")
 
             else:
                 for file in filepaths_or_data:
                     assert os.path.isfile(file), f"{file} does not exist."
-                    assert file.endswith('.TSV'), f"Only .TSV ADS-B files accepted."
+                    assert file.endswith('.txt'), f"Only .TSV ADS-B files accepted."
 
             data = pd.DataFrame()
             for file in tqdm(filepaths_or_data, desc='Loading ADS-B files', unit='files', colour='green'):
                 df = pd.read_csv(file, sep="\t")
-                df = df[df[["TIME","ICAO_address","lat","lon","validFlags", "tslc"]].notna().any(axis=1)]
-                df["TIME"] = df["TIME"].apply(lambda t: dt.datetime.utcfromtimestamp(t))
-                df[['lat','lon']] = df[["lat","lon"]]/1e7
-                df['altitude'] = df['altitude']/1e3
-                df[['heading','hor_velocity','ver_velocity']] = df[['heading','hor_velocity','ver_velocity']]/1e2
-                df = df.loc[df["callsign"].str[:1] == "N", :] # only return N-number callsigns
+                df["DateTime"] = df["DateTime"].apply(lambda t: dt.datetime.strptime(t, "%Y/%m/%d %H:%M:%S.%f").replace(microsecond=0))
+                df["local_hourtime"] = df["DateTime"].apply(lambda t: t.replace(minute=0, second=0, microsecond=0))
+
                 #self._validate(df.columns) TO DO: write validation
                 data = data.append(df)
 
             data = gpd.GeoDataFrame(data, 
-                                    geometry=gpd.points_from_xy(data["lon"], data["lat"]),
+                                    geometry=gpd.points_from_xy(data["Longitude"], data["Latitude"]),
                                     crs="EPSG:4326")
 
         return data
@@ -302,7 +302,8 @@ class Tracks(gpd.GeoDataFrame):
         if z_col:
             col_renames[z_col] = 'z'
         data.rename(columns=col_renames, inplace=True)
-        data.rename_geometry('geometry', inplace=True)
+        if 'geometry' not in data:
+            data.rename_geometry('geometry', inplace=True)
         data['track_id'] = data.track_id.astype(str)
         data.sort_values(by=['track_id', 'point_dt'], ascending=True, inplace=True)
         super().__init__(data=data)
