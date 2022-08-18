@@ -11,7 +11,7 @@ from nps_active_space.utils import Nvspl, Tracks
 
 import _DENA.resource.config as cfg
 from _DENA import _DENA_DIR
-from _DENA.resource.helpers import get_deployment, get_logger, query_tracks, query_adsb
+from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks
 
 
 if __name__ == '__main__':
@@ -40,7 +40,7 @@ if __name__ == '__main__':
     logger.info(f"Beginning ground truthing process for {args.unit}{args.site}{args.year}...")
 
     # Set the various path variables.
-    archive = iyore.Dataset(cfg.read('data', 'archive'))
+    archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
     project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
 
     # Load the microphone deployment site metadata and the study area shapefile.
@@ -54,7 +54,6 @@ if __name__ == '__main__':
     logger.info("Querying tracks...")
 
     if args.track_source == 'ADSB':
-
         raw_tracks = query_adsb(
             adsb_files=glob.glob(os.path.join(cfg.read('data', 'adsb'), "*.txt")),
             start_date=nvspl_dates[0],

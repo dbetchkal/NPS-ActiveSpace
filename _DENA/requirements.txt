@@ -29,6 +29,7 @@ packaging==21.3
 pandas==1.1.5
 Pillow==9.1.1
 psycopg2==2.9.3
+pygeos==0.12.0
 pyparsing==3.0.9
 pyproj==3.2.1
 python-dateutil==2.8.2
