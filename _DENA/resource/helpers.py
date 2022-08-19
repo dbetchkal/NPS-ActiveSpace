@@ -45,12 +45,10 @@ def get_deployment(unit: str, site: str, year: int, filename: str) -> Microphone
 
     # Microphone coordinates are stored in WGS84, epsg:4326
     mic = Microphone(
-        unit=unit,
-        site=site,
-        year=year,
         lat=site_meta.lat.iat[0],
         lon=site_meta.long.iat[0],
         z=site_meta.elevation.iat[0],
+        name=f"{unit}{site}{year}"
     )
 
     return mic
