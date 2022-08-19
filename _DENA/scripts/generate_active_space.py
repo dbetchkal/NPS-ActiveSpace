@@ -58,7 +58,7 @@ if __name__ == '__main__':
 
     # Load NVSPL data or the mennitt raster depending on the user input.
     if args.ambience == 'nvspl':
-        archive = iyore.Dataset(cfg.read('data', 'archive'))
+        archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
         nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year),
                                                      n=1)] # TODO remove this....
         ambience = Nvspl(nvspl_files)
@@ -77,17 +77,21 @@ if __name__ == '__main__':
     )
 
     logger.info(f"Generating active space for: {args.unit}{args.site}{args.year}...")
-    #
-    # # loop through source file and create an active space for each one
-    # for i, row in tqdm(enumerate(omni_sources)):
-    #     print(i, row)
-    #     active_space_generator.set_source(row[1].full_path)  # set the source
-    #
-    #     active_space = active_space_generator.run_model(altitude_ft=alt_ft, n_tracks=1, out_crs=microphone.crs)
-    #     if not active_space:
-    #         print(f"\n\t[{i + 1}/{n_sources}] Skipped active space for source", row[1].filename)
-    #         continue  # noise source was too quiet (empty active space) or the script failed to produce a polygon
-    #
+
+    # loop through source file and create an active space for each one
+    for i, omni_source in tqdm(enumerate(omni_sources)):
+        print(i, omni_source)
+
+        active_space = active_space_generator.generate(
+            omni_source=omni_source,
+            n_iter=1,   # TODO:  # remove n_iter
+            # mic=microphone
+        )
+        if not active_space:
+            exit()
+
+
+
     #     f1, precision, recall, n_tot = compute_f1(valid_points, active_space)
     #     active_space['f1'] = f1
     #     active_space['precision'] = precision
