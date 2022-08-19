@@ -7,6 +7,7 @@ from typing import List, Optional, Union
 
 import geopandas as gpd
 import pandas as pd
+import numpy as np
 from pyproj import Transformer
 from tqdm import tqdm
 
@@ -202,28 +203,29 @@ class Adsb(gpd.GeoDataFrame):
 
     def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
         data = self._read(filepaths_or_data)
-        data.columns = ["ICAO_address", "TIME", "lat", "lon", "Altitude", "geometry"]
-        data["TIME"] = data["TIME"].apply(lambda t: dt.datetime.strptime(t, "%Y/%m/%d %H:%M:%S.%f").replace(microsecond=0))
-        data["DATE"] = data["TIME"].dt.strftime("%Y%m%d")
 
-        # Sort records by ICAO Address and TIME then reset dataframe index
-        data.sort_values(["ICAO_address", "TIME"], inplace=True)
-        data = data.reset_index(drop=True)
+        # data.columns = ["ICAO_address", "TIME", "lat", "lon", "altitude", "geometry"]
+        #data["TIME"] = data["TIME"].apply(lambda t: dt.datetime.strptime(t, "%Y/%m/%d %H:%M:%S.%f").replace(microsecond=0))
+        # data["DATE"] = data["TIME"].dt.strftime("%Y%m%d")
+
+        # # Sort records by ICAO Address and TIME then reset dataframe index
+        # data.sort_values(["ICAO_address", "TIME"], inplace=True)
+        # data = data.reset_index(drop=True)
         
-        # Calculate time difference between sequential waypoints for each aircraft
-        data["dur_secs"] = data.groupby("ICAO_address")["TIME"].diff().dt.total_seconds()
-        data["dur_secs"] = data["dur_secs"].fillna(0)
+        # # Calculate time difference between sequential waypoints for each aircraft
+        # data["dur_secs"] = data.groupby("ICAO_address")["TIME"].diff().dt.total_seconds()
+        # data["dur_secs"] = data["dur_secs"].fillna(0)
 
-        # Use threshold waypoint duration value to identify separate flights by an aircraft 
-        # then sum the number of "true" conditions to assign unique ID's
-        data['diff_flight'] = data['dur_secs'] >= 900
-        data['cumsum'] = data.groupby('ICAO_address')['diff_flight'].cumsum()
-        data['flight_id'] = data['ICAO_address'] + "_" + data['cumsum'].astype(str) + "_" + data['DATE']
+        # # Use threshold waypoint duration value to identify separate flights by an aircraft 
+        # # then sum the number of "true" conditions to assign unique ID's
+        # data['diff_flight'] = data['dur_secs'] >= 900
+        # data['cumsum'] = data.groupby('ICAO_address')['diff_flight'].cumsum()
+        # data['flight_id'] = data['ICAO_address'] + "_" + data['cumsum'].astype(str) + "_" + data['DATE']
 
-        # Remove records where there is only one recorded waypoint for an aircraft
-        data = data[data.groupby("flight_id").flight_id.transform(len) > 1]
+        # # Remove records where there is only one recorded waypoint for an aircraft
+        # data = data[data.groupby("flight_id").flight_id.transform(len) > 1]
 
-        data.drop_duplicates(subset=['ICAO_address', 'TIME', 'lat', 'lon'], inplace=True, keep = 'last')
+        data.drop_duplicates(subset=['TIME'], inplace=True, keep = 'last')
 
         super().__init__(data=data)
 
@@ -249,22 +251,113 @@ class Adsb(gpd.GeoDataFrame):
         else:
             if isinstance(filepaths_or_data, str):
                 assert os.path.isdir(filepaths_or_data), f"{filepaths_or_data} does not exist."
-                filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.txt")
+                filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.TSV") # TO DO: handle either *.txt or *.TSV
 
             else:
                 for file in filepaths_or_data:
                     assert os.path.isfile(file), f"{file} does not exist."
-                    assert (file.endswith('.txt')|file.endswith('.txt')), f"Only .txt or .TSV ADS-B files accepted."
+                    assert (file.endswith('.txt')|file.endswith('.TSV')), f"Only .txt or .TSV ADS-B files accepted."
 
             data = pd.DataFrame()
             for file in tqdm(filepaths_or_data, desc='Loading ADS-B files', unit='files', colour='green'):
                 df = pd.read_csv(file, sep="\t")
                 #self._validate(df.columns) TO DO: write validation
+
+                mask = df.iloc[:, 0].isin(["TIME", "timestamp"])
+                df = df[~mask]
+                header_list = ["TIME", "timestamp"]
+                import_header = df.axes[1]
+                result = any(elem in import_header for elem in header_list)
+                if result:  
+                    pass    
+                else:
+                    raise HeaderError
+
+                # Standardize key field names and remove extra columns collected by the ADS-B df logger
+                if "timestamp" in df.columns:
+                    df = df.rename(columns={"timestamp":"TIME"})
+                if "valid_flags" in df.columns:
+                    df = df.rename(columns={"valid_flags":"validFlags"})
+                df.drop(["squawk", "altitude_type", "alt_type", "altType", "callsign", 
+                    "emitter_type", "emitterType"], axis=1, inplace=True, errors="ignore")
+
+                # Delete duplicate and NA records
+                df.drop_duplicates(inplace=True)
+                df.dropna(how="any", axis=0, inplace=True)
+
+                # Unpack validFLags and convert the 2-byte flag field into a list of Boolean values
+                flags_names = ["valid_BARO", "valid_VERTICAL_VELOCITY", "SIMULATED_REPORT", "valid_IDENT", 
+                            "valid_CALLSIGN", "valid_VELOCITY", "valid_HEADING", "valid_ALTITUDE", "valid_LATLON"]
+                flags = df["validFlags"].apply(lambda t: list(bin(int(t, 16))[2:].zfill(9)[-9:]))
+                flags_df = pd.DataFrame(list(flags), columns=flags_names).replace({'0': False, '1': True})
+                df = pd.concat([df.drop("validFlags", axis=1), flags_df], axis=1)
+
+                # Keep only those records with valid latlon and altitude values based on validFlags
+                df.dropna(how="any", axis=0, inplace=True)
+                if df["valid_LATLON"].sum() == len(df.index):
+                    invalidLatLon = 0
+                else:    
+                    invalidLatLon = round(100 - df["valid_LATLON"].sum() / len(df.index) * 100, 2)
+                if df["valid_ALTITUDE"].sum() == len(df.index):
+                    invalidAltitude = 0
+                else:    
+                    invalidAltitude = round(100 - df["valid_ALTITUDE"].sum() / len(df.index) * 100, 2)
+                df.drop(df[df["valid_LATLON"] == "False"].index, inplace = True)
+                df.drop(df[df["valid_ALTITUDE"] == "False"].index, inplace = True)
+
+                # Ensure remaining field values except TIME are in proper numeric format
+                df.replace('-', np.NaN, inplace=True)
+                df.dropna(how="any", axis=0, inplace=True)
+                df["ICAO_address"] = df["ICAO_address"].astype(str)
+                df["lat"] = df["lat"].astype(int)
+                df["lon"] = df["lon"].astype(int)
+                df["altitude"] = df["altitude"].astype(int)
+                df["heading"] = df["heading"].astype(int)
+                df["hor_velocity"] = df["hor_velocity"].astype(int)
+                df["ver_velocity"] = df["ver_velocity"].astype(int)
+                df["tslc"] = df["tslc"].astype(int)
+
+                # Convert Unix timestamp to datetime objects in UTC and re-scale selected variable values 
+                df["TIME"] = pd.to_datetime(df["TIME"], unit = "s")
+                df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
+                df["lat"] = df["lat"] / 1e7
+                df["lon"] = df["lon"] / 1e7
+                df["altitude"] = df["altitude"] / 1e3
+                df["heading"] = df["heading"] / 1e2
+                df["hor_velocity"] = df["hor_velocity"] / 1e2
+                df["ver_velocity"] = df["ver_velocity"] / 1e2
+
+                # Keep only those records with TSLC values of 1 or 2 seconds
+                invalidTslc = len(df.query("tslc >= 3 or tslc == 0")) / df.shape[0] * 100
+                df.drop(df[df["tslc"] >= 3].index, inplace = True)
+                df.drop(df[df["tslc"] == 0].index, inplace = True)
+
+                # Sort records by ICAO Address and TIME then reset dfframe index
+                df.sort_values(["ICAO_address", "TIME"], inplace=True)
+                df = df.reset_index(drop=True)
+
+                # Calculate time difference between sequential waypoints for each aircraft
+                df["dur_secs"] = df.groupby("ICAO_address")["TIME"].diff().dt.total_seconds()
+                df["dur_secs"] = df["dur_secs"].fillna(0)
+
+                # Count then delete any identical waypoints in a single input file based on ICAO_address, time, lat, and lon
+                duplicateWaypoints = 100 - (len(df.drop_duplicates(subset=['ICAO_address', 'TIME', 'lat', 'lon'])) / len(df) * 100)
+                df.drop_duplicates(subset=['ICAO_address', 'TIME', 'lat', 'lon'], keep = 'last')
+
+                # Use threshold waypoint duration value to identify separate flights by an aircraft then sum the number of "true" conditions to assign unique ID's
+                df['diff_flight'] = df['dur_secs'] >= 900
+                df['cumsum'] = df.groupby('ICAO_address')['diff_flight'].cumsum()
+                df['flight_id'] = df['ICAO_address'] + "_" + df['cumsum'].astype(str) + "_" + df['DATE']       
+
+                # Remove records where there is only one recorded waypoint for an aircraft and fields that are no longer needed 
+                df = df[df.groupby("flight_id").flight_id.transform(len) > 1]
+                df = df.drop(columns = ['tslc', 'dur_secs', 'diff_flight', 'cumsum', 'valid_BARO', 'valid_VERTICAL_VELOCITY', 'SIMULATED_REPORT', 'valid_IDENT', 'valid_CALLSIGN', 'valid_VELOCITY', 'valid_HEADING', 'valid_ALTITUDE', 'valid_LATLON', 'DATE'])
+
                 data = data.append(df)
 
             data = gpd.GeoDataFrame(
                 data,
-                geometry=gpd.points_from_xy(data["Longitude"], data["Latitude"]),
+                geometry=gpd.points_from_xy(data["lon"], data["lat"]),
                 crs="epsg:4326"
             )
 

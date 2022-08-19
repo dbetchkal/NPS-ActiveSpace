@@ -55,15 +55,14 @@ if __name__ == '__main__':
 
     if args.track_source == 'ADSB':
         raw_tracks = query_adsb(
-            adsb_files=glob.glob(os.path.join(cfg.read('data', 'adsb'), "*.txt")),
+            adsb_files=glob.glob(os.path.join(cfg.read('data', 'adsb'), "*.TSV")), # TO DO: handle *.txt or *.TSV
             start_date=nvspl_dates[0],
             end_date=nvspl_dates[-1],
             mask=study_area
         )
 
-        print(raw_tracks.head(50))
         raw_tracks["local_hourtime"] = raw_tracks["TIME"].apply(lambda t: t.replace(minute=0, second=0, microsecond=0))
-        tracks = Tracks(raw_tracks, id_col='flight_id', datetime_col='TIME', z_col='Altitude')
+        tracks = Tracks(raw_tracks, id_col='flight_id', datetime_col='TIME', z_col='altitude')
         hourtimes = tracks.local_hourtime.astype(object).unique()
 
     elif args.track_source == 'Database':
