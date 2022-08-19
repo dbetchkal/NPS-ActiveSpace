@@ -25,20 +25,14 @@ class Microphone:
 
     Parameters
     ----------
-    unit : str
-        The NPS unit of the microphone deployment. E.g. DENA
-    site : str
-        The specific site in the NPS unit of the microphone deployment.
-    year : int
-        The year of the microphone deployment location.
+    name : str
+        A name for the Microphone instance.
     lat : float
         The latitude of the microphone deployment location in WGS84 (epsg:4326)
     lon : float
         The longitude of the microphone deployment location in WGS84 (epsg:4326)
     z : float
         The elevation of the microphone deployment location in meters.
-    name : str, default None
-        A name for the Microphone instance. If not provided, a name will be created from the unit, site, and year.
     crs : str, default None
         Epsg projected coordinated system to calculate the x, y values in. E.g. 'epsg:4326'
         Latitude and Longitude will not be projected if no crs is provided.
@@ -50,13 +44,10 @@ class Microphone:
     y : float
         The latitude value projected into the current crs.
     """
-    unit: str
-    site: str
-    year: int   # TODO: Should this be a date instead of year?
+    name: str
     lat: float
     lon: float
     z: float
-    name: str = None
     crs: str = None
     x: float = field(init=False)
     y: float = field(init=False)
@@ -68,8 +59,6 @@ class Microphone:
         """Set x,y coordinates and instance name."""
         if self.crs:
             self.to_crs(self.crs)
-        if not self.name:
-            self.name = f"{self.unit}{self.site}{self.year}"
 
     def to_crs(self, crs: str, inplace: bool = False) -> Optional['Microphone']:
         """
