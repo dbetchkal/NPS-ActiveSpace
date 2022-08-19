@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Iterable, TYPE_CHECKING
+from typing import Iterable, List, Optional, TYPE_CHECKING
 
 import geopandas as gpd
 import numpy as np
@@ -8,10 +8,12 @@ from shapely.geometry import Point
 
 if TYPE_CHECKING:
     from nps_active_space.utils.models import Tracks
+    from shapely.geometry import Polygon, Point
 
 
 __all__ = [
     'audible_time_delay',
+    'build_src_point_mesh',
     'climb_angle',
     'coords_to_utm',
     'interpolate_spline',
@@ -173,3 +175,36 @@ def audible_time_delay(points: gpd.GeoDataFrame, time_col: str, target: Point,
         points.drop(['distance_to_target', 'audible_delay_sec'], inplace=True)
 
     return points
+
+
+def build_src_point_mesh(area: 'Polygon', density: int = 48, altitude: Optional[int] = None) -> List['Point']:
+    """
+    Given a polygon and a density, create a square mesh of evenly spaced points throughout the polygon.
+
+    Parameters
+    ----------
+    area : Polygon
+        A shapely Polygon of the area to create the square point mesh over.
+    density : int
+        The number of points along each mesh axis. The mesh will contain density x density points.
+    altitude : int, default None
+        A standard altitude to apply to every point in the mesh.
+
+    Returns
+    -------
+    mesh points : List[Point]
+        A list of shapely Points in the mesh.
+    """
+    # Start out with a grid of N = density x density points. Polygon bounds:  (minx, miny, maxx, maxy)
+    x = np.linspace(area.bounds[0], area.bounds[2], density)
+    y = np.linspace(area.bounds[1], area.bounds[3], density)
+    x_ind, y_ind = np.meshgrid(x, y)
+
+    # Create an array of mesh points. np.ravel linearly indexes an array into a row.
+    mesh_points = np.array([np.ravel(x_ind), np.ravel(y_ind)]).T
+
+    # Convert coordinate tuples into shapely points.
+    mesh_points = [Point(point[0], point[1]) if not altitude
+                   else Point(point[0], point[1], altitude) for point in mesh_points]
+
+    return mesh_points
