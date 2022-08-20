@@ -16,6 +16,7 @@ __all__ = [
     'Microphone',
     'Nvspl',
     'Adsb',
+    'EarlyAdsb',
     'Tracks'
 ]
 
@@ -192,48 +193,14 @@ class Adsb(gpd.GeoDataFrame):
         A directory containing ADS-B TSV files, a list of ADS-B TSV files, or an existing gpd.GeoDataFrame of ADS-B data.
     """
 
-    # standard_fields = {
-    #     'timestamp', 'ICAO_address', 'lat', 'lon', 'altitude', 'heading',
-    #     'hor_velocity', 'ver_velocity', 'valid_flags', 'alt_type',
-    #     'callsign', 'emitter_type', 'tslc'
-    # }
-    #
-    
-    standard_fields = {'HexID', 'DateTime', 'Latitude', 'Longitude', 'Altitude'}
-
     def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
         data = self._read(filepaths_or_data)
-
-        # data.columns = ["ICAO_address", "TIME", "lat", "lon", "altitude", "geometry"]
-        #data["TIME"] = data["TIME"].apply(lambda t: dt.datetime.strptime(t, "%Y/%m/%d %H:%M:%S.%f").replace(microsecond=0))
-        # data["DATE"] = data["TIME"].dt.strftime("%Y%m%d")
-
-        # # Sort records by ICAO Address and TIME then reset dataframe index
-        # data.sort_values(["ICAO_address", "TIME"], inplace=True)
-        # data = data.reset_index(drop=True)
-        
-        # # Calculate time difference between sequential waypoints for each aircraft
-        # data["dur_secs"] = data.groupby("ICAO_address")["TIME"].diff().dt.total_seconds()
-        # data["dur_secs"] = data["dur_secs"].fillna(0)
-
-        # # Use threshold waypoint duration value to identify separate flights by an aircraft 
-        # # then sum the number of "true" conditions to assign unique ID's
-        # data['diff_flight'] = data['dur_secs'] >= 900
-        # data['cumsum'] = data.groupby('ICAO_address')['diff_flight'].cumsum()
-        # data['flight_id'] = data['ICAO_address'] + "_" + data['cumsum'].astype(str) + "_" + data['DATE']
-
-        # # Remove records where there is only one recorded waypoint for an aircraft
-        # data = data[data.groupby("flight_id").flight_id.transform(len) > 1]
-
         data.drop_duplicates(subset=['TIME'], inplace=True, keep = 'last')
-
         super().__init__(data=data)
 
     def _read(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
         """
-        Read in and validate the ADS-B data.
-
-        # TODO: for speed and memory improvements, use usecols, define datatypes, and drop empty columns.
+        Read in ADS-B points as formatted by NPS data loggers.
 
         Parameters
         ----------
@@ -245,23 +212,21 @@ class Adsb(gpd.GeoDataFrame):
         AssertionError if directory path or file path does not exists or is of the wrong format.
         """
         if isinstance(filepaths_or_data, gpd.GeoDataFrame):
-            #self._validate(filepaths_or_data.columns)
             data = filepaths_or_data.to_crs("epsg:4326")
 
         else:
             if isinstance(filepaths_or_data, str):
                 assert os.path.isdir(filepaths_or_data), f"{filepaths_or_data} does not exist."
-                filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.TSV") # TO DO: handle either *.txt or *.TSV
+                filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.TSV")
 
             else:
                 for file in filepaths_or_data:
                     assert os.path.isfile(file), f"{file} does not exist."
-                    assert (file.endswith('.txt')|file.endswith('.TSV')), f"Only .txt or .TSV ADS-B files accepted."
+                    assert (file.endswith('.txt')|file.endswith('.TSV')), f"Only .TSV ADS-B files accepted."
 
             data = pd.DataFrame()
             for file in tqdm(filepaths_or_data, desc='Loading ADS-B files', unit='files', colour='green'):
                 df = pd.read_csv(file, sep="\t")
-                #self._validate(df.columns) TO DO: write validation
 
                 mask = df.iloc[:, 0].isin(["TIME", "timestamp"])
                 df = df[~mask]
@@ -271,7 +236,7 @@ class Adsb(gpd.GeoDataFrame):
                 if result:  
                     pass    
                 else:
-                    raise HeaderError
+                    raise KeyError
 
                 # Standardize key field names and remove extra columns collected by the ADS-B df logger
                 if "timestamp" in df.columns:
@@ -363,27 +328,84 @@ class Adsb(gpd.GeoDataFrame):
 
         return data
 
-    # def _validate(self, columns: List[str]):
-    #     """
-    #     Ensure that the provided data has only the standard
 
-    #     Parameters
-    #     ----------
-    #     columns : List of strs
-    #         List of NVSPL DataFrame columns.
+class EarlyAdsb(Adsb):
 
-    #     Raises
-    #     ------
-    #     AssertionError if any standard column is missing or if any non-standard and non-octave column is present.
-    #     """
+    """
+    A geopandas GeoDataFrame wrapper class to ensure consistent ADS-B data.
 
-    #     # # Verify that all NVSPL standard columns exist.
-    #     # missing_standard_cols = self.standard_fields - set(columns)
-    #     # assert missing_standard_cols == set(), f"Missing the following standard NVSPL columns: {missing_standard_cols}"
+    Parameters
+    ----------
+    filepaths_or_data : List, str, or gpd.GeoDataFrame
+        A directory containing ADS-B TSV files, a list of ADS-B TSV files, or an existing gpd.GeoDataFrame of ADS-B data.
+    """
 
-    #     # # Verify all non-standard columns are octave columns.
-    #     # only_standard_cols = all(re.match(self.octave_regex, col) for col in (set(columns) - self.standard_fields))
-    #     # assert only_standard_cols is True, "NVSPL data contains unexpected NVSPL columns."
+    def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
+        data = self._read(filepaths_or_data)
+        data.drop_duplicates(subset=['TIME'], inplace=True, keep = 'last')
+        super().__init__(data=data)
+
+    def _read(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
+        """
+        Read in ADS-B points as formatted by early-development NPS data loggers (circa 2019).
+
+        Parameters
+        ----------
+        filepaths_or_data : List, str, or gpd.GeoDataFrame
+            A directory containing ADS-B files, a list of ADS-B files, or an existing gpd.GeoDataFrame of ADS-B data.
+
+        Raises
+        ------
+        AssertionError if directory path or file path does not exists or is of the wrong format.
+        """
+        if isinstance(filepaths_or_data, gpd.GeoDataFrame):
+            #self._validate(filepaths_or_data.columns)
+            data = filepaths_or_data.to_crs("epsg:4326")
+
+        else:
+            if isinstance(filepaths_or_data, str):
+                assert os.path.isdir(filepaths_or_data), f"{filepaths_or_data} does not exist."
+                filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.TSV")
+
+            else:
+                for file in filepaths_or_data:
+                    assert os.path.isfile(file), f"{file} does not exist."
+                    assert (file.endswith('.txt')|file.endswith('.TSV')), f"Only .TSV ADS-B files accepted."
+
+            data = pd.DataFrame()
+            for file in tqdm(filepaths_or_data, desc='Loading ADS-B files', unit='files', colour='green'):
+                df = pd.read_csv(file, sep="\t")
+
+                df.columns = ["ICAO_address", "TIME", "lat", "lon", "altitude"]
+                df["TIME"] = df["TIME"].apply(lambda t: dt.datetime.strptime(t, "%Y/%m/%d %H:%M:%S.%f").replace(microsecond=0))
+                df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
+
+                # Sort records by ICAO Address and TIME then reset dataframe index
+                df.sort_values(["ICAO_address", "TIME"], inplace=True)
+                df = df.reset_index(drop=True)
+                
+                # Calculate time difference between sequential waypoints for each aircraft
+                df["dur_secs"] = df.groupby("ICAO_address")["TIME"].diff().dt.total_seconds()
+                df["dur_secs"] = df["dur_secs"].fillna(0)
+
+                # Use threshold waypoint duration value to identify separate flights by an aircraft 
+                # then sum the number of "true" conditions to assign unique ID's
+                df['diff_flight'] = df['dur_secs'] >= 900
+                df['cumsum'] = df.groupby('ICAO_address')['diff_flight'].cumsum()
+                df['flight_id'] = df['ICAO_address'] + "_" + df['cumsum'].astype(str) + "_" + df['DATE']
+
+                # Remove records where there is only one recorded waypoint for an aircraft
+                df = df[df.groupby("flight_id").flight_id.transform(len) > 1]
+
+                data = data.append(df)
+
+            data = gpd.GeoDataFrame(
+                data,
+                geometry=gpd.points_from_xy(data["lon"], data["lat"]),
+                crs="epsg:4326"
+            )
+
+        return data
 
 
 class Tracks(gpd.GeoDataFrame):

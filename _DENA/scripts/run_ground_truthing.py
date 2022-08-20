@@ -11,7 +11,7 @@ from nps_active_space.utils import Nvspl, Tracks
 
 import _DENA.resource.config as cfg
 from _DENA import _DENA_DIR
-from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks
+from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_early_adsb, query_tracks
 
 
 if __name__ == '__main__':
@@ -54,12 +54,20 @@ if __name__ == '__main__':
     logger.info("Querying tracks...")
 
     if args.track_source == 'ADSB':
-        raw_tracks = query_adsb(
-            adsb_files=glob.glob(os.path.join(cfg.read('data', 'adsb'), "*.TSV")), # TO DO: handle *.txt or *.TSV
-            start_date=nvspl_dates[0],
-            end_date=nvspl_dates[-1],
-            mask=study_area
-        )
+        if args.year <= 2019:
+            raw_tracks = query_adsb(
+                adsb_files=glob.glob(os.path.join(cfg.read('data', 'adsb'), "*.TSV")), # TO DO: handle *.txt or *.TSV
+                start_date=nvspl_dates[0],
+                end_date=nvspl_dates[-1],
+                mask=study_area
+            )
+        elif args.year > 2019:
+            raw_tracks = query_adsb(
+                adsb_files=glob.glob(os.path.join(cfg.read('data', 'adsb'), "*.TSV")), # TO DO: handle *.txt or *.TSV
+                start_date=nvspl_dates[0],
+                end_date=nvspl_dates[-1],
+                mask=study_area
+            )
 
         raw_tracks["local_hourtime"] = raw_tracks["TIME"].apply(lambda t: t.replace(minute=0, second=0, microsecond=0))
         tracks = Tracks(raw_tracks, id_col='flight_id', datetime_col='TIME', z_col='altitude')
