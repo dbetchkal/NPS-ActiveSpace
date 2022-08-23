@@ -73,19 +73,18 @@ if __name__ == '__main__':
         root_dir=project_dir,
         study_area=study_area,
         ambience_src=ambience,
-        dem_src='V:/NMSim/03 DEMs/DENA_DEM_m_4269.TIF'
+        dem_src='V:/NMSim/03 DEMs/DENA_DEM_m_4269.TIF',
     )
 
     logger.info(f"Generating active space for: {args.unit}{args.site}{args.year}...")
 
     # loop through source file and create an active space for each one
     for i, omni_source in tqdm(enumerate(omni_sources)):
-        print(i, omni_source)
 
         active_space = active_space_generator.generate(
             omni_source=omni_source,
             n_iter=1,   # TODO:  # remove n_iter
-            # mic=microphone
+            mic=microphone
         )
         if not active_space:
             exit()

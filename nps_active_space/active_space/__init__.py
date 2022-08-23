@@ -2,6 +2,7 @@ import os
 from typing import List, Optional, TYPE_CHECKING, Union
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 from osgeo import gdal
 
@@ -105,6 +106,35 @@ class ActiveSpaceGenerator:
             if not os.path.exists(f"{self.root_dir}/{directory}"):
                 os.makedirs(f"{self.root_dir}/{directory}")
 
+    def _create_tis_dir(self):
+
+        tis_directory = f"{self.root_dir}/Output_Data/TIG_TIS"
+
+        dem_filename = None
+        impedance_filename = None
+        trajectory_filename = None
+        site_filename = None
+
+        control_file = project_dir + os.sep + "control.nms"
+        batch_file = project_dir + os.sep + "batch.txt"
+
+
+        trj_files = glob.glob(project_dir + os.sep + r"Input_Data\03_TRAJECTORY\*.trj")
+
+
+
+
+        # strip out the FAA registration number
+        registrations = [t.split("_")[-3][11:] for t in trj_files]
+
+        # the .tis name preserves: reciever + source + time (roughly 'source : path : reciever')
+        site_prefix = os.path.basename(site_file)[:-4]
+
+        tis_files = [tis_out_dir + os.sep + site_prefix + "_" + os.path.basename(t)[:-4] for t in trj_files]
+
+        trajectories = pd.DataFrame([registrations, trj_files, tis_files], index=["N_Number", "TRJ_Path", "TIS_Path"]).T
+
+
     def _create_trajectory_file(self, points: List['Point'], crs: str, filename: str):
         """
 
@@ -112,27 +142,53 @@ class ActiveSpaceGenerator:
         ----------
         points :
         """
-        trajectory_dir = f"{self.root_dir}/Input_Data/03_TRAJECTORY/{filename}.trj"
+        trajectory_filename = f"{self.root_dir}/Input_Data/03_TRAJECTORY/{filename}.trj"
 
         trajectory = gpd.GeoDataFrame([], geometry=points, crs=crs)
+        trajectory['heading'] = np.random.choice(range(0, 360), size=len(points), replace=True)
+        trajectory['climb_angle'] = 0
+        trajectory['power'] = 95
+        trajectory['rol'] = 0
 
-        # headings = np.full(track["lat_UTM"].shape, i / 360) # TODO
+        velocity = 70   # m/s
+        trajectory["knots"] = 1.94384 * velocity    # Convert airspeed to knots
 
-        # climb angle using the vector and the unit normal in the xy plane; add np.nan to the end
-        climb_angles = np.array([climb_angle(v) for v in V])
-        climb_angles = np.append(climb_angles, np.nan)
+        dist = np.diff(np.array([[x, y, z] for x, y, z in zip(trajectory.geometry.x, trajectory.geometry.y, trajectory.geometry.z)]), axis=0)
+        time_elapsed = np.cumsum(np.array([np.linalg.norm(d) for d in dist]) / velocity)
+        time_elapsed = np.append(time_elapsed, np.nan)  # last row must be NaN because time is based on differencing
+        trajectory["time_elapsed"] = time_elapsed
 
-        # compute the time elapsed given cruising velocity of the aircraft in question; add np.nan to the end
-        time_elapsed = np.cumsum(np.array([np.linalg.norm(v) for v in V]) / velocity)
-        time_elapsed = np.append(time_elapsed, np.nan)
+        with open(trajectory_filename, 'w') as trajectory_file:
+            trajectory_file.write("Flight track trajectory variable description:\n")
+            trajectory_file.write(" time - time in seconds from the reference time\n")
+            trajectory_file.write(" Xpos - x coordinate (UTM)\n")
+            trajectory_file.write(" Ypos - y coordinate (UTM)\n")
+            trajectory_file.write(" UTM Zone  " + crs + "\n")
+            trajectory_file.write(" Zpos - z coordinate in meters MSL\n")
+            trajectory_file.write(" heading - aircraft compass bearing in degrees\n")
+            trajectory_file.write(" climbANG - aircraft climb angle in degrees\n")
+            trajectory_file.write(" vel - aircraft velocity in knots\n")
+            trajectory_file.write(" power - % engine power\n")
+            trajectory_file.write(" roll - bank angle (right wing down), degrees\n")
+            trajectory_file.write("FLIGHT " + filename + "\n")
+            trajectory_file.write("TEMP.  59.0\n")
+            trajectory_file.write("Humid.  70.0\n")
+            trajectory_file.write("\n")
+            trajectory_file.write(
+                "         time(s)        Xpos           Ypos           Zpos         heading        climbANG       Vel            power          rol\n")
 
-        # convert airspeed to knots and write it to the geodataframe
-        track["knots"] = np.full(track["lat_UTM"].shape, 1.94384 * velocity, dtype=None, order='C')
-
-        # write the remaining data to the geodataframe
-        track["climb_angle"] = climb_angles
-        track["time_elapsed"] = time_elapsed
-        track["heading"] = headings
+            for ind, point in trajectory.iterrows():
+                trajectory_file.write(
+                    "{0:15.3f}".format(point.time_elapsed) +
+                    "{0:15.3f}".format(point.geometry.x) +
+                    "{0:15.3f}".format(point.geometry.y) +
+                    "{0:15.3f}".format(point.geometry.z) +
+                    "{0:15.3f}".format(point.heading) +
+                    "{0:15.3f}".format(point.climb_angle) +
+                    "{0:15.3f}".format(point.knots) +
+                    "{0:15.3f}".format(point.power) +
+                    "{0:15.3f}".format(point.rol) + "\n"
+                )
 
     def _create_site_file(self, mic: Microphone):
         """
@@ -217,49 +273,34 @@ class ActiveSpaceGenerator:
         src_pt_density : int
         mic : Microphone, default None
         """
-        # TODO: add omni source to everything..?
-
-        if mesh:
-            study_areas = None # TODO
-        else:
-            study_areas = [self.study_area]
-
-        velocity = 70  # m/s, this doesn't matter actually (?) 3 TODO
+        study_areas = None if mesh else [self.study_area]   # TODO
 
         for i, study_area in enumerate(study_areas):
 
             crs = NMSIM_bbox_utm(study_area)
             active_space = study_area.to_crs(crs).geometry.iloc[0]
+            if mic and not mesh:
+                mic.to_crs(crs, inplace=True)
+            else:
+                mic = Microphone(
+                    name=f"centroid_{i}",
+                    lat=active_space.centroid.x,
+                    lon=active_space.centroid.y,
+                    z=1.60,  # m, average height of human ear
+                    crs=crs
+                )
 
             for j in range(n_iter):
 
                 source_pt_mesh = build_src_point_mesh(active_space, src_pt_density, altitude_m)
-                self._create_trajectory_file(source_pt_mesh, crs, '')
+                self._create_trajectory_file(source_pt_mesh, crs, f"{mic.name}_{i}")
+                self._create_site_file(mic)
+                self._create_tis_dir()  # TODO
+                # self._find_audible() # TODO
 
-
-
-
-
-
-
-                tis_dir = f"{self.root_dir}/Output_Data/TIG_TIS"
-
-                if mic and not mesh:
-                    mic.to_crs(crs, inplace=True)
-                else:
-                    mic = Microphone(
-                        unit='', # TODO: think about this...
-                        site='',
-                        year=0000,
-                        name=f"centroid_{i}",
-                        lat=active_space.centroid.x,
-                        lon=active_space.centroid.y,
-                        z=1.60,  # m, average height of human ear
-                        crs=crs
-                    )
-                self._create_site_file(mic) # TODO: why does this happen here....
 
                 # TODO: shrink the study size
+
 
     def _create_trajectories(self):
         pass
