@@ -1,5 +1,5 @@
 import os
-from typing import List, Optional, TYPE_CHECKING, Union
+from typing import List, Optional, Tuple, TYPE_CHECKING, Union
 
 import geopandas as gpd
 import numpy as np
@@ -52,10 +52,96 @@ class ActiveSpaceGenerator:
         self.quantile = quantile
 
         self._make_dir_tree()
-        self._create_dem_files(dem_src)
+        self.dem_tif, self.dem_flt = self._create_dem_files(dem_src, self.study_area)
         # self.ambience = self._set_ambience(ambience_src) # TODO
 
-        # TODO: raster to polygon...?
+    def _make_dir_tree(self):
+        """Create a canonical NMSIM project directory. Copied from NMSIM_Create_Base_Layers.py"""
+        directories = [
+            "Input_Data",
+            "Input_Data/01_ELEVATION",
+            "Input_Data/02_IMPEDANCE",
+            "Input_Data/03_TRAJECTORY",
+            "Input_Data/04_LAYERS",
+            "Input_Data/05_SITES",
+            "Input_Data/06_AMBIENCE",
+            "Input_Data/07_WEATHER",
+            "Input_Data/08_TREES",
+            "Output_Data",
+            "Output_Data/ASCII",
+            "Output_Data/IMAGES",
+            "Output_Data/SITE",
+            "Output_Data/TIG_TIS"
+        ]
+        for directory in directories:
+            if not os.path.exists(f"{self.root_dir}/{directory}"):
+                os.makedirs(f"{self.root_dir}/{directory}")
+
+    def _create_dem_files(self, dem_src: str, study_area: gpd.GeoDataFrame, project: bool = True,
+                          suffix: str = '') -> Tuple[str, str]:
+        """
+        Project and mask a DEM raster to be used as input into NMSIM.
+        Follows this tutorial: https://rasterio.readthedocs.io/en/latest/topics/masking-by-shapefile.html
+
+        Parameters
+        ----------
+        dem_src : str
+            Absolute path to a DEM raster to be projected and clipped for use by NMSIM.
+        study_area : gpd.GeoDataFrame
+            The study area to clip the DEM raster to.
+        suffix : str, default ''
+        project : bool, default True
+           True to project the DEM file to NAD83 before clipping it.
+
+        Returns
+        -------
+        DEM tif filename for the study area.
+        """
+        # ------ Mask the DEM File ------- #            # TODO: suffix
+
+        # Project the DEM file to NAD83.
+        if project:
+            dem_projected_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_NAD83{suffix}.tif"
+            gdal.Warp(dem_projected_filename, dem_src, dstSRS='EPSG:4269')
+            dem_src = dem_projected_filename
+
+        # Output the study area, in the proper projection, to a shapefile so it can be used for masking.
+        study_area_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/study_area_NAD83{suffix}.shp"
+        study_area.to_file(study_area_filename)
+
+        # Mask the DEM file with the study area shapefile.
+        dem_masked_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_NAD83_mask{suffix}.tif"
+        gdal.Warp(
+            dem_masked_filename,
+            dem_src,
+            cutlineDSName=study_area_filename,
+            cropToCutline=True
+        )
+
+        # ------ Create .flt DEM File & Header ------- #
+
+        flt_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_NAD83_mask{suffix}.flt"
+        flt_header_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_NAD83_mask{suffix}.hdr"
+
+        gdal.Translate(flt_filename, dem_masked_filename, options="-ot Float32 -of ehdr -a_nodata -9999")
+
+        # the header file doesn't write correctly... manually overwrite this:
+        old_hdr = pd.read_csv(flt_header_filename, header=None, delim_whitespace=True, index_col=0).T
+
+        # compute new lower left corner y-val
+        yllcorner = float(old_hdr.ULYMAP) - float(old_hdr.NROWS) * float(old_hdr.XDIM)
+
+        # write a new header file exactly as output by ESRI
+        with open(flt_header_filename, 'w') as header:
+            header.write("{:14}{:}\n".format("ncols", old_hdr.NCOLS.values[0]))
+            header.write("{:14}{:}\n".format("nrows", old_hdr.NROWS.values[0]))
+            header.write("{:14}{:}\n".format("xllcorner", old_hdr.ULXMAP.values[0]))
+            header.write("{:14}{:}\n".format("yllcorner", yllcorner))
+            header.write("{:14}{:}\n".format("cellsize", old_hdr.XDIM.values[0]))
+            header.write("{:14}{:}\n".format("NODATA_value", old_hdr.NODATA.values[0]))
+            header.write("{:14}{:}".format("byteorder", "LSBFIRST"))
+
+        return dem_masked_filename, flt_filename
 
     def _set_ambience(self, ambience_src: Union['Nvspl', str]):
         """
@@ -84,63 +170,18 @@ class ActiveSpaceGenerator:
 
         return Lx
 
-    def _make_dir_tree(self):
-        """Create a canonical NMSIM project directory. Copied from NMSIM_Create_Base_Layers.py"""
-        directories = [
-            "Input_Data",
-            "Input_Data/01_ELEVATION",
-            "Input_Data/02_IMPEDANCE",
-            "Input_Data/03_TRAJECTORY",
-            "Input_Data/04_LAYERS",
-            "Input_Data/05_SITES",
-            "Input_Data/06_AMBIENCE",
-            "Input_Data/07_WEATHER",
-            "Input_Data/08_TREES",
-            "Output_Data",
-            "Output_Data/ASCII",
-            "Output_Data/IMAGES",
-            "Output_Data/SITE",
-            "Output_Data/TIG_TIS"
-        ]
-        for directory in directories:
-            if not os.path.exists(f"{self.root_dir}/{directory}"):
-                os.makedirs(f"{self.root_dir}/{directory}")
-
-    def _create_tis_dir(self):
-
-        tis_directory = f"{self.root_dir}/Output_Data/TIG_TIS"
-
-        dem_filename = None
-        impedance_filename = None
-        trajectory_filename = None
-        site_filename = None
-
-        control_file = project_dir + os.sep + "control.nms"
-        batch_file = project_dir + os.sep + "batch.txt"
-
-
-        trj_files = glob.glob(project_dir + os.sep + r"Input_Data\03_TRAJECTORY\*.trj")
-
-
-
-
-        # strip out the FAA registration number
-        registrations = [t.split("_")[-3][11:] for t in trj_files]
-
-        # the .tis name preserves: reciever + source + time (roughly 'source : path : reciever')
-        site_prefix = os.path.basename(site_file)[:-4]
-
-        tis_files = [tis_out_dir + os.sep + site_prefix + "_" + os.path.basename(t)[:-4] for t in trj_files]
-
-        trajectories = pd.DataFrame([registrations, trj_files, tis_files], index=["N_Number", "TRJ_Path", "TIS_Path"]).T
-
-
-    def _create_trajectory_file(self, points: List['Point'], crs: str, filename: str):
+    def _create_trajectory_file(self, points: List['Point'], crs: str, filename: str) -> str:
         """
 
         Parameters
         ----------
         points :
+        crs : str
+        filename : str
+
+        Returns
+        -------
+        The trajectory file name.
         """
         trajectory_filename = f"{self.root_dir}/Input_Data/03_TRAJECTORY/{filename}.trj"
 
@@ -190,7 +231,9 @@ class ActiveSpaceGenerator:
                     "{0:15.3f}".format(point.rol) + "\n"
                 )
 
-    def _create_site_file(self, mic: Microphone):
+        return trajectory_filename
+
+    def _create_site_file(self, mic: Microphone) -> str:
         """
         Create a required NMSIM site file representing the location we are testing audibility for.
 
@@ -198,6 +241,10 @@ class ActiveSpaceGenerator:
         ----------
         mic : Microphone
             A Microphone object to create a NMSIM site file for.
+
+        Returns
+        -------
+        The name of the site file.
         """
         site_filename = f"{self.root_dir}/Input_Data/05_SITES/{mic.name}.sit"
         with open(site_filename, 'w') as site_file:
@@ -206,57 +253,42 @@ class ActiveSpaceGenerator:
             site_file.write("{0:19.0f}.{1:9.0f}.{2:10.5f} {3:20}\n".format(mic.x, mic.y, mic.z, mic.name))
             site_file.write(f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_NAD83_mask.flt\n")
 
-    def _create_dem_files(self, dem_src: str):
+        return site_filename
+
+    def _create_instruction_files(self, dem_file, site_file, trajectory_file, omni_source_file):
         """
-        Project and mask a DEM raster to be used as input into NMSIM.
-        Follows this tutorial: https://rasterio.readthedocs.io/en/latest/topics/masking-by-shapefile.html
 
         Parameters
         ----------
-        dem_src : str
-            Absolute path to a DEM raster to be projected and clipped for use by NMSIM.
+
+
         """
-        # ------ Mask the DEM File ------- #
+        control_file = f"{self.root_dir}/control.nms"
+        batch_file = f"{self.root_dir}/batch.txt"
+        tis_directory = f"{self.root_dir}/Output_Data/TIG_TIS"
 
-        # Project the DEM file to NAD83.
-        dem_projected_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_NAD83.tif"
-        gdal.Warp(dem_projected_filename, dem_src, dstSRS='EPSG:4269')
+        with open(control_file, 'w') as nms:
+            nms.write(dem_file + "\n")  # elevation path
+            nms.write("-\n")
+            nms.write(site_file + "\n")  # site path
+            nms.write(trajectory_file + "\n")
+            nms.write("-\n")
+            nms.write("-\n")
+            nms.write(omni_source_file + "\n")
+            nms.write("{0:11.4f}   \n".format(500.0000))
+            nms.write("-\n")
+            nms.write("-")
 
-        # Output the study area, in the proper projection, to a shapefile so it can be used for masking.
-        study_area_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/study_area_NAD83.shp"
-        self.study_area.to_file(study_area_filename)
-
-        # Mask the DEM file with the study area shapefile.
-        dem_masked_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_NAD83_mask.tif"
-        gdal.Warp(
-            dem_masked_filename,
-            dem_src,
-            cutlineDSName=study_area_filename,
-            cropToCutline=True
-        )
-
-        # ------ Create .flt DEM File & Header ------- #
-
-        flt_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_NAD83_mask.flt"
-        flt_header_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_NAD83_mask.hdr"
-
-        gdal.Translate(flt_filename, dem_masked_filename, options="-ot Float32 -of ehdr -a_nodata -9999")
-
-        # the header file doesn't write correctly... manually overwrite this:
-        old_hdr = pd.read_csv(flt_header_filename, header=None, delim_whitespace=True, index_col=0).T
-
-        # compute new lower left corner y-val
-        yllcorner = float(old_hdr.ULYMAP) - float(old_hdr.NROWS) * float(old_hdr.XDIM)
-
-        # write a new header file exactly as output by ESRI
-        with open(flt_header_filename, 'w') as header:
-            header.write("{:14}{:}\n".format("ncols", old_hdr.NCOLS.values[0]))
-            header.write("{:14}{:}\n".format("nrows", old_hdr.NROWS.values[0]))
-            header.write("{:14}{:}\n".format("xllcorner", old_hdr.ULXMAP.values[0]))
-            header.write("{:14}{:}\n".format("yllcorner", yllcorner))
-            header.write("{:14}{:}\n".format("cellsize", old_hdr.XDIM.values[0]))
-            header.write("{:14}{:}\n".format("NODATA_value", old_hdr.NODATA.values[0]))
-            header.write("{:14}{:}".format("byteorder", "LSBFIRST"))
+        # write the batch file to create a site-based analysis
+        with open(batch_file, 'w') as batch:
+            batch.write("open\n")
+            batch.write(control_file + "\n")
+            batch.write("site\n")
+            batch.write(f"{tis_directory}/{os.path.basename(trajectory_file)[:-4]}" + "\n")
+            batch.write("dbf: no\n")
+            batch.write("hrs: 0\n")
+            batch.write("min: 0\n")
+            batch.write("sec: 0.0")
 
     def generate(self, omni_source: str, altitude_m: int = 3658, n_iter: int = 3,
                  simplify: int = 100, src_pt_density: int = 48, mic: Optional[Microphone] = None,
@@ -273,7 +305,7 @@ class ActiveSpaceGenerator:
         src_pt_density : int
         mic : Microphone, default None
         """
-        study_areas = None if mesh else [self.study_area]   # TODO
+        study_areas = None if mesh else [self.study_area]   # TODO: mesh, clip DEM raster even more....
 
         for i, study_area in enumerate(study_areas):
 
@@ -290,17 +322,15 @@ class ActiveSpaceGenerator:
                     crs=crs
                 )
 
+            dem_filename = self._create_dem_files(self.dem_tif, study_area=study_area,
+                                                  project=False, suffix=f'_{mic.name}') if mesh else self.dem_tif
+
             for j in range(n_iter):
 
                 source_pt_mesh = build_src_point_mesh(active_space, src_pt_density, altitude_m)
-                self._create_trajectory_file(source_pt_mesh, crs, f"{mic.name}_{i}")
-                self._create_site_file(mic)
-                self._create_tis_dir()  # TODO
+                trajectory_filename = self._create_trajectory_file(source_pt_mesh, crs, f"{mic.name}_{i}")
+                site_filename = self._create_site_file(mic)
+                self._create_instruction_files(dem_filename, site_filename, trajectory_filename, omni_source) # todo: SHOULD BE FLT
                 # self._find_audible() # TODO
 
-
                 # TODO: shrink the study size
-
-
-    def _create_trajectories(self):
-        pass
