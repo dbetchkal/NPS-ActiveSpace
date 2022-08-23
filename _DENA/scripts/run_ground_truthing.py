@@ -1,5 +1,5 @@
-import os
 import glob
+import os
 from argparse import ArgumentParser
 
 import geopandas as gpd
@@ -56,14 +56,14 @@ if __name__ == '__main__':
     if args.track_source == 'ADSB':
         if args.year <= 2019:
             raw_tracks = query_adsb(
-                adsb_files=glob.glob(os.path.join(cfg.read('data', 'adsb'), "*.TSV")), # TO DO: handle *.txt or *.TSV
+                adsb_files=glob.glob(os.path.join(cfg.read('data', 'adsb'), "*.txt")), 
                 start_date=nvspl_dates[0],
                 end_date=nvspl_dates[-1],
                 mask=study_area
             )
         elif args.year > 2019:
             raw_tracks = query_adsb(
-                adsb_files=glob.glob(os.path.join(cfg.read('data', 'adsb'), "*.TSV")), # TO DO: handle *.txt or *.TSV
+                adsb_files=glob.glob(os.path.join(cfg.read('data', 'adsb'), "*.TSV")), 
                 start_date=nvspl_dates[0],
                 end_date=nvspl_dates[-1],
                 mask=study_area

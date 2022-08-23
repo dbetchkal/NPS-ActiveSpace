@@ -16,7 +16,6 @@ __all__ = [
     'get_deployment',
     'get_logger',
     'query_adsb',
-    'query_early_adsb',
     'query_tracks'
 ]
 
@@ -127,40 +126,11 @@ def query_adsb(adsb_files: List[str],  start_date: str, end_date: str,
     adsb : ADSB
         A ADSB object of flight track points.
     """
-    adsb = Adsb(adsb_files)
-    adsb = adsb.loc[(adsb["TIME"] > start_date) & (adsb["TIME"] < end_date)]
 
-    if mask is not None:
-        if not mask.crs.to_epsg() == 4326:  # If mask is not already in WGS84, project it.
-            mask = mask.to_crs(epsg='4326')
-        adsb = gpd.clip(adsb, mask)
-
-    adsb = adsb.loc[~(adsb.geometry.is_empty)] #   TODO: do we need this..?
-
-    return adsb
-
-def query_early_adsb(adsb_files: List[str],  start_date: str, end_date: str,
-                 mask: Optional[gpd.GeoDataFrame] = None) -> gpd.GeoDataFrame:
-    """
-    Query flight tracks from the FlightsDB for a specific date range and optional within a specific area.
-
-    Parameters
-    ----------
-    adsb_files : List of str
-        A list of adsb data files to read in.
-    start_date : str
-        ISO date string (YYYY-mm-dd) indicating the beginning of the date range to query within
-    end_date : str
-        ISO date string (YYYY-mm-dd) indicating the end of the date range to query within
-    mask : gpd.GeoDataFrame, default None
-        Geopandas.GeoDataframe instance to spatially filter query results.
-
-    Returns
-    -------
-    adsb : ADSB
-        A ADSB object of flight track points.
-    """
-    adsb = EarlyAdsb(adsb_files)
+    if int(start_date[:4]) <= 2019:
+        adsb = EarlyAdsb(adsb_files)
+    else:
+        adsb = Adsb(adsb_files)
     adsb = adsb.loc[(adsb["TIME"] > start_date) & (adsb["TIME"] < end_date)]
 
     if mask is not None:

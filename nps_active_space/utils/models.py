@@ -1,22 +1,22 @@
-import glob
-import re
-import os
 import datetime as dt
+import glob
+import os
+import re
 from dataclasses import dataclass, field
 from typing import List, Optional, Union
 
 import geopandas as gpd
-import pandas as pd
 import numpy as np
+import pandas as pd
 from pyproj import Transformer
 from tqdm import tqdm
 
 
 __all__ = [
-    'Microphone',
-    'Nvspl',
     'Adsb',
     'EarlyAdsb',
+    'Microphone',
+    'Nvspl',
     'Tracks'
 ]
 
@@ -298,8 +298,7 @@ class Adsb(gpd.GeoDataFrame):
                 df.drop(df[df["tslc"] == 0].index, inplace = True)
 
                 # Sort records by ICAO Address and TIME then reset dfframe index
-                df.sort_values(["ICAO_address", "TIME"], inplace=True)
-                df = df.reset_index(drop=True)
+                df.sort_values(["ICAO_address", "TIME"], inplace=True, ignore_index=True)
 
                 # Calculate time difference between sequential waypoints for each aircraft
                 df["dur_secs"] = df.groupby("ICAO_address")["TIME"].diff().dt.total_seconds()
@@ -330,7 +329,6 @@ class Adsb(gpd.GeoDataFrame):
 
 
 class EarlyAdsb(Adsb):
-
     """
     A geopandas GeoDataFrame wrapper class to ensure consistent ADS-B data.
 
@@ -359,7 +357,6 @@ class EarlyAdsb(Adsb):
         AssertionError if directory path or file path does not exists or is of the wrong format.
         """
         if isinstance(filepaths_or_data, gpd.GeoDataFrame):
-            #self._validate(filepaths_or_data.columns)
             data = filepaths_or_data.to_crs("epsg:4326")
 
         else:
@@ -370,7 +367,7 @@ class EarlyAdsb(Adsb):
             else:
                 for file in filepaths_or_data:
                     assert os.path.isfile(file), f"{file} does not exist."
-                    assert (file.endswith('.txt')|file.endswith('.TSV')), f"Only .TSV ADS-B files accepted."
+                    assert (file.endswith('.txt')), f"Only .txt ADS-B files accepted."
 
             data = pd.DataFrame()
             for file in tqdm(filepaths_or_data, desc='Loading ADS-B files', unit='files', colour='green'):
@@ -381,9 +378,8 @@ class EarlyAdsb(Adsb):
                 df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
 
                 # Sort records by ICAO Address and TIME then reset dataframe index
-                df.sort_values(["ICAO_address", "TIME"], inplace=True)
-                df = df.reset_index(drop=True)
-                
+                df.sort_values(["ICAO_address", "TIME"], inplace=True, ignore_index=True)
+
                 # Calculate time difference between sequential waypoints for each aircraft
                 df["dur_secs"] = df.groupby("ICAO_address")["TIME"].diff().dt.total_seconds()
                 df["dur_secs"] = df["dur_secs"].fillna(0)
