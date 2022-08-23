@@ -1,4 +1,5 @@
 import glob
+import os
 from argparse import ArgumentParser
 
 import geopandas as gpd
@@ -10,7 +11,7 @@ from nps_active_space.utils import Nvspl, Tracks
 
 import _DENA.resource.config as cfg
 from _DENA import _DENA_DIR
-from _DENA.resource.helpers import get_deployment, get_logger, query_tracks
+from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks
 
 
 if __name__ == '__main__':
@@ -25,6 +26,8 @@ if __name__ == '__main__':
                           help="Four letter site code. E.g. TRLA")
     argparse.add_argument('-y', '--year', type=int, required=True,
                           help="Four digit year. E.g. 2018")
+    argparse.add_argument('-t', '--track-source', default='Database', choices=["Database", "ADSB", "AIS"],
+                          help="Enter 'Database', 'ADSB', or 'AIS")
 
     args = argparse.parse_args()
 
@@ -37,7 +40,7 @@ if __name__ == '__main__':
     logger.info(f"Beginning ground truthing process for {args.unit}{args.site}{args.year}...")
 
     # Set the various path variables.
-    archive = iyore.Dataset(cfg.read('data', 'archive'))
+    archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
     project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
 
     # Load the microphone deployment site metadata and the study area shapefile.
@@ -49,12 +52,32 @@ if __name__ == '__main__':
 
     # Query flight tracks from days there is NVSPL data for.
     logger.info("Querying tracks...")
-    tracks = query_tracks(engine=engine, start_date=nvspl_dates[0], end_date=nvspl_dates[-1], mask=study_area)
+
+    if args.track_source == 'ADSB':
+        raw_tracks = query_adsb(
+            adsb_files=glob.glob(os.path.join(cfg.read('data', 'adsb'), "*.TSV")),
+            start_date=nvspl_dates[0],
+            end_date=nvspl_dates[-1],
+            mask=study_area
+        )
+
+        raw_tracks["local_hourtime"] = raw_tracks["TIME"].apply(lambda t: t.replace(minute=0, second=0, microsecond=0))
+        tracks = Tracks(raw_tracks, id_col='flight_id', datetime_col='TIME', z_col='altitude')
+        hourtimes = tracks.local_hourtime.astype(object).unique()
+
+    elif args.track_source == 'Database':
+        raw_tracks = query_tracks(engine=engine, start_date=nvspl_dates[0], end_date=nvspl_dates[-1], mask=study_area)
+        tracks = Tracks(raw_tracks, 'flight_id', 'ak_datetime', 'altitude_m')
+        hourtimes = tracks.ak_hourtime.astype(object).unique()
+
+    else:
+        raise NotImplementedError('Code for AIS is not ready yet.')
+
     track_hours = [{'year': hourtime.year,
                     'month': hourtime.month,
                     'day': hourtime.day,
                     'hour': hourtime.hour}
-                   for hourtime in tracks.ak_hourtime.astype(object).unique()]
+                   for hourtime in hourtimes]
 
     # Open NVSPL data files during hours in which there is flight data.
     nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year), items=track_hours)]
@@ -62,7 +85,7 @@ if __name__ == '__main__':
 
     logger.info("Launching application...")
     app.launch(
-        tracks=Tracks(tracks, 'flight_id', 'ak_datetime', 'altitude_m'),
+        tracks=tracks,
         nvspl=nvspl,
         mic=microphone,
         crs=microphone.crs,

@@ -1,11 +1,11 @@
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING, Union
 
 import geopandas as gpd
 import pandas as pd
 from tqdm import tqdm
 
-from nps_active_space.utils import coords_to_utm, Microphone
+from nps_active_space.utils import Adsb, coords_to_utm, EarlyAdsb, Microphone
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 __all__ = [
     'get_deployment',
     'get_logger',
+    'query_adsb',
     'query_tracks'
 ]
 
@@ -101,6 +102,42 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
 
     data = flight_tracks.loc[~(flight_tracks.geometry.is_empty)]
     return data
+
+
+def query_adsb(adsb_files: List[str],  start_date: str, end_date: str,
+               mask: Optional[gpd.GeoDataFrame] = None) -> Union[Adsb, EarlyAdsb]:
+    """
+    Query flight tracks from ADSB files for a specific date range and optional within a specific area.
+
+    Parameters
+    ----------
+    adsb_files : List of str
+        A list of adsb data files to read in.
+    start_date : str
+        ISO date string (YYYY-mm-dd) indicating the beginning of the date range to query within
+    end_date : str
+        ISO date string (YYYY-mm-dd) indicating the end of the date range to query within
+    mask : gpd.GeoDataFrame, default None
+        Geopandas.GeoDataframe instance to spatially filter query results.
+
+    Returns
+    -------
+    adsb : ADSB or EarlyADSB
+        An ADSB or EarlyADSB object of flight track points.
+    """
+    if int(start_date[:4]) <= 2019:  # ADSB file formats changed after 2019.
+        adsb = EarlyAdsb(adsb_files)
+    else:
+        adsb = Adsb(adsb_files)
+    adsb = adsb.loc[(adsb["TIME"] > start_date) & (adsb["TIME"] < end_date)]
+
+    if mask is not None:
+        if not mask.crs.to_epsg() == 4326:  # If mask is not already in WGS84, project it.
+            mask = mask.to_crs(epsg='4326')
+        adsb = gpd.clip(adsb, mask)
+
+    adsb = adsb.loc[~(adsb.geometry.is_empty)]
+    return adsb
 
 
 class _TqdmStream:
