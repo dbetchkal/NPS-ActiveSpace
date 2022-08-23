@@ -1,12 +1,11 @@
 import logging
-import datetime as dt
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING, Union
 
 import geopandas as gpd
 import pandas as pd
 from tqdm import tqdm
 
-from nps_active_space.utils import Adsb, coords_to_utm, Microphone
+from nps_active_space.utils import Adsb, coords_to_utm, EarlyAdsb, Microphone
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
@@ -106,9 +105,9 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
 
 
 def query_adsb(adsb_files: List[str],  start_date: str, end_date: str,
-                 mask: Optional[gpd.GeoDataFrame] = None) -> gpd.GeoDataFrame:
+               mask: Optional[gpd.GeoDataFrame] = None) -> Union[Adsb, EarlyAdsb]:
     """
-    Query flight tracks from the FlightsDB for a specific date range and optional within a specific area.
+    Query flight tracks from ADSB files for a specific date range and optional within a specific area.
 
     Parameters
     ----------
@@ -123,11 +122,10 @@ def query_adsb(adsb_files: List[str],  start_date: str, end_date: str,
 
     Returns
     -------
-    adsb : ADSB
-        A ADSB object of flight track points.
+    adsb : ADSB or EarlyADSB
+        An ADSB or EarlyADSB object of flight track points.
     """
-
-    if int(start_date[:4]) <= 2019:
+    if int(start_date[:4]) <= 2019:  # ADSB file formats changed after 2019.
         adsb = EarlyAdsb(adsb_files)
     else:
         adsb = Adsb(adsb_files)
@@ -138,8 +136,7 @@ def query_adsb(adsb_files: List[str],  start_date: str, end_date: str,
             mask = mask.to_crs(epsg='4326')
         adsb = gpd.clip(adsb, mask)
 
-    adsb = adsb.loc[~(adsb.geometry.is_empty)] #   TODO: do we need this..?
-
+    adsb = adsb.loc[~(adsb.geometry.is_empty)]
     return adsb
 
 
