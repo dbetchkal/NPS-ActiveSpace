@@ -37,7 +37,7 @@ if __name__ == '__main__':
     args = argparse.parse_args()
 
     cfg.initialize(f"{_DENA_DIR}/config", environment=args.environment)
-    project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
+    project_dir = f"{cfg.read('project', 'dir')}\\{args.unit}{args.site}"
     logger = get_logger(f"ACTIVE-SPACE: {args.unit}{args.site}{args.year}")
     #
     # # Verify that annotation files exist
@@ -70,6 +70,7 @@ if __name__ == '__main__':
     results = gpd.GeoDataFrame(columns=['f1', 'precision', 'recall'])
 
     active_space_generator = ActiveSpaceGenerator(
+        NMSIM='T:/ResMgmt/WAGS/Sound/Applications/NMSim_2014/Nord2000batch.exe',
         root_dir=project_dir,
         study_area=study_area,
         ambience_src=ambience,
