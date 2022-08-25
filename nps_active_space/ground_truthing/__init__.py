@@ -136,7 +136,6 @@ class _App(tk.Tk):
         annotated_lines: gpd.GeoDataFrame
             a GeoDataFrame of annotated lines for a track to add to the overall annotations GeoDataFrame.
         """
-        annotated_lines = annotated_lines.to_crs('epsg:4326')
         self.annotations = pd.concat([self.annotations, annotated_lines], ignore_index=True)
         self._saved = False
 
@@ -640,8 +639,14 @@ class _GroundTruthingFrame(_AppFrame):
         self.inaudible_button.config(state=tk.DISABLED)
         self.unknown_button.config(state=tk.DISABLED)
 
-        # Unknown and inaudible tracks can be saved as a single line.
+        # Convert points to WGS84 to avoid geopandas bug mentioned in Track model :(
+        if 'z' not in points.columns:
+            points['z'] = points.geometry.z
+            points = points.to_crs('epsg:4326')
+            points['geometry'] = points.apply(lambda row: Point(row.geometry.x, row.geometry.y, row.z), axis=1)
+            points.drop('z', axis=1, inplace=True)
 
+        # Unknown and inaudible tracks can be saved as a single line.
         if valid is False or audible is False:
             lines = gpd.GeoDataFrame(
                 {

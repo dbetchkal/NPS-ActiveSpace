@@ -126,7 +126,7 @@ def interpolate_spline(points: 'Tracks', ds: int = 1) -> gpd.GeoDataFrame:
     flight_times = (points.point_dt - starttime).dt.total_seconds().values  # Seconds after initial point
 
     coords = [points.geometry.x, points.geometry.y, points.z] if 'z' in points else [points.geometry.x, points.geometry.y]
-    tck, u = interpolate.splprep(coords, u=flight_times, k=k)
+    tck, u = interpolate.splprep(x=coords, u=flight_times, k=k)
 
     # Parametric interpolation on the time interval provided.
     duration = (endtime - starttime).total_seconds()
@@ -135,7 +135,6 @@ def interpolate_spline(points: 'Tracks', ds: int = 1) -> gpd.GeoDataFrame:
     track_spline = gpd.GeoDataFrame({'point_dt': [starttime + dt.timedelta(seconds=offset) for offset in tnew]},
                                     geometry=[Point(xyz) for xyz in zip(spl_out[0], spl_out[1], spl_out[2])],
                                     crs=points.crs)
-
     return track_spline
 
 
