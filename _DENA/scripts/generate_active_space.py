@@ -37,7 +37,7 @@ if __name__ == '__main__':
     args = argparse.parse_args()
 
     cfg.initialize(f"{_DENA_DIR}/config", environment=args.environment)
-    project_dir = f"{cfg.read('project', 'dir')}\\{args.unit}{args.site}"
+    project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
     logger = get_logger(f"ACTIVE-SPACE: {args.unit}{args.site}{args.year}")
     #
     # # Verify that annotation files exist
@@ -53,14 +53,14 @@ if __name__ == '__main__':
     #     annotations = annotations.append(Annotations(file), ignore_index=True)
 
     # Load the microphone deployment site metadata and the study area shapefile.
-    microphone = get_deployment(args.unit, args.site, args.year, cfg.read('data', 'site_metadata'))
+    microphone = get_deployment(args.unit, args.site, args.year, cfg.read('data', 'site_metadata'), elevation=False)
     study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])
 
     # Load NVSPL data or the mennitt raster depending on the user input.
     if args.ambience == 'nvspl':
         archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
         nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year),
-                                                     n=1)] # TODO remove this....
+                                                     n=2)] # TODO remove this....
         ambience = Nvspl(nvspl_files)
     else:
         ambience = 'T:/ResMgmt/WAGS/Sound/GIS/AlaskaRegion/AK Soundscape Model/DENA_L50_Existing.tif'
@@ -70,7 +70,7 @@ if __name__ == '__main__':
     results = gpd.GeoDataFrame(columns=['f1', 'precision', 'recall'])
 
     active_space_generator = ActiveSpaceGenerator(
-        NMSIM='T:/ResMgmt/WAGS/Sound/Applications/NMSim_2014/Nord2000batch.exe',
+        NMSIM=r'T:\ResMgmt\WAGS\Sound\Applications\NMSim_2014\Nord2000batch.exe',
         root_dir=project_dir,
         study_area=study_area,
         ambience_src=ambience,
@@ -84,7 +84,6 @@ if __name__ == '__main__':
 
         active_space = active_space_generator.generate(
             omni_source=omni_source,
-            n_iter=1,   # TODO:  # remove n_iter
             mic=microphone
         )
         if not active_space:

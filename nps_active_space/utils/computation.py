@@ -8,7 +8,7 @@ from shapely.geometry import Point
 
 if TYPE_CHECKING:
     from nps_active_space.utils.models import Tracks
-    from shapely.geometry import Polygon, Point
+    from shapely.geometry import Point
 
 
 __all__ = [
@@ -176,14 +176,14 @@ def audible_time_delay(points: gpd.GeoDataFrame, time_col: str, target: Point,
     return points
 
 
-def build_src_point_mesh(area: 'Polygon', density: int = 48, altitude: Optional[int] = None) -> List['Point']:
+def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Optional[int] = None) -> List['Point']:
     """
     Given a polygon and a density, create a square mesh of evenly spaced points throughout the polygon.
 
     Parameters
     ----------
-    area : Polygon
-        A shapely Polygon of the area to create the square point mesh over.
+    area : gpd.GeoDataFrame
+        A GeoDataFrame of the area to create the square point mesh over.
     density : int
         The number of points along each mesh axis. The mesh will contain density x density points.
     altitude : int, default None
@@ -195,8 +195,8 @@ def build_src_point_mesh(area: 'Polygon', density: int = 48, altitude: Optional[
         A list of shapely Points in the mesh.
     """
     # Start out with a grid of N = density x density points. Polygon bounds:  (minx, miny, maxx, maxy)
-    x = np.linspace(area.bounds[0], area.bounds[2], density)
-    y = np.linspace(area.bounds[1], area.bounds[3], density)
+    x = np.linspace(area.total_bounds[0], area.total_bounds[2], density)
+    y = np.linspace(area.total_bounds[1], area.total_bounds[3], density)
     x_ind, y_ind = np.meshgrid(x, y)
 
     # Create an array of mesh points. np.ravel linearly indexes an array into a row.

@@ -21,7 +21,7 @@ __all__ = [
 ]
 
 
-def get_deployment(unit: str, site: str, year: int, filename: str) -> Microphone:
+def get_deployment(unit: str, site: str, year: int, filename: str, elevation: bool = True) -> Microphone:
     """
     Obtain all metadata for a specific microphone deployment from a metadata file.
 
@@ -35,6 +35,9 @@ def get_deployment(unit: str, site: str, year: int, filename: str) -> Microphone
         Deployment year. YYYY
     filename : str
         Absolute path to microphone deployment metadata text file. '/path/to/metadata.txt'
+    elevation : bool, default True
+        If True, the microphone z value will be set to its elevation. If False, the microphone z value will be
+        set to the microphone's height from the ground.
 
     Returns
     -------
@@ -48,7 +51,7 @@ def get_deployment(unit: str, site: str, year: int, filename: str) -> Microphone
     mic = Microphone(
         lat=site_meta.lat.iat[0],
         lon=site_meta.long.iat[0],
-        z=site_meta.elevation.iat[0],
+        z=site_meta.elevation.iat[0] if elevation else site_meta.microphone_height.iat[0],
         name=f"{unit}{site}{year}"
     )
 
@@ -203,8 +206,8 @@ def get_omni_sources(lower: int, upper: int) -> List[str]:
 
     for i in range(lower*10, upper*10+5, 5):
         if i < 0:
-            omni_sources.append(f"{omni_source_dir}/O_{i:04}.src")
+            omni_sources.append(f"{omni_source_dir}\\O_{i:04}.src")
         elif i >= 0:
-            omni_sources.append(f"{omni_source_dir}/O_+{i:03}.src")
+            omni_sources.append(f"{omni_source_dir}\\O_+{i:03}.src")
 
     return omni_sources
