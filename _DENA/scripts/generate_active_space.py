@@ -84,12 +84,12 @@ if __name__ == '__main__':
 
         active_space = active_space_generator.generate(
             omni_source=omni_source,
-            mic=microphone
+            mic=microphone,
+            # TODO
+            heading=270,
         )
         if not active_space:
             exit()
-
-
 
     #     f1, precision, recall, n_tot = compute_f1(valid_points, active_space)
     #     active_space['f1'] = f1

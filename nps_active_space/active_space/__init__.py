@@ -12,16 +12,13 @@ import shapely
 
 from shapely.geometry import Point, Polygon
 
-from nps_active_space.utils import build_src_point_mesh, Microphone, NMSIM_bbox_utm, Nvspl
-
-
-class ActiveSpace:
-
-    def computer_f1(self):
-        pass
-
-    def plot(self):
-        pass
+from nps_active_space.utils import (
+    build_src_point_mesh,
+    create_overlapping_mesh,
+    Microphone,
+    NMSIM_bbox_utm,
+    Nvspl
+)
 
 
 class ActiveSpaceGenerator:
@@ -46,9 +43,6 @@ class ActiveSpaceGenerator:
     broadband : bool, default False
         If True and using Nvspl data as the ambience source, quantiles will be calculated from the dBA column
         instead of the 1/3rd octave band columns.
-
-
-            # TODO: some graph output argument??
     """
     def __init__(self, NMSIM: str, study_area: gpd.GeoDataFrame, root_dir: str, dem_src: str,
                  ambience_src: Union['Nvspl', str], quantile: int = 50, broadband: bool = False):
@@ -87,14 +81,14 @@ class ActiveSpaceGenerator:
 
     def _set_ambience(self, ambience_src: Union['Nvspl', str]):
         """
-        Load ambience
+        Set the ambience based on NVSPL data or an ambience file.
 
         Parameters
         ----------
         ambience_src : Nvspl or str
+            An Nvspl object with data to calculate broadband for 1/3 octave ambience from or an ambience raster to
+            load ambience from.
         """
-        # TODO; not sure how this gets used yet...
-
         if type(ambience_src) == Nvspl:
             if self.broadband:
                 Lx = ambience_src.loc[:, 'dbA'].quantile(1 - (self.quantile / 100))
@@ -179,7 +173,8 @@ class ActiveSpaceGenerator:
 
         return dem_masked_filename, flt_filename
 
-    def _create_trajectory_file(self, points: List['Point'], crs: str, filename: str) -> str:
+    def _create_trajectory_file(self, points: List['Point'], crs: str, filename: str,
+                                heading: Optional[int] = None) -> str:
         """
         Create a trajectory file from a list of points.
 
@@ -191,6 +186,9 @@ class ActiveSpaceGenerator:
             The crs the Points should be in before being written to the trajectory file.
         filename : str
             Name of the trajectory file.
+        heading : int, default None
+            The heading (yaw) to use for all points in the trajectory file. If None, a random heading will be used
+            for each point.
 
         Returns
         -------
@@ -199,7 +197,7 @@ class ActiveSpaceGenerator:
         trajectory_filename = f"{self.root_dir}/Input_Data/03_TRAJECTORY/{filename}.trj"
 
         trajectory = gpd.GeoDataFrame([], geometry=points, crs=crs)
-        trajectory['heading'] = np.random.choice(range(0, 360), size=len(points), replace=True)
+        trajectory['heading'] = heading if heading is not None else np.random.choice(range(0, 360), size=len(points), replace=True)
         trajectory['climb_angle'] = 0
         trajectory['power'] = 95
         trajectory['rol'] = 0
@@ -317,13 +315,24 @@ class ActiveSpaceGenerator:
 
         return batch_file
 
-    def _find_audible_points(self, trajectory_file: str, tis_file: str, crs: str):
+    def _find_audible_points(self, trajectory_file: str, tis_file: str, crs: str) -> gpd.GeoDataFrame:
         """
+        Determine which points from a trajectory file are audible given the corresponding NMSIM tis output.
+
         Parameters
         ----------
         trajectory_file : str
+            Absolute path to the trajectory file.
         tis_file : str
+            Absolute path to the corresponding tis file.
         crs : str
+            crs of the trajectory file and of the output GeoDataFrame. In the format 'epsg:XXXX'
+
+        Returns
+        -------
+        total_space ; gpd.GeoDataFrame
+            A GeoDataFrame of the NMSIM tested points from the trajectory file with an 'audible' column set to 0 or 1
+            depending on the point's audibility.
         """
         # Read in the trajectory input file.
         trajectory_df = pd.read_fwf(trajectory_file, header=15, widths=[16, 14] + [15]*7)
@@ -365,9 +374,21 @@ class ActiveSpaceGenerator:
 
         return total_space
 
-    def _contour_active_space(self, total_space, altitude: int, max_pts=5184) -> List[Point]:
+    @staticmethod
+    def _contour_active_space(total_space: gpd.GeoDataFrame, altitude: int, max_pts: int = 5184) -> List[Point]:
         """
+        Use triangulation to select points along the audible/inaudible line of the active space to more precisely
+        define the bounadries.
 
+        Parameters
+        ----------
+        total_space : gpd.GeoDataFrame
+        altitude : int
+        max_pts : int, default 5184
+
+        Returns
+        -------
+        List of Points to pass into NMSIM along the audible/inaudible line help define the active space edge.
         """
         levels = np.linspace(0, 1, 10, endpoint=False)  # these are the contour levels to calculate
         fig, ax = plt.subplots()
@@ -395,11 +416,34 @@ class ActiveSpaceGenerator:
 
         return list(map(Point, xyz))
 
-    def _run_NMSIM(self, round_name: str, source_pts, crs, flt_file, site_file, omni_source):
+    def _run_nmsim(self, job_name: str, source_pts: List[Point], crs: str, flt_file: str, site_file: str,
+                   omni_source: str, heading: Optional[int] = None) -> gpd.GeoDataFrame:
         """
+        Execute a single NMSIM job.
 
+
+        Parameters
+        ----------
+        job_name : str
+            Name of this NMSIM run to use a suffix to input and output files.
+        source_pts : List[Point]
+            List of shapely Points to test the audibility of in NMSIM.
+        crs : str
+            The crs of the points. Of the format 'epsg:XXXX..'
+        flt_file : str
+            Absolute path to the .flt DEM file required to run NMSIM.
+        site_file : str
+            Absolute path to the .sit file of the receiver point required to run NMSIM.
+        heading : int, default None
+            The heading (yaw) to use for all points in the trajectory file. If None, a random heading will be used
+            for each point.
+
+        Returns
+        -------
+        new_audibility_pts : gpd.GeoDataFrame
+            A GeoDataFrame of points tested during the NMSIM run and their audibility.
         """
-        trajectory_filename = self._create_trajectory_file(source_pts, crs, round_name)
+        trajectory_filename = self._create_trajectory_file(source_pts, crs, job_name, heading)
         batch_file = self._create_instruction_files(flt_file, site_file, trajectory_filename, omni_source)
 
         process = subprocess.Popen([self.NMSIM, batch_file], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -411,14 +455,30 @@ class ActiveSpaceGenerator:
 
         new_audibility_pts = self._find_audible_points(
             trajectory_filename,
-            f"{self.root_dir}/Output_Data/TIG_TIS/{round_name}.tis",
+            f"{self.root_dir}/Output_Data/TIG_TIS/{job_name}.tis",
             crs
         )
 
         return new_audibility_pts
 
-    def _build_active_space(self, total_space, crs, simplify, altitude):
+    @staticmethod
+    def _build_active_space(total_space, crs, simplify, altitude):
+        """
+        Build the final active space polygon given the audibility of all tested points.
 
+        Parameters
+        ----------
+        total_space : gpd.GeoDataFrame
+            A GeoDataFrame of all tested points and their audibility to be used to build the final active space
+            polygon from.
+        crs : str
+            The crs of the points. Of the format 'epsg:XXXX...'
+        simplify : int
+            The tolerance value to be used to simplify the edge of the active space polygon. Higher numbers means
+            a simpler border.
+        altitude : int
+            The altitude (in meters) of all points run through NMSIM.
+        """
         fig, ax = plt.subplots()  # need an axis to call tricontour function
         levels = np.linspace(0, 1, 10, endpoint=False)
 
@@ -462,16 +522,8 @@ class ActiveSpaceGenerator:
         if final_poly.crs != crs:  # convert coordinate project if necessary
             final_poly = final_poly.to_crs(crs)
 
-        # # write the final polygon into a binary format that can be acquired by a pickle
-        # src_name = self.source_path.split(os.sep)[-1][:-4]  # gleans source filename and hacks off the extension
-        # if self.save_pkl:
-        #     filename = self.project_dir + os.sep + self.unit_name + self.site_name + str(self.yr) + \
-        #                "_src" + src_name + "_" + str(altitude_ft) + "ft_active_space.pkl"
-        #     filewriter = open(filename, 'wb')
-        #     pickle.dump(final_poly, filewriter)
-        #     filewriter.close()
-        #
-        # if self.printout:
+        final_poly.to_file(r'C:\Users\azucker\Desktop\active_space.geojson', driver='GeoJSON', mode='w', index=False) # TODO
+
         fig, ax = plt.subplots()
         final_poly.plot(ax=ax)
         plt.show()
@@ -482,28 +534,45 @@ class ActiveSpaceGenerator:
         final_gdf = final_gdf.assign(altitude=altitude)  # keep the altitude info with the geodataframe
         return final_gdf
 
-    def generate(self, omni_source: str, altitude_m: int = 3658, n_contour: int = 1,
-                 simplify: int = 50, src_pt_density: int = 48, mic: Optional[Microphone] = None,
-                 mesh: bool = False, mesh_density: int = 10, show: bool = False):
+        # TODO: fix the output!!!
+
+    def generate(self, omni_source: str, altitude_m: int = 3658, mic: Optional[Microphone] = None,
+                 heading: Optional[int] = None, mesh: bool = False, mesh_density: Tuple[int] = (1, 25),
+                 src_pt_density: int = 48, n_contour: int = 1, simplify: int = 100):
         """
-        # TODO
+        Generate an active space, or multiple active spaces over a mesh, for the study area.
 
         Parameters
         ----------
         omni_source : str
+            Absolute path to the omni source tuning file to use when running NMSIM.
         altitude_m : int, default 3658 meters (equivalent to 12000 ft)
-
-        n_contour : int
-            Number of rounds of contouring to perform.
-        simplify : int
-        mesh : bool
-        mesh_density : int
-        src_pt_density : int
+            Single altitude value to use when creating NSMIM trajectories.
         mic : Microphone, default None
+            A Microphone object to use as the NMSIM receiver. If no Microphone is passed, the study area centroid
+            will be used as the NMSIM receiver location.
+        heading : int, default None
+            The heading (yaw) to use for all points in the trajectory file. If None, a random heading will be used
+            for each point.
+        mesh : bool, default False
+            If True, an overlapping mesh will be created over the study area, and an active space generated for
+            every cell.
+        mesh_density : Tuple[int], default (1km, 25km)
+            Coarseness of the mesh in kilometers. The first value is how far apart the mesh centroids should be and
+            the second value is how large the mesh squares around the centroids should be, both in kilometers.
+        src_pt_density : int
+            Density of the point mesh to be used in the first two rounds of active space definition. The point mesh will
+            have src_pt_density x src_point_density points.
+        n_contour : int, default 1
+            Number of rounds of contouring to perform after the two rounds of active space point meshing.
+        simplify : int
         """
-        study_areas = None if mesh else [self.study_area]   # TODO: mesh
+        study_areas = create_overlapping_mesh(self.study_area, mesh_density[0], mesh_density[1]) if mesh else self.study_area
 
-        for i, study_area in enumerate(study_areas):
+        # for i, study_area in study_areas.iterrows():
+        for i in range(study_areas.shape[0]):
+
+            study_area = study_areas.iloc[[i]]
 
             # Determine the UTM CRS on the western-most edge of the initial study area.
             crs = NMSIM_bbox_utm(study_area)
@@ -538,16 +607,20 @@ class ActiveSpaceGenerator:
 
             for j in range(2):
                 source_pts = build_src_point_mesh(active_space, src_pt_density, altitude_m)
-                new_audibility_pts = self._run_NMSIM(
+                new_audibility_pts = self._run_nmsim(
                     f"{mic.name}_mesh{j+1}",
                     source_pts,
                     crs,
                     flt_filename,
                     site_filename,
-                    omni_source
+                    omni_source,
+                    heading
                 )
                 tested_space = tested_space.append(new_audibility_pts, ignore_index=True)
                 active_space = tested_space[tested_space.audible == 1]
+
+                # tested_space.plot(column='audible', markersize=3, cmap='Set3') # TODO
+                # plt.show()
 
                 # Create a smaller buffer around the new active space. If the padded active space is 30% smaller than
                 #  the original study area before the for loop is completed, break out of the for loop and proceed the
@@ -556,21 +629,24 @@ class ActiveSpaceGenerator:
                 xpad = 0.2 * (maxx - minx)  # pad extents by 20% on each side, 40% total
                 ypad = 0.2 * (maxy - miny)
                 extent = ([minx - xpad, maxx + xpad], [miny - ypad, maxy + ypad])
-                shrinkage = np.divide(np.diff(extent) - np.diff(study_area_extent), np.diff(study_area_extent)) # TODO check on this
+                shrinkage = np.divide(np.diff(extent) - np.diff(study_area_extent), np.diff(study_area_extent))
                 if min(shrinkage) > -0.30:
                     break
 
             for k in range(n_contour):
                 source_pts = self._contour_active_space(tested_space, altitude_m)
-                new_audibility_pts = self._run_NMSIM(
+                new_audibility_pts = self._run_nmsim(
                     f"{mic.name}_contour{k+1}",
                     source_pts,
                     crs,
                     flt_filename,
                     site_filename,
-                    omni_source
+                    omni_source,
+                    heading
                 )
                 tested_space = tested_space.append(new_audibility_pts, ignore_index=True)
 
-            self._build_active_space(tested_space, crs, simplify, altitude_m)
+                # tested_space.plot(column='audible', markersize=3, cmap='Set3')  # TODO
+                # plt.show()
 
+            self._build_active_space(tested_space, crs, simplify, altitude_m)

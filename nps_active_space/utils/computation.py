@@ -1,4 +1,5 @@
 import datetime as dt
+import math
 from typing import Iterable, List, Optional, TYPE_CHECKING
 
 import geopandas as gpd
@@ -8,7 +9,6 @@ from shapely.geometry import Point
 
 if TYPE_CHECKING:
     from nps_active_space.utils.models import Tracks
-    from shapely.geometry import Point
 
 
 __all__ = [
@@ -16,6 +16,7 @@ __all__ = [
     'build_src_point_mesh',
     'climb_angle',
     'coords_to_utm',
+    'create_overlapping_mesh',
     'interpolate_spline',
     'NMSIM_bbox_utm'
 ]
@@ -176,7 +177,7 @@ def audible_time_delay(points: gpd.GeoDataFrame, time_col: str, target: Point,
     return points
 
 
-def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Optional[int] = None) -> List['Point']:
+def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Optional[int] = None) -> List[Point]:
     """
     Given a polygon and a density, create a square mesh of evenly spaced points throughout the polygon.
 
@@ -207,3 +208,36 @@ def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Op
                    else Point(point[0], point[1], altitude) for point in mesh_points]
 
     return mesh_points
+
+
+def create_overlapping_mesh(area: gpd.GeoDataFrame, spacing: int = 1, mesh_size: int = 25) -> gpd.GeoDataFrame:
+    """
+    Create a mesh of polygons as close to size mesh_size x mesh_size as possible over a specific area.
+
+    Parameters
+    ----------
+    area : gpd.GeoDataFrame
+        The area to cover with the mesh. CRS should be a geographic coordinate system that uses D.d.
+    spacing : int, default 1 km
+        Distance apart receiver points should be in kilometers
+    mesh_size : int, default 25 km
+        The target size in kilometers of a mesh square (mesh_size x mesh_size)
+
+    Returns
+    -------
+    An overlapping mesh of squares that cover the requested area.
+    """
+    equal_area_crs = coords_to_utm(area.centroid.iat[0].y, area.centroid.iat[0].x)
+    area_m = area.to_crs(equal_area_crs)
+
+    minx, miny, maxx, maxy = area_m.total_bounds
+    x = np.linspace(minx, maxx, math.ceil((maxx-minx)/(spacing*1000)))
+    y = np.linspace(miny, maxy, math.ceil((maxy-miny)/(spacing*1000)))
+    x_ind, y_ind = np.meshgrid(x, y)
+
+    # np.ravel linearly indexes an array into a row.
+    mesh_points = [Point(point[0], point[1]) for point in np.array([np.ravel(x_ind), np.ravel(y_ind)]).T]
+    mesh_points = gpd.GeoDataFrame({'geometry': mesh_points}, geometry='geometry', crs=equal_area_crs)
+    mesh = mesh_points.buffer(mesh_size*1000, cap_style=3)
+
+    return mesh.to_crs(area.crs)
