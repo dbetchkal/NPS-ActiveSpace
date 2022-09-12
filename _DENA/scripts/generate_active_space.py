@@ -30,16 +30,20 @@ if __name__ == '__main__':
                           help="Four digit year. E.g. 2018")
     argparse.add_argument('-a', '--ambience', default='nvspl', choices=['nvspl', 'mennitt'],
                           help='What type of ambience to use in NMSIM calculations.')
-    # argparse.add_argument('-o', '--outfile', required=False, # TODO
-    #                       help='A specific file to output active space polygon to.')
-    # argparse.add_argument('-n', '--max-tracks', type=int, default=None,
+    argparse.add_argument('--headings', nargs='+', type=int, default=[0, 120, 240],
+                          help='Headings of active spaces to dissolve.')
+    argparse.add_argument('--omni-min', type=int, default=-20,
+                          help='The minimum omni source to run the mesh for.')
+    argparse.add_argument('--omni-max', type=int, default=30,
+                          help='The maximum omni source to run the mesh for.')
+    # argparse.add_argument('-n', '--max-tracks', type=int, default=None, # TODO
     #                       help='Maximum number of tracks to load')
     args = argparse.parse_args()
 
     cfg.initialize(f"{_DENA_DIR}/config", environment=args.environment)
     project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
     logger = get_logger(f"ACTIVE-SPACE: {args.unit}{args.site}{args.year}")
-    #
+
     # # Verify that annotation files exist
     # logger.info("Locating unit/site annotations...")
     # annotation_files = glob.glob(f"{project_dir}/{args.unit}{args.site}*_saved_annotations.geojson")
@@ -52,6 +56,8 @@ if __name__ == '__main__':
     # for file in tqdm(annotation_files, desc='Loading annotation files', unit='files', colour='blue'):
     #     annotations = annotations.append(Annotations(file), ignore_index=True)
 
+    # TODO: altutide calucalte
+
     # Load the microphone deployment site metadata and the study area shapefile.
     microphone = get_deployment(args.unit, args.site, args.year, cfg.read('data', 'site_metadata'), elevation=False)
     study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])
@@ -59,38 +65,45 @@ if __name__ == '__main__':
     # Load NVSPL data or the mennitt raster depending on the user input.
     if args.ambience == 'nvspl':
         archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
-        nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year),
-                                                     n=2)] # TODO remove this....
+        nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year), n=2)] # TODO remove this....
         ambience = Nvspl(nvspl_files)
     else:
-        ambience = 'T:/ResMgmt/WAGS/Sound/GIS/AlaskaRegion/AK Soundscape Model/DENA_L50_Existing.tif'
+        ambience = cfg.read('data', 'mennitt')
 
     n_sources = 51
-    omni_sources = get_omni_sources(lower=-20, upper=30)
+    omni_sources = get_omni_sources(lower=args.omni_min, upper=args.omni_max)
     results = gpd.GeoDataFrame(columns=['f1', 'precision', 'recall'])
 
     active_space_generator = ActiveSpaceGenerator(
-        NMSIM=r'T:\ResMgmt\WAGS\Sound\Applications\NMSim_2014\Nord2000batch.exe',
+        NMSIM=cfg.read('project', 'nmsim'),
         root_dir=project_dir,
         study_area=study_area,
         ambience_src=ambience,
-        dem_src='V:/NMSim/03 DEMs/DENA_DEM_m_4269.TIF',
+        dem_src=cfg.read('data', 'dena_dem'),
+
     )
 
     logger.info(f"Generating active space for: {args.unit}{args.site}{args.year}...")
 
     # loop through source file and create an active space for each one
-    for i, omni_source in tqdm(enumerate(omni_sources)):
+    for i, omni_source in enumerate(omni_sources):
 
-        active_space = active_space_generator.generate(
-            omni_source=omni_source,
-            mic=microphone,
-            # TODO
-            heading=270,
-        )
-        if not active_space:
-            exit()
+        active_spaces = gpd.GeoDataFrame(columns=['geometry'], geometry='geometry', crs='epsg:4269')
 
+        for heading in args.headings:
+
+            active_space = active_space_generator.generate(
+                omni_source=omni_source,
+                mic=microphone,
+                heading=heading
+            )
+            active_spaces = active_spaces.append(active_space, ignore_index=True)
+
+        dissolved_active_space = active_spaces.dissolve()
+
+        dissolved_active_space.to_file(f'C:/Users/azucker/Desktop/{args.unit}{args.site}{args.year}_{os.path.basename(omni_source)}.geojson', driver='GeoJSON', mode='w', index=False)  # TODO: MOVE OUT ONE PLACE and change file name
+
+    #
     #     f1, precision, recall, n_tot = compute_f1(valid_points, active_space)
     #     active_space['f1'] = f1
     #     active_space['precision'] = precision
@@ -112,7 +125,7 @@ if __name__ == '__main__':
     #
     # print("\nFINISHED COMPUTING ACTIVE SPACE, average time {:.2f} s per polygon".format(
     #     (endtime - starttime) / n_sources))
-    #
-    #
-    #
-    #
+
+
+
+

@@ -178,16 +178,16 @@ def get_logger(name: str, level: str = 'INFO') -> logging.Logger:
     return logger
 
 
-def get_omni_sources(lower: int, upper: int) -> List[str]:
+def get_omni_sources(lower: float, upper: float) -> List[str]:
     """
     Get a list of omni source files for tuning NMSim within a specific gain range.
     Source files are provided in the data directory for gains between -30 and +50.
 
     Parameters
     ----------
-    lower: int
+    lower: float
         The lowest gain omni source file to pull.
-    upper : int
+    upper : float
         The high gain omni source file to pull
 
     Returns
@@ -204,7 +204,7 @@ def get_omni_sources(lower: int, upper: int) -> List[str]:
     omni_source_dir = f"{_ACTIVE_SPACE_DIR}\\data\\tuning"
     omni_sources = []
 
-    for i in range(lower*10, upper*10+5, 5):
+    for i in range(int(lower*10), int(upper*10+5), 5):
         if i < 0:
             omni_sources.append(f"{omni_source_dir}\\O_{i:04}.src")
         elif i >= 0:

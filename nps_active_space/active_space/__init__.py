@@ -1,3 +1,4 @@
+import glob
 import os
 import subprocess
 from typing import List, Optional, Tuple, Union
@@ -7,17 +8,21 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
 import pandas as pd
-from osgeo import gdal
 import shapely
+import rasterio
+from osgeo import gdal
+from tqdm import trange
 
 from shapely.geometry import Point, Polygon
 
 from nps_active_space.utils import (
     build_src_point_mesh,
+    coords_to_utm,
     create_overlapping_mesh,
     Microphone,
     NMSIM_bbox_utm,
-    Nvspl
+    Nvspl,
+    project_raster
 )
 
 
@@ -43,19 +48,30 @@ class ActiveSpaceGenerator:
     broadband : bool, default False
         If True and using Nvspl data as the ambience source, quantiles will be calculated from the dBA column
         instead of the 1/3rd octave band columns.
+    mesh : bool, default False
+        If True, an overlapping mesh will be created over the study area, and an active space generated for
+        every cell.
+    mesh_density : Tuple[int, int], default (1km, 25km)
+        Coarseness of the mesh in kilometers. The first value is how far apart the mesh centroids should be and
+        the second value is how large the mesh squares around the centroids should be, both in kilometers.
     """
     def __init__(self, NMSIM: str, study_area: gpd.GeoDataFrame, root_dir: str, dem_src: str,
-                 ambience_src: Union['Nvspl', str], quantile: int = 50, broadband: bool = False):
+                 ambience_src: Union['Nvspl', str], quantile: int = 50, broadband: bool = False,
+                 mesh: bool = False, mesh_density: Tuple[int, int] = (1, 25)):
+
+        self. study_areas = create_overlapping_mesh(study_area.to_crs('epsg:4269'), mesh_density[0], mesh_density[1]) \
+            if mesh else study_area.to_crs('epsg:4269')
 
         self.root_dir = root_dir
-        self.study_area = study_area.to_crs('epsg:4269')  # Convert study area to NAD83 (NMSIM preference)
         self.broadband = broadband
         self.quantile = quantile
         self.NMSIM = NMSIM
+        self.mesh = mesh
 
         self._make_dir_tree()
-        self.dem_tif, self.dem_flt = self._create_dem_files(dem_src, self.study_area)
-        self.ambience = self._set_ambience(ambience_src)
+        self.dem_file = self._mask_dem_file(dem_src, study_area.to_crs('epsg:4269'), project=True, buffer=mesh_density[1] + 1 if mesh else None)
+
+        self.ambience_src = ambience_src
 
     def _make_dir_tree(self):
         """Create a canonical NMSIM project directory. Copied from NMSIM_Create_Base_Layers.py"""
@@ -79,38 +95,38 @@ class ActiveSpaceGenerator:
             if not os.path.exists(f"{self.root_dir}/{directory}"):
                 os.makedirs(f"{self.root_dir}/{directory}")
 
-    def _set_ambience(self, ambience_src: Union['Nvspl', str]):
+    def _set_ambience(self, mic=None):
         """
         Set the ambience based on NVSPL data or an ambience file.
 
+        # TODO
+
         Parameters
         ----------
-        ambience_src : Nvspl or str
-            An Nvspl object with data to calculate broadband for 1/3 octave ambience from or an ambience raster to
-            load ambience from.
-        """
-        if type(ambience_src) == Nvspl:
-            if self.broadband:
-                Lx = ambience_src.loc[:, 'dbA'].quantile(1 - (self.quantile / 100))
-            else:
-                Lx = ambience_src.loc[:, "12.5":"20000"].quantile(1 - (self.quantile / 100))
 
-        else: # TODO
-            pass
-        #     # If the ambience source is an ambience raster.
-        #     with rasterio.open(ambience_src) as raster:
-        #         if raster.crs != self.crs:
-        #             mic = self.mic
-        #             mic.to_crs(raster.crs)
-        #         band1 = raster.read(1)  # Look up the broadband level at that location
-        #         Lx = band1[raster.index(mic.x, mic.y)]
+        Rerturns
+        """
+        if type(self.ambience_src) == Nvspl:
+            if self.broadband:
+                Lx = self.ambience_src.loc[:, 'dbA'].quantile(1 - (self.quantile / 100))
+            else:
+                Lx = self.ambience_src.loc[:, "12.5":"20000"].quantile(1 - (self.quantile / 100))
+
+        else:
+
+            # If the ambience source is an ambience raster.
+            with rasterio.open(self.ambience_src) as raster:
+                if raster.crs != 'EPSG:4269':
+                    projected_mic = mic.to_crs(raster.crs)
+                band1 = raster.read(1)  # Look up the broadband level at that location
+                Lx = band1[raster.index(projected_mic.x, projected_mic.y)]
 
         return Lx
 
-    def _create_dem_files(self, dem_src: str, study_area: gpd.GeoDataFrame, project: bool = True,
-                          suffix: str = '') -> Tuple[str, str]:
+    def _mask_dem_file(self, dem_src: str, study_area: gpd.GeoDataFrame, project: bool = False,
+                       buffer: Optional[int] = None, suffix: str = '') -> str:
         """
-        Project and mask a DEM raster to be used as input into NMSIM.
+        Project and mask a DEM .tif raster.
         Follows this tutorial: https://rasterio.readthedocs.io/en/latest/topics/masking-by-shapefile.html
 
         Parameters
@@ -120,27 +136,32 @@ class ActiveSpaceGenerator:
         study_area : gpd.GeoDataFrame
             The study area to clip the DEM raster to.
         suffix : str, default ''
+            A suffix to add to the end of the filename to distinguish it from others.
         project : bool, default True
            True to project the DEM file to NAD83 before clipping it.
 
         Returns
         -------
-        DEM tif filename for the study area, DEM flt filename for the study area
+        The absolute path to the .tif file of the projected and masked raster.
         """
-        # ------ Mask the DEM File ------- #
-
-        # Project the DEM file to NAD83.
+        # Project the DEM file to NAD83 which is also what the study area is in.
         if project:
-            dem_projected_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_NAD83{suffix}.tif"
-            gdal.Warp(dem_projected_filename, dem_src, dstSRS='EPSG:4269')
+            dem_projected_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation{suffix}.tif"
+            project_raster(dem_src, dem_projected_filename, study_area.crs)
             dem_src = dem_projected_filename
 
         # Output the study area, in the proper projection, to a shapefile so it can be used for masking.
-        study_area_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/study_area_NAD83{suffix}.shp"
+        study_area_filename_prefix = f"{self.root_dir}/Input_Data/01_ELEVATION/study_area{suffix}"
+        study_area_filename = f"{study_area_filename_prefix}.shp"
+        if buffer:
+            equal_area_crs = coords_to_utm(study_area.centroid.iat[0].y, study_area.centroid.iat[0].x)
+            study_area_m = study_area.to_crs(equal_area_crs)
+            study_area_m = study_area_m.buffer(buffer*1000)
+            study_area = study_area_m.to_crs(study_area.crs)
         study_area.to_file(study_area_filename)
 
         # Mask the DEM file with the study area shapefile.
-        dem_masked_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_NAD83_mask{suffix}.tif"
+        dem_masked_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_mask{suffix}.tif"
         gdal.Warp(
             dem_masked_filename,
             dem_src,
@@ -148,12 +169,29 @@ class ActiveSpaceGenerator:
             cropToCutline=True
         )
 
-        # ------ Create .flt DEM File & Header ------- #
+        # Remove the temporary shapefile (and related files) since they were only needed for masking.
+        for filename in glob.glob(f"{study_area_filename_prefix}*"):
+            os.remove(filename)
 
-        flt_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_NAD83_mask{suffix}.flt"
-        flt_header_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_NAD83_mask{suffix}.hdr"
+        return dem_masked_filename
 
-        gdal.Translate(flt_filename, dem_masked_filename, options="-ot Float32 -of ehdr -a_nodata -9999")
+    def _create_dem_flt(self, dem_file: str) -> str:
+        """
+        Convert the DEM .tif to a DEM .flt as input into NMSIM.
+
+        Parameters
+        ----------
+        dem_file : str
+            Absolute path to the DEM .tif file to convert to a .flt file.
+
+        Returns
+        -------
+        DEM flt filename for the study area.
+        """
+        flt_filename = dem_file.replace('.tif', '.flt')
+        flt_header_filename = dem_file.replace('.tif', '.hdr')
+
+        gdal.Translate(flt_filename, dem_file, options="-ot Float32 -of ehdr -a_nodata -9999")
 
         # the header file doesn't write correctly... manually overwrite this:
         old_hdr = pd.read_csv(flt_header_filename, header=None, delim_whitespace=True, index_col=0).T
@@ -171,7 +209,7 @@ class ActiveSpaceGenerator:
             header.write("{:14}{:}\n".format("NODATA_value", old_hdr.NODATA.values[0]))
             header.write("{:14}{:}".format("byteorder", "LSBFIRST"))
 
-        return dem_masked_filename, flt_filename
+        return flt_filename
 
     def _create_trajectory_file(self, points: List['Point'], crs: str, filename: str,
                                 heading: Optional[int] = None) -> str:
@@ -266,14 +304,14 @@ class ActiveSpaceGenerator:
 
         return site_filename
 
-    def _create_instruction_files(self, dem_file: str, site_file: str, trajectory_file: str,
+    def _create_instruction_files(self, flt_file: str, site_file: str, trajectory_file: str,
                                   omni_source_file: str) -> str:
         """
         Create the batch.txt and control.nms instructions files needed to run NMSIM.
 
         Parameters
         ----------
-        dem_file : str
+        flt_file : str
             Absolute path to elevation flt file.
         site_file : str
             Absolute path to site file.
@@ -291,7 +329,7 @@ class ActiveSpaceGenerator:
         tis_directory = f"{self.root_dir}/Output_Data/TIG_TIS"
 
         with open(control_file, 'w') as nms:
-            nms.write(dem_file + "\n")
+            nms.write(flt_file + "\n")
             nms.write("-\n")
             nms.write(site_file + "\n")
             nms.write(trajectory_file + "\n")
@@ -315,7 +353,7 @@ class ActiveSpaceGenerator:
 
         return batch_file
 
-    def _find_audible_points(self, trajectory_file: str, tis_file: str, crs: str) -> gpd.GeoDataFrame:
+    def _find_audible_points(self, trajectory_file: str, tis_file: str, crs: str, ambience) -> gpd.GeoDataFrame:
         """
         Determine which points from a trajectory file are audible given the corresponding NMSIM tis output.
 
@@ -348,10 +386,10 @@ class ActiveSpaceGenerator:
         tis_df.loc[:, 'A':'12500'] = tis_df.loc[:, 'A':'12500'].astype(float) * 0.1  # centibels (cB) to decibels (dB)
 
         # Check to see if any of the frequency bands are louder than the ambient levels.
-        if not self.broadband:
-            audible_times = (tis_df.loc[:, "12.5":"12500"] > self.ambience["12.5":"12500"].values).sum(axis=1)
+        if not self.broadband and type(self.ambience_src) == Nvspl:
+            audible_times = (tis_df.loc[:, "12.5":"12500"] > ambience["12.5":"12500"].values).sum(axis=1)
         else:
-            audible_times = tis_df.loc[:, "A"] > self.ambience
+            audible_times = tis_df.loc[:, "A"] > ambience
 
         # Determine which aircraft locations produce or do not produce audible sounds.
         audible_pts = (trajectory_df.loc[tis_df[audible_times > 0].index, ["Xpos", "Ypos", "Zpos"]])
@@ -398,7 +436,6 @@ class ActiveSpaceGenerator:
 
         cs = ax.tricontour(tri, total_space.audible.tolist(), levels=levels)  # contour with arbitrary point cloud
         plt.close('all')
-        # ax.triplot(tri, color='0.7', lw=1) # TODO
 
         # append all contour points to a new xy file
         xyz = np.array([])
@@ -417,7 +454,7 @@ class ActiveSpaceGenerator:
         return list(map(Point, xyz))
 
     def _run_nmsim(self, job_name: str, source_pts: List[Point], crs: str, flt_file: str, site_file: str,
-                   omni_source: str, heading: Optional[int] = None) -> gpd.GeoDataFrame:
+                   omni_source: str, ambience, heading: Optional[int] = None) -> gpd.GeoDataFrame:
         """
         Execute a single NMSIM job.
 
@@ -456,13 +493,14 @@ class ActiveSpaceGenerator:
         new_audibility_pts = self._find_audible_points(
             trajectory_filename,
             f"{self.root_dir}/Output_Data/TIG_TIS/{job_name}.tis",
-            crs
+            crs,
+            ambience
         )
 
         return new_audibility_pts
 
     @staticmethod
-    def _build_active_space(total_space, crs, simplify, altitude):
+    def _build_active_space(total_space: gpd.GeoDataFrame, crs: str, simplify: int, altitude: int) -> gpd.GeoDataFrame:
         """
         Build the final active space polygon given the audibility of all tested points.
 
@@ -478,6 +516,10 @@ class ActiveSpaceGenerator:
             a simpler border.
         altitude : int
             The altitude (in meters) of all points run through NMSIM.
+
+        Returns
+        -------
+        A GeoDataFrame of the active space.
         """
         fig, ax = plt.subplots()  # need an axis to call tricontour function
         levels = np.linspace(0, 1, 10, endpoint=False)
@@ -494,7 +536,8 @@ class ActiveSpaceGenerator:
         for i, contour_path in enumerate(cs.collections[level_ind].get_paths()):
             x = contour_path.vertices[:, 0]
             y = contour_path.vertices[:, 1]
-            new_poly = Polygon([(i[0], i[1]) for i in zip(x, y)])
+            z = [altitude] * len(x)
+            new_poly = Polygon([(i[0], i[1], i[2]) for i in zip(x, y, z)])
 
             if i == 0:  # first polygon
                 poly = new_poly
@@ -513,32 +556,17 @@ class ActiveSpaceGenerator:
                         plt.close('all')
                         return None
 
-        # put the final Multipolygon in a geodataframe
+        # Put the final Multipolygon in a GeoDataSeries to simplify the geometry
         final_poly = gpd.GeoSeries(poly, crs=crs)
-
-        if simplify:  # simplify geometry
+        if simplify:
             final_poly = final_poly.simplify(simplify)
 
-        if final_poly.crs != crs:  # convert coordinate project if necessary
-            final_poly = final_poly.to_crs(crs)
-
-        final_poly.to_file(r'C:\Users\azucker\Desktop\active_space.geojson', driver='GeoJSON', mode='w', index=False) # TODO
-
-        fig, ax = plt.subplots()
-        final_poly.plot(ax=ax)
-        plt.show()
-
-        # print("\nActive space complete for " + self.unit_name + self.site_name + str(self.yr))
-
         final_gdf = gpd.GeoDataFrame(geometry=final_poly)
-        final_gdf = final_gdf.assign(altitude=altitude)  # keep the altitude info with the geodataframe
         return final_gdf
 
-        # TODO: fix the output!!!
-
     def generate(self, omni_source: str, altitude_m: int = 3658, mic: Optional[Microphone] = None,
-                 heading: Optional[int] = None, mesh: bool = False, mesh_density: Tuple[int] = (1, 25),
-                 src_pt_density: int = 48, n_contour: int = 1, simplify: int = 100):
+                 heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1,
+                 simplify: int = 100) -> gpd.GeoDataFrame:
         """
         Generate an active space, or multiple active spaces over a mesh, for the study area.
 
@@ -554,57 +582,58 @@ class ActiveSpaceGenerator:
         heading : int, default None
             The heading (yaw) to use for all points in the trajectory file. If None, a random heading will be used
             for each point.
-        mesh : bool, default False
-            If True, an overlapping mesh will be created over the study area, and an active space generated for
-            every cell.
-        mesh_density : Tuple[int], default (1km, 25km)
-            Coarseness of the mesh in kilometers. The first value is how far apart the mesh centroids should be and
-            the second value is how large the mesh squares around the centroids should be, both in kilometers.
         src_pt_density : int
             Density of the point mesh to be used in the first two rounds of active space definition. The point mesh will
             have src_pt_density x src_point_density points.
         n_contour : int, default 1
             Number of rounds of contouring to perform after the two rounds of active space point meshing.
         simplify : int
+            How much the active space edge should be simplified. The value will be passed into geopandas simply
+            function.
+
+        Returns
+        -------
+        active_spaces : gpd.GeoDataFrame
+            A GeoDataFrame of all generated active space polygons.
         """
-        study_areas = create_overlapping_mesh(self.study_area, mesh_density[0], mesh_density[1]) if mesh else self.study_area
+        active_spaces = gpd.GeoDataFrame(columns=['geometry'], geometry='geometry', crs='epsg:4269')
 
-        # for i, study_area in study_areas.iterrows():
-        for i in range(study_areas.shape[0]):
+        for i in trange(self.study_areas.shape[0], desc='Study Area', unit='study area', colour='red'):
 
-            study_area = study_areas.iloc[[i]]
-
-            # Determine the UTM CRS on the western-most edge of the initial study area.
-            crs = NMSIM_bbox_utm(study_area)
+            study_area = self.study_areas.iloc[[i]]  # Select the study area so that it's a 1 row GeoDataFrame.
+            crs = NMSIM_bbox_utm(study_area)    # Determine the UTM CRS on the western-most edge of the study area
 
             # Initialize a GeoDataFrame of source points that have gone through NMSIM and a GeoDataFrame of the
             #  current active space. The active space will initially be the same as the study area, but will be refined.
             tested_space = gpd.GeoDataFrame(columns=['audible', 'geometry'], geometry='geometry', crs=crs)
             active_space = study_area.to_crs(crs)
-            study_area_extent = ([active_space.total_bounds[0], active_space.total_bounds[2]],
-                                 [active_space.total_bounds[1], active_space.total_bounds[3]])
+            study_area_extent = ([active_space.total_bounds[0], active_space.total_bounds[2]],  # ([minx, maxx],
+                                 [active_space.total_bounds[1], active_space.total_bounds[3]])  # [miny, maxy])
 
             # If not creating a mesh or if no specific microphone location is passed in, create a microphone at the
             #  center point of the study area.
-            if mic and not mesh:
+            if mic and not self.mesh:
                 mic.to_crs(crs, inplace=True)
             else:
+                study_area_wgs84 = study_area.to_crs('epsg:4326')
                 mic = Microphone(
                     name=f"centroid{i+1}",
-                    lat=active_space.centroid.x[0],
-                    lon=active_space.centroid.y[0],
+                    lat=study_area_wgs84.centroid.iat[0].y,
+                    lon=study_area_wgs84.centroid.iat[0].x,
                     z=1.60,  # m, average height of human ear
                     crs=crs
                 )
 
             # Create the DEM files and the site file needed by NMSIM. We only need to do this once per study space.
-            dem_filename, flt_filename = self._create_dem_files(
-                self.dem_tif,
-                study_area=study_area,
-                project=False,
-                suffix=f'_{mic.name}') if mesh else (self.dem_tif, self.dem_flt)
+            dem_filename = self._mask_dem_file(self.dem_file, study_area=study_area, project=False, suffix=f'_{mic.name}') if self.mesh else self.dem_file
+            flt_filename = self._create_dem_flt(dem_filename)
             site_filename = self._create_site_file(mic, flt_filename)
 
+            # NOTE: This line is written with the assumption that using Nvspl data for ambience levels would only
+            #  really happen when not running a mesh.
+            ambience = self._set_ambience() if type(self.ambience_src) == Nvspl else self._set_ambience(mic)
+
+            # Run the point mesh step a maximum of two times.
             for j in range(2):
                 source_pts = build_src_point_mesh(active_space, src_pt_density, altitude_m)
                 new_audibility_pts = self._run_nmsim(
@@ -614,19 +643,18 @@ class ActiveSpaceGenerator:
                     flt_filename,
                     site_filename,
                     omni_source,
+                    ambience,
                     heading
                 )
+
                 tested_space = tested_space.append(new_audibility_pts, ignore_index=True)
                 active_space = tested_space[tested_space.audible == 1]
 
-                # tested_space.plot(column='audible', markersize=3, cmap='Set3') # TODO
-                # plt.show()
-
-                # Create a smaller buffer around the new active space. If the padded active space is 30% smaller than
-                #  the original study area before the for loop is completed, break out of the for loop and proceed the
-                #  contouring step.
+                # Create a small buffer around the extent of audible points. If the padded active space is less than
+                #  30% smaller than the original study area before the for loop is completed, break out of the for
+                #  loop and proceed to the contouring step.
                 minx, miny, maxx, maxy = active_space.total_bounds
-                xpad = 0.2 * (maxx - minx)  # pad extents by 20% on each side, 40% total
+                xpad = 0.2 * (maxx - minx)  # pad extents by 20% on each side, 40% total.
                 ypad = 0.2 * (maxy - miny)
                 extent = ([minx - xpad, maxx + xpad], [miny - ypad, maxy + ypad])
                 shrinkage = np.divide(np.diff(extent) - np.diff(study_area_extent), np.diff(study_area_extent))
@@ -642,11 +670,19 @@ class ActiveSpaceGenerator:
                     flt_filename,
                     site_filename,
                     omni_source,
+                    ambience,
                     heading
                 )
                 tested_space = tested_space.append(new_audibility_pts, ignore_index=True)
 
-                # tested_space.plot(column='audible', markersize=3, cmap='Set3')  # TODO
-                # plt.show()
+            active_space = self._build_active_space(tested_space, crs, simplify, altitude_m)
 
-            self._build_active_space(tested_space, crs, simplify, altitude_m)
+            # # Convert points to WGS84 to avoid geopandas bug mentioned in Track model :(
+            # active_space['z'] = active_space.geometry.z
+            # active_space = active_space.to_crs('epsg:4326')
+            # active_space['geometry'] = active_space.apply(lambda row: Point(row.geometry.x, row.geometry.y, row.z), axis=1)
+            # active_space.drop('z', axis=1, inplace=True)
+
+            active_spaces = active_spaces.append(active_space.to_crs('epsg:4269'), ignore_index=True) # TODO
+
+        return active_spaces

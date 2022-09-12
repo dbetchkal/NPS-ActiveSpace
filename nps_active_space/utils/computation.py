@@ -4,6 +4,7 @@ from typing import Iterable, List, Optional, TYPE_CHECKING
 
 import geopandas as gpd
 import numpy as np
+from osgeo import gdal
 from scipy import interpolate
 from shapely.geometry import Point
 
@@ -18,7 +19,8 @@ __all__ = [
     'coords_to_utm',
     'create_overlapping_mesh',
     'interpolate_spline',
-    'NMSIM_bbox_utm'
+    'NMSIM_bbox_utm',
+    'project_raster'
 ]
 
 
@@ -53,9 +55,9 @@ def coords_to_utm(lat: float, lon: float) -> str:
     Parameters
     ----------
     lat : float
-        Latitude of a point in decimal degrees in a WGS84 projection (EPSG:4326)
+        Latitude of a point in decimal degrees in a geographic coordinate system.
     lon : float
-        Longitude of a point in decimal degrees in a WGS84 projection (EPSG:4326)
+        Longitude of a point in decimal degrees in a geographic coordinate system.
 
     Returns
     -------
@@ -241,3 +243,20 @@ def create_overlapping_mesh(area: gpd.GeoDataFrame, spacing: int = 1, mesh_size:
     mesh = mesh_points.buffer(mesh_size*1000, cap_style=3)
 
     return mesh.to_crs(area.crs)
+
+
+def project_raster(input_raster: str, output_raster: str, crs: str):
+    """
+    Project a raster to a new crs
+
+    Parameters
+    ----------
+    input_raster : str
+        Absolute path to the raster to project.
+    output_raster : str
+        Absolute path to where the projected raster should be written.
+    crs : crs
+        The CRS to project the input raster to. Of the format: 'epsg:XXXX...'
+    """
+    gdal.Warp(output_raster, input_raster, dstSRS=crs)
+
