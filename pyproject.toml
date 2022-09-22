@@ -23,6 +23,20 @@ repository = "https://github.com/dbetchkal/NPS-ActiveSpace"
 py-modules = ['nps_active_space']
 
 [project.optional-dependencies]
+active-space = [
+    "Fiona==1.8.21",
+    "GDAL==3.4.2",
+    "geopandas==0.10.2",
+    "matplotlib==3.5.2",
+    "numpy==1.21.6",
+    "pandas==1.1.5",
+    "pygeos==0.13",
+    "pyproj==3.2.1",
+    "rasterio==1.2.10",
+    "scipy==1.7.3",
+    "Shapely==1.8.2",
+    "tqdm==4.64.0"
+]
 ground-truthing = [
     "contextily==1.2.0",
     "Fiona==1.8.21",
@@ -33,6 +47,7 @@ ground-truthing = [
     "pandas==1.1.5",
     "Pillow==9.1.1",
     "pyproj==3.2.1",
+    "rasterio==1.2.10",
     "scipy==1.7.3",
     "Shapely==1.8.2",
     "tqdm==4.64.0"
@@ -44,6 +59,7 @@ utils = [
     "numpy==1.21.6",
     "pandas==1.1.5",
     "pyproj==3.2.1",
+    "rasterio==1.2.10",
     "scipy==1.7.3",
     "Shapely==1.8.2",
     "tqdm==4.64.0"

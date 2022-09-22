@@ -1,6 +1,6 @@
 import glob
-import os
 import multiprocessing as mp
+import os
 import pprint
 from argparse import ArgumentParser
 from statistics import mean

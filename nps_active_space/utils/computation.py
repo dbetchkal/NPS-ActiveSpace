@@ -1,6 +1,6 @@
 import datetime as dt
 import math
-from typing import Iterable, List, Optional, TYPE_CHECKING
+from typing import Iterable, List, Optional, Tuple, TYPE_CHECKING
 
 import geopandas as gpd
 import numpy as np
@@ -19,8 +19,8 @@ __all__ = [
     'audible_time_delay',
     'build_src_point_mesh',
     'climb_angle',
-    'coords_to_utm',
     'compute_f1',
+    'coords_to_utm',
     'create_overlapping_mesh',
     'interpolate_spline',
     'NMSIM_bbox_utm',
@@ -313,7 +313,7 @@ def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50, broadband: bo
     return Lx
 
 
-def compute_f1(valid_points, active_space):
+def compute_f1(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame) -> Tuple[float, float, float, int]:
     """
     Given a set of annotated points and an active space geometry, compute accuracy metrics such as F1 score, precision,
     and recall.
@@ -325,24 +325,27 @@ def compute_f1(valid_points, active_space):
     Parameters
     ------
     valid_points : gpd.GeoDataFrame
-        Must include geometry and an 'audible' column as annotated with trackbars
+        Annotated points. Must include geometry and an 'audible' column.
     active_space : gpd.GeoDataFrame
-        Polygon or Multipolygon of the computed active space from ActiveSpace.py
+        Polygon or Multipolygon of a computed active space.
 
     Returns
     -------
-    f1 (float): f1 score (more here: https://en.wikipedia.org/wiki/F-score)
-    precision (float): Defined TP/(TP+FP), measure of how well a positive test corresponds with an actual audible flight
-    recall (float): Defined TP/(TP+FN), measure of how well an audible flight is marked as audible by the given active
-        space
-    n_tot (int): number of points annotated
+    f1 : float
+        f1 score (more here: https://en.wikipedia.org/wiki/F-score)
+    precision : float
+        Defined TP/(TP+FP), measure of how well a positive test corresponds with an actual audible flight
+    recall : float
+        Defined TP/(TP+FN), measure of how well an audible flight is marked as audible by the given active space
+    n_tot: int
+        number of points annotated.
     """
 
     # before computing anything, make sure projections match:
     if valid_points.crs != active_space.crs:
         valid_points.to_crs(active_space.crs, inplace=True)
 
-    # iterate through all valid points and check if they are in the active space... this takes a while
+    # iterate through all valid points and check if they are in the active space... this takes a while.
     in_AS_gdf = gpd.clip(valid_points, active_space)
 
     # make an `in_activespace` column and set to true for points inside mask
