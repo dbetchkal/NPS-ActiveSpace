@@ -49,7 +49,7 @@ if __name__ == '__main__':
         root_dir=project_dir,
         study_area=study_area,
         ambience_src=ambience,
-        dem_src=cfg.read('data', 'dena_dem'),
+        dem_src=cfg.read('data', 'dem'),
     )
 
     logger.info(f"Generating active space mesh for: {args.name}...\n")

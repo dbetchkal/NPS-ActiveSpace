@@ -141,7 +141,7 @@ if __name__ == '__main__':
         root_dir=project_dir,
         study_area=study_area,
         ambience_src=ambience,
-        dem_src=cfg.read('data', 'dena_dem'),
+        dem_src=cfg.read('data', 'dem'),
     )
 
     # Create active space for each omni source.
