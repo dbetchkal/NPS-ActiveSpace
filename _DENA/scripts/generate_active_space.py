@@ -3,6 +3,7 @@ import multiprocessing as mp
 import os
 import pprint
 from argparse import ArgumentParser
+from copy import deepcopy
 from statistics import mean
 from typing import List, TYPE_CHECKING
 
@@ -45,11 +46,13 @@ def _run_active_space(generator: ActiveSpaceGenerator, headings: List[int], omni
     dissolved_active_space : gpd.GeoDataFrame
         The final generated active space for the given parameters.
     """
+    mic = deepcopy(microphone)
+    mic.name = f"{microphone.name}{os.path.basename(omni_source)}"
     active_spaces = gpd.GeoDataFrame(columns=['geometry'], geometry='geometry', crs='epsg:4269')
     for heading in headings:
         active_space = generator.generate(
             omni_source=omni_source,
-            mic=microphone,
+            mic=mic,
             heading=heading,
             altitude_m=altitude
         )

@@ -558,6 +558,8 @@ class ActiveSpaceGenerator:
             )
 
         # Create the DEM files and the site file needed by NMSIM. We only need to do this once per study space.
+        # NOTE: Masking the DEM file is a rate limiting step. Therefore, we are going to check if the DEM file already
+        #  exists.
         dem_filename = self._mask_dem_file(dem_file, study_area=study_area, project=project_dem, suffix=f'_{mic.name}')
         flt_filename = self._create_dem_flt(dem_filename)
         site_filename = self._create_site_file(mic, flt_filename)
