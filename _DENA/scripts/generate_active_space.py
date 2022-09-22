@@ -78,9 +78,9 @@ if __name__ == '__main__':
                           help='What type of ambience to use in NMSIM calculations.')
     argparse.add_argument('--headings', nargs='+', type=int, default=[0, 120, 240],
                           help='Headings of active spaces to dissolve.')
-    argparse.add_argument('--omni-min', type=int, default=-20,
+    argparse.add_argument('--omni-min', type=float, default=-20,
                           help='The minimum omni source to run the mesh for.')
-    argparse.add_argument('--omni-max', type=int, default=30,
+    argparse.add_argument('--omni-max', type=float, default=30,
                           help='The maximum omni source to run the mesh for.')
     # argparse.add_argument('-n', '--max-tracks', type=int, default=None, # TODO: do we need this...?
     #                       help='Maximum number of tracks to load')
@@ -102,9 +102,9 @@ if __name__ == '__main__':
     for file in tqdm(annotation_files, desc='Loading annotation files', unit='files', colour='blue'):
         annotations = annotations.append(Annotations(file), ignore_index=True)
 
-    # # Extract the altitudes from each linestring to get the average height (in meters) of audible flight segments.
+    # Extract the altitudes from each linestring to get the average height (in meters) of audible flight segments.
     logger.info("Calculating average altitude (in meters)...")
-    annotations['z_vals'] = (annotations['geometry'].apply(lambda geom: mean([coords[2] for coords in geom.coords]))) # TODO
+    annotations['z_vals'] = (annotations['geometry'].apply(lambda geom: mean([coords[2] for coords in geom.coords])))
     altitude_ = int(mean(annotations[(annotations.valid == True) & (annotations.audible == True)].z_vals.tolist()))
     logger.info(f"Average altitude is: {altitude_}m")
 
@@ -151,4 +151,4 @@ if __name__ == '__main__':
             active_space_scores[f1] = {'omni': omni_source_, 'precision': precision, 'recall': recall}
 
     pprint.pprint(active_space_scores)
-    print(active_space_scores[max(active_space_scores.keys())])
+    print(max(active_space_scores.keys()), active_space_scores[max(active_space_scores.keys())])
