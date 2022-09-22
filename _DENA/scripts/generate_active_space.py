@@ -82,7 +82,7 @@ if __name__ == '__main__':
                           help='The minimum omni source to run the mesh for.')
     argparse.add_argument('--omni-max', type=float, default=30,
                           help='The maximum omni source to run the mesh for.')
-    argparse.add_argument('-a', '--altitude', type=int, required=False,
+    argparse.add_argument('-l', '--altitude', type=int, required=False,
                           help='Altitude to run NSMIM with in meters.')
     # argparse.add_argument('-n', '--max-tracks', type=int, default=None, # TODO: do we need this...?
     #                       help='Maximum number of tracks to load')
