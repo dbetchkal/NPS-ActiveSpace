@@ -62,9 +62,11 @@ class ActiveSpaceGenerator:
         self.dem_src = dem_src
         self.NMSIM = NMSIM
 
-        self._make_dir_tree()
+        self._dem_file = None
+        self._flt_file = None
+        self._site_file = None
 
-        self.dem_file = None
+        self._make_dir_tree()
 
     def _make_dir_tree(self):
         """Create a canonical NMSIM project directory. Copied from NMSIM_Create_Base_Layers.py"""
@@ -559,13 +561,10 @@ class ActiveSpaceGenerator:
                 crs=crs
             )
 
-        # If no dem file has been set, create the DEM file now. Also create the site file needed by NMSIM.
-        if self.dem_file:
-            dem_filename = self.dem_file
-        else:
-            dem_filename = self._mask_dem_file(dem_file, study_area=study_area, project=project_dem, suffix=f'_{mic.name}')
-        flt_filename = self._create_dem_flt(dem_filename)
-        site_filename = self._create_site_file(mic, flt_filename)
+        # If no dem file has been set, create the DEM file now. Also create the flt and site files needed by NMSIM.
+        dem_filename = self._dem_file or self._mask_dem_file(dem_file, study_area=study_area, project=project_dem, suffix=f'_{mic.name}')
+        flt_filename = self._flt_file or self._create_dem_flt(dem_filename)
+        site_filename = self._site_file or self._create_site_file(mic, flt_filename)
 
         # NOTE: These lines were written with the assumption that using Nvspl data for ambience levels would only
         #  really happen when not running a mesh.
@@ -623,19 +622,24 @@ class ActiveSpaceGenerator:
 
         return active_space
 
-    def set_dem(self):
+    def set_dem(self, mic: Microphone):
         """
         Projecting and masking a DEM file are bottleneck steps in the active space creation process. If active
         space generation is going to be run for the same location just with different parameters like omni source,
         altitude, etc. there is no reason to project and mask the DEM every time.
-
         This function provides a way to only project and mask the DEM for the study area once. Then, every time the
         generate() function is run, it will use the created DEM file.
-
         NOTE: This function is only useful when running generate(). Running generate_mesh() will overwrite anything
         set by this function because it's not applicable.
+
+        # TODO
         """
-        self.dem_file = self._mask_dem_file(self.dem_src, study_area=self.study_area.iloc[[0]], project=True)
+        crs = NMSIM_bbox_utm(self.study_area.iloc[[0]])
+        projected_mic = mic.to_crs(crs)
+
+        self._dem_file = self._mask_dem_file(self.dem_src, study_area=self.study_area.iloc[[0]], project=True)
+        self._flt_file = self._create_dem_flt(self._dem_file)
+        self._site_file = self._create_site_file(projected_mic, self._flt_file)
 
     def generate(self, omni_source: str, altitude_m: int = 3658, mic: Optional[Microphone] = None,
                  heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1,
@@ -685,7 +689,7 @@ class ActiveSpaceGenerator:
 
     def generate_mesh(self, omni_source: str, altitude_m: int = 3658, heading: Optional[int] = None,
                       src_pt_density: int = 48, n_contour: int = 1, simplify: int = 100,
-                      mesh_density: Tuple[int, int] = (1, 25), n_cpus: int = mp.cpu_count()) -> gpd.GeoDataFrame:
+                      mesh_density: Tuple[int, int] = (1, 25), n_cpus: int = mp.cpu_count() - 1) -> gpd.GeoDataFrame:
         """
         Generate multiple active spaces in a mesh pattern for the study area.
 
@@ -709,7 +713,7 @@ class ActiveSpaceGenerator:
         mesh_density : Tuple[int, int], default (1km, 25km)
             Coarseness of the mesh in kilometers. The first value is how far apart the mesh centroids should be and
             the second value is how large the mesh squares around the centroids should be, both in kilometers.
-        n_cpus : int, default mp.cpu_count()
+        n_cpus : int, default mp.cpu_count() - 1
             How many cpus to use for multiprocessing the mesh. Defaults to the total number of computer cpus.
 
         Returns
@@ -720,7 +724,6 @@ class ActiveSpaceGenerator:
         active_spaces = gpd.GeoDataFrame(columns=['geometry'], geometry='geometry', crs='epsg:4269')
         study_areas = create_overlapping_mesh(self.study_area, mesh_density[0], mesh_density[1])
         dem_file = self._mask_dem_file(self.dem_src, self.study_area, project=True, buffer=mesh_density[1] + 1)
-        self.dem_file = None  # Unset self.dem_file it happens to be set because it's not applicable for running a mesh.
 
         with mp.Pool(n_cpus) as pool:
             for i in trange(study_areas.shape[0], desc='Study Area', unit='study areas', colour='red', leave=False):

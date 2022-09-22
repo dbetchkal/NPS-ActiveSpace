@@ -17,7 +17,7 @@ if __name__ == '__main__':
     argparse.add_argument('-e', '--environment', required=True,
                           help="The configuration environment to run the script in.")
     argparse.add_argument('-n', '--name', required=True,
-                          help="What to name this mesh.")
+                          help="The name of this mesh. Will be the name of the directory for all associated files.")
     argparse.add_argument('-s', '--study-area', required=True,
                           help='Absolute path to a study area shapefile.')
     argparse.add_argument('--headings', nargs='+', type=int, default=[0, 120, 240],

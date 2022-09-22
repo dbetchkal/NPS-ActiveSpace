@@ -23,10 +23,14 @@ if TYPE_CHECKING:
     from nps_active_space.utils import Microphone
 
 
-def _run_active_space(generator: ActiveSpaceGenerator, headings: List[int], omni_source: str,
-                      microphone: 'Microphone', altitude: int) -> gpd.GeoDataFrame:
+def _update_pbar(_):
+    pbar.update()
+
+
+def _run_active_space(generator: ActiveSpaceGenerator, headings: List[int], omni_source: str, microphone: 'Microphone',
+                      altitude: int, outfile: str = None) -> gpd.GeoDataFrame:
     """
-    Function to be multiprocessed to generate active spaces for many different omni sources.
+    Function to be multiprocessed to generate active spaces for mulitple omni sources.
 
     Parameters
     ----------
@@ -40,6 +44,8 @@ def _run_active_space(generator: ActiveSpaceGenerator, headings: List[int], omni
         Microphone location to generate the active space around.
     altitude : int
         Altitude (in meters) to generate the active space at.
+
+    # TODO fix outfile
 
     Returns
     -------
@@ -59,6 +65,7 @@ def _run_active_space(generator: ActiveSpaceGenerator, headings: List[int], omni
         active_spaces = active_spaces.append(active_space, ignore_index=True)
 
     dissolved_active_space = active_spaces.dissolve()
+    dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
     return dissolved_active_space
 
 
@@ -145,18 +152,23 @@ if __name__ == '__main__':
     )
 
     logger.info('Setting dem...')
-    generator_.set_dem() # TODO
+    generator_.set_dem(microphone_)
 
     # Create active space for each omni source.
     logger.info(f"Generating active spaces for: {args.unit}{args.site}{args.year}...")
-    active_space_scores = {}
+    pbar = tqdm(desc='Omni Sources', unit='omni source', colour='red', total=len(omni_sources), position=0, leave=True)
     with mp.Pool(mp.cpu_count() - 1) as pool:
-        for omni_source_ in tqdm(omni_sources, desc='Omni Source', unit='omni source', colour='red'):
+        processes = []
+        for omni_source_ in omni_sources:
             outfile = f'{project_dir}/{args.unit}{args.site}{args.year}_{os.path.basename(omni_source_)}.geojson'
-            active_space = pool.apply_async(_run_active_space, args=[generator_, args.headings, omni_source_, microphone_, altitude_])
-            active_space.get().to_file(outfile, driver='GeoJSON', mode='w', index=False)
-            f1, precision, recall, n_tot = compute_f1(valid_points, active_space.get())
-            active_space_scores[f1] = {'omni': omni_source_, 'precision': precision, 'recall': recall}
+            processes.append(pool.apply_async(_run_active_space,
+                                              args=(generator_, args.headings, omni_source_, microphone_, altitude_, outfile),
+                                              callback=_update_pbar))
+        results = [p.get() for p in processes]
+            # f1, precision, recall, n_tot = compute_f1(valid_points, active_space)
+            # active_space_scores[f1] = {'omni': omni_source_, 'precision': precision, 'recall': recall}
 
-    pprint.pprint(active_space_scores)
-    print(max(active_space_scores.keys()), active_space_scores[max(active_space_scores.keys())])
+    # pprint.pprint(active_space_scores)
+    # print(max(active_space_scores.keys()), active_space_scores[max(active_space_scores.keys())])
+    # active_space_scores = {} # TODO
+    logger.info('Complete')
