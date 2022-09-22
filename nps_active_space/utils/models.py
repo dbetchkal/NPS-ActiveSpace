@@ -460,4 +460,4 @@ class Annotations(gpd.GeoDataFrame):
             data = gpd.GeoDataFrame(columns=['_id', 'start_dt', 'end_dt', 'valid', 'audible', 'geometry', 'note'],
                                     geometry='geometry', crs='epsg:4326')
 
-        super().__init__(data=data)
+        super().__init__(data=data, crs=data.crs)

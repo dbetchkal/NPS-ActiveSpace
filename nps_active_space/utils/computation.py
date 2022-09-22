@@ -4,19 +4,23 @@ from typing import Iterable, List, Optional, TYPE_CHECKING
 
 import geopandas as gpd
 import numpy as np
+import rasterio
 from osgeo import gdal
 from scipy import interpolate
 from shapely.geometry import Point
 
 if TYPE_CHECKING:
-    from nps_active_space.utils.models import Tracks
+    from nps_active_space.utils.models import Microphone, Nvspl, Tracks
 
 
 __all__ = [
+    'ambience_from_nvspl',
+    'ambience_from_raster',
     'audible_time_delay',
     'build_src_point_mesh',
     'climb_angle',
     'coords_to_utm',
+    'compute_f1',
     'create_overlapping_mesh',
     'interpolate_spline',
     'NMSIM_bbox_utm',
@@ -260,3 +264,103 @@ def project_raster(input_raster: str, output_raster: str, crs: str):
     """
     gdal.Warp(output_raster, input_raster, dstSRS=crs)
 
+
+def ambience_from_raster(ambience_src: str, mic: 'Microphone') -> float:
+    """
+    Select the ambience level from a broadband raster at a specific microphone location.
+
+    Parameters
+    ----------
+    ambience_src : str
+        The absolute file path to a raster of broadband ambience.
+    mic : Microphone
+        A Microphone object whose location to select the broadband ambience for.
+
+    Returns
+    -------
+    Lx : float
+        The ambience level at the microphone location.
+    """
+    with rasterio.open(ambience_src) as raster:
+        projected_mic = mic.to_crs(raster.crs)
+        band1 = raster.read(1)
+        Lx = band1[raster.index(projected_mic.x, projected_mic.y)]
+
+    return Lx
+
+
+def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50, broadband: bool = False): # TODO
+    """
+
+    Parameters
+    ----------
+    ambience_src : Nvspl
+        An NVSPL object to calculate ambience from.
+    quantile : int, default 50
+        This quantile of the data will be used to calculate the ambience.
+    broadband : bool, default False
+        If True, quantiles will be calculated from the dBA column instead of the 1/3rd octave band columns.
+
+    Returns
+    -------
+    Lx
+    """
+    if broadband:
+        Lx = ambience_src.loc[:, 'dbA'].quantile(1 - (quantile / 100))
+    else:
+        Lx = ambience_src.loc[:, "12.5":"20000"].quantile(1 - (quantile / 100))
+
+    return Lx
+
+
+def compute_f1(valid_points, active_space):
+    """
+    Given a set of annotated points and an active space geometry, compute accuracy metrics such as F1 score, precision,
+    and recall.
+        TP = True Positives
+        FP = False Positives
+        TN = True Negatives
+        FN = False Negatives
+
+    Parameters
+    ------
+    valid_points : gpd.GeoDataFrame
+        Must include geometry and an 'audible' column as annotated with trackbars
+    active_space : gpd.GeoDataFrame
+        Polygon or Multipolygon of the computed active space from ActiveSpace.py
+
+    Returns
+    -------
+    f1 (float): f1 score (more here: https://en.wikipedia.org/wiki/F-score)
+    precision (float): Defined TP/(TP+FP), measure of how well a positive test corresponds with an actual audible flight
+    recall (float): Defined TP/(TP+FN), measure of how well an audible flight is marked as audible by the given active
+        space
+    n_tot (int): number of points annotated
+    """
+
+    # before computing anything, make sure projections match:
+    if valid_points.crs != active_space.crs:
+        valid_points.to_crs(active_space.crs, inplace=True)
+
+    # iterate through all valid points and check if they are in the active space... this takes a while
+    in_AS_gdf = gpd.clip(valid_points, active_space)
+
+    # make an `in_activespace` column and set to true for points inside mask
+    valid_points['in_AS'] = False
+    valid_points.loc[in_AS_gdf.index, 'in_AS'] = True
+
+    in_AS = valid_points.in_AS.values  # convert both of these columns to boolean arrays for easier
+    audible = valid_points.audible.values
+
+    # compute true positives, etc.
+    TP = np.all([in_AS, audible], axis=0).sum()
+    FP = np.all([in_AS, ~audible], axis=0).sum()
+    FN = np.all([~in_AS, audible], axis=0).sum()
+    TN = np.all([~in_AS, ~audible], axis=0).sum()
+    n_tot = len(valid_points)
+
+    precision = TP / (TP + FP)  # specificity... if a flight enters the active space, is it actually audible?
+    recall = TP / (TP + FN)  # sensitivity... if a flight is audible, does it enter the active space?
+    f1 = TP / (TP + 0.5 * (FP + FN))
+
+    return f1, precision, recall, n_tot
