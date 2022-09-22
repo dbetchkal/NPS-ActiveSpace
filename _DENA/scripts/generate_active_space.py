@@ -144,6 +144,9 @@ if __name__ == '__main__':
         dem_src=cfg.read('data', 'dem'),
     )
 
+    logger.info('Setting dem...')
+    generator_.set_dem() # TODO
+
     # Create active space for each omni source.
     logger.info(f"Generating active spaces for: {args.unit}{args.site}{args.year}...")
     active_space_scores = {}

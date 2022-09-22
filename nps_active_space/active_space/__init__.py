@@ -64,6 +64,8 @@ class ActiveSpaceGenerator:
 
         self._make_dir_tree()
 
+        self.dem_file = None
+
     def _make_dir_tree(self):
         """Create a canonical NMSIM project directory. Copied from NMSIM_Create_Base_Layers.py"""
         directories = [
@@ -557,10 +559,11 @@ class ActiveSpaceGenerator:
                 crs=crs
             )
 
-        # Create the DEM files and the site file needed by NMSIM. We only need to do this once per study space.
-        # NOTE: Masking the DEM file is a rate limiting step. Therefore, we are going to check if the DEM file already
-        #  exists.
-        dem_filename = self._mask_dem_file(dem_file, study_area=study_area, project=project_dem, suffix=f'_{mic.name}')
+        # If no dem file has been set, create the DEM file now. Also create the site file needed by NMSIM.
+        if self.dem_file:
+            dem_filename = self.dem_file
+        else:
+            dem_filename = self._mask_dem_file(dem_file, study_area=study_area, project=project_dem, suffix=f'_{mic.name}')
         flt_filename = self._create_dem_flt(dem_filename)
         site_filename = self._create_site_file(mic, flt_filename)
 
@@ -619,6 +622,20 @@ class ActiveSpaceGenerator:
         active_space['altitude_m'] = altitude_m
 
         return active_space
+
+    def set_dem(self):
+        """
+        Projecting and masking a DEM file are bottleneck steps in the active space creation process. If active
+        space generation is going to be run for the same location just with different parameters like omni source,
+        altitude, etc. there is no reason to project and mask the DEM every time.
+
+        This function provides a way to only project and mask the DEM for the study area once. Then, every time the
+        generate() function is run, it will use the created DEM file.
+
+        NOTE: This function is only useful when running generate(). Running generate_mesh() will overwrite anything
+        set by this function because it's not applicable.
+        """
+        self.dem_file = self._mask_dem_file(self.dem_src, study_area=self.study_area.iloc[[0]], project=True)
 
     def generate(self, omni_source: str, altitude_m: int = 3658, mic: Optional[Microphone] = None,
                  heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1,
@@ -703,6 +720,7 @@ class ActiveSpaceGenerator:
         active_spaces = gpd.GeoDataFrame(columns=['geometry'], geometry='geometry', crs='epsg:4269')
         study_areas = create_overlapping_mesh(self.study_area, mesh_density[0], mesh_density[1])
         dem_file = self._mask_dem_file(self.dem_src, self.study_area, project=True, buffer=mesh_density[1] + 1)
+        self.dem_file = None  # Unset self.dem_file it happens to be set because it's not applicable for running a mesh.
 
         with mp.Pool(n_cpus) as pool:
             for i in trange(study_areas.shape[0], desc='Study Area', unit='study areas', colour='red', leave=False):
