@@ -82,6 +82,8 @@ if __name__ == '__main__':
                           help='The minimum omni source to run the mesh for.')
     argparse.add_argument('--omni-max', type=float, default=30,
                           help='The maximum omni source to run the mesh for.')
+    argparse.add_argument('-a', '--altitude', type=int, required=False,
+                          help='Altitude to run NSMIM with in meters.')
     # argparse.add_argument('-n', '--max-tracks', type=int, default=None, # TODO: do we need this...?
     #                       help='Maximum number of tracks to load')
     args = argparse.parse_args()
@@ -102,11 +104,14 @@ if __name__ == '__main__':
     for file in tqdm(annotation_files, desc='Loading annotation files', unit='files', colour='blue'):
         annotations = annotations.append(Annotations(file), ignore_index=True)
 
-    # Extract the altitudes from each linestring to get the average height (in meters) of audible flight segments.
-    logger.info("Calculating average altitude (in meters)...")
-    annotations['z_vals'] = (annotations['geometry'].apply(lambda geom: mean([coords[2] for coords in geom.coords])))
-    altitude_ = int(mean(annotations[(annotations.valid == True) & (annotations.audible == True)].z_vals.tolist()))
-    logger.info(f"Average altitude is: {altitude_}m")
+    if not args.altitude:
+        # Extract the altitudes from each linestring to get the average height (in meters) of audible flight segments.
+        logger.info("Calculating average altitude (in meters)...")
+        annotations['z_vals'] = (annotations['geometry'].apply(lambda geom: mean([coords[2] for coords in geom.coords])))
+        altitude_ = int(mean(annotations[(annotations.valid == True) & (annotations.audible == True)].z_vals.tolist()))
+        logger.info(f"Average altitude is: {altitude_}m")
+    else:
+        altitude_ = args.altitude
 
     # Extract the valid points
     logger.info('Building valid points gdf...')
