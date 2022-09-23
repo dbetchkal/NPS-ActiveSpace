@@ -111,10 +111,11 @@ if __name__ == '__main__':
     for file in tqdm(annotation_files, desc='Loading annotation files', unit='files', colour='blue'):
         annotations = annotations.append(Annotations(file), ignore_index=True)
 
+    annotations = annotations[annotations.valid == True]
     if not args.altitude:
         # Extract the altitudes from each linestring to get the average height (in meters) of audible flight segments.
         logger.info("Calculating average altitude (in meters)...")
-        annotations['z_vals'] = (annotations['geometry'].apply(lambda geom: mean([coords[2] for coords in geom.coords])))
+        annotations['z_vals'] = (annotations['geometry'].apply(lambda geom: mean([coords[-1] for coords in geom.coords])))
         altitude_ = int(mean(annotations[(annotations.valid == True) & (annotations.audible == True)].z_vals.tolist()))
         logger.info(f"Average altitude is: {altitude_}m")
     else:
