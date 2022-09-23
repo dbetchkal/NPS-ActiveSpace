@@ -1,8 +1,6 @@
 import glob
 import multiprocessing as mp
 import os
-import pprint
-import shutil
 from argparse import ArgumentParser
 from copy import deepcopy
 from functools import partial
@@ -61,14 +59,14 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
     """
     # NOTE: Since the microphone is being used in multiple processes and in those processes is altered, it's safer to
     #  make copies of the microphone with unique names to avoid any issues with shared resources.
-    mic = deepcopy(microphone)
-    mic.name = f"{microphone.name}{os.path.basename(omni_source)}"
+    mic_copy = deepcopy(microphone)
+    mic_copy.name = f"{microphone.name}{os.path.basename(omni_source)}"
 
     active_spaces = gpd.GeoDataFrame(columns=['geometry'], geometry='geometry', crs='epsg:4269')
     for heading in headings:
         active_space = generator.generate(
             omni_source=omni_source,
-            mic=mic,
+            mic=mic_copy,
             heading=heading,
             altitude_m=altitude
         )
@@ -78,7 +76,7 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
     dissolved_active_space = active_spaces.dissolve()
     dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
 
-    return omni_source, dissolved_active_space
+    return os.path.basename(omni_source), dissolved_active_space
 
 
 if __name__ == '__main__':
@@ -94,54 +92,51 @@ if __name__ == '__main__':
     argparse.add_argument('-y', '--year', type=int, required=True,
                           help="Four digit year. E.g. 2018")
     argparse.add_argument('-a', '--ambience', default='nvspl', choices=['nvspl', 'mennitt'],
-                          help='What type of ambience to use in NMSIM calculations.')
+                          help="What type of ambience to use in NMSIM calculations. Choose from ['nvspl', 'mennitt']")
     argparse.add_argument('--headings', nargs='+', type=int, default=[0, 120, 240],
-                          help='Headings of active spaces to dissolve.')
+                          help="Headings of active spaces to dissolve.")
     argparse.add_argument('--omni-min', type=float, default=-20,
-                          help='The minimum omni source to run the mesh for.')
+                          help="The minimum omni source to run the mesh for.")
     argparse.add_argument('--omni-max', type=float, default=30,
-                          help='The maximum omni source to run the mesh for.')
+                          help="The maximum omni source to run the mesh for.")
     argparse.add_argument('-l', '--altitude', type=int, required=False,
-                          help='Altitude to run NSMIM with in meters.')
+                          help="Altitude to run NSMIM with in meters.")
     argparse.add_argument('-b', '--beta', default=1.0, type=float,
-                          help='Beta value to use when calculating fbeta.')
+                          help="Beta value to use when calculating fbeta.")
     argparse.add_argument('--cleanup', action='store_true',
-                          help='Remove all intermediary files.')
+                          help="Remove intermediary control and batch files.")
     args = argparse.parse_args()
 
     cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
     project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
     logger = get_logger(f"ACTIVE-SPACE: {args.unit}{args.site}{args.year}")
 
-    # Verify that annotation files exist.
+    # Verify that annotation files exist for the unit/site location. If they do exist, load them into memory.
     logger.info("Locating unit/site annotations...")
     annotation_files = glob.glob(f"{project_dir}/{args.unit}{args.site}*_saved_annotations.geojson")
     if len(annotation_files) == 0:
         logger.info(f"No track annotations found for {args.unit}{args.site}{args.year}. Exiting...")
         exit(-1)
-
-    # If annotation files do exist, load them into memory.
     annotations = Annotations()
-    for file in tqdm(annotation_files, desc='Loading annotation files', unit='files', colour='blue'):
-        annotations = annotations.append(Annotations(file), ignore_index=True)
-    valid_annotations = annotations[annotations.valid == True]
+    for file in tqdm(annotation_files, desc='Loading annotation files', unit='files', colour='white'):
+        annotations = annotations.append(Annotations(file, only_valid=True), ignore_index=True)
 
     # If the user does not pass an altitude, calculate the average altitude of all valid tracks. Extract the altitudes
     #  from each linestring to get the average height (in meters) of audible flight segments.
     if not args.altitude:
         logger.info("Calculating average altitude (in meters)...")
-        valid_annotations['z_vals'] = (valid_annotations['geometry'].apply(lambda geom: mean([coords[-1] for coords in geom.coords])))
-        altitude_ = int(mean(valid_annotations[valid_annotations.audible == True].z_vals.tolist()))
+        annotations['z_vals'] = (annotations['geometry'].apply(lambda geom: mean([coords[-1] for coords in geom.coords])))
+        altitude_ = int(mean(annotations[annotations.audible == True].z_vals.tolist()))
         logger.info(f"Average altitude is: {altitude_}m")
     else:
         altitude_ = args.altitude
 
-    # Extract all valid points from their LineStrings
-    logger.info('Building valid points gdf...')
+    # Extract all valid points from their LineStrings. These will be needed for calculating fbeta scores later.
+    logger.info('Extracting valid points...')
     valid_points_lst = []
-    for idx, row in valid_annotations.iterrows():
+    for idx, row in tqdm(annotations.iterrows(), total=annotations.shape[0], desc='Extracting valid points', unit='valid track', colour='white'):
         valid_points_lst.extend([{'audible': row.audible, 'geometry': Point(coords)} for coords in row.geometry.coords])
-    valid_points = gpd.GeoDataFrame(data=valid_points_lst, geometry='geometry', crs=valid_annotations.crs)
+    valid_points = gpd.GeoDataFrame(data=valid_points_lst, geometry='geometry', crs=annotations.crs)
 
     # Load the microphone deployment site metadata and the study area shapefile.
     microphone_ = get_deployment(args.unit, args.site, args.year, cfg.read('data', 'site_metadata'), elevation=False)
@@ -155,8 +150,8 @@ if __name__ == '__main__':
     else:
         ambience = cfg.read('data', 'mennitt')
 
-    omni_sources = get_omni_sources(lower=args.omni_min, upper=args.omni_max)
-
+    # Create an ActiveSpaceGenerator instance and set the DEM data for the microphone location since we will be using
+    #  the same location for every active space. This is a MAJOR time saver!
     generator_ = ActiveSpaceGenerator(
         NMSIM=cfg.read('project', 'nmsim'),
         root_dir=project_dir,
@@ -167,47 +162,45 @@ if __name__ == '__main__':
     logger.info('Setting dem...')
     generator_.set_dem(microphone_)
 
-    # Create active space for each omni source.
+    # Create active space for each omni source. Active spaces are created in parallel asynchronously for maximum
+    #  speed benefits.
     logger.info(f"Generating active spaces for: {args.unit}{args.site}{args.year}...")
     _run = partial(_run_active_space, generator=generator_, headings=args.headings, microphone=microphone_, altitude=altitude_)
-    pbar = tqdm(desc='Omni Sources', unit='omni source', colour='red', total=len(omni_sources), position=0, leave=True)
+    omni_sources = get_omni_sources(lower=args.omni_min, upper=args.omni_max)
     with mp.Pool(mp.cpu_count() - 1) as pool:
-        processes = []
-        for omni_source_ in omni_sources:
-            outfile_ = f'{project_dir}/{args.unit}{args.site}{args.year}_{os.path.basename(omni_source_)}.geojson'
-            processes.append(pool.apply_async(_run, kwds={'outfile': outfile_, 'omni_source': omni_source_},
-                                              callback=_update_pbar, error_callback=_handle_error))
-        results = [p.get() for p in processes]
+        with tqdm(desc='Omni Sources', unit='omni source', colour='green', total=len(omni_sources), leave=True) as pbar:
+            processes = []
+            for omni_source_ in omni_sources:
+                outfile_ = f'{project_dir}/{args.unit}{args.site}{args.year}_{os.path.basename(omni_source_)}.geojson'
+                processes.append(pool.apply_async(_run, kwds={'outfile': outfile_, 'omni_source': omni_source_},
+                                                  callback=_update_pbar, error_callback=_handle_error))
+            results = [p.get() for p in processes]
 
     # Clean up intermediary files if the user requests.
     if args.cleanup:
-        shutil.rmtree(f"{project_dir}/Input_data")
-        shutil.rmtree(f"{project_dir}/Output_data")
         for file in glob.glob(f"{project_dir}/control*"):
             os.remove(file)
         for file in glob.glob(f"{project_dir}/batch*"):
             os.remove(file)
 
-    # Calculate precision, recall, and f1 scores to determine the most accurate active space.
-    active_space_scores = {}
+    # Calculate precision, recall, and fbeta score to determine the most accurate active space.
     precisions = []
     recalls = []
+    max_fbeta = 0
+    best_omni = None
     for omni, res in results:
         fbeta, precision, recall, n_tot = compute_fbeta(valid_points, res, args.beta)
         precisions.append(precision)
         recalls.append(recall)
-        active_space_scores[fbeta] = {'omni': omni, 'precision': precision, 'recall': recall}
-    best_performer = max(active_space_scores.keys())
+        print(f"omni: {omni} --> fbeta: {fbeta} precision: {precision} recall: {recall}")
+        if fbeta > max_fbeta:
+            max_fbeta = fbeta
+            best_omni = omni
+    logger.info(f"The best performing omni source is: {best_omni} (fbeta: {max_fbeta})")
 
-    logger.info(f"Active space scores are as follows:")
-    pprint.pprint(active_space_scores)
-    logger.info(f"The best performing omni source is:\n{active_space_scores[best_performer]['omni']}\n"
-                f"fbeta: {best_performer}\nprecision:{active_space_scores[best_performer]['precision']}\n"
-                f"{active_space_scores[best_performer]['recall']}")
-
-    # Create Precision-Recall Plot
+    # Create Precision-Recall Plot.
     fig, ax = plt.subplots()
-    ax.plot(recalls, precisions)
+    ax.plot(recalls, precisions, ls="", marker="o", ms=2)
     ax.set_title('Precision-Recall Curve')
     ax.set_ylabel('Precision')
     ax.set_xlabel('Recall')

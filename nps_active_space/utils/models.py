@@ -141,7 +141,7 @@ class Nvspl(pd.DataFrame):
                     assert file.endswith('.txt'), f"Only .txt NVSPL files accepted."
 
             data = pd.DataFrame()
-            for file in tqdm(filepaths_or_data, desc='Loading NVSPL files', unit='files', colour='green'):
+            for file in tqdm(filepaths_or_data, desc='Loading NVSPL files', unit='files', colour='white'):
                 df = pd.read_csv(file)
                 self._validate(df.columns)
                 data = data.append(df)
@@ -440,8 +440,10 @@ class Annotations(gpd.GeoDataFrame):
    filename : str, default None
        Filename to read annotation data from. If no filename is passed, an empty Annotations GeoDataFrame
        will be created.
+    only_valid : bool, default False
+        If True and an annotation filename was passed, only valid records will be loaded.
     """
-    def __init__(self, filename: Optional[str] = None):
+    def __init__(self, filename: Optional[str] = None, only_valid: bool = False):
 
         if filename:
             data = gpd.read_file(filename).astype({'start_dt': 'datetime64[ns]', 'end_dt': 'datetime64[ns]'})
@@ -453,6 +455,9 @@ class Annotations(gpd.GeoDataFrame):
                 data.audible.replace({'1': True, '0': False}, inplace=True)
             except TypeError:
                 pass
+
+            if only_valid:
+                data = data[data.valid == True]
 
         else:
 
