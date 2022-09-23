@@ -1,4 +1,6 @@
+import glob
 import logging
+import os
 from typing import List, Optional, TYPE_CHECKING, Union
 
 import geopandas as gpd
@@ -104,15 +106,15 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
     return data
 
 
-def query_adsb(adsb_files: List[str],  start_date: str, end_date: str,
+def query_adsb(adsb_path: str,  start_date: str, end_date: str,
                mask: Optional[gpd.GeoDataFrame] = None) -> Union[Adsb, EarlyAdsb]:
     """
     Query flight tracks from ADSB files for a specific date range and optional within a specific area.
 
     Parameters
     ----------
-    adsb_files : List of str
-        A list of adsb data files to read in.
+    adsb_path : str
+        Absolute path to a directory with adsb data files to read in.
     start_date : str
         ISO date string (YYYY-mm-dd) indicating the beginning of the date range to query within
     end_date : str
@@ -126,8 +128,10 @@ def query_adsb(adsb_files: List[str],  start_date: str, end_date: str,
         An ADSB or EarlyADSB object of flight track points.
     """
     if int(start_date[:4]) <= 2019:  # ADSB file formats changed after 2019.
+        adsb_files = glob.glob(os.path.join(adsb_path, "*.txt"))
         adsb = EarlyAdsb(adsb_files)
     else:
+        adsb_files = glob.glob(os.path.join(adsb_path, "*.TSV"))
         adsb = Adsb(adsb_files)
     adsb = adsb.loc[(adsb["TIME"] > start_date) & (adsb["TIME"] < end_date)]
 

@@ -328,7 +328,7 @@ class Adsb(gpd.GeoDataFrame):
         return data
 
 
-class EarlyAdsb(Adsb):
+class EarlyAdsb(gpd.GeoDataFrame):
     """
     A geopandas GeoDataFrame wrapper class to ensure consistent ADS-B data.
 
@@ -384,7 +384,7 @@ class EarlyAdsb(Adsb):
                 df["dur_secs"] = df.groupby("ICAO_address")["TIME"].diff().dt.total_seconds()
                 df["dur_secs"] = df["dur_secs"].fillna(0)
 
-                # Use threshold waypoint duration value to identify separate flights by an aircraft 
+                # Use threshold waypoint duration value to identify separate flights by an aircraft
                 # then sum the number of "true" conditions to assign unique ID's
                 df['diff_flight'] = df['dur_secs'] >= 900
                 df['cumsum'] = df.groupby('ICAO_address')['diff_flight'].cumsum()

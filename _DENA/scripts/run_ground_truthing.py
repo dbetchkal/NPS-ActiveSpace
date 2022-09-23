@@ -55,7 +55,7 @@ if __name__ == '__main__':
 
     if args.track_source == 'ADSB':
         raw_tracks = query_adsb(
-            adsb_files=glob.glob(os.path.join(cfg.read('data', 'adsb'), "*.TSV")),
+            adsb_path=cfg.read('data', 'adsb'),
             start_date=nvspl_dates[0],
             end_date=nvspl_dates[-1],
             mask=study_area
