@@ -318,7 +318,7 @@ class Adsb(gpd.GeoDataFrame):
         return data
 
 
-class EarlyAdsb(Adsb):
+class EarlyAdsb(gpd.GeoDataFrame):
     """
     A geopandas GeoDataFrame wrapper class to ensure consistent ADS-B data.
 

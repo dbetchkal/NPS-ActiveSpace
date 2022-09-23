@@ -51,10 +51,12 @@ if __name__ == '__main__':
     # Retrieve the days for which at least some NVSPL data exist.
     nvspl_dates = sorted(set([f"{e.year}-{e.month}-{e.day}" for e in archive.nvspl(unit=args.unit, site=args.site, year=args.year)]))
 
-    # Query flight tracks from days there is NVSPL data for. Tracks are in WGS84, epsg:4326
+    # Query flight tracks from days there is NVSPL data for.
+    logger.info("Querying tracks...")
+
     if args.track_source == 'ADSB':
         raw_tracks = query_adsb(
-            adsb_files=glob.glob(os.path.join(cfg.read('data', 'adsb'), "*.TSV")),
+            adsb_path=cfg.read('data', 'adsb'),
             start_date=nvspl_dates[0],
             end_date=nvspl_dates[-1],
             mask=study_area
