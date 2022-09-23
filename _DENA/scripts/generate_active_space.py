@@ -167,8 +167,8 @@ if __name__ == '__main__':
 
     # Create active space for each omni source.
     logger.info(f"Generating active spaces for: {args.unit}{args.site}{args.year}...")
-    pbar = tqdm(desc='Omni Sources', unit='omni source', colour='red', total=len(omni_sources), position=0, leave=True)
     _run = partial(_run_active_space, generator=generator_, headings=args.headings, microphone=microphone_, altitude=altitude_)
+    pbar = tqdm(desc='Omni Sources', unit='omni source', colour='red', total=len(omni_sources), position=0, leave=True)
 
     with mp.Pool(mp.cpu_count() - 1) as pool:
         processes = []
@@ -184,7 +184,7 @@ if __name__ == '__main__':
     for omni, res in results:
         f1, precision, recall, n_tot = compute_f1(valid_points, res)
         precisions.append(precision)
-        recalls.append(recalls)
+        recalls.append(recall)
         active_space_scores[f1] = {'omni': omni, 'precision': precision, 'recall': recall}
     pprint.pprint(active_space_scores)
     print(max(active_space_scores.keys()), active_space_scores[max(active_space_scores.keys())])
