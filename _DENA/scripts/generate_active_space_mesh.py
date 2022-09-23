@@ -5,7 +5,7 @@ import geopandas as gpd
 from tqdm import tqdm
 
 import _DENA.resource.config as cfg
-from _DENA import _DENA_DIR
+from _DENA import DENA_DIR
 from _DENA.resource.helpers import get_logger, get_omni_sources
 from nps_active_space.active_space import ActiveSpaceGenerator
 
@@ -34,7 +34,7 @@ if __name__ == '__main__':
                           help='Altitude to run NSMIM with in meters.')
     args = argparse.parse_args()
 
-    cfg.initialize(f"{_DENA_DIR}/config", environment=args.environment)
+    cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
     project_dir = f"{cfg.read('project', 'dir')}/{args.name}"
     logger = get_logger(f"ACTIVE-SPACE: {args.name}")
 

@@ -14,7 +14,7 @@ from tqdm import tqdm
 import iyore
 
 import _DENA.resource.config as cfg
-from _DENA import _DENA_DIR
+from _DENA import DENA_DIR
 from _DENA.resource.helpers import get_deployment, get_logger, get_omni_sources
 from nps_active_space.utils import Annotations, compute_f1, Nvspl
 from nps_active_space.active_space import ActiveSpaceGenerator
@@ -95,7 +95,7 @@ if __name__ == '__main__':
     #                       help='Maximum number of tracks to load')
     args = argparse.parse_args()
 
-    cfg.initialize(f"{_DENA_DIR}/config", environment=args.environment)
+    cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
     project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
     logger = get_logger(f"ACTIVE-SPACE: {args.unit}{args.site}{args.year}")
 
@@ -165,10 +165,11 @@ if __name__ == '__main__':
                                               args=(generator_, args.headings, omni_source_, microphone_, altitude_, outfile),
                                               callback=_update_pbar))
         results = [p.get() for p in processes]
-            # f1, precision, recall, n_tot = compute_f1(valid_points, active_space)
-            # active_space_scores[f1] = {'omni': omni_source_, 'precision': precision, 'recall': recall}
 
-    # pprint.pprint(active_space_scores)
-    # print(max(active_space_scores.keys()), active_space_scores[max(active_space_scores.keys())])
-    # active_space_scores = {} # TODO
+    active_space_scores = {}
+    for res in results:
+        f1, precision, recall, n_tot = compute_f1(valid_points, res)
+        active_space_scores[f1] = {'omni': omni_source_, 'precision': precision, 'recall': recall}
+    pprint.pprint(active_space_scores)
+    print(max(active_space_scores.keys()), active_space_scores[max(active_space_scores.keys())])
     logger.info('Complete')

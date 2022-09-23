@@ -7,7 +7,7 @@ import geopandas as gpd
 import pandas as pd
 from tqdm import tqdm
 
-from nps_active_space import _ACTIVE_SPACE_DIR
+from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.utils import Adsb, EarlyAdsb, Microphone
 
 if TYPE_CHECKING:
@@ -187,6 +187,10 @@ def get_omni_sources(lower: float, upper: float) -> List[str]:
     Get a list of omni source files for tuning NMSim within a specific gain range.
     Source files are provided in the data directory for gains between -30 and +50.
 
+    O_+005 = .5
+    O_+050 = 5
+    O_+500 = 50
+
     Parameters
     ----------
     lower: float
@@ -205,7 +209,7 @@ def get_omni_sources(lower: float, upper: float) -> List[str]:
     """
     assert -30 <= upper <= 50 and -30 <= lower <= 50 and upper >= lower, "Bounds must be between [-30, 50]"
 
-    omni_source_dir = f"{_ACTIVE_SPACE_DIR}\\data\\tuning"
+    omni_source_dir = f"{ACTIVE_SPACE_DIR}\\data\\tuning"
     omni_sources = []
 
     for i in range(int(lower*10), int(upper*10+5), 5):

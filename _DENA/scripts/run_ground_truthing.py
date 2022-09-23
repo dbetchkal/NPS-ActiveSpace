@@ -1,5 +1,4 @@
 import glob
-import os
 from argparse import ArgumentParser
 
 import geopandas as gpd
@@ -10,7 +9,7 @@ import nps_active_space.ground_truthing as app
 from nps_active_space.utils import Nvspl, Tracks
 
 import _DENA.resource.config as cfg
-from _DENA import _DENA_DIR
+from _DENA import DENA_DIR
 from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks
 from nps_active_space.utils import coords_to_utm
 
@@ -32,7 +31,7 @@ if __name__ == '__main__':
 
     args = argparse.parse_args()
 
-    cfg.initialize(f"{_DENA_DIR}/config", environment=args.environment)
+    cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
     logger = get_logger('GROUND-TRUTHING')
     engine = sqlalchemy.create_engine(
         'postgresql://{username}:{password}@{host}:{port}/{name}'.format(**cfg.read('database:overflights'))

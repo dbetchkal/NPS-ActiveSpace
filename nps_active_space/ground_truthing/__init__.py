@@ -17,7 +17,7 @@ from matplotlib.widgets import RangeSlider
 from PIL import Image, ImageTk
 from shapely.geometry import LineString, Point
 
-from nps_active_space import _ACTIVE_SPACE_DIR
+from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.utils import Annotations, audible_time_delay, interpolate_spline
 
 if TYPE_CHECKING:
@@ -81,7 +81,7 @@ class _App(tk.Tk):
 
         # Set app features.
         self.title('NPS Active Space: Ground Truthing Module')
-        self.iconbitmap(f"{_ACTIVE_SPACE_DIR}/img/flat-four-color.ico")
+        self.iconbitmap(f"{ACTIVE_SPACE_DIR}/img/flat-four-color.ico")
         self.geometry('1200x600')
 
         # Create app menu.
@@ -264,7 +264,7 @@ class _WelcomeFrame(_AppFrame):
             bg='ivory2',
             command=lambda: self.master.switch_frame(_AnnotationLoadFrame)
         )
-        im = Image.open(f"{_ACTIVE_SPACE_DIR}/img/flat-four-color.png").resize((138, 181))
+        im = Image.open(f"{ACTIVE_SPACE_DIR}/img/flat-four-color.png").resize((138, 181))
         nps_logo = ImageTk.PhotoImage(im)
         label = tk.Label(self, image=nps_logo, bg='ivory2')
         label.image = nps_logo  # NOTE: This re-definition is required for windows machines.
