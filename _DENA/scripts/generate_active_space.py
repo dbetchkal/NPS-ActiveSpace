@@ -2,10 +2,12 @@ import glob
 import multiprocessing as mp
 import os
 import pprint
+import shutil
 from argparse import ArgumentParser
 from copy import deepcopy
+from functools import partial
 from statistics import mean
-from typing import List, TYPE_CHECKING
+from typing import List, Tuple, TYPE_CHECKING
 
 import geopandas as gpd
 from shapely.geometry import Point
@@ -22,38 +24,44 @@ from nps_active_space.active_space import ActiveSpaceGenerator
 if TYPE_CHECKING:
     from nps_active_space.utils import Microphone
 
+# Callback functions for multiprocessing.
+_handle_error = lambda error: print(f'Error: {error}', flush=True)
+_update_pbar = lambda _: pbar.update()
 
-def _update_pbar(_):
-    pbar.update()
 
-
-def _run_active_space(generator: ActiveSpaceGenerator, headings: List[int], omni_source: str, microphone: 'Microphone',
-                      altitude: int, outfile: str = None) -> gpd.GeoDataFrame:
+def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGenerator, headings: List[int],
+                      microphone: 'Microphone', altitude: int) -> Tuple[str, gpd.GeoDataFrame]:
     """
     Function to be multiprocessed to generate active spaces for mulitple omni sources.
 
     Parameters
     ----------
+    outfile : str
+        Name of the file where the final active space should be output.
+    omni_source : str
+        Tuning source to generate the active space with.
     generator : ActiveSpaceGenerator
+        The active space generator to use to create active spaces.
     headings : List[int]
         List of directional headings to generate active spaces for. Active spaces for each heading will be dissolved
         to create a single all encompassing active space.
-    omni_source : str
-        Tuning source to generate the active space with.
     microphone : Microphone
-        Microphone location to generate the active space around.
+        Location to generate the active space around.
     altitude : int
         Altitude (in meters) to generate the active space at.
 
-    # TODO fix outfile
-
     Returns
     -------
+    omni_source : str
+        The path to the omni source file that was used to create the active space.
     dissolved_active_space : gpd.GeoDataFrame
         The final generated active space for the given parameters.
     """
+    # NOTE: Since the microphone is being used in multiple processes and in those processes is altered, it's safer to
+    #  make copies of the microphone with unique names to avoid any issues with shared resources.
     mic = deepcopy(microphone)
     mic.name = f"{microphone.name}{os.path.basename(omni_source)}"
+
     active_spaces = gpd.GeoDataFrame(columns=['geometry'], geometry='geometry', crs='epsg:4269')
     for heading in headings:
         active_space = generator.generate(
@@ -64,9 +72,11 @@ def _run_active_space(generator: ActiveSpaceGenerator, headings: List[int], omni
         )
         active_spaces = active_spaces.append(active_space, ignore_index=True)
 
+    # Combine the active spaces from each heading into a single active space and write it to a geojson file.
     dissolved_active_space = active_spaces.dissolve()
     dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
-    return (dissolved_active_space, omni_source)
+
+    return omni_source, dissolved_active_space
 
 
 if __name__ == '__main__':
@@ -91,6 +101,8 @@ if __name__ == '__main__':
                           help='The maximum omni source to run the mesh for.')
     argparse.add_argument('-l', '--altitude', type=int, required=False,
                           help='Altitude to run NSMIM with in meters.')
+    argparse.add_argument('--cleanup', action='store_true',
+                          help='Remove all intermediary files.')
     # argparse.add_argument('-n', '--max-tracks', type=int, default=None, # TODO: do we need this...?
     #                       help='Maximum number of tracks to load')
     args = argparse.parse_args()
@@ -135,14 +147,13 @@ if __name__ == '__main__':
     # Load NVSPL data or the mennitt raster depending on the user input.
     if args.ambience == 'nvspl':
         archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
-        nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year), n=2)] # TODO remove this....
+        nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year))]
         ambience = Nvspl(nvspl_files)
     else:
         ambience = cfg.read('data', 'mennitt')
 
     n_sources = 51
     omni_sources = get_omni_sources(lower=args.omni_min, upper=args.omni_max)
-    results = gpd.GeoDataFrame(columns=['f1', 'precision', 'recall'])
 
     generator_ = ActiveSpaceGenerator(
         NMSIM=cfg.read('project', 'nmsim'),
@@ -151,26 +162,35 @@ if __name__ == '__main__':
         ambience_src=ambience,
         dem_src=cfg.read('data', 'dem'),
     )
-
     logger.info('Setting dem...')
     generator_.set_dem(microphone_)
 
     # Create active space for each omni source.
     logger.info(f"Generating active spaces for: {args.unit}{args.site}{args.year}...")
     pbar = tqdm(desc='Omni Sources', unit='omni source', colour='red', total=len(omni_sources), position=0, leave=True)
+    _run = partial(_run_active_space, generator=generator_, headings=args.headings, microphone=microphone_, altitude=altitude_)
+
     with mp.Pool(mp.cpu_count() - 1) as pool:
         processes = []
         for omni_source_ in omni_sources:
-            outfile = f'{project_dir}/{args.unit}{args.site}{args.year}_{os.path.basename(omni_source_)}.geojson'
-            processes.append(pool.apply_async(_run_active_space,
-                                              args=(generator_, args.headings, omni_source_, microphone_, altitude_, outfile),
-                                              callback=_update_pbar))
+            outfile_ = f'{project_dir}/{args.unit}{args.site}{args.year}_{os.path.basename(omni_source_)}.geojson'
+            processes.append(pool.apply_async(_run, kwds={'outfile': outfile_, 'omni_source': omni_source_},
+                                              callback=_update_pbar, error_callback=_handle_error))
         results = [p.get() for p in processes]
 
     active_space_scores = {}
-    for res, omni in results:
+    for omni, res in results:
         f1, precision, recall, n_tot = compute_f1(valid_points, res)
         active_space_scores[f1] = {'omni': omni, 'precision': precision, 'recall': recall}
     pprint.pprint(active_space_scores)
     print(max(active_space_scores.keys()), active_space_scores[max(active_space_scores.keys())])
-    logger.info('Complete')
+
+    if args.cleanup:
+        shutil.rmtree(f"{project_dir}/Input_data")
+        shutil.rmtree(f"{project_dir}/Output_data")
+        for file in glob.glob(f"{project_dir}/control*"):
+            os.remove(file)
+        for file in glob.glob(f"{project_dir}/batch*"):
+            os.remove(file)
+
+    logger.info('Complete.')
