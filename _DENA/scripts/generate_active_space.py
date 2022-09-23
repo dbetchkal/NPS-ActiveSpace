@@ -132,7 +132,6 @@ if __name__ == '__main__':
         altitude_ = args.altitude
 
     # Extract all valid points from their LineStrings. These will be needed for calculating fbeta scores later.
-    logger.info('Extracting valid points...')
     valid_points_lst = []
     for idx, row in tqdm(annotations.iterrows(), total=annotations.shape[0], desc='Extracting valid points', unit='valid track', colour='white'):
         valid_points_lst.extend([{'audible': row.audible, 'geometry': Point(coords)} for coords in row.geometry.coords])
@@ -205,5 +204,3 @@ if __name__ == '__main__':
     ax.set_ylabel('Precision')
     ax.set_xlabel('Recall')
     plt.show()
-
-    logger.info('Complete.')

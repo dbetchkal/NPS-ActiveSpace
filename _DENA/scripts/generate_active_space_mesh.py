@@ -54,11 +54,13 @@ if __name__ == '__main__':
 
     logger.info(f"Generating active space mesh for: {args.name}...\n")
     for omni_source in tqdm(omni_sources, desc='Omni Source', unit='omni sources', colour='green'):
+
         active_spaces = gpd.GeoDataFrame(columns=['geometry'], geometry='geometry', crs='epsg:4269')
         outfile = f'{project_dir}/{args.name}_{os.path.basename(omni_source)}.geojson'
         logger.info(f"Run attributes:\nomni_source: {os.path.basename(omni_source)}\naltitude (m): {args.altitude}\n"
                     f"mesh spacing: {args.mesh_spacing}\nmesh size: {args.mesh_size}x{args.mesh_size}\n"
                     f"headings: {args.headings}\noutfile: {outfile}\n")
+
         for heading in tqdm(args.headings, desc='Heading', unit='headings', colour='cyan', leave=False):
             active_space = active_space_generator.generate_mesh(
                 omni_source=omni_source,
@@ -67,5 +69,7 @@ if __name__ == '__main__':
                 mesh_density=(args.mesh_spacing, args.mesh_size),
             )
             active_spaces = active_spaces.append(active_space, ignore_index=True)
+
+        # Dissolve the active spaces from each heading into one and output to a geojson file.
         dissolved_active_space = active_spaces.dissolve()
         dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
