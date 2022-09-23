@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import shapely
 from osgeo import gdal
-from tqdm import trange
+from tqdm import tqdm
 
 from shapely.geometry import Point, Polygon
 
@@ -46,14 +46,15 @@ class ActiveSpaceGenerator:
         Path to a DEM raster file to be used as NMSIM input.
     ambience_src : Nvspl or str
         an NVSPL object to calculate ambience from or the absolute file path to a raster of ambience.
-    quantile : int, default 50
+    quantile : int, default 90
         If using Nvspl data as the ambience source, this quantile of the data will be used to calculate the ambience.
+        90 = L90 = 10th quantile
     broadband : bool, default False
         If True and using Nvspl data as the ambience source, quantiles will be calculated from the dBA column
         instead of the 1/3rd octave band columns.
     """
     def __init__(self, NMSIM: str, study_area: gpd.GeoDataFrame, root_dir: str, dem_src: str,
-                 ambience_src: Union['Nvspl', str], quantile: int = 50, broadband: bool = False):
+                 ambience_src: Union['Nvspl', str], quantile: int = 90, broadband: bool = False):
 
         self.study_area = study_area.to_crs('epsg:4269')
         self.root_dir = root_dir
@@ -727,21 +728,25 @@ class ActiveSpaceGenerator:
         dem_file = self._mask_dem_file(self.dem_src, self.study_area, project=True, buffer=mesh_density[1] + 1)
 
         with mp.Pool(n_cpus) as pool:
-            for i in trange(study_areas.shape[0], desc='Study Area', unit='study areas', colour='red', leave=False):
-                active_space = pool.apply_async(
-                    self._generate, kwds={
-                        'study_area': study_areas.iloc[[i]], # Select the study area so that it's a 1 row GeoDataFrame.
-                        'dem_file': dem_file,
-                        'omni_source': omni_source,
-                        'name': f'{i+1}',
-                        'project_dem': False,
-                        'altitude_m': altitude_m,
-                        'heading': heading,
-                        'src_pt_density': src_pt_density,
-                        'n_contour': n_contour,
-                        'simplify': simplify
-                    }
-                )
-                active_spaces = active_spaces.append(active_space.get(), ignore_index=True)
+            processes = []
+            with tqdm(desc='Srudy Area', unit='study area', colour='green', leave=True, total=study_areas.shape[0]):
+                for i in range(study_areas.shape[0]):
+                    processes.append(pool.apply_async(
+                        self._generate, kwds={
+                            'study_area': study_areas.iloc[[i]], # Select the study area so that it's a 1 row GeoDataFrame.
+                            'dem_file': dem_file,
+                            'omni_source': omni_source,
+                            'name': f'{i+1}',
+                            'project_dem': False,
+                            'altitude_m': altitude_m,
+                            'heading': heading,
+                            'src_pt_density': src_pt_density,
+                            'n_contour': n_contour,
+                            'simplify': simplify
+                        }
+                    ))
+                    results = [p.get() for p in processes]
+                    for res in results:
+                        active_spaces = active_spaces.append(res, ignore_index=True)
 
         return active_spaces

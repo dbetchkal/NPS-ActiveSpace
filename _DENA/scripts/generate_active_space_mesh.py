@@ -1,3 +1,4 @@
+import glob
 import os
 from argparse import ArgumentParser
 
@@ -32,6 +33,8 @@ if __name__ == '__main__':
                           help='How large in km each mesh square should be. mesh-size x mesh-size.')
     argparse.add_argument('-a', '--altitude', type=int, default=3658,
                           help='Altitude to run NSMIM with in meters.')
+    argparse.add_argument('--cleanup', action='store_true',
+                          help="Remove intermediary control and batch files.")
     args = argparse.parse_args()
 
     cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
@@ -73,3 +76,10 @@ if __name__ == '__main__':
         # Dissolve the active spaces from each heading into one and output to a geojson file.
         dissolved_active_space = active_spaces.dissolve()
         dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
+
+        # Clean up intermediary files if the user requests.
+        if args.cleanup:
+            for file in glob.glob(f"{project_dir}/control*"):
+                os.remove(file)
+            for file in glob.glob(f"{project_dir}/batch*"):
+                os.remove(file)
