@@ -179,11 +179,27 @@ if __name__ == '__main__':
         results = [p.get() for p in processes]
 
     active_space_scores = {}
+    precisions = []
+    recalls = []
     for omni, res in results:
         f1, precision, recall, n_tot = compute_f1(valid_points, res)
+        precisions.append(precision)
+        recalls.append(recalls)
         active_space_scores[f1] = {'omni': omni, 'precision': precision, 'recall': recall}
     pprint.pprint(active_space_scores)
     print(max(active_space_scores.keys()), active_space_scores[max(active_space_scores.keys())])
+
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots()
+    ax.plot(recalls, precisions, color='purple')
+
+    # add axis labels to plot
+    ax.set_title('Precision-Recall Curve')
+    ax.set_ylabel('Precision')
+    ax.set_xlabel('Recall')
+
+    # display plot
+    plt.show()
 
     if args.cleanup:
         shutil.rmtree(f"{project_dir}/Input_data")
