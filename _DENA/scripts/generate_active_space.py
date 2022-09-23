@@ -111,6 +111,8 @@ if __name__ == '__main__':
     project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
     logger = get_logger(f"ACTIVE-SPACE: {args.unit}{args.site}{args.year}")
 
+    # --------------- ANNOTATION LOGIC --------------- #
+
     # Verify that annotation files exist for the unit/site location. If they do exist, load them into memory.
     logger.info("Locating unit/site annotations...")
     annotation_files = glob.glob(f"{project_dir}/{args.unit}{args.site}*_saved_annotations.geojson")
@@ -137,8 +139,10 @@ if __name__ == '__main__':
         valid_points_lst.extend([{'audible': row.audible, 'geometry': Point(coords)} for coords in row.geometry.coords])
     valid_points = gpd.GeoDataFrame(data=valid_points_lst, geometry='geometry', crs=annotations.crs)
 
+    # --------------- DATA SELECTION --------------- #
+
     # Load the microphone deployment site metadata and the study area shapefile.
-    microphone_ = get_deployment(args.unit, args.site, args.year, cfg.read('data', 'site_metadata'), elevation=False)
+    mic_ = get_deployment(args.unit, args.site, args.year, cfg.read('data', 'site_metadata'), elevation=False)
     study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])
 
     # Load NVSPL data or the mennitt raster depending on the user input.
@@ -148,6 +152,8 @@ if __name__ == '__main__':
         ambience = Nvspl(nvspl_files)
     else:
         ambience = cfg.read('data', 'mennitt')
+
+    # --------------- ACTIVE SPACE GENERATION --------------- #
 
     # Create an ActiveSpaceGenerator instance and set the DEM data for the microphone location since we will be using
     #  the same location for every active space. This is a MAJOR time saver!
@@ -159,12 +165,12 @@ if __name__ == '__main__':
         dem_src=cfg.read('data', 'dem'),
     )
     logger.info('Setting dem...')
-    generator_.set_dem(microphone_)
+    generator_.set_dem(mic_)
 
     # Create active space for each omni source. Active spaces are created in parallel asynchronously for maximum
     #  speed benefits.
     logger.info(f"Generating active spaces for: {args.unit}{args.site}{args.year}...")
-    _run = partial(_run_active_space, generator=generator_, headings=args.headings, microphone=microphone_, altitude=altitude_)
+    _run = partial(_run_active_space, generator=generator_, headings=args.headings, microphone=mic_, altitude=altitude_)
     omni_sources = get_omni_sources(lower=args.omni_min, upper=args.omni_max)
     with mp.Pool(mp.cpu_count() - 1) as pool:
         with tqdm(desc='Omni Sources', unit='omni source', colour='green', total=len(omni_sources), leave=True) as pbar:
@@ -181,6 +187,8 @@ if __name__ == '__main__':
             os.remove(file)
         for file in glob.glob(f"{project_dir}/batch*"):
             os.remove(file)
+
+    # --------------- ANALYSIS --------------- #
 
     # Calculate precision, recall, and fbeta score to determine the most accurate active space.
     precisions = []
