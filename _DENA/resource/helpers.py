@@ -207,7 +207,7 @@ def get_omni_sources(lower: float, upper: float) -> List[str]:
     AssertionError if the lower or upper gain bound is out of range or of the upper gain bound is lower than
     the lower gain bound.
     """
-    assert -30 <= upper <= 50 and -30 <= lower <= 50 and upper >= lower, "Bounds must be between [-30, 50]"
+    assert -30 <= upper <= 50 and -30 <= lower <= 50 and upper >= lower, "Bounds must be ordered and between [-30, 50]."
 
     omni_source_dir = f"{ACTIVE_SPACE_DIR}\\data\\tuning"
     omni_sources = []

@@ -19,7 +19,7 @@ __all__ = [
     'audible_time_delay',
     'build_src_point_mesh',
     'climb_angle',
-    'compute_f1',
+    'compute_fbeta',
     'coords_to_utm',
     'create_overlapping_mesh',
     'interpolate_spline',
@@ -313,13 +313,13 @@ def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50, broadband: bo
     return Lx
 
 
-def compute_f1(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame) -> Tuple[float, float, float, int]:
+def compute_fbeta(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame,
+                  beta: float = 1.0) -> Tuple[float, float, float, int]:
     """
     Given a set of annotated points and an active space geometry, compute accuracy metrics such as F1 score, precision,
     and recall.
         TP = True Positives
         FP = False Positives
-        TN = True Negatives
         FN = False Negatives
 
     Parameters
@@ -328,11 +328,13 @@ def compute_f1(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame) -
         Annotated points. Must include geometry and an 'audible' column.
     active_space : gpd.GeoDataFrame
         Polygon or Multipolygon of a computed active space.
+    beta : float, default 1.0
+        Beta value to use when calculating fbeta
 
     Returns
     -------
-    f1 : float
-        f1 score (more here: https://en.wikipedia.org/wiki/F-score)
+    fbeta : float
+        fbeta score (more here: https://en.wikipedia.org/wiki/F-score)
     precision : float
         Defined TP/(TP+FP), measure of how well a positive test corresponds with an actual audible flight
     recall : float
@@ -359,11 +361,10 @@ def compute_f1(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame) -
     TP = np.all([in_AS, audible], axis=0).sum()
     FP = np.all([in_AS, ~audible], axis=0).sum()
     FN = np.all([~in_AS, audible], axis=0).sum()
-    TN = np.all([~in_AS, ~audible], axis=0).sum()
     n_tot = len(valid_points)
 
     precision = TP / (TP + FP)  # specificity... if a flight enters the active space, is it actually audible?
     recall = TP / (TP + FN)  # sensitivity... if a flight is audible, does it enter the active space?
-    f1 = TP / (TP + 0.5 * (FP + FN))
+    fbeta = (1 + np.power(beta, 2)) * ((precision * recall) / ((np.power(beta, 2) * precision) + recall))
 
-    return f1, precision, recall, n_tot
+    return fbeta, precision, recall, n_tot

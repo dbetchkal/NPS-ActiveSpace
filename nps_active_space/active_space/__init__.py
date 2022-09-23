@@ -15,6 +15,7 @@ from tqdm import trange
 
 from shapely.geometry import Point, Polygon
 
+from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.utils import (
     ambience_from_nvspl,
     ambience_from_raster,
@@ -300,7 +301,7 @@ class ActiveSpaceGenerator:
             nms.write("-\n")
             nms.write(site_file + "\n")
             nms.write(trajectory_file + "\n")
-            nms.write("-\n")
+            nms.write(f"{ACTIVE_SPACE_DIR}/data/default.wea" + "\n")
             nms.write("-\n")
             nms.write(omni_source_file + "\n")
             nms.write("{0:11.4f}   \n".format(500.0000))
@@ -383,7 +384,7 @@ class ActiveSpaceGenerator:
     def _contour_active_space(total_space: gpd.GeoDataFrame, altitude: int, max_pts: int = 5184) -> List[Point]:
         """
         Use triangulation to select points along the audible/inaudible line of the active space to more precisely
-        define the bounadries.
+        define the boundaries.
 
         Parameters
         ----------
