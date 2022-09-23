@@ -66,7 +66,7 @@ def _run_active_space(generator: ActiveSpaceGenerator, headings: List[int], omni
 
     dissolved_active_space = active_spaces.dissolve()
     dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
-    return dissolved_active_space
+    return (dissolved_active_space, omni_source)
 
 
 if __name__ == '__main__':
@@ -116,7 +116,7 @@ if __name__ == '__main__':
         # Extract the altitudes from each linestring to get the average height (in meters) of audible flight segments.
         logger.info("Calculating average altitude (in meters)...")
         annotations['z_vals'] = (annotations['geometry'].apply(lambda geom: mean([coords[-1] for coords in geom.coords])))
-        altitude_ = int(mean(annotations[(annotations.valid == True) & (annotations.audible == True)].z_vals.tolist()))
+        altitude_ = int(mean(annotations[annotations.audible == True].z_vals.tolist()))
         logger.info(f"Average altitude is: {altitude_}m")
     else:
         altitude_ = args.altitude
@@ -124,7 +124,7 @@ if __name__ == '__main__':
     # Extract the valid points
     logger.info('Building valid points gdf...')
     valid_points_lst = []
-    for idx, row in annotations[(annotations.valid == True)].iterrows():
+    for idx, row in annotations.iterrows():
         valid_points_lst.extend([{'audible': row.audible, 'geometry': Point(coords)} for coords in row.geometry.coords]) # TODO is there a better way to do this...
     valid_points = gpd.GeoDataFrame(data=valid_points_lst, geometry='geometry', crs=annotations.crs)
 
@@ -168,9 +168,9 @@ if __name__ == '__main__':
         results = [p.get() for p in processes]
 
     active_space_scores = {}
-    for res in results:
+    for res, omni in results:
         f1, precision, recall, n_tot = compute_f1(valid_points, res)
-        active_space_scores[f1] = {'omni': omni_source_, 'precision': precision, 'recall': recall}
+        active_space_scores[f1] = {'omni': omni, 'precision': precision, 'recall': recall}
     pprint.pprint(active_space_scores)
     print(max(active_space_scores.keys()), active_space_scores[max(active_space_scores.keys())])
     logger.info('Complete')
