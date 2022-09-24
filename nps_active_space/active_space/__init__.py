@@ -736,7 +736,7 @@ class ActiveSpaceGenerator:
                             simplify=simplify)
 
         with mp.Pool(n_cpus) as pool:
-            with tqdm(desc='Study Area', unit='study area', colour='green', total=study_areas.shape[0], leave=True):
+            with tqdm(desc='Study Area', unit='study area', colour='green', total=study_areas.shape[0], leave=True) as pbar:
                 processes = []
                 for i in range(study_areas.shape[0]):
                     processes.append(pool.apply_async(_generate,
