@@ -23,9 +23,9 @@ if __name__ == '__main__':
                           help='Absolute path to a study area shapefile.')
     argparse.add_argument('--headings', nargs='+', type=int, default=[0, 120, 240],
                           help='Headings of active spaces to dissolve.')
-    argparse.add_argument('--omni-min', type=float, default=-20,
+    argparse.add_argument('--omni-min', type=float, default=0,
                           help='The minimum omni source to run the mesh for.')
-    argparse.add_argument('--omni-max', type=float, default=30,
+    argparse.add_argument('--omni-max', type=float, default=0,
                           help='The maximum omni source to run the mesh for.')
     argparse.add_argument('--mesh-spacing', type=int, default=1,
                           help='How far apart in km mesh square center points should be.')

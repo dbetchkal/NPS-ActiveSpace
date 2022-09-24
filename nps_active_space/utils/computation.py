@@ -244,6 +244,11 @@ def create_overlapping_mesh(area: gpd.GeoDataFrame, spacing: int = 1, mesh_size:
     # np.ravel linearly indexes an array into a row.
     mesh_points = [Point(point[0], point[1]) for point in np.array([np.ravel(x_ind), np.ravel(y_ind)]).T]
     mesh_points = gpd.GeoDataFrame({'geometry': mesh_points}, geometry='geometry', crs=equal_area_crs)
+
+    # Only keep points that fall within the study area.
+    mesh_points = gpd.sjoin(mesh_points, area_m, op='within')[['geometry']]
+
+    # Create mesh around points.
     mesh = mesh_points.buffer(mesh_size*1000, cap_style=3)
 
     return mesh.to_crs(area.crs)

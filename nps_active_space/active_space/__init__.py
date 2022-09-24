@@ -690,7 +690,7 @@ class ActiveSpaceGenerator:
         return active_space
 
     def generate_mesh(self, omni_source: str, altitude_m: int = 3658, heading: Optional[int] = None,
-                      src_pt_density: int = 48, n_contour: int = 1, simplify: int = 100,
+                      src_pt_density: int = 48, n_contour: int = 1, simplify: int = 50,
                       mesh_density: Tuple[int, int] = (1, 25), n_cpus: int = mp.cpu_count() - 1) -> gpd.GeoDataFrame:
         """
         Generate multiple active spaces in a mesh pattern for the study area.
@@ -729,7 +729,7 @@ class ActiveSpaceGenerator:
 
         with mp.Pool(n_cpus) as pool:
             processes = []
-            with tqdm(desc='Srudy Area', unit='study area', colour='green', leave=True, total=study_areas.shape[0]):
+            with tqdm(desc='Study Area', unit='study area', colour='green', leave=True, total=study_areas.shape[0]):
                 for i in range(study_areas.shape[0]):
                     processes.append(pool.apply_async(
                         self._generate, kwds={
