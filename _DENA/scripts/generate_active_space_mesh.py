@@ -61,7 +61,7 @@ if __name__ == '__main__':
         active_spaces = gpd.GeoDataFrame(columns=['geometry'], geometry='geometry', crs='epsg:4269')
         outfile = f'{project_dir}/{args.name}_{os.path.basename(omni_source)}.geojson'
         logger.info(f"Run attributes:\nomni_source: {os.path.basename(omni_source)}\naltitude (m): {args.altitude}\n"
-                    f"mesh spacing: {args.mesh_spacing}\nmesh size: {args.mesh_size}x{args.mesh_size}\n"
+                    f"mesh spacing: {args.mesh_spacing}km\nmesh size: {args.mesh_size}kmx{args.mesh_size}km\n"
                     f"headings: {args.headings}\noutfile: {outfile}\n")
 
         for heading in tqdm(args.headings, desc='Heading', unit='headings', colour='cyan', leave=False):
