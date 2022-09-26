@@ -755,143 +755,152 @@ class _GroundTruthingFrame(_AppFrame):
         lower_limit_start = max(date2num(closest_time - dt.timedelta(seconds=60)), x_lims[0])
         upper_limit_start = min(date2num(closest_time + dt.timedelta(seconds=60)), x_lims[-1])
 
-        # ************************************ Build Plot ************************************#
+        if upper_limit_start <= lower_limit_start:
+            tk.messagebox.showwarning(
+                title='Data Warning',
+                message=f"Track {idx} is a double back path causing the limit lines to cross. Skipping...",
+                icon='warning'
+            )
+            self._click(idx, spline, valid=False, audible=False, note='Crossed limit lines.')
 
-        fig = plt.figure(figsize=(9, 5), constrained_layout=True)
-        fig.canvas.manager.set_window_title(f"Microphone: {self.master.mic.name}, Track Id: {idx}")
-        spec = GridSpec(ncols=1, nrows=10, figure=fig)
-        ax1 = fig.add_subplot(spec[0:6, 0])
-        ax2 = fig.add_subplot(spec[6:9, 0])
-        ax3 = fig.add_subplot(spec[9, 0])
+        else:
+            # ************************************ Build Plot ************************************#
 
-        # --------------------------------- Plot Track --------------------------------- #
+            fig = plt.figure(figsize=(9, 5), constrained_layout=True)
+            fig.canvas.manager.set_window_title(f"Microphone: {self.master.mic.name}, Track Id: {idx}")
+            spec = GridSpec(ncols=1, nrows=10, figure=fig)
+            ax1 = fig.add_subplot(spec[0:6, 0])
+            ax2 = fig.add_subplot(spec[6:9, 0])
+            ax3 = fig.add_subplot(spec[9, 0])
 
-        # Display the study area, track points, spline points, closest point, and microphone
-        self.master.study_area.geometry.boundary.plot(
-            label='study area',
-            ax=ax1,
-            ls="--",
-            lw=0.5,
-            color="blue"
-        )
-        spline.plot(
-            label='interpolated spline point',
-            ax=ax1,
-            color="grey",
-            zorder=1,
-            markersize=0.5,
-            alpha=0.1
-        )
-        points.plot(
-            label='track point',
-            ax=ax1,
-            color="blue",
-            zorder=1,
-            markersize=3,
-        )
-        closest_point.plot(
-            label='closest point',
-            ax=ax1,
-            color="red",
-            zorder=1,
-            markersize=3,
-        )
-        ax1.plot(
-            self.master.mic.x,
-            self.master.mic.y,
-            label='microphone',
-            ls="",
-            marker="x",
-            ms=7,
-            color="magenta",
-            zorder=10
-        )
+            # --------------------------------- Plot Track --------------------------------- #
 
-        highlight, = ax1.plot(
-            spline.geometry.x,
-            spline.geometry.y,
-            lw=5,
-            color='deepskyblue',
-            ls='-',
-            zorder=1,
-            alpha=0.4
-        )
+            # Display the study area, track points, spline points, closest point, and microphone
+            self.master.study_area.geometry.boundary.plot(
+                label='study area',
+                ax=ax1,
+                ls="--",
+                lw=0.5,
+                color="blue"
+            )
+            spline.plot(
+                label='interpolated spline point',
+                ax=ax1,
+                color="grey",
+                zorder=1,
+                markersize=0.5,
+                alpha=0.1
+            )
+            points.plot(
+                label='track point',
+                ax=ax1,
+                color="blue",
+                zorder=1,
+                markersize=3,
+            )
+            closest_point.plot(
+                label='closest point',
+                ax=ax1,
+                color="red",
+                zorder=1,
+                markersize=3,
+            )
+            ax1.plot(
+                self.master.mic.x,
+                self.master.mic.y,
+                label='microphone',
+                ls="",
+                marker="x",
+                ms=7,
+                color="magenta",
+                zorder=10
+            )
 
-        # Glean the spatial extent of the points. This will result in a square map.
-        xmin, ymin, xmax, ymax = self.master.study_area.total_bounds
-        ax1.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
-        ax1.set_aspect((xmax - xmin) / (ymax - ymin))
-        ax1.tick_params(axis='both', labelsize=6)
-        ax1.ticklabel_format(style='plain')  # disable scientific notation
-        ax1.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+            highlight, = ax1.plot(
+                spline.geometry.x,
+                spline.geometry.y,
+                lw=5,
+                color='deepskyblue',
+                ls='-',
+                zorder=1,
+                alpha=0.4
+            )
 
-        # --------------------------------- Plot Spectrogram --------------------------------- #
+            # Glean the spatial extent of the points. This will result in a square map.
+            xmin, ymin, xmax, ymax = self.master.study_area.total_bounds
+            ax1.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
+            ax1.set_aspect((xmax - xmin) / (ymax - ymin))
+            ax1.tick_params(axis='both', labelsize=6)
+            ax1.ticklabel_format(style='plain')  # disable scientific notation
+            ax1.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
-        ax2.imshow(
-            spectrogram.T,
-            origin="lower",
-            aspect=(x_lims[-1] - x_lims[0]) / (8 * 33),
-            cmap="plasma",
-            extent=[x_lims[0], x_lims[-1], 0, spectrogram.shape[1]],
-            interpolation=None,
-            vmin=-10,
-            vmax=80
-        )
+            # --------------------------------- Plot Spectrogram --------------------------------- #
 
-        # add in the time of closest approach in red.
-        ax2.axvline(
-            date2num(closest_time),
-            alpha=0.7,
-            color="red",
-            zorder=2,
-            linewidth=3,
-            label='closest track point'
-        )
+            ax2.imshow(
+                spectrogram.T,
+                origin="lower",
+                aspect=(x_lims[-1] - x_lims[0]) / (8 * 33),
+                cmap="plasma",
+                extent=[x_lims[0], x_lims[-1], 0, spectrogram.shape[1]],
+                interpolation=None,
+                vmin=-10,
+                vmax=80
+            )
 
-        # Create the moving vertical lines on the histogram with axvline()
-        lower_limit_line = ax2.axvline(
-            lower_limit_start,
-            ls="--",
-            alpha=0.7,
-            color="white",
-            zorder=2,
-            linewidth=1,
-        )
-        upper_limit_line = ax2.axvline(
-            upper_limit_start,
-            ls="--",
-            alpha=0.7,
-            color="white",
-            zorder=2,
-            linewidth=1
-        )
-        ax2.legend(bbox_to_anchor=(0.25, 1.4))
-        ax2.set_yticks(np.arange(spectrogram.shape[1])[::6])
-        ax2.set_yticklabels(spectrogram.columns.astype('float')[::6])
-        ax2.set_ylabel("Freq. (Hz)", labelpad=15)
-        ax2.xaxis_date()  # tell matplotlib that the numeric axis should be formatted as dates
-        ax2.xaxis.set_major_formatter(DateFormatter("%b-%d\n%H:%M"))  # tidy them!
+            # add in the time of closest approach in red.
+            ax2.axvline(
+                date2num(closest_time),
+                alpha=0.7,
+                color="red",
+                zorder=2,
+                linewidth=3,
+                label='closest track point'
+            )
 
-        # --------------------------------- Plot Slider --------------------------------- #
+            # Create the moving vertical lines on the histogram with axvline()
+            lower_limit_line = ax2.axvline(
+                lower_limit_start,
+                ls="--",
+                alpha=0.7,
+                color="white",
+                zorder=2,
+                linewidth=1,
+            )
+            upper_limit_line = ax2.axvline(
+                upper_limit_start,
+                ls="--",
+                alpha=0.7,
+                color="white",
+                zorder=2,
+                linewidth=1
+            )
+            ax2.legend(bbox_to_anchor=(0.25, 1.4))
+            ax2.set_yticks(np.arange(spectrogram.shape[1])[::6])
+            ax2.set_yticklabels(spectrogram.columns.astype('float')[::6])
+            ax2.set_ylabel("Freq. (Hz)", labelpad=15)
+            ax2.xaxis_date()  # tell matplotlib that the numeric axis should be formatted as dates
+            ax2.xaxis.set_major_formatter(DateFormatter("%b-%d\n%H:%M"))  # tidy them!
 
-        self.slider = RangeSlider(
-            ax3,
-            label="Audible Window",
-            valmin=x_lims[0],
-            valmax=x_lims[-1],
-            valinit=[lower_limit_start, upper_limit_start]
-        )
+            # --------------------------------- Plot Slider --------------------------------- #
 
-        self.slider.valtext.set_visible(False)  # Turn off range slider value label.
-        self.slider.on_changed(_slider_update)
-        _slider_update([lower_limit_start, upper_limit_start])
+            self.slider = RangeSlider(
+                ax3,
+                label="Audible Window",
+                valmin=x_lims[0],
+                valmax=x_lims[-1],
+                valinit=[lower_limit_start, upper_limit_start]
+            )
 
-        # --------------------------------- Show Plot --------------------------------- #
+            self.slider.valtext.set_visible(False)  # Turn off range slider value label.
+            self.slider.on_changed(_slider_update)
+            _slider_update([lower_limit_start, upper_limit_start])
 
-        self.track_label.config(text=f"Microphone: {self.master.mic.name}\nTrack Id: {idx}")
-        self.progress_label.config(text=f"{self.i}/{self.master.tracks.track_id.nunique()}")
-        self.inaudible_button.config(command=lambda: self._click(idx, spline, valid=True, audible=False), state=tk.NORMAL)
-        self.unknown_button.config(command=lambda: self._click(idx, spline, valid=False, audible=False), state=tk.NORMAL)
+            # --------------------------------- Show Plot --------------------------------- #
 
-        canvas = FigureCanvasTkAgg(fig, master=self)
-        canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=3)
+            self.track_label.config(text=f"Microphone: {self.master.mic.name}\nTrack Id: {idx}")
+            self.progress_label.config(text=f"{self.i}/{self.master.tracks.track_id.nunique()}")
+            self.inaudible_button.config(command=lambda: self._click(idx, spline, valid=True, audible=False), state=tk.NORMAL)
+            self.unknown_button.config(command=lambda: self._click(idx, spline, valid=False, audible=False), state=tk.NORMAL)
+
+            canvas = FigureCanvasTkAgg(fig, master=self)
+            canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=3)

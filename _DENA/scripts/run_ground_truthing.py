@@ -66,7 +66,6 @@ if __name__ == '__main__':
         hourtimes = tracks.local_hourtime.astype(object).unique()
 
     elif args.track_source == 'Database':
-        logger.info("Querying tracks...")
         raw_tracks = query_tracks(engine=engine, start_date=nvspl_dates[0], end_date=nvspl_dates[-1], mask=study_area)
         tracks = Tracks(raw_tracks, 'flight_id', 'ak_datetime', 'altitude_m')
         hourtimes = tracks.ak_hourtime.astype(object).unique()
