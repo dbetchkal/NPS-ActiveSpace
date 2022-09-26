@@ -121,22 +121,23 @@ class ActiveSpaceGenerator:
             dem_src = dem_projected_filename
 
         import tempfile
-        with tempfile.NamedTemporaryFile(suffix='.shp') as study_area_temp:
-            if buffer:
-                equal_area_crs = coords_to_utm(study_area.centroid.iat[0].y, study_area.centroid.iat[0].x)
-                study_area_m = study_area.to_crs(equal_area_crs)
-                study_area_m = study_area_m.buffer(buffer * 1000)
-                study_area = study_area_m.to_crs(study_area.crs)
-            study_area.to_file(study_area_temp)
+        study_area_temp = tempfile.NamedTemporaryFile(suffix='.shp', delete=False)
+        if buffer:
+            equal_area_crs = coords_to_utm(study_area.centroid.iat[0].y, study_area.centroid.iat[0].x)
+            study_area_m = study_area.to_crs(equal_area_crs)
+            study_area_m = study_area_m.buffer(buffer * 1000)
+            study_area = study_area_m.to_crs(study_area.crs)
+        study_area.to_file(study_area_temp)
 
-            # Mask the DEM file with the study area shapefile.
-            dem_masked_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_mask{suffix}.tif"
-            gdal.Warp(
-                dem_masked_filename,
-                dem_src,
-                cutlineDSName=study_area_temp,
-                cropToCutline=True
-            )
+        # Mask the DEM file with the study area shapefile.
+        dem_masked_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_mask{suffix}.tif"
+        gdal.Warp(
+            dem_masked_filename,
+            dem_src,
+            cutlineDSName=study_area_temp,
+            cropToCutline=True
+        )
+        study_area_temp.close()
         return dem_masked_filename
 
 
