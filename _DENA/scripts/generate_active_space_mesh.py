@@ -56,7 +56,7 @@ if __name__ == '__main__':
     )
 
     logger.info(f"Generating active space mesh for: {args.name}...\n")
-    for omni_source in tqdm(omni_sources, desc='Omni Source', unit='omni sources', colour='green'):
+    for omni_source in tqdm(omni_sources, desc='Omni Source', unit='omni sources', colour='white'):
 
         active_spaces = gpd.GeoDataFrame(columns=['geometry'], geometry='geometry', crs='epsg:4269')
         outfile = f'{project_dir}/{args.name}_{os.path.basename(omni_source)}.geojson'

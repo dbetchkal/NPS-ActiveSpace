@@ -4,6 +4,7 @@ import os
 import subprocess
 from functools import partial
 from typing import List, Optional, Tuple, Union
+from uuid import uuid4
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -119,8 +120,6 @@ class ActiveSpaceGenerator:
             dem_projected_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation{suffix}.tif"
             project_raster(dem_src, dem_projected_filename, study_area.crs)
             dem_src = dem_projected_filename
-
-        from uuid import uuid4
 
         # Output the study area, in the proper projection, to a shapefile so it can be used for masking.
         study_area_filename_prefix = f"{self.root_dir}/Input_Data/01_ELEVATION/study_area{suffix}_{uuid4()}"
