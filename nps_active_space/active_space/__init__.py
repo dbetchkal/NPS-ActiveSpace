@@ -120,30 +120,52 @@ class ActiveSpaceGenerator:
             project_raster(dem_src, dem_projected_filename, study_area.crs)
             dem_src = dem_projected_filename
 
-        # Output the study area, in the proper projection, to a shapefile so it can be used for masking.
-        study_area_filename_prefix = f"{self.root_dir}/Input_Data/01_ELEVATION/study_area{suffix}"
-        study_area_filename = f"{study_area_filename_prefix}.shp"
-        if buffer:
-            equal_area_crs = coords_to_utm(study_area.centroid.iat[0].y, study_area.centroid.iat[0].x)
-            study_area_m = study_area.to_crs(equal_area_crs)
-            study_area_m = study_area_m.buffer(buffer*1000)
-            study_area = study_area_m.to_crs(study_area.crs)
-        study_area.to_file(study_area_filename)
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.shp') as study_area_temp:
+            if buffer:
+                equal_area_crs = coords_to_utm(study_area.centroid.iat[0].y, study_area.centroid.iat[0].x)
+                study_area_m = study_area.to_crs(equal_area_crs)
+                study_area_m = study_area_m.buffer(buffer * 1000)
+                study_area = study_area_m.to_crs(study_area.crs)
+            study_area.to_file(study_area_temp)
 
-        # Mask the DEM file with the study area shapefile.
-        dem_masked_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_mask{suffix}.tif"
-        gdal.Warp(
-            dem_masked_filename,
-            dem_src,
-            cutlineDSName=study_area_filename,
-            cropToCutline=True
-        )
-
-        # Remove the temporary shapefile (and related files) since they were only needed for masking.
-        for filename in glob.glob(f"{study_area_filename_prefix}*"):
-            os.remove(filename)
-
+            # Mask the DEM file with the study area shapefile.
+            dem_masked_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_mask{suffix}.tif"
+            gdal.Warp(
+                dem_masked_filename,
+                dem_src,
+                cutlineDSName=study_area_temp,
+                cropToCutline=True
+            )
         return dem_masked_filename
+
+
+
+
+        # # Output the study area, in the proper projection, to a shapefile so it can be used for masking.
+        # study_area_filename_prefix = f"{self.root_dir}/Input_Data/01_ELEVATION/study_area{suffix}"
+        # study_area_filename = f"{study_area_filename_prefix}.shp"
+        # if buffer:
+        #     equal_area_crs = coords_to_utm(study_area.centroid.iat[0].y, study_area.centroid.iat[0].x)
+        #     study_area_m = study_area.to_crs(equal_area_crs)
+        #     study_area_m = study_area_m.buffer(buffer*1000)
+        #     study_area = study_area_m.to_crs(study_area.crs)
+        # study_area.to_file(study_area_filename)
+        #
+        # # Mask the DEM file with the study area shapefile.
+        # dem_masked_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_mask{suffix}.tif"
+        # gdal.Warp(
+        #     dem_masked_filename,
+        #     dem_src,
+        #     cutlineDSName=study_area_filename,
+        #     cropToCutline=True
+        # )
+        #
+        # # Remove the temporary shapefile (and related files) since they were only needed for masking.
+        # for filename in glob.glob(f"{study_area_filename_prefix}*"):
+        #     os.remove(filename)
+        #
+        # return dem_masked_filename
 
     def _create_dem_flt(self, dem_file: str) -> str:
         """

@@ -31,7 +31,7 @@ if __name__ == '__main__':
                           help='How far apart in km mesh square center points should be.')
     argparse.add_argument('--mesh-size', type=int, default=25,
                           help='How large in km each mesh square should be. mesh-size x mesh-size.')
-    argparse.add_argument('-a', '--altitude', type=int, default=3658,
+    argparse.add_argument('-l', '--altitude', type=int, default=3658,
                           help='Altitude to run NSMIM with in meters.')
     argparse.add_argument('--cleanup', action='store_true',
                           help="Remove intermediary control and batch files.")
@@ -73,15 +73,18 @@ if __name__ == '__main__':
                 mesh_density=(args.mesh_spacing, args.mesh_size),
             )
             active_spaces = active_spaces.append(active_space, ignore_index=True)
+
+            # Since the process of a creating a mesh is slow, output active spaces for each heading so that
+            #  the mesh can be created in multiple runs if necessary.
             active_spaces.to_file(heading_outfile, driver='GeoJSON', mode='w', index=False)
+
+            # Clean up intermediary files if the user requests.
+            if args.cleanup:
+                for file in glob.glob(f"{project_dir}/control*"):
+                    os.remove(file)
+                for file in glob.glob(f"{project_dir}/batch*"):
+                    os.remove(file)
 
         # Dissolve the active spaces from each heading into one and output to a geojson file.
         dissolved_active_space = active_spaces.dissolve()
         dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
-
-        # Clean up intermediary files if the user requests.
-        if args.cleanup:
-            for file in glob.glob(f"{project_dir}/control*"):
-                os.remove(file)
-            for file in glob.glob(f"{project_dir}/batch*"):
-                os.remove(file)
