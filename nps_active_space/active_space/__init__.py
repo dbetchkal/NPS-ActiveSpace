@@ -724,6 +724,10 @@ class ActiveSpaceGenerator:
         active_spaces : gpd.GeoDataFrame
             A GeoDataFrame of all generated active space polygons.
         """
+        self._dem_file = None
+        self._flt_file = None
+        self._site_file = None
+
         active_spaces = gpd.GeoDataFrame(columns=['geometry'], geometry='geometry', crs='epsg:4269')
         study_areas = create_overlapping_mesh(self.study_area, mesh_density[0], mesh_density[1])
         dem_file = self._mask_dem_file(self.dem_src, self.study_area, project=True, buffer=mesh_density[1] + 1)
@@ -732,7 +736,7 @@ class ActiveSpaceGenerator:
         _generate = partial(self._generate, dem_file=dem_file, omni_source=omni_source, project_dem=False,
                             altitude_m=altitude_m, heading=heading, src_pt_density=src_pt_density, n_contour=n_contour,
                             simplify=simplify)
-        
+
         pbar = tqdm(desc='Study Area', unit='study area', colour='green', total=study_areas.shape[0], leave=True)
         _update_pbar = lambda _: pbar.update()
         _handle_error = lambda error: print(f'Error: {error}', flush=True)
@@ -744,8 +748,8 @@ class ActiveSpaceGenerator:
                                                   kwds={'study_area': study_areas.iloc[[i]], 'name': f'{i+1}'},
                                                   callback=_update_pbar,
                                                   error_callback=_handle_error))
-                results = [p.get() for p in processes]
-                for res in results:
-                    active_spaces = active_spaces.append(res, ignore_index=True)
+            results = [p.get() for p in processes]
+            for res in results:
+                active_spaces = active_spaces.append(res, ignore_index=True)
 
         return active_spaces

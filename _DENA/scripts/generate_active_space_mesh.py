@@ -65,6 +65,7 @@ if __name__ == '__main__':
                     f"headings: {args.headings}\noutfile: {outfile}\n")
 
         for heading in tqdm(args.headings, desc='Heading', unit='headings', colour='cyan', leave=False):
+            heading_outfile = f'{project_dir}/{args.name}_{os.path.basename(omni_source)}_{heading}.geojson'
             active_space = active_space_generator.generate_mesh(
                 omni_source=omni_source,
                 heading=heading,
@@ -72,6 +73,7 @@ if __name__ == '__main__':
                 mesh_density=(args.mesh_spacing, args.mesh_size),
             )
             active_spaces = active_spaces.append(active_space, ignore_index=True)
+            active_spaces.to_file(heading_outfile, driver='GeoJSON', mode='w', index=False)
 
         # Dissolve the active spaces from each heading into one and output to a geojson file.
         dissolved_active_space = active_spaces.dissolve()
