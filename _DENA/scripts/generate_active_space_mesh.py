@@ -1,6 +1,7 @@
 import glob
 import os
 from argparse import ArgumentParser
+from pathlib import Path
 
 import geopandas as gpd
 from tqdm import tqdm
@@ -59,13 +60,13 @@ if __name__ == '__main__':
     for omni_source in tqdm(omni_sources, desc='Omni Source', unit='omni sources', colour='white'):
 
         active_spaces = gpd.GeoDataFrame(columns=['geometry'], geometry='geometry', crs='epsg:4269')
-        outfile = f'{project_dir}/{args.name}_{os.path.basename(omni_source)}.geojson'
-        logger.info(f"Run attributes:\nomni_source: {os.path.basename(omni_source)}\naltitude (m): {args.altitude}\n"
+        outfile = f'{project_dir}/{args.name}_{Path(omni_source).stem}.geojson'
+        logger.info(f"Run attributes:\nomni_source: {Path(omni_source).stem}\naltitude (m): {args.altitude}\n"
                     f"mesh spacing: {args.mesh_spacing}km\nmesh size: {args.mesh_size}kmx{args.mesh_size}km\n"
                     f"headings: {args.headings}\noutfile: {outfile}\n")
 
         for heading in tqdm(args.headings, desc='Heading', unit='headings', colour='cyan', leave=False):
-            heading_outfile = f'{project_dir}/{args.name}_{os.path.basename(omni_source)}_{heading}.geojson'
+            heading_outfile = f'{project_dir}/{args.name}_{Path(omni_source).stem}_{heading}.geojson'
             active_space = active_space_generator.generate_mesh(
                 omni_source=omni_source,
                 heading=heading,

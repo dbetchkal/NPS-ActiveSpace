@@ -4,6 +4,7 @@ import os
 from argparse import ArgumentParser
 from copy import deepcopy
 from functools import partial
+from pathlib import Path
 from statistics import mean
 from typing import List, Tuple, TYPE_CHECKING
 
@@ -60,7 +61,7 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
     # NOTE: Since the microphone is being used in multiple processes and in those processes is altered, it's safer to
     #  make copies of the microphone with unique names to avoid any issues with shared resources.
     mic_copy = deepcopy(microphone)
-    mic_copy.name = f"{microphone.name}{os.path.basename(omni_source)}"
+    mic_copy.name = f"{microphone.name}{Path(omni_source).stem}"
 
     active_spaces = gpd.GeoDataFrame(columns=['geometry'], geometry='geometry', crs='epsg:4269')
     for heading in headings:
@@ -76,7 +77,7 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
     dissolved_active_space = active_spaces.dissolve()
     dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
 
-    return os.path.basename(omni_source), dissolved_active_space
+    return Path(omni_source).stem, dissolved_active_space
 
 
 if __name__ == '__main__':
@@ -176,7 +177,7 @@ if __name__ == '__main__':
         with tqdm(desc='Omni Sources', unit='omni source', colour='green', total=len(omni_sources), leave=True) as pbar:
             processes = []
             for omni_source_ in omni_sources:
-                outfile_ = f'{project_dir}/{args.unit}{args.site}{args.year}_{os.path.basename(omni_source_)}.geojson'
+                outfile_ = f'{project_dir}/{args.unit}{args.site}{args.year}_{Path(omni_source_).stem}.geojson'
                 processes.append(pool.apply_async(_run, kwds={'outfile': outfile_, 'omni_source': omni_source_},
                                                   callback=_update_pbar, error_callback=_handle_error))
             results = [p.get() for p in processes]
