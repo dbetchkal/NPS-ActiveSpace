@@ -112,6 +112,8 @@ if __name__ == '__main__':
     project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
     logger = get_logger(f"ACTIVE-SPACE: {args.unit}{args.site}{args.year}")
 
+    omni_sources = get_omni_sources(lower=args.omni_min, upper=args.omni_max)
+
     # --------------- ANNOTATION LOGIC --------------- #
 
     # Verify that annotation files exist for the unit/site location. If they do exist, load them into memory.
@@ -172,7 +174,6 @@ if __name__ == '__main__':
     #  speed benefits.
     logger.info(f"Generating active spaces for: {args.unit}{args.site}{args.year}...")
     _run = partial(_run_active_space, generator=generator_, headings=args.headings, microphone=mic_, altitude=altitude_)
-    omni_sources = get_omni_sources(lower=args.omni_min, upper=args.omni_max)
     with mp.Pool(mp.cpu_count() - 1) as pool:
         with tqdm(desc='Omni Sources', unit='omni source', colour='green', total=len(omni_sources), leave=True) as pbar:
             processes = []

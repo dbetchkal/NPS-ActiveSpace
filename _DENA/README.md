@@ -66,19 +66,22 @@ $ python -u -W ignore _DENA/scripts/generate_active_space_mesh.py -e production 
 
 ### Generate Active Space
 
-| command-line arg      | description             |
-|-----------------------|-------------------------|
-| `-e`, `--environment` | **required.**           |
-| `-u`, `--unit`        | **required.**           |
-| `-s`, `--site`        | **required.**           |
-| `-y`, `--year`        | **required.**           |
-| `-a`, `--ambience`    | *default nvspl*         |
-| `--headings`          | *default [0, 120, 240]* |
-| `--omni-min`          | *default -20*           |
-| `--omni-max`          | *default 30*            |
-| `-l`, `--altitude`    |                         |
-| `-b`, `--beta`        | *default 1.0*           |
-| `--cleanup`           |        |
+This script is used to generate active spaces for a single site for a variety of omni sources to determine which 
+omni source produces the active space that most closely matches the ground truthed tracks. 
+
+| command-line arg      | description                                                                                                                                                              |
+|-----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `-e`, `--environment`  | **required.**<br/>The configuration environment to use. *Ex*: To use `production.config` pass `-e production`                                                            |
+| `-u`, `--unit`         | **required.**<br/>The 4 letter NPS unit code. *Ex*: Denali = DENA                                                                                                        |
+| `-s`, `--site`         | **required.**<br/>The 4 letter site code. *Ex*: Cathedral = CATH                                                                                                         |
+| `-y`, `--year`         | **required.**<br/>The deployment year, YYYY. *Ex*: 2018                                                                                                                  |
+| `-a`, `--ambience`    | ***default nvspl -> {nvspl, mennitt}***<br/>The ambience type to use when running NMSIM.                                                                                 |
+| `--headings`          | ***default [0, 120, 240]***<br/>A list of the active space headings that should be dissolved together to make the final active space. *Ex*: `--headings 0, 90, 180, 270` |
+| `--omni-min`          | ***default -20***<br/>The lowest gain to generate an active space for. Active spaces will be generated for all gains between `--omni-min` and `--omni-max`.              |
+| `--omni-max`          | ***default 30***<br/>The highest gain to generate an active space for. Active spaces will be generated for all gains between `--omni-min` and `--omni-max`.              |
+| `-l`, `--altitude`    | Use this flag to generate the active spaces at a particular altitude (in meters). *Ex*: `-l 1524` generates active spaces at 1524 meters or 5000 feet.                   |
+| `-b`, `--beta`        | ***default 1.0***<br/>the beta value to use when calculating the f-beta for each active space.                                                                           |
+| `--cleanup`           | If this flag is added, all intermediary control and batch files will be deleted upon script completion.                                                                  |
 
 ### Generate Active Space Mesh
 

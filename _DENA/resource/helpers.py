@@ -208,6 +208,8 @@ def get_omni_sources(lower: float, upper: float) -> List[str]:
     the lower gain bound.
     """
     assert -30 <= upper <= 50 and -30 <= lower <= 50 and upper >= lower, "Bounds must be ordered and between [-30, 50]."
+    assert upper % .5 == 0, "Invalid upper limit. Value must be divisible by 0.5."
+    assert lower % .5 == 0, "Invalid lower limit. Value must be divisible by 0.5."
 
     omni_source_dir = f"{ACTIVE_SPACE_DIR}\\data\\tuning"
     omni_sources = []
