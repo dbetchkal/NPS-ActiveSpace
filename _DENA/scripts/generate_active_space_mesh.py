@@ -56,7 +56,7 @@ if __name__ == '__main__':
 
     logger.info(f"Generating active space mesh for: {args.name}...\n")
 
-    active_spaces = gpd.GeoDataFrame(columns=['geometry'], geometry='geometry', crs='epsg:4269')
+    active_spaces = None
     outfile = f'{project_dir}/{args.name}_{Path(omni_source).stem}.geojson'
     logger.info(f"Run attributes:\nomni_source: {Path(omni_source).stem}\naltitude (m): {args.altitude}\n"
                 f"mesh spacing: {args.mesh_spacing}km\nmesh size: {args.mesh_size}kmx{args.mesh_size}km\n"
@@ -70,11 +70,14 @@ if __name__ == '__main__':
             altitude_m=args.altitude,
             mesh_density=(args.mesh_spacing, args.mesh_size),
         )
-        active_spaces = active_spaces.append(active_space, ignore_index=True)
+        if active_spaces is None:
+            active_spaces = active_space
+        else:
+            active_spaces = active_spaces.append(active_space, ignore_index=True)
 
         # Since the process of a creating a mesh is slow, output active spaces for each heading so that
         #  the mesh can be created in multiple runs if necessary.
-        active_spaces.to_file(heading_outfile, driver='GeoJSON', mode='w', index=False)
+        active_space.to_file(heading_outfile, driver='GeoJSON', mode='w', index=False)
 
         # Clean up intermediary files if the user requests.
         if args.cleanup:
