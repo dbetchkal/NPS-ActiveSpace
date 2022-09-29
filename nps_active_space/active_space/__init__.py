@@ -603,7 +603,6 @@ class ActiveSpaceGenerator:
         active_space = self._build_active_space(tested_space, crs, altitude_m)
 
         active_space = active_space.to_crs('epsg:4269')
-        active_space['geometry'] = active_space.apply(lambda row: make_valid(row.geometry), axis=1)
         active_space['altitude_m'] = altitude_m
 
         return active_space
