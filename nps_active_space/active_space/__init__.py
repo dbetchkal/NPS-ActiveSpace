@@ -11,7 +11,6 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
 import pandas as pd
-import shapely
 from osgeo import gdal
 from tqdm import tqdm
 
@@ -471,7 +470,7 @@ class ActiveSpaceGenerator:
         return new_audibility_pts
 
     @staticmethod
-    def _build_active_space(total_space: gpd.GeoDataFrame, crs: str, simplify: int, altitude: int) -> gpd.GeoDataFrame:
+    def _build_active_space(total_space: gpd.GeoDataFrame, crs: str, altitude: int) -> gpd.GeoDataFrame:
         """
         Build the final active space polygon given the audibility of all tested points.
 
@@ -482,9 +481,6 @@ class ActiveSpaceGenerator:
             polygon from.
         crs : str
             The crs of the points. Of the format 'epsg:XXXX...'
-        simplify : int
-            The tolerance value to be used to simplify the edge of the active space polygon. Higher numbers means
-            a simpler border.
         altitude : int
             The altitude (in meters) of all points run through NMSIM.
 
@@ -504,41 +500,26 @@ class ActiveSpaceGenerator:
         plt.close('all')  # close triangulation figure
 
         # iterate through all contour paths in the line collection at level_ind
+        active_space_polys = []
         for i, contour_path in enumerate(cs.collections[level_ind].get_paths()):
             x = contour_path.vertices[:, 0]
             y = contour_path.vertices[:, 1]
             z = [altitude] * len(x)
             new_poly = Polygon([(i[0], i[1], i[2]) for i in zip(x, y, z)])
 
-            if i == 0:  # first polygon
-                poly = new_poly
-            else:  # append new polygons to the conglomerate if they are larger than some threshold area
-                if new_poly.area > 50000:  # TODO: this area threshold may need to be changed!
-                    try:
-                        poly = poly.symmetric_difference(new_poly)
+            if new_poly.area <= 50000:  # TODO: this area threshold may need to be changed!
+                continue
 
-                    except shapely.errors.TopologicalError as e:
-                        # this occurs if the 'active space' contours extend past the extents of the study area, which
-                        # results in segments of polygons (but are indistinguishable from polygons)...
-                        # the 'proper' solution would be to add a ring of zero entries before calculating contours to
-                        # ensure each contour is a closed polygon
-                        print(e)
-                        print('Active space possibly too large (or the study area is too small).')
-                        plt.close('all')
-                        return None
+            active_space_polys.append(new_poly)
 
-        # Put the final Multipolygon in a GeoDataSeries to simplify the geometry
-        final_poly = gpd.GeoSeries(poly, crs=crs)
-        if simplify:
-            final_poly = final_poly.simplify(simplify)
+        active_space_polys_gdf = gpd.GeoDataFrame(data={'geometry': active_space_polys}, geometry='geometry', crs=crs)
+        # poly = poly.symmetric_difference(new_poly) # TODO
 
-        final_gdf = gpd.GeoDataFrame(geometry=final_poly)
-        return final_gdf
+        return active_space_polys_gdf
 
     def _generate(self, study_area: gpd.GeoDataFrame, dem_file: str, omni_source: str, name: str = '',
                   mic: Optional[Microphone] = None, project_dem: bool = True, altitude_m: int = 3658,
-                  heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1,
-                  simplify: int = 100) -> gpd.GeoDataFrame:
+                  heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1) -> gpd.GeoDataFrame:
         """
         The main active space generating function. It has been separated from the other generate functions to allow
         for multiprocessing when creating an active space mesh.
@@ -619,9 +600,10 @@ class ActiveSpaceGenerator:
             )
             tested_space = tested_space.append(new_audibility_pts, ignore_index=True)
 
-        active_space = self._build_active_space(tested_space, crs, simplify, altitude_m)
+        active_space = self._build_active_space(tested_space, crs, altitude_m)
 
         active_space = active_space.to_crs('epsg:4269')
+        active_space['geometry'] = active_space.apply(lambda row: make_valid(row.geometry), axis=1)
         active_space['altitude_m'] = altitude_m
 
         return active_space
@@ -646,8 +628,7 @@ class ActiveSpaceGenerator:
         self._site_file = self._create_site_file(projected_mic, self._flt_file)
 
     def generate(self, omni_source: str, altitude_m: int = 3658, mic: Optional[Microphone] = None,
-                 heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1,
-                 simplify: int = 100) -> gpd.GeoDataFrame:
+                 heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1) -> gpd.GeoDataFrame:
         """
         Generate an active space for the study area.
 
@@ -668,9 +649,6 @@ class ActiveSpaceGenerator:
             have src_pt_density x src_point_density points.
         n_contour : int, default 1
             Number of rounds of contouring to perform after the two rounds of active space point meshing.
-        simplify : int
-            How much the active space edge should be simplified. The value will be passed into geopandas simply
-            function.
 
         Returns
         -------
@@ -687,13 +665,12 @@ class ActiveSpaceGenerator:
             heading=heading,
             src_pt_density=src_pt_density,
             n_contour=n_contour,
-            simplify=simplify
         )
         return active_space
 
     def generate_mesh(self, omni_source: str, altitude_m: int = 3658, heading: Optional[int] = None,
-                      src_pt_density: int = 48, n_contour: int = 1, simplify: int = 50,
-                      mesh_density: Tuple[int, int] = (1, 25), n_cpus: int = mp.cpu_count() - 1) -> gpd.GeoDataFrame:
+                      src_pt_density: int = 48, n_contour: int = 1, mesh_density: Tuple[int, int] = (1, 25),
+                      n_cpus: int = mp.cpu_count() - 1) -> gpd.GeoDataFrame:
         """
         Generate multiple active spaces in a mesh pattern for the study area.
 
@@ -711,9 +688,6 @@ class ActiveSpaceGenerator:
             have src_pt_density x src_point_density points.
         n_contour : int, default 1
             Number of rounds of contouring to perform after the two rounds of active space point meshing.
-        simplify : int
-            How much the active space edge should be simplified. The value will be passed into geopandas simply
-            function.
         mesh_density : Tuple[int, int], default (1km, 25km)
             Coarseness of the mesh in kilometers. The first value is how far apart the mesh centroids should be and
             the second value is how large the mesh squares around the centroids should be, both in kilometers.
@@ -735,8 +709,7 @@ class ActiveSpaceGenerator:
 
         # Since most arguments are the same for each process, create a partial.
         _generate = partial(self._generate, dem_file=dem_file, omni_source=omni_source, project_dem=False,
-                            altitude_m=altitude_m, heading=heading, src_pt_density=src_pt_density, n_contour=n_contour,
-                            simplify=simplify)
+                            altitude_m=altitude_m, heading=heading, src_pt_density=src_pt_density, n_contour=n_contour)
 
         pbar = tqdm(desc='Study Area', unit='study area', colour='green', total=study_areas.shape[0], leave=True)
         _update_pbar = lambda _: pbar.update()
