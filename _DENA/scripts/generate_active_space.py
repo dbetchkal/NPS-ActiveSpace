@@ -63,7 +63,7 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
     mic_copy = deepcopy(microphone)
     mic_copy.name = f"{microphone.name}{Path(omni_source).stem}"
 
-    active_spaces = gpd.GeoDataFrame(columns=['geometry'], geometry='geometry', crs='epsg:4269')
+    active_spaces = None
     for heading in headings:
         active_space = generator.generate(
             omni_source=omni_source,
@@ -71,12 +71,18 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
             heading=heading,
             altitude_m=altitude
         )
-        active_spaces = active_spaces.append(active_space, ignore_index=True)
+
+        if active_spaces is None:
+            active_spaces = active_space
+        else:
+            active_spaces = active_spaces.append(active_space, ignore_index=True)
 
     # Combine the active spaces from each heading into a single active space and write it to a geojson file.
     dissolved_active_space = active_spaces.dissolve()
 
-    # Simplify the active space
+    from shapely.validation import explain_validity
+    dissolved_active_space['validity'] = dissolved_active_space.apply(lambda row: explain_validity(row.geometry), axis=1)
+    print(dissolved_active_space, flush=True)
 
     dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
 

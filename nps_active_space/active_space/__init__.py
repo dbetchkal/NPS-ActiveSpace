@@ -500,18 +500,20 @@ class ActiveSpaceGenerator:
         plt.close('all')  # close triangulation figure
 
         # iterate through all contour paths in the line collection at level_ind
-        active_space_polys = []
+        active_space_poly = None
         for i, contour_path in enumerate(cs.collections[level_ind].get_paths()):
             x = contour_path.vertices[:, 0]
             y = contour_path.vertices[:, 1]
-            new_poly = Polygon([(i[0], i[1]) for i in zip(x, y)])
+            new_poly = make_valid(Polygon([(i[0], i[1]) for i in zip(x, y)]))
 
             if new_poly.area <= 50000:
                 continue
-            active_space_polys.append(make_valid(new_poly))
+            elif active_space_poly is None:
+                active_space_poly = new_poly
+            else:
+                active_space_poly = active_space_poly.symmetric_difference(new_poly)
 
-        active_space_polys_gdf = gpd.GeoDataFrame(data={'geometry': active_space_polys}, geometry='geometry', crs=crs)
-        # poly = poly.symmetric_difference(new_poly) # TODO
+        active_space_polys_gdf = gpd.GeoDataFrame(data={'geometry': [active_space_poly]}, geometry='geometry', crs=crs)
 
         return active_space_polys_gdf
 
