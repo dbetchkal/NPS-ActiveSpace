@@ -12,9 +12,9 @@ import matplotlib as mpl
 import numpy as np
 import pandas as pd
 from osgeo import gdal
-from tqdm import tqdm
-
 from shapely.geometry import Point, Polygon
+from shapely.validation import make_valid
+from tqdm import tqdm
 
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.utils import (
@@ -504,13 +504,11 @@ class ActiveSpaceGenerator:
         for i, contour_path in enumerate(cs.collections[level_ind].get_paths()):
             x = contour_path.vertices[:, 0]
             y = contour_path.vertices[:, 1]
-            z = [altitude] * len(x)
-            new_poly = Polygon([(i[0], i[1], i[2]) for i in zip(x, y, z)])
+            new_poly = Polygon([(i[0], i[1]) for i in zip(x, y)])
 
-            if new_poly.area <= 50000:  # TODO: this area threshold may need to be changed!
+            if new_poly.area <= 50000:
                 continue
-
-            active_space_polys.append(new_poly)
+            active_space_polys.append(make_valid(new_poly))
 
         active_space_polys_gdf = gpd.GeoDataFrame(data={'geometry': active_space_polys}, geometry='geometry', crs=crs)
         # poly = poly.symmetric_difference(new_poly) # TODO
@@ -601,8 +599,6 @@ class ActiveSpaceGenerator:
             tested_space = tested_space.append(new_audibility_pts, ignore_index=True)
 
         active_space = self._build_active_space(tested_space, crs, altitude_m)
-
-        active_space = active_space.to_crs('epsg:4269')
         active_space['altitude_m'] = altitude_m
 
         return active_space
