@@ -80,10 +80,6 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
     # Combine the active spaces from each heading into a single active space and write it to a geojson file.
     dissolved_active_space = active_spaces.dissolve()
 
-    from shapely.validation import explain_validity
-    dissolved_active_space['validity'] = dissolved_active_space.apply(lambda row: explain_validity(row.geometry), axis=1)
-    print(dissolved_active_space, flush=True)
-
     dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
 
     return Path(omni_source).stem, dissolved_active_space
