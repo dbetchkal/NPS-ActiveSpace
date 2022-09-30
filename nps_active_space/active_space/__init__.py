@@ -470,7 +470,7 @@ class ActiveSpaceGenerator:
         return new_audibility_pts
 
     @staticmethod
-    def _build_active_space(total_space: gpd.GeoDataFrame, crs: str, altitude: int) -> gpd.GeoDataFrame:
+    def _build_active_space(total_space: gpd.GeoDataFrame, crs: str) -> gpd.GeoDataFrame:
         """
         Build the final active space polygon given the audibility of all tested points.
 
@@ -481,8 +481,6 @@ class ActiveSpaceGenerator:
             polygon from.
         crs : str
             The crs of the points. Of the format 'epsg:XXXX...'
-        altitude : int
-            The altitude (in meters) of all points run through NMSIM.
 
         Returns
         -------
@@ -600,8 +598,9 @@ class ActiveSpaceGenerator:
             )
             tested_space = tested_space.append(new_audibility_pts, ignore_index=True)
 
-        active_space = self._build_active_space(tested_space, crs, altitude_m)
+        active_space = self._build_active_space(tested_space, crs)
         active_space['altitude_m'] = altitude_m
+        active_space['mic_name'] = mic.name
 
         return active_space
 
@@ -667,7 +666,7 @@ class ActiveSpaceGenerator:
 
     def generate_mesh(self, omni_source: str, altitude_m: int = 3658, heading: Optional[int] = None,
                       src_pt_density: int = 48, n_contour: int = 1, mesh_density: Tuple[int, int] = (1, 25),
-                      n_cpus: int = mp.cpu_count() - 1) -> gpd.GeoDataFrame:
+                      n_cpus: int = mp.cpu_count() - 1) -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
         """
         Generate multiple active spaces in a mesh pattern for the study area.
 
@@ -693,15 +692,16 @@ class ActiveSpaceGenerator:
 
         Returns
         -------
-        active_spaces : gpd.GeoDataFrame
-            A GeoDataFrame of all generated active space polygons.
+        A GeoDataFrame of all generated active space polygons.
+        A GeoDataFrame of centroids used to make the mesh.
         """
         self._dem_file = None
         self._flt_file = None
         self._site_file = None
 
-        active_spaces = gpd.GeoDataFrame(columns=['geometry'], geometry='geometry', crs='epsg:4269')
-        study_areas = create_overlapping_mesh(self.study_area, mesh_density[0], mesh_density[1])
+        study_areas, centroids = create_overlapping_mesh(self.study_area, mesh_density[0], mesh_density[1])
+        centroids['name'] = centroids.apply(lambda x: f"centroid{x.name+1}", axis=1)
+
         dem_file = self._mask_dem_file(self.dem_src, self.study_area, project=True, buffer=mesh_density[1] + 1)
 
         # Since most arguments are the same for each process, create a partial.
@@ -720,7 +720,8 @@ class ActiveSpaceGenerator:
                                                   callback=_update_pbar,
                                                   error_callback=_handle_error))
             results = [p.get() for p in processes]
+            active_spaces = results.pop()
             for res in results:
                 active_spaces = active_spaces.append(res, ignore_index=True)
 
-        return active_spaces
+        return active_spaces, centroids.to_crs(active_spaces.crs)

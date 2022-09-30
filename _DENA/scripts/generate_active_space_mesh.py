@@ -57,6 +57,7 @@ if __name__ == '__main__':
     logger.info(f"Generating active space mesh for: {args.name}...\n")
 
     active_spaces = None
+    active_space_mics = None
     outfile = f'{project_dir}/{args.name}_{Path(omni_source).stem}.geojson'
     logger.info(f"Run attributes:\nomni_source: {Path(omni_source).stem}\naltitude (m): {args.altitude}\n"
                 f"mesh spacing: {args.mesh_spacing}km\nmesh size: {args.mesh_size}kmx{args.mesh_size}km\n"
@@ -64,7 +65,7 @@ if __name__ == '__main__':
 
     for heading in tqdm(args.headings, desc='Heading', unit='headings', colour='cyan', leave=False):
         heading_outfile = f'{project_dir}/{args.name}_{Path(omni_source).stem}_{heading}.geojson'
-        active_space = active_space_generator.generate_mesh(
+        active_space, mics = active_space_generator.generate_mesh(
             omni_source=omni_source,
             heading=heading,
             altitude_m=args.altitude,
@@ -74,6 +75,9 @@ if __name__ == '__main__':
             active_spaces = active_space
         else:
             active_spaces = active_spaces.append(active_space, ignore_index=True)
+
+        if active_space_mics is None:
+            active_space_mics = mics
 
         # Since the process of a creating a mesh is slow, output active spaces for each heading so that
         #  the mesh can be created in multiple runs if necessary.
@@ -87,5 +91,7 @@ if __name__ == '__main__':
                 os.remove(file)
 
     # Dissolve the active spaces from each heading into one and output to a geojson file.
-    dissolved_active_space = active_spaces.dissolve()
+    dissolved_active_space = active_spaces.dissolve(by='mic_name', aggfunc={'mic_name': 'first'})
     dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
+
+    active_space_mics.to_file(outfile.replace('.geojson', '_mics.geojson'), driver='GeoJSON', mode='w', index=False)

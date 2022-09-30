@@ -79,7 +79,6 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
 
     # Combine the active spaces from each heading into a single active space and write it to a geojson file.
     dissolved_active_space = active_spaces.dissolve()
-
     dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
 
     return Path(omni_source).stem, dissolved_active_space
@@ -218,4 +217,5 @@ if __name__ == '__main__':
     ax.set_title('Precision-Recall Curve')
     ax.set_ylabel('Precision')
     ax.set_xlabel('Recall')
+    plt.savefig(f'{project_dir}/PrecisionRecallPlot_{args.unit}{args.site}{args.year}.png')
     plt.show()

@@ -216,7 +216,8 @@ def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Op
     return mesh_points
 
 
-def create_overlapping_mesh(area: gpd.GeoDataFrame, spacing: int = 1, mesh_size: int = 25) -> gpd.GeoDataFrame:
+def create_overlapping_mesh(area: gpd.GeoDataFrame, spacing: int = 1,
+                            mesh_size: int = 25) -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
     """
     Create a mesh of polygons as close to size mesh_size x mesh_size as possible over a specific area.
 
@@ -232,6 +233,7 @@ def create_overlapping_mesh(area: gpd.GeoDataFrame, spacing: int = 1, mesh_size:
     Returns
     -------
     An overlapping mesh of squares that cover the requested area.
+    A GeoDataFrame of the center points used to create the mesh squares.
     """
     equal_area_crs = coords_to_utm(area.centroid.iat[0].y, area.centroid.iat[0].x)
     area_m = area.to_crs(equal_area_crs)
@@ -251,7 +253,10 @@ def create_overlapping_mesh(area: gpd.GeoDataFrame, spacing: int = 1, mesh_size:
     # Create mesh around points.
     mesh = mesh_points.buffer(mesh_size*1000, cap_style=3)
 
-    return mesh.to_crs(area.crs)
+    mesh.reset_index(drop=True, inplace=True)
+    mesh_points.reset_index(drop=True, inplace=True)
+
+    return mesh.to_crs(area.crs), mesh_points.to_crs(area.crs)
 
 
 def project_raster(input_raster: str, output_raster: str, crs: str):
