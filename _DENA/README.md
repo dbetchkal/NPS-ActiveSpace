@@ -93,6 +93,8 @@ $ python -u -W ignore _DENA/scripts/run_ground_truthing.py -e production -u DENA
 This script is used to generate active spaces for a single site for a variety of omni sources to determine which 
 omni source produces the active space that most closely matches the ground truthed tracks. 
 
+Please note that the Precision-Recall plot that is shown at the end of a run is automatically saved.
+
 | command-line arg      | description                                                                                                                                                                                                                                                             |
 |-----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `-e`, `--environment`  | **required.**<br/>The configuration environment to use. *Ex*: To use `production.config` pass `-e production`                                                                                                                                                           |
@@ -115,6 +117,15 @@ $ python -u -W ignore _DENA/scripts/generate_active_space.py -e production -u DE
 
 ```bash
 $ python -u -W ignore _DENA/scripts/generate_active_space.py -e production -u DENA -s TRLA -y 2017  -a mennitt --headings 0 --omni-min -5 --omni-max 10.5 -l 3658 -b .5
+```
+
+If you would like the command output to be shown in the console and saved to a text file add the following after your command:
+```bash
+<command> | Tee-Object -FilePath "C:\Path\To\Output.txt"
+```
+
+```bash
+$ python -u -W ignore _DENA/scripts/generate_active_space.py -e production -u DENA -s MOOS -y 2018 --cleanup | Tee-Object -FilePath "C:\Path\To\active_space_output_DENAMOOS2018.txt"
 ```
 
 ### Generate Active Space Mesh

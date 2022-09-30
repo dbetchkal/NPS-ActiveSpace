@@ -91,7 +91,7 @@ if __name__ == '__main__':
                 os.remove(file)
 
     # Dissolve the active spaces from each heading into one and output to a geojson file.
-    dissolved_active_space = active_spaces.dissolve(by='mic_name', aggfunc={'mic_name': 'first'})
+    dissolved_active_space = active_spaces.dissolve(by='mic_name', aggfunc={'mic_name': 'first', 'altitude_m': 'first'})
     dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
 
     active_space_mics.to_file(outfile.replace('.geojson', '_mics.geojson'), driver='GeoJSON', mode='w', index=False)
