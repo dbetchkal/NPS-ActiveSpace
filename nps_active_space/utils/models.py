@@ -1,7 +1,7 @@
 import datetime as dt
 import glob
-import os
 import re
+import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Union
 
@@ -14,6 +14,7 @@ from tqdm import tqdm
 
 __all__ = [
     'Adsb',
+    'Annotations',
     'EarlyAdsb',
     'Microphone',
     'Nvspl',
@@ -28,20 +29,14 @@ class Microphone:
 
     Parameters
     ----------
-    unit : str
-        The NPS unit of the microphone deployment. E.g. DENA
-    site : str
-        The specific site in the NPS unit of the microphone deployment.
-    year : int
-        The year of the microphone deployment location.
+    name : str
+        A name for the Microphone instance.
     lat : float
         The latitude of the microphone deployment location in WGS84 (epsg:4326)
     lon : float
         The longitude of the microphone deployment location in WGS84 (epsg:4326)
     z : float
         The elevation of the microphone deployment location in meters.
-    name : str, default None
-        A name for the Microphone instance. If not provided, a name will be created from the unit, site, and year.
     crs : str, default None
         Epsg projected coordinated system to calculate the x, y values in. E.g. 'epsg:4326'
         Latitude and Longitude will not be projected if no crs is provided.
@@ -53,13 +48,10 @@ class Microphone:
     y : float
         The latitude value projected into the current crs.
     """
-    unit: str
-    site: str
-    year: int   # TODO: Should this be a date instead of year?
+    name: str
     lat: float
     lon: float
     z: float
-    name: str = None
     crs: str = None
     x: float = field(init=False)
     y: float = field(init=False)
@@ -71,8 +63,6 @@ class Microphone:
         """Set x,y coordinates and instance name."""
         if self.crs:
             self.to_crs(self.crs)
-        if not self.name:
-            self.name = f"{self.unit}{self.site}{self.year}"
 
     def to_crs(self, crs: str, inplace: bool = False) -> Optional['Microphone']:
         """
@@ -151,7 +141,7 @@ class Nvspl(pd.DataFrame):
                     assert file.endswith('.txt'), f"Only .txt NVSPL files accepted."
 
             data = pd.DataFrame()
-            for file in tqdm(filepaths_or_data, desc='Loading NVSPL files', unit='files', colour='green'):
+            for file in tqdm(filepaths_or_data, desc='Loading NVSPL files', unit='files', colour='white'):
                 df = pd.read_csv(file)
                 self._validate(df.columns)
                 data = data.append(df)
@@ -233,8 +223,8 @@ class Adsb(gpd.GeoDataFrame):
                 header_list = ["TIME", "timestamp"]
                 import_header = df.axes[1]
                 result = any(elem in import_header for elem in header_list)
-                if result:  
-                    pass    
+                if result:
+                    pass
                 else:
                     raise KeyError
 
@@ -243,7 +233,7 @@ class Adsb(gpd.GeoDataFrame):
                     df = df.rename(columns={"timestamp":"TIME"})
                 if "valid_flags" in df.columns:
                     df = df.rename(columns={"valid_flags":"validFlags"})
-                df.drop(["squawk", "altitude_type", "alt_type", "altType", "callsign", 
+                df.drop(["squawk", "altitude_type", "alt_type", "altType", "callsign",
                     "emitter_type", "emitterType"], axis=1, inplace=True, errors="ignore")
 
                 # Delete duplicate and NA records
@@ -251,7 +241,7 @@ class Adsb(gpd.GeoDataFrame):
                 df.dropna(how="any", axis=0, inplace=True)
 
                 # Unpack validFLags and convert the 2-byte flag field into a list of Boolean values
-                flags_names = ["valid_BARO", "valid_VERTICAL_VELOCITY", "SIMULATED_REPORT", "valid_IDENT", 
+                flags_names = ["valid_BARO", "valid_VERTICAL_VELOCITY", "SIMULATED_REPORT", "valid_IDENT",
                             "valid_CALLSIGN", "valid_VELOCITY", "valid_HEADING", "valid_ALTITUDE", "valid_LATLON"]
                 flags = df["validFlags"].apply(lambda t: list(bin(int(t, 16))[2:].zfill(9)[-9:]))
                 flags_df = pd.DataFrame(list(flags), columns=flags_names).replace({'0': False, '1': True})
@@ -261,11 +251,11 @@ class Adsb(gpd.GeoDataFrame):
                 df.dropna(how="any", axis=0, inplace=True)
                 if df["valid_LATLON"].sum() == len(df.index):
                     invalidLatLon = 0
-                else:    
+                else:
                     invalidLatLon = round(100 - df["valid_LATLON"].sum() / len(df.index) * 100, 2)
                 if df["valid_ALTITUDE"].sum() == len(df.index):
                     invalidAltitude = 0
-                else:    
+                else:
                     invalidAltitude = round(100 - df["valid_ALTITUDE"].sum() / len(df.index) * 100, 2)
                 df.drop(df[df["valid_LATLON"] == "False"].index, inplace = True)
                 df.drop(df[df["valid_ALTITUDE"] == "False"].index, inplace = True)
@@ -282,7 +272,7 @@ class Adsb(gpd.GeoDataFrame):
                 df["ver_velocity"] = df["ver_velocity"].astype(int)
                 df["tslc"] = df["tslc"].astype(int)
 
-                # Convert Unix timestamp to datetime objects in UTC and re-scale selected variable values 
+                # Convert Unix timestamp to datetime objects in UTC and re-scale selected variable values
                 df["TIME"] = pd.to_datetime(df["TIME"], unit = "s")
                 df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
                 df["lat"] = df["lat"] / 1e7
@@ -311,9 +301,9 @@ class Adsb(gpd.GeoDataFrame):
                 # Use threshold waypoint duration value to identify separate flights by an aircraft then sum the number of "true" conditions to assign unique ID's
                 df['diff_flight'] = df['dur_secs'] >= 900
                 df['cumsum'] = df.groupby('ICAO_address')['diff_flight'].cumsum()
-                df['flight_id'] = df['ICAO_address'] + "_" + df['cumsum'].astype(str) + "_" + df['DATE']       
+                df['flight_id'] = df['ICAO_address'] + "_" + df['cumsum'].astype(str) + "_" + df['DATE']
 
-                # Remove records where there is only one recorded waypoint for an aircraft and fields that are no longer needed 
+                # Remove records where there is only one recorded waypoint for an aircraft and fields that are no longer needed
                 df = df[df.groupby("flight_id").flight_id.transform(len) > 1]
                 df = df.drop(columns = ['tslc', 'dur_secs', 'diff_flight', 'cumsum', 'valid_BARO', 'valid_VERTICAL_VELOCITY', 'SIMULATED_REPORT', 'valid_IDENT', 'valid_CALLSIGN', 'valid_VELOCITY', 'valid_HEADING', 'valid_ALTITUDE', 'valid_LATLON', 'DATE'])
 
@@ -340,7 +330,7 @@ class EarlyAdsb(gpd.GeoDataFrame):
 
     def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
         data = self._read(filepaths_or_data)
-        data.drop_duplicates(subset=['TIME'], inplace=True, keep = 'last')
+        data.drop_duplicates(subset=['TIME'], inplace=True, keep='last')
         super().__init__(data=data)
 
     def _read(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
@@ -439,3 +429,39 @@ class Tracks(gpd.GeoDataFrame):
         data['track_id'] = data.track_id.astype(str)
         data.sort_values(by=['track_id', 'point_dt'], ascending=True, inplace=True)
         super().__init__(data=data)
+
+
+class Annotations(gpd.GeoDataFrame):
+    """
+    A geopandas GeoDataFrame wrapper class to standardize track annotations.
+
+    Parameters
+    ----------
+   filename : str, default None
+       Filename to read annotation data from. If no filename is passed, an empty Annotations GeoDataFrame
+       will be created.
+    only_valid : bool, default False
+        If True and an annotation filename was passed, only valid records will be loaded.
+    """
+    def __init__(self, filename: Optional[str] = None, only_valid: bool = False):
+
+        if filename:
+            data = gpd.read_file(filename).astype({'start_dt': 'datetime64[ns]', 'end_dt': 'datetime64[ns]'})
+
+            # Sometimes the annotation file is read in with the valid and audible columns as booleans and other times
+            #  as objects depending on what values are stored.
+            try:
+                data.valid.replace({'1': True, '0': False}, inplace=True)
+                data.audible.replace({'1': True, '0': False}, inplace=True)
+            except TypeError:
+                pass
+
+            if only_valid:
+                data = data[data.valid == True]
+
+        else:
+
+            data = gpd.GeoDataFrame(columns=['_id', 'start_dt', 'end_dt', 'valid', 'audible', 'geometry', 'note'],
+                                    geometry='geometry', crs='epsg:4326')
+
+        super().__init__(data=data, crs=data.crs)

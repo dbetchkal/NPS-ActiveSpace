@@ -7,7 +7,8 @@ import geopandas as gpd
 import pandas as pd
 from tqdm import tqdm
 
-from nps_active_space.utils import Adsb, coords_to_utm, EarlyAdsb, Microphone
+from nps_active_space import ACTIVE_SPACE_DIR
+from nps_active_space.utils import Adsb, EarlyAdsb, Microphone
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
@@ -16,12 +17,13 @@ if TYPE_CHECKING:
 __all__ = [
     'get_deployment',
     'get_logger',
+    'get_omni_sources',
     'query_adsb',
     'query_tracks'
 ]
 
 
-def get_deployment(unit: str, site: str, year: int, filename: str) -> Microphone:
+def get_deployment(unit: str, site: str, year: int, filename: str, elevation: bool = True) -> Microphone:
     """
     Obtain all metadata for a specific microphone deployment from a metadata file.
 
@@ -35,6 +37,9 @@ def get_deployment(unit: str, site: str, year: int, filename: str) -> Microphone
         Deployment year. YYYY
     filename : str
         Absolute path to microphone deployment metadata text file. '/path/to/metadata.txt'
+    elevation : bool, default True
+        If True, the microphone z value will be set to its elevation. If False, the microphone z value will be
+        set to the microphone's height from the ground.
 
     Returns
     -------
@@ -44,14 +49,12 @@ def get_deployment(unit: str, site: str, year: int, filename: str) -> Microphone
     metadata = pd.read_csv(filename, delimiter='\t', encoding='ISO-8859-1')
     site_meta = metadata.loc[(metadata['unit'] == unit) & (metadata['code'] == site) & (metadata['year'] == year)]
 
+    # Microphone coordinates are stored in WGS84, epsg:4326
     mic = Microphone(
-        unit=unit,
-        site=site,
-        year=year,
         lat=site_meta.lat.iat[0],
         lon=site_meta.long.iat[0],
-        z=site_meta.elevation.iat[0],
-        crs=coords_to_utm(site_meta.lat.iat[0], site_meta.long.iat[0])
+        z=site_meta.elevation.iat[0] if elevation else site_meta.microphone_height.iat[0],
+        name=f"{unit}{site}{year}"
     )
 
     return mic
@@ -81,7 +84,7 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
     wheres = [f"fp.ak_datetime::date BETWEEN '{start_date}' AND '{end_date}'"]
 
     if mask is not None:
-        if not mask.crs.to_epsg() == 4326:  # If mask is not already in WGS84, project it.
+        if mask.crs.to_epsg() != 4326:  # If mask is not already in WGS84, project it.
             mask = mask.to_crs(epsg='4326')
         mask['dissolve_field'] = 1
         mask_wkt = mask.dissolve(by='dissolve_field').squeeze()['geometry'].wkt
@@ -177,3 +180,44 @@ def get_logger(name: str, level: str = 'INFO') -> logging.Logger:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     return logger
+
+
+def get_omni_sources(lower: float, upper: float) -> List[str]:
+    """
+    Get a list of omni source files for tuning NMSim within a specific gain range.
+    Source files are provided in the data directory for gains between -30 and +50.
+
+    O_+005 = .5
+    O_+050 = 5
+    O_+500 = 50
+
+    Parameters
+    ----------
+    lower: float
+        The lowest gain omni source file to pull.
+    upper : float
+        The high gain omni source file to pull
+
+    Returns
+    -------
+    A list of omni source files within the specified gain range.
+
+    Raises
+    ------
+    AssertionError if the lower or upper gain bound is out of range or of the upper gain bound is lower than
+    the lower gain bound.
+    """
+    assert -30 <= upper <= 50 and -30 <= lower <= 50 and upper >= lower, "Bounds must be ordered and between [-30, 50]."
+    assert upper % .5 == 0, "Invalid upper limit. Value must be divisible by 0.5."
+    assert lower % .5 == 0, "Invalid lower limit. Value must be divisible by 0.5."
+
+    omni_source_dir = f"{ACTIVE_SPACE_DIR}\\data\\tuning"
+    omni_sources = []
+
+    for i in range(int(lower*10), int(upper*10+5), 5):
+        if i < 0:
+            omni_sources.append(f"{omni_source_dir}\\O_{i:04}.src")
+        elif i >= 0:
+            omni_sources.append(f"{omni_source_dir}\\O_+{i:03}.src")
+
+    return omni_sources

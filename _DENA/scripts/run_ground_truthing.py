@@ -1,5 +1,4 @@
 import glob
-import os
 from argparse import ArgumentParser
 
 import geopandas as gpd
@@ -10,8 +9,9 @@ import nps_active_space.ground_truthing as app
 from nps_active_space.utils import Nvspl, Tracks
 
 import _DENA.resource.config as cfg
-from _DENA import _DENA_DIR
+from _DENA import DENA_DIR
 from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks
+from nps_active_space.utils import coords_to_utm
 
 
 if __name__ == '__main__':
@@ -31,7 +31,7 @@ if __name__ == '__main__':
 
     args = argparse.parse_args()
 
-    cfg.initialize(f"{_DENA_DIR}/config", environment=args.environment)
+    cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
     logger = get_logger('GROUND-TRUTHING')
     engine = sqlalchemy.create_engine(
         'postgresql://{username}:{password}@{host}:{port}/{name}'.format(**cfg.read('database:overflights'))
@@ -45,7 +45,7 @@ if __name__ == '__main__':
 
     # Load the microphone deployment site metadata and the study area shapefile.
     microphone = get_deployment(args.unit, args.site, args.year, cfg.read('data', 'site_metadata'))
-    study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])
+    study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])  # In NAD83, epsg:4269
 
     # Retrieve the days for which at least some NVSPL data exist.
     nvspl_dates = sorted(set([f"{e.year}-{e.month}-{e.day}" for e in archive.nvspl(unit=args.unit, site=args.site, year=args.year)]))
@@ -88,7 +88,7 @@ if __name__ == '__main__':
         tracks=tracks,
         nvspl=nvspl,
         mic=microphone,
-        crs=microphone.crs,
+        crs=coords_to_utm(microphone.lat, microphone.lon),
         study_area=study_area,
         clip=False
     )

@@ -1,21 +1,55 @@
 import datetime as dt
-from typing import Iterable, TYPE_CHECKING
+import math
+from typing import Iterable, List, Optional, Tuple, TYPE_CHECKING
 
 import geopandas as gpd
 import numpy as np
+import rasterio
+from osgeo import gdal
 from scipy import interpolate
 from shapely.geometry import Point
 
 if TYPE_CHECKING:
-    from nps_active_space.utils.models import Tracks
+    from nps_active_space.utils.models import Microphone, Nvspl, Tracks
 
 
 __all__ = [
+    'ambience_from_nvspl',
+    'ambience_from_raster',
     'audible_time_delay',
+    'build_src_point_mesh',
     'climb_angle',
+    'compute_fbeta',
     'coords_to_utm',
-    'interpolate_spline'
+    'create_overlapping_mesh',
+    'interpolate_spline',
+    'NMSIM_bbox_utm',
+    'project_raster'
 ]
+
+
+def NMSIM_bbox_utm(study_area: gpd.GeoDataFrame) -> str:
+    """
+    NMSIM references an entire project to the westernmost extent of the elevation (or landcover) file.
+    Given that, return the UTM Zone the project will eventually use. NMSIM uses NAD83 as its geographic
+    coordinate system, so the study area will be projected into NAD83 before calculating the UTM zone.
+
+    Parameters
+    ----------
+    study_area : gpd.GeoDataFrame
+        A study area (Polygon) to find the UTM zone of the westernmost extent for.
+
+    Returns
+    -------
+    UTM zone projection name (e.g.  'epsg:26905' for UTM 5N) that aligns with the westernmost extent of a study area.
+    """
+    if study_area.crs.to_epsg() != 4269:
+        study_area = study_area.to_crs(epsg='4269')
+    study_area_bbox = study_area.geometry.iloc[0].bounds  # (minx, miny, maxx, maxy)
+    lat = study_area_bbox[3]  # maxy
+    lon = study_area_bbox[0]  # minx
+
+    return coords_to_utm(lat, lon)
 
 
 def coords_to_utm(lat: float, lon: float) -> str:
@@ -25,14 +59,14 @@ def coords_to_utm(lat: float, lon: float) -> str:
     Parameters
     ----------
     lat : float
-        Latitude of a point in decimal degrees in a WGS84 projection (EPSG:4326)
+        Latitude of a point in decimal degrees in a geographic coordinate system.
     lon : float
-        Longitude of a point in decimal degrees in a WGS84 projection (EPSG:4326)
+        Longitude of a point in decimal degrees in a geographic coordinate system.
 
     Returns
     -------
     utm_proj : str
-        UTM zone projection name (e.g. 'epsg:26905' for UTM 5N)
+        UTM zone projection name (e.g.  'epsg:26905' for UTM 5N)
 
     Notes
     -----
@@ -147,3 +181,199 @@ def audible_time_delay(points: gpd.GeoDataFrame, time_col: str, target: Point,
         points.drop(['distance_to_target', 'audible_delay_sec'], inplace=True)
 
     return points
+
+
+def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Optional[int] = None) -> List[Point]:
+    """
+    Given a polygon and a density, create a square mesh of evenly spaced points throughout the polygon.
+
+    Parameters
+    ----------
+    area : gpd.GeoDataFrame
+        A GeoDataFrame of the area to create the square point mesh over.
+    density : int
+        The number of points along each mesh axis. The mesh will contain density x density points.
+    altitude : int, default None
+        A standard altitude to apply to every point in the mesh.
+
+    Returns
+    -------
+    mesh points : List[Point]
+        A list of shapely Points in the mesh.
+    """
+    # Start out with a grid of N = density x density points. Polygon bounds:  (minx, miny, maxx, maxy)
+    x = np.linspace(area.total_bounds[0], area.total_bounds[2], density)
+    y = np.linspace(area.total_bounds[1], area.total_bounds[3], density)
+    x_ind, y_ind = np.meshgrid(x, y)
+
+    # Create an array of mesh points. np.ravel linearly indexes an array into a row.
+    mesh_points = np.array([np.ravel(x_ind), np.ravel(y_ind)]).T
+
+    # Convert coordinate tuples into shapely points.
+    mesh_points = [Point(point[0], point[1]) if not altitude
+                   else Point(point[0], point[1], altitude) for point in mesh_points]
+
+    return mesh_points
+
+
+def create_overlapping_mesh(area: gpd.GeoDataFrame, spacing: int = 1,
+                            mesh_size: int = 25) -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+    """
+    Create a mesh of polygons as close to size mesh_size x mesh_size as possible over a specific area.
+
+    Parameters
+    ----------
+    area : gpd.GeoDataFrame
+        The area to cover with the mesh. CRS should be a geographic coordinate system that uses D.d.
+    spacing : int, default 1 km
+        Distance apart receiver points should be in kilometers
+    mesh_size : int, default 25 km
+        The target size in kilometers of a mesh square (mesh_size x mesh_size)
+
+    Returns
+    -------
+    An overlapping mesh of squares that cover the requested area.
+    A GeoDataFrame of the center points used to create the mesh squares.
+    """
+    equal_area_crs = coords_to_utm(area.centroid.iat[0].y, area.centroid.iat[0].x)
+    area_m = area.to_crs(equal_area_crs)
+
+    minx, miny, maxx, maxy = area_m.total_bounds
+    x = np.linspace(minx, maxx, math.ceil((maxx-minx)/(spacing*1000)))
+    y = np.linspace(miny, maxy, math.ceil((maxy-miny)/(spacing*1000)))
+    x_ind, y_ind = np.meshgrid(x, y)
+
+    # np.ravel linearly indexes an array into a row.
+    mesh_points = [Point(point[0], point[1]) for point in np.array([np.ravel(x_ind), np.ravel(y_ind)]).T]
+    mesh_points = gpd.GeoDataFrame({'geometry': mesh_points}, geometry='geometry', crs=equal_area_crs)
+
+    # Only keep points that fall within the study area.
+    mesh_points = gpd.sjoin(mesh_points, area_m, op='within')[['geometry']]
+
+    # Create mesh around points.
+    mesh = mesh_points.buffer(mesh_size*1000, cap_style=3)
+
+    mesh.reset_index(drop=True, inplace=True)
+    mesh_points.reset_index(drop=True, inplace=True)
+
+    return mesh.to_crs(area.crs), mesh_points.to_crs(area.crs)
+
+
+def project_raster(input_raster: str, output_raster: str, crs: str):
+    """
+    Project a raster to a new crs
+
+    Parameters
+    ----------
+    input_raster : str
+        Absolute path to the raster to project.
+    output_raster : str
+        Absolute path to where the projected raster should be written.
+    crs : crs
+        The CRS to project the input raster to. Of the format: 'epsg:XXXX...'
+    """
+    gdal.Warp(output_raster, input_raster, dstSRS=crs)
+
+
+def ambience_from_raster(ambience_src: str, mic: 'Microphone') -> float:
+    """
+    Select the ambience level from a broadband raster at a specific microphone location.
+
+    Parameters
+    ----------
+    ambience_src : str
+        The absolute file path to a raster of broadband ambience.
+    mic : Microphone
+        A Microphone object whose location to select the broadband ambience for.
+
+    Returns
+    -------
+    Lx : float
+        The ambience level at the microphone location.
+    """
+    with rasterio.open(ambience_src) as raster:
+        projected_mic = mic.to_crs(raster.crs)
+        band1 = raster.read(1)
+        Lx = band1[raster.index(projected_mic.x, projected_mic.y)]
+
+    return Lx
+
+
+def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50, broadband: bool = False): # TODO
+    """
+
+    Parameters
+    ----------
+    ambience_src : Nvspl
+        An NVSPL object to calculate ambience from.
+    quantile : int, default 50
+        This quantile of the data will be used to calculate the ambience.
+    broadband : bool, default False
+        If True, quantiles will be calculated from the dBA column instead of the 1/3rd octave band columns.
+
+    Returns
+    -------
+    Lx
+    """
+    if broadband:
+        Lx = ambience_src.loc[:, 'dbA'].quantile(1 - (quantile / 100))
+    else:
+        Lx = ambience_src.loc[:, "12.5":"20000"].quantile(1 - (quantile / 100))
+
+    return Lx
+
+
+def compute_fbeta(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame,
+                  beta: float = 1.0) -> Tuple[float, float, float, int]:
+    """
+    Given a set of annotated points and an active space geometry, compute accuracy metrics such as F1 score, precision,
+    and recall.
+        TP = True Positives
+        FP = False Positives
+        FN = False Negatives
+
+    Parameters
+    ------
+    valid_points : gpd.GeoDataFrame
+        Annotated points. Must include geometry and an 'audible' column.
+    active_space : gpd.GeoDataFrame
+        Polygon or Multipolygon of a computed active space.
+    beta : float, default 1.0
+        Beta value to use when calculating fbeta
+
+    Returns
+    -------
+    fbeta : float
+        fbeta score (more here: https://en.wikipedia.org/wiki/F-score)
+    precision : float
+        Defined TP/(TP+FP), measure of how well a positive test corresponds with an actual audible flight
+    recall : float
+        Defined TP/(TP+FN), measure of how well an audible flight is marked as audible by the given active space
+    n_tot: int
+        number of points annotated.
+    """
+    # Before computing anything, make sure projections match:
+    if valid_points.crs != active_space.crs:
+        valid_points.to_crs(active_space.crs, inplace=True)
+
+    # iterate through all valid points and check if they are in the active space... this takes a while.
+    in_AS_gdf = gpd.clip(valid_points, active_space)
+
+    # make an `in_activespace` column and set to true for points inside mask
+    valid_points['in_AS'] = False
+    valid_points.loc[in_AS_gdf.index, 'in_AS'] = True
+
+    in_AS = valid_points.in_AS.values  # convert both of these columns to boolean arrays for easier
+    audible = valid_points.audible.values
+
+    # compute true positives, etc.
+    TP = np.all([in_AS, audible], axis=0).sum()
+    FP = np.all([in_AS, ~audible], axis=0).sum()
+    FN = np.all([~in_AS, audible], axis=0).sum()
+    n_tot = len(valid_points)
+
+    precision = TP / (TP + FP)  # specificity... if a flight enters the active space, is it actually audible?
+    recall = TP / (TP + FN)  # sensitivity... if a flight is audible, does it enter the active space?
+    fbeta = (1 + np.power(beta, 2)) * ((precision * recall) / ((np.power(beta, 2) * precision) + recall))
+
+    return fbeta, precision, recall, n_tot
