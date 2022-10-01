@@ -76,7 +76,7 @@ if __name__ == '__main__':
         else:
             active_spaces = active_spaces.append(active_space, ignore_index=True)
 
-        if active_space_mics is None:
+        if active_space_mics is None:  # We only need to save the centroids once.
             active_space_mics = mics
 
         # Since the process of a creating a mesh is slow, output active spaces for each heading so that
@@ -94,4 +94,5 @@ if __name__ == '__main__':
     dissolved_active_space = active_spaces.dissolve(by='mic_name', aggfunc={'mic_name': 'first', 'altitude_m': 'first'})
     dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
 
+    # Output the fake microphone locations to a geojson as well.
     active_space_mics.to_file(outfile.replace('.geojson', '_mics.geojson'), driver='GeoJSON', mode='w', index=False)

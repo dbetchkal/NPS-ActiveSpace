@@ -33,7 +33,7 @@ _update_pbar = lambda _: pbar.update()
 def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGenerator, headings: List[int],
                       microphone: 'Microphone', altitude: int) -> Tuple[str, gpd.GeoDataFrame]:
     """
-    Function to be multiprocessed to generate active spaces for mulitple omni sources.
+    Function to be multiprocessed to generate active spaces for multiple omni sources.
 
     Parameters
     ----------

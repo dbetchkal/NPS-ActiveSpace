@@ -3,7 +3,7 @@ import multiprocessing as mp
 import os
 import subprocess
 from functools import partial
-from typing import List, Optional, Tuple, Union
+from typing import Iterable, List, Optional, Tuple, Union
 from uuid import uuid4
 
 import geopandas as gpd
@@ -32,8 +32,8 @@ from nps_active_space.utils import (
 
 class ActiveSpaceGenerator:
     """
-    A Class that stores general active space generation information and produced individual ActiveSpace objects
-    based on customizable parameters.
+    A class that stores active space generation logic and produces individual active spaces as well as active space
+    meshes based on customizable parameters.
 
     Parameters
     ----------
@@ -260,6 +260,8 @@ class ActiveSpaceGenerator:
         ----------
         mic : Microphone
             A Microphone object to create a NMSIM site file for.
+        dem_file : str
+            Absolute path to the .flt DEM file for the study area.
 
         Returns
         -------
@@ -323,7 +325,8 @@ class ActiveSpaceGenerator:
 
         return batch_file
 
-    def _find_audible_points(self, trajectory_file: str, tis_file: str, crs: str, ambience) -> gpd.GeoDataFrame:
+    def _find_audible_points(self, trajectory_file: str, tis_file: str, crs: str,
+                             ambience: Union[int, Iterable[int]]) -> gpd.GeoDataFrame:
         """
         Determine which points from a trajectory file are audible given the corresponding NMSIM tis output.
 
@@ -335,6 +338,8 @@ class ActiveSpaceGenerator:
             Absolute path to the corresponding tis file.
         crs : str
             crs of the trajectory file and of the output GeoDataFrame. In the format 'epsg:XXXX'
+        ambience : int or Iterable[int]
+            The ambience level(s) at the microphone site.
 
         Returns
         -------
@@ -391,8 +396,11 @@ class ActiveSpaceGenerator:
         Parameters
         ----------
         total_space : gpd.GeoDataFrame
+            All points that have been tested for audibility so far -- both audible and inaudible.
         altitude : int
+            The altitude (in meters) we are calculating the active space at.
         max_pts : int, default 5184
+            The number of points to use for triangulation.
 
         Returns
         -------
@@ -403,7 +411,6 @@ class ActiveSpaceGenerator:
 
         # Uses Delaunay triangulation
         tri = mpl.tri.Triangulation(total_space.geometry.x.tolist(), total_space.geometry.y.tolist())
-
         cs = ax.tricontour(tri, total_space.audible.tolist(), levels=levels)  # contour with arbitrary point cloud
         plt.close('all')
 
@@ -427,7 +434,6 @@ class ActiveSpaceGenerator:
                    omni_source: str, ambience, heading: Optional[int] = None) -> gpd.GeoDataFrame:
         """
         Execute a single NMSIM job.
-
 
         Parameters
         ----------
@@ -453,6 +459,7 @@ class ActiveSpaceGenerator:
         trajectory_filename = self._create_trajectory_file(source_pts, crs, job_name, heading)
         batch_file = self._create_instruction_files(flt_file, site_file, trajectory_filename, omni_source)
 
+        # Run NMSIM.
         process = subprocess.Popen([self.NMSIM, batch_file], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         stdout, stderr = process.communicate()
 
@@ -460,6 +467,7 @@ class ActiveSpaceGenerator:
             for s in stderr.decode("utf-8").split("\r\n"):
                 print(s.strip())
 
+        # Determine the audibility of points that were tested during the NMSIM run.
         new_audibility_pts = self._find_audible_points(
             trajectory_filename,
             f"{self.root_dir}/Output_Data/TIG_TIS/{job_name}.tis",
@@ -504,6 +512,7 @@ class ActiveSpaceGenerator:
             y = contour_path.vertices[:, 1]
             new_poly = make_valid(Polygon([(i[0], i[1]) for i in zip(x, y)]))
 
+            # Don't bother with polygons that are smaller than .5 km^2.
             if new_poly.area <= 50000:
                 continue
             elif active_space_poly is None:
@@ -584,6 +593,7 @@ class ActiveSpaceGenerator:
             if min(shrinkage) > -0.30:
                 break
 
+        # Run triangulation n_counter times to refine the edges of the active space.
         for k in range(n_contour):
             source_pts = self._contour_active_space(tested_space, altitude_m)
             new_audibility_pts = self._run_nmsim(
@@ -611,10 +621,14 @@ class ActiveSpaceGenerator:
         altitude, etc. there is no reason to project and mask the DEM every time.
         This function provides a way to only project and mask the DEM for the study area once. Then, every time the
         generate() function is run, it will use the created DEM file.
+
         NOTE: This function is only useful when running generate(). Running generate_mesh() will overwrite anything
         set by this function because it's not applicable.
 
-        # TODO
+        Parameters
+        ----------
+        mic : Microphone
+            Microphone object acting as the "listener" in NMSIM.
         """
         crs = NMSIM_bbox_utm(self.study_area.iloc[[0]])
         projected_mic = mic.to_crs(crs)

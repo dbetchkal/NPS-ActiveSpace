@@ -352,8 +352,7 @@ def compute_fbeta(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame
     n_tot: int
         number of points annotated.
     """
-
-    # before computing anything, make sure projections match:
+    # Before computing anything, make sure projections match:
     if valid_points.crs != active_space.crs:
         valid_points.to_crs(active_space.crs, inplace=True)
 
