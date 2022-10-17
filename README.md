@@ -13,7 +13,7 @@ Superposed over the polygon are colored flight track polylines. `NPS-ActiveSpace
 
 ## Packages
 
-This project is made up for four packages:
+This project is made up of four packages:
 
 `utils`: diverse utilities - file I/O, geoprocessing computations, acoustic propagation modelling, and detection statistics
     
@@ -24,6 +24,18 @@ This project is made up for four packages:
 `analysis`: estimate acoustic metrics from the intersection of an active space polygon and vehicle tracks
 
 Also included are noise source [data](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v2/nps_active_space/data) for tuning active space polygons.
+
+***For more specific information on each package, view their individual READMEs.***
+
+## Order of Operations
+
+While each package can be used and run individually, the project was designed so that outputs of one package work seamlessly as the inputs for another. 
+
+Packages were designed to be run in the following order:
+
+1. `ground-truthing`
+2. `active-space`
+3. `analysis`
 
 ## License
 
