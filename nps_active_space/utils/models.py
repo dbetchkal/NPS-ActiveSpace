@@ -366,6 +366,10 @@ class EarlyAdsb(gpd.GeoDataFrame):
                 df.columns = ["ICAO_address", "TIME", "lat", "lon", "altitude"]
                 df["TIME"] = df["TIME"].apply(lambda t: dt.datetime.strptime(t, "%Y/%m/%d %H:%M:%S.%f").replace(microsecond=0))
                 df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
+                
+                # unlike later loggers, EarlyAdsb was collected in feet MSL
+                # we need to convert altitude from feet to meters!
+                df["altitude"] = 0.3048*df["altitude"]
 
                 # Sort records by ICAO Address and TIME then reset dataframe index
                 df.sort_values(["ICAO_address", "TIME"], inplace=True, ignore_index=True)
