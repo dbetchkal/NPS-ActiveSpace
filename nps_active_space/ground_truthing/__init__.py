@@ -796,7 +796,7 @@ class _GroundTruthingFrame(_AppFrame):
                 ax=ax1,
                 color="blue",
                 zorder=1,
-                markersize=3,
+                markersize=2,
             )
             closest_point.plot(
                 label='closest point',
@@ -819,7 +819,7 @@ class _GroundTruthingFrame(_AppFrame):
             highlight, = ax1.plot(
                 spline.geometry.x,
                 spline.geometry.y,
-                lw=5,
+                lw=8,
                 color='deepskyblue',
                 ls='-',
                 zorder=1,
