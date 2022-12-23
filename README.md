@@ -1,4 +1,5 @@
-# NPS Active Space
+[![DOI](https://zenodo.org/badge/389775527.svg)](https://zenodo.org/badge/latestdoi/389775527)
+# NPS-ActiveSpace
 
 An ***active space*** is a well-known concept in bioacoustics ([Marten and Marler 1977](https://www.jstor.org/stable/pdf/4599136.pdf)). It represents a geographic volume whose radii correspond to the limit of audibility for a specific signal. In other words, an active space provides an answer to the question, *"how far can you hear a given sound at a specific place on Earth's surface?"*
 
@@ -8,7 +9,7 @@ Consider an example active space, below. It was computed using data from a long 
 
 Superposed over the polygon are colored flight track polylines. `NPS-ActiveSpace` includes an application that leverages the acoustic record to ground-truth audibility of co-variate vehicle tracks from GPS databases. Ground-truthing is used to "tune" an active space to the appropriate geographic extent.<br>
 <br>
-<img src="https://github.com/dbetchkal/NPS-ActiveSpace/blob/v2/nps_active_space/img/NPS-ActiveSpace_example.png" alt="active space polygon example" width="300">
+<img src="https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/nps_active_space/img/NPS-ActiveSpace_example.png" alt="active space polygon example" width="300">
 
 
 ## Packages
@@ -37,9 +38,9 @@ Packages were designed to be run in the following order:
 2. `active-space`
 3. `analysis`
 
-## License
+---
 
-**Authors**: <br>Kirby Heck<br>Adina Zucker<br>Davyd Halyn Betchkal
+## License
 
 ### Public domain
 
