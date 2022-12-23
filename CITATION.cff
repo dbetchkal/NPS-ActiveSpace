@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+title: NPS-ActiveSpace
+message: >-
+  This software was created by the United States
+  government and is in the public domain. Please cite
+  as below:
+type: software
+authors:
+  - given-names: Davyd Halyn
+    family-names: Betchkal
+    email: Davyd_Betchkal@nps.gov
+    affiliation: U.S. National Park Service
+  - given-names: Adina
+    family-names: Zucker
+    affiliation: U.S. National Park Service
+  - given-names: Kirby
+    family-names: Heck
+    affiliation: U.S. National Park Service
+repository-code: 'https://github.com/dbetchkal/NPS-ActiveSpace'
+version: v2.0.0
+date-released: '2022-12-23'
