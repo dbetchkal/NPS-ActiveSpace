@@ -18,4 +18,5 @@ authors:
     affiliation: U.S. National Park Service
 repository-code: 'https://github.com/dbetchkal/NPS-ActiveSpace'
 version: v2.0.0
+doi: 10.5281/zenodo.7478487
 date-released: '2022-12-23'
