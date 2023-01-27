@@ -1,5 +1,6 @@
 import datetime as dt
 import glob
+import pytz
 import re
 import os
 from dataclasses import dataclass, field
@@ -10,10 +11,12 @@ import numpy as np
 import pandas as pd
 from pyproj import Transformer
 from tqdm import tqdm
+from tzwhere import tzwhere
 
 
 __all__ = [
     'Adsb',
+    'Ais',
     'Annotations',
     'EarlyAdsb',
     'Microphone',
@@ -173,6 +176,139 @@ class Nvspl(pd.DataFrame):
         assert only_standard_cols is True, "NVSPL data contains unexpected NVSPL columns."
 
 
+class Ais(gpd.GeoDataFrame):
+    """
+    A geopandas GeoDataFrame wrapper class to ensure consistent AIS data.
+    
+    Parameters
+    ----------
+    filepaths_or_data : List, str, or gpd.GeoDataFrame
+        A directory containing AIS 
+    """
+
+    def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
+        data = self._read(filepaths_or_data)
+        super().__init__(data=data)
+
+    def _read(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
+        """
+        Read in AIS points as formatted by the Alaska Marine Exchange (www.mxak.org).
+
+        Parameters
+        ----------
+        filepaths_or_data : List, str, or gpd.GeoDataFrame
+            A directory containing AIS files, a list of AIS files, or an existing gpd.GeoDataFrame of AIS data.
+
+        Raises
+        ------
+        AssertionError if directory path or file path does not exists or is of the wrong format.
+        """
+        if isinstance(filepaths_or_data, gpd.GeoDataFrame):
+            data = filepaths_or_data.to_crs("epsg:4326")
+
+        else:
+            if isinstance(filepaths_or_data, str):
+                assert os.path.isdir(filepaths_or_data), f"{filepaths_or_data} does not exist."
+                filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.csv")
+
+            else:
+                for file in filepaths_or_data:
+                    assert os.path.isfile(file), f"{file} does not exist."
+                    assert file.endswith('.csv'), f"Only .csv AIS files accepted."
+
+            data = pd.DataFrame()
+            for file in tqdm(filepaths_or_data, desc='Loading AIS files', unit='files', colour='cyan'):
+                
+                df = pd.read_csv(file) # read the .csv
+                
+                # if there are 1090 MHz jet ADS-B points mixed into this dataset
+                # this is a convenient way to make sure they are removed
+                df["MMSI"] = df["MMSI"].astype('str')
+                df = df.loc[df["MMSI"].str.len() == 9, :].copy()
+                
+                mask = df.iloc[:, 0].isin(['Base station time stamp'])
+                df = df[~mask]
+                header_list = ['Base station time stamp']
+                import_header = df.axes[1]
+                result = any(elem in import_header for elem in header_list)
+                if result:
+                    pass
+                else:
+                    raise KeyError
+
+                # Standardize key field names and remove extra columns collected by the AIS logger
+                if 'Base station time stamp' in df.columns:
+                    df = df.rename(columns={'Base station time stamp':"TIME"})
+
+                df.drop(['IMO', 'Ship name', 'Type of ship (text)', 'Size A',
+                        'Size B', 'Size C', 'Size D', 'Draught', 'Destination', 'Heading',
+                        'Navigational status (text)', 'Country (AIS)', 'Target class (text)',
+                        'Data source type (text)', 'Data source region'], axis=1, inplace=True, errors="ignore")
+
+                if 'Course over ground' in df.columns:
+                    df = df.rename(columns={'Course over ground':"heading"})
+
+                if 'Latitude' in df.columns:
+                    df = df.rename(columns={'Latitude':"lat"})
+
+                if 'Longitude' in df.columns:
+                    df = df.rename(columns={'Longitude':"lon"})
+
+                if 'Speed over ground' in df.columns:
+                    df = df.rename(columns={'Speed over ground':"velocity"})
+
+                # Delete duplicate records
+                df.drop_duplicates(inplace=True)
+                df.dropna(how="any", axis=0, inplace=True)
+
+                # Vessels are always on the surface of the ocean
+                #   TO DO: CONFIRM THE SURFACE OF THE OCEAN IS 0.0 METERS
+                #    (do tides affect this much?)
+                df["altitude"] = 1.0 # we make the altitude slightly above the ocean surface
+
+                # convert datetimes strings to python `dt.datetime` objects 
+                try:
+                    df['TIME'] = df['TIME'].apply(lambda t: dt.datetime.strptime(t, "%d %b %Y %H:%M:%S UTC"))
+                except ValueError: 
+                    df['TIME'] = df['TIME'].apply(lambda t: dt.datetime.strptime(t, "%Y-%m-%d %H:%M:%S UTC"))
+                
+                # adjust datetimes from UTC to local time
+                tz = tzwhere.tzwhere(forceTZ=True)
+                timezone_str = tz.tzNameAt(df.lat.quantile(0.5), df.lon.quantile(0.5), forceTZ=True)
+                timezone = pytz.timezone(timezone_str)
+                offset = timezone.utcoffset(pd.to_datetime(df['TIME'].iloc[0]))
+                df["TIME"] = df["TIME"] + offset
+
+                # create a date column
+                df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
+
+                # Sort records by MMSI and TIME then reset dataframe index
+                df.sort_values(["MMSI", "TIME"], inplace=True, ignore_index=True)
+
+                # Calculate time difference between sequential waypoints for each aircraft
+                df["dur_secs"] = df.groupby("MMSI")["TIME"].diff().dt.total_seconds()
+                df["dur_secs"] = df["dur_secs"].fillna(0)
+
+                # Drop any identical waypoints in a single input file based on MMSI, time, lat, and lon
+                df.drop_duplicates(subset=['MMSI', 'TIME', 'lat', 'lon'], keep = 'last')
+
+                # Use threshold waypoint duration value to identify separate flights by an aircraft then sum the number of "true" conditions to assign unique ID's
+                df['diff_event'] = df['dur_secs'] >= 1200 # ( = 20 minutes)
+                df['cumsum'] = df.groupby('MMSI')['diff_event'].cumsum()
+                df['event_id'] = df['MMSI'] + "_" + df['cumsum'].astype(str) + "_" + df['DATE']
+
+                # Let us only consider events with more than 4 AIS points
+                df = df[df.groupby("event_id").event_id.transform(len) > 4]
+                data = data.append(df)
+
+            data = gpd.GeoDataFrame(
+                data,
+                geometry=gpd.points_from_xy(data["lon"], data["lat"]),
+                crs="epsg:4326"
+            )
+
+        return data
+        
 class Adsb(gpd.GeoDataFrame):
     """
     A geopandas GeoDataFrame wrapper class to ensure consistent ADS-B data.
