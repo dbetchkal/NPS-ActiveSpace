@@ -12,7 +12,8 @@ import pandas as pd
 from pyproj import Transformer
 from tqdm import tqdm
 from tzwhere import tzwhere
-
+import concurrent
+from types import GeneratorType
 
 __all__ = [
     'Adsb',
@@ -98,7 +99,7 @@ class Nvspl(pd.DataFrame):
     """
 
     standard_fields = {
-        'SiteID', 'STime', 'dbA', 'dbC', 'dbF',
+        'SiteID', 'dbA', 'dbC', 'dbF',
         'Voltage', 'WindSpeed', 'WindDir', 'TempIns',
         'TempOut', 'Humidity', 'INVID', 'INSID',
         'GChar1', 'GChar2', 'GChar3', 'AdjustmentsApplied',
@@ -110,11 +111,45 @@ class Nvspl(pd.DataFrame):
 
     def __init__(self, filepaths_or_data: Union[List[str], str, pd.DataFrame]):
         data = self._read(filepaths_or_data)
-        data['STime'] = data['STime'].astype('datetime64[s]')
-        data.set_index('STime', inplace=True)
         super().__init__(data=data)
 
-    def _read(self, filepaths_or_data: Union[List[str], str, pd.DataFrame]):
+
+    def parseNvspl(self, nvsplFileEntry, state= (None, None, 1)):
+
+        timestamps, columns, index_index = state
+
+        df = pd.read_csv(str(nvsplFileEntry),
+                        engine= 'c',
+                        parse_dates= True,
+                        index_col= index_index,
+                        usecols= columns
+                        )
+
+        # Make column names slightly nicer
+        df.index.name = "date"
+        renamedColumns = { column: column.replace('H', '').replace('p', '.') for column in df.columns if re.match(r"H\d+p?\d*", column) is not None }
+        df.rename(columns= renamedColumns, inplace= True)
+
+        # Coerce numeric columns to floats, in case of "-Infinity" values
+        try:
+            numericCols = [
+                '12.5', '15.8', '20', '25', '31.5', '40', '50', '63', '80', '100',
+                '125', '160', '200', '250', '315', '400', '500', '630', '800', '1000',
+                '1250', '1600', '2000', '2500', '3150', '4000', '5000', '6300', '8000',
+                '10000', '12500', '16000', '20000', 'dbA', 'dbC', 'dbF',
+                'Voltage','WindSpeed', 'WindDir', 'TempIns', 'TempOut', 'Humidity'
+            ]
+            presentNumericCols = df.columns.intersection(numericCols)
+            if len(presentNumericCols) > 0:
+                df[presentNumericCols].astype('float32', copy= False, errors= 'ignore')
+
+        except KeyError:
+            pass
+
+        self._validate(df, False)
+        return df
+
+    def _read(self, filepaths_or_data: Union[List[str], str, pd.DataFrame, GeneratorType]):
         """
         Read in and validate the NVSPL data.
 
@@ -134,6 +169,10 @@ class Nvspl(pd.DataFrame):
             data = filepaths_or_data
 
         else:
+
+            if str(type(filepaths_or_data)) == "<class 'iyore.Subset'>":
+                filepaths_or_data = [str(entry) for entry in list(iter(filepaths_or_data))]
+            
             if isinstance(filepaths_or_data, str):
                 assert os.path.isdir(filepaths_or_data), f"{filepaths_or_data} does not exist."
                 filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.txt")
@@ -143,18 +182,16 @@ class Nvspl(pd.DataFrame):
                     assert os.path.isfile(file), f"{file} does not exist."
                     assert file.endswith('.txt'), f"Only .txt NVSPL files accepted."
 
-            data = pd.DataFrame()
-            for file in tqdm(filepaths_or_data, desc='Loading NVSPL files', unit='files', colour='white'):
-                df = pd.read_csv(file)
-                self._validate(df.columns)
-                data = data.append(df)
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                parts = pool.map(self.parseNvspl, filepaths_or_data)
+            data = pd.concat(parts)
 
         octave_columns = {c: c.replace('H', '').replace('p', '.') for c in filter(self.octave_regex.match, data.columns)}
         data.rename(columns=octave_columns, inplace=True)
 
         return data
 
-    def _validate(self, columns: List[str]):
+    def _validate(self, columns: List[str], verifyNonStandardOctave):
         """
         Ensure that the provided data has only the standard
 
@@ -171,9 +208,10 @@ class Nvspl(pd.DataFrame):
         missing_standard_cols = self.standard_fields - set(columns)
         assert missing_standard_cols == set(), f"Missing the following standard NVSPL columns: {missing_standard_cols}"
 
-        # Verify all non-standard columns are octave columns.
-        only_standard_cols = all(re.match(self.octave_regex, col) for col in (set(columns) - self.standard_fields))
-        assert only_standard_cols is True, "NVSPL data contains unexpected NVSPL columns."
+        # Verify all non-standard columns are octave columns. Use verifyNonStandardOctave=False to allow extra columns
+        if verifyNonStandardOctave:
+            only_standard_cols = all(re.match(self.octave_regex, col) for col in (set(columns) - self.standard_fields))
+            assert only_standard_cols is True, "NVSPL data contains unexpected NVSPL columns."
 
 
 class Ais(gpd.GeoDataFrame):
