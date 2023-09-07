@@ -100,7 +100,6 @@ class Nvspl(pd.DataFrame):
 
     standard_fields = {
         'SiteID', 'dbA', 'dbC', 'dbF',
-        # 'SiteID', 'STime', 'dbA', 'dbC', 'dbF',
         'Voltage', 'WindSpeed', 'WindDir', 'TempIns',
         'TempOut', 'Humidity', 'INVID', 'INSID',
         'GChar1', 'GChar2', 'GChar3', 'AdjustmentsApplied',
@@ -171,7 +170,6 @@ class Nvspl(pd.DataFrame):
 
         else:
 
-            # if isinstance(filepaths_or_data, GeneratorType):
             if str(type(filepaths_or_data)) == "<class 'iyore.Subset'>":
                 filepaths_or_data = [str(entry) for entry in list(iter(filepaths_or_data))]
             
