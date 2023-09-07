@@ -11,8 +11,9 @@ import numpy as np
 import pandas as pd
 from pyproj import Transformer
 from tqdm import tqdm
-from tzwhere import tzwhere
-
+# from tzwhere import tzwhere
+import concurrent
+from types import GeneratorType
 
 __all__ = [
     'Adsb',
@@ -110,11 +111,45 @@ class Nvspl(pd.DataFrame):
 
     def __init__(self, filepaths_or_data: Union[List[str], str, pd.DataFrame]):
         data = self._read(filepaths_or_data)
-        data['STime'] = data['STime'].astype('datetime64[s]')
-        data.set_index('STime', inplace=True)
+        # data['STime'] = data['STime'].astype('datetime64[s]')
+        # data.set_index('STime', inplace=True)
         super().__init__(data=data)
 
-    def _read(self, filepaths_or_data: Union[List[str], str, pd.DataFrame]):
+
+    def parseNvspl(self, nvsplFileEntry, state= (None, None, 1)):
+
+        timestamps, columns, index_index = state
+
+        df = pd.read_csv(str(nvsplFileEntry),
+                        engine= 'c',
+                        parse_dates= True,
+                        index_col= index_index,
+                        usecols= columns
+                        )
+
+        # Make column names slightly nicer
+        df.index.name = "date"
+        renamedColumns = { column: column.replace('H', '').replace('p', '.') for column in df.columns if re.match(r"H\d+p?\d*", column) is not None }
+        df.rename(columns= renamedColumns, inplace= True)
+
+        # Coerce numeric columns to floats, in case of "-Infinity" values
+        try:
+            numericCols = [
+                '12.5', '15.8', '20', '25', '31.5', '40', '50', '63', '80', '100',
+                '125', '160', '200', '250', '315', '400', '500', '630', '800', '1000',
+                '1250', '1600', '2000', '2500', '3150', '4000', '5000', '6300', '8000',
+                '10000', '12500', '16000', '20000', 'dbA', 'dbC', 'dbF',
+                'Voltage','WindSpeed', 'WindDir', 'TempIns', 'TempOut', 'Humidity'
+            ]
+            presentNumericCols = df.columns.intersection(numericCols)
+            if len(presentNumericCols) > 0:
+                df[presentNumericCols].astype('float32', copy= False, errors= 'ignore')
+
+        except KeyError:
+            pass
+        return df
+
+    def _read(self, filepaths_or_data: Union[List[str], str, pd.DataFrame, GeneratorType]):
         """
         Read in and validate the NVSPL data.
 
@@ -134,6 +169,10 @@ class Nvspl(pd.DataFrame):
             data = filepaths_or_data
 
         else:
+
+            if isinstance(filepaths_or_data, GeneratorType):
+                filepaths_or_data = [str(entry) for entry in list(filepaths_or_data)]
+            
             if isinstance(filepaths_or_data, str):
                 assert os.path.isdir(filepaths_or_data), f"{filepaths_or_data} does not exist."
                 filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.txt")
@@ -143,11 +182,14 @@ class Nvspl(pd.DataFrame):
                     assert os.path.isfile(file), f"{file} does not exist."
                     assert file.endswith('.txt'), f"Only .txt NVSPL files accepted."
 
-            data = pd.DataFrame()
-            for file in tqdm(filepaths_or_data, desc='Loading NVSPL files', unit='files', colour='white'):
-                df = pd.read_csv(file)
-                self._validate(df.columns)
-                data = data.append(df)
+            # data = pd.DataFrame()
+            # for file in tqdm(filepaths_or_data, desc='Loading NVSPL files', unit='files', colour='white'):
+            #     df = pd.read_csv(file)
+            #     self._validate(df.columns)
+            #     data = data.append(df)
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                parts = pool.map(self.parseNvspl, filepaths_or_data)
+            data = pd.concat(parts)
 
         octave_columns = {c: c.replace('H', '').replace('p', '.') for c in filter(self.octave_regex.match, data.columns)}
         data.rename(columns=octave_columns, inplace=True)
@@ -273,11 +315,11 @@ class Ais(gpd.GeoDataFrame):
                     df['TIME'] = df['TIME'].apply(lambda t: dt.datetime.strptime(t, "%Y-%m-%d %H:%M:%S UTC"))
                 
                 # adjust datetimes from UTC to local time
-                tz = tzwhere.tzwhere(forceTZ=True)
-                timezone_str = tz.tzNameAt(df.lat.quantile(0.5), df.lon.quantile(0.5), forceTZ=True)
-                timezone = pytz.timezone(timezone_str)
-                offset = timezone.utcoffset(pd.to_datetime(df['TIME'].iloc[0]))
-                df["TIME"] = df["TIME"] + offset
+                # tz = tzwhere.tzwhere(forceTZ=True)
+                # timezone_str = tz.tzNameAt(df.lat.quantile(0.5), df.lon.quantile(0.5), forceTZ=True)
+                # timezone = pytz.timezone(timezone_str)
+                # offset = timezone.utcoffset(pd.to_datetime(df['TIME'].iloc[0]))
+                # df["TIME"] = df["TIME"] + offset
 
                 # create a date column
                 df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
