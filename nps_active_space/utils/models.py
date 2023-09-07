@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from pyproj import Transformer
 from tqdm import tqdm
-# from tzwhere import tzwhere
+from tzwhere import tzwhere
 import concurrent
 from types import GeneratorType
 
@@ -99,7 +99,8 @@ class Nvspl(pd.DataFrame):
     """
 
     standard_fields = {
-        'SiteID', 'STime', 'dbA', 'dbC', 'dbF',
+        'SiteID', 'dbA', 'dbC', 'dbF',
+        # 'SiteID', 'STime', 'dbA', 'dbC', 'dbF',
         'Voltage', 'WindSpeed', 'WindDir', 'TempIns',
         'TempOut', 'Humidity', 'INVID', 'INSID',
         'GChar1', 'GChar2', 'GChar3', 'AdjustmentsApplied',
@@ -111,8 +112,6 @@ class Nvspl(pd.DataFrame):
 
     def __init__(self, filepaths_or_data: Union[List[str], str, pd.DataFrame]):
         data = self._read(filepaths_or_data)
-        # data['STime'] = data['STime'].astype('datetime64[s]')
-        # data.set_index('STime', inplace=True)
         super().__init__(data=data)
 
 
@@ -147,6 +146,8 @@ class Nvspl(pd.DataFrame):
 
         except KeyError:
             pass
+
+        self._validate(df, False)
         return df
 
     def _read(self, filepaths_or_data: Union[List[str], str, pd.DataFrame, GeneratorType]):
@@ -170,8 +171,9 @@ class Nvspl(pd.DataFrame):
 
         else:
 
-            if isinstance(filepaths_or_data, GeneratorType):
-                filepaths_or_data = [str(entry) for entry in list(filepaths_or_data)]
+            # if isinstance(filepaths_or_data, GeneratorType):
+            if str(type(filepaths_or_data)) == "<class 'iyore.Subset'>":
+                filepaths_or_data = [str(entry) for entry in list(iter(filepaths_or_data))]
             
             if isinstance(filepaths_or_data, str):
                 assert os.path.isdir(filepaths_or_data), f"{filepaths_or_data} does not exist."
@@ -182,11 +184,6 @@ class Nvspl(pd.DataFrame):
                     assert os.path.isfile(file), f"{file} does not exist."
                     assert file.endswith('.txt'), f"Only .txt NVSPL files accepted."
 
-            # data = pd.DataFrame()
-            # for file in tqdm(filepaths_or_data, desc='Loading NVSPL files', unit='files', colour='white'):
-            #     df = pd.read_csv(file)
-            #     self._validate(df.columns)
-            #     data = data.append(df)
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 parts = pool.map(self.parseNvspl, filepaths_or_data)
             data = pd.concat(parts)
@@ -196,7 +193,7 @@ class Nvspl(pd.DataFrame):
 
         return data
 
-    def _validate(self, columns: List[str]):
+    def _validate(self, columns: List[str], verifyNonStandardOctave):
         """
         Ensure that the provided data has only the standard
 
@@ -213,9 +210,10 @@ class Nvspl(pd.DataFrame):
         missing_standard_cols = self.standard_fields - set(columns)
         assert missing_standard_cols == set(), f"Missing the following standard NVSPL columns: {missing_standard_cols}"
 
-        # Verify all non-standard columns are octave columns.
-        only_standard_cols = all(re.match(self.octave_regex, col) for col in (set(columns) - self.standard_fields))
-        assert only_standard_cols is True, "NVSPL data contains unexpected NVSPL columns."
+        # Verify all non-standard columns are octave columns. Use verifyNonStandardOctave=False to allow extra columns
+        if verifyNonStandardOctave:
+            only_standard_cols = all(re.match(self.octave_regex, col) for col in (set(columns) - self.standard_fields))
+            assert only_standard_cols is True, "NVSPL data contains unexpected NVSPL columns."
 
 
 class Ais(gpd.GeoDataFrame):
@@ -315,11 +313,11 @@ class Ais(gpd.GeoDataFrame):
                     df['TIME'] = df['TIME'].apply(lambda t: dt.datetime.strptime(t, "%Y-%m-%d %H:%M:%S UTC"))
                 
                 # adjust datetimes from UTC to local time
-                # tz = tzwhere.tzwhere(forceTZ=True)
-                # timezone_str = tz.tzNameAt(df.lat.quantile(0.5), df.lon.quantile(0.5), forceTZ=True)
-                # timezone = pytz.timezone(timezone_str)
-                # offset = timezone.utcoffset(pd.to_datetime(df['TIME'].iloc[0]))
-                # df["TIME"] = df["TIME"] + offset
+                tz = tzwhere.tzwhere(forceTZ=True)
+                timezone_str = tz.tzNameAt(df.lat.quantile(0.5), df.lon.quantile(0.5), forceTZ=True)
+                timezone = pytz.timezone(timezone_str)
+                offset = timezone.utcoffset(pd.to_datetime(df['TIME'].iloc[0]))
+                df["TIME"] = df["TIME"] + offset
 
                 # create a date column
                 df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
