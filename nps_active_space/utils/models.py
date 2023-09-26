@@ -183,7 +183,8 @@ class Nvspl(pd.DataFrame):
                     assert file.endswith('.txt'), f"Only .txt NVSPL files accepted."
 
             with concurrent.futures.ThreadPoolExecutor() as pool:
-                parts = pool.map(self.parseNvspl, filepaths_or_data)
+                parts = list(tqdm(pool.map(self.parseNvspl, filepaths_or_data), total=len(filepaths_or_data), unit="NVSPL files"))
+
             data = pd.concat(parts)
 
         octave_columns = {c: c.replace('H', '').replace('p', '.') for c in filter(self.octave_regex.match, data.columns)}
