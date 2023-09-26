@@ -744,7 +744,9 @@ class _GroundTruthingFrame(_AppFrame):
         # Interpolate a track spline.
         points.sort_values(by='point_dt', ascending=True, inplace=True)
         spline = interpolate_spline(points)
-        spline = audible_time_delay(spline, 'point_dt', Point(self.master.mic.x, self.master.mic.y, self.master.mic.z))
+        spline = audible_time_delay(spline, 'point_dt', Point(float(self.master.mic.x), 
+                                                              float(self.master.mic.y), 
+                                                              float(self.master.mic.z)))
 
         # Determine the closest spline point to the mic.
         closest_point = spline[spline.distance_to_target == spline.distance_to_target.min()]
