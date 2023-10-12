@@ -3,7 +3,7 @@
 
 An ***active space*** is a well-known sensory concept from bioacoustics ([Marten and Marler 1977](https://www.jstor.org/stable/pdf/4599136.pdf)). It is a geographic volume whose radii represent the limit of audibility for a specific signal in each direction. In other words, an active space provides an answer to the question, *"how far can you hear a certain sound source from a specific place on the Earth's surface?"*
 
-This repository is designed to estimate active spaces for aircraft noise within the U.S. National Park System. Aircraft are powerful noise sources audible over vast areas. Thus [considerable NPS management efforts have focused on protecting natural quietude from aviation noise intrusions](https://www.nps.gov/subjects/sound/overflights.htm). `NPS-ActiveSpace` provides a quantitative tool to support managers in monitoring park resource condition. 
+This repository is designed to estimate active spaces for motorized noise sources transiting the U.S. National Park System. Aircraft are powerful noise sources audible over vast areas. Thus [considerable NPS management efforts have focused on protecting natural quietude from aviation noise intrusions](https://www.nps.gov/subjects/sound/overflights.htm). `NPS-ActiveSpace` provides a quantitative tool to support managers in monitoring resource condition in parks. 
 
 Consider an example active space, below. It was computed using data from a long term acoustic monitoring site in Denali National Park, DENAUWBT Upper West Branch Toklat ([Withers 2012](https://irma.nps.gov/DataStore/Reference/Profile/2184396)). The bold black polygon delineates an active space estimate for flights at 3000 meters altitude. Points interior to the polygon are predicted to be audible, those exterior inaudible. <br> 
 
@@ -16,13 +16,13 @@ Superposed over the polygon are colored flight track polylines. `NPS-ActiveSpace
 
 This project is made up of four packages:
 
-`utils`: diverse utilities - file I/O, geoprocessing computations, acoustic propagation modelling, and detection statistics
+[`utils`](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space#utils): diverse utilities - file I/O, geoprocessing computations, acoustic propagation modelling, and detection statistics
     
-`ground-truthing`: a `tkinter`-based ground-truthing application
+[`ground-truthing`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/_DENA/README.md#ground-truthing): a `tkinter`-based ground-truthing application
 
-`active-space`: generate and optimize active space polygons
+[`active-space`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/_DENA/README.md#generate-active-space): generate and optimize active space polygons
 
-`analysis`: estimate acoustic metrics from the intersection of an active space polygon and vehicle tracks
+`analysis`: estimate acoustic metrics from the intersection of an active space polygon and vehicle tracks (*currently in development, see `Analysis` branch*)
 
 Also included are noise source [data](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v2/nps_active_space/data) for tuning active space polygons.
 
