@@ -1,9 +1,9 @@
 [![DOI](https://zenodo.org/badge/389775527.svg)](https://zenodo.org/badge/latestdoi/389775527)
 # NPS-ActiveSpace
 
-An ***active space*** is a well-known concept in bioacoustics ([Marten and Marler 1977](https://www.jstor.org/stable/pdf/4599136.pdf)). It represents a geographic volume whose radii correspond to the limit of audibility for a specific signal. In other words, an active space provides an answer to the question, *"how far can you hear a given sound at a specific place on Earth's surface?"*
+An ***active space*** is a well-known sensory concept from bioacoustics ([Marten and Marler 1977](https://www.jstor.org/stable/pdf/4599136.pdf)). It is a geographic volume whose radii represent the limit of audibility for a specific signal in each direction. In other words, an active space provides an answer to the question, *"how far can you hear a certain sound source from a specific place on the Earth's surface?"*
 
-This repository is designed to estimate active spaces for fixed-wing aircraft noise within the U.S. National Park System. Aircraft are powerful noise sources audible over vast areas. Thus [considerable NPS management efforts have focused on protecting natural quietude from aviation noise](https://www.nps.gov/subjects/sound/overflights.htm). `NPS-ActiveSpace` provides a quantitative tool to support managers in monitoring park resource condition. 
+This repository is designed to estimate active spaces for aircraft noise within the U.S. National Park System. Aircraft are powerful noise sources audible over vast areas. Thus [considerable NPS management efforts have focused on protecting natural quietude from aviation noise intrusions](https://www.nps.gov/subjects/sound/overflights.htm). `NPS-ActiveSpace` provides a quantitative tool to support managers in monitoring park resource condition. 
 
 Consider an example active space, below. It was computed using data from a long term acoustic monitoring site in Denali National Park, DENAUWBT Upper West Branch Toklat ([Withers 2012](https://irma.nps.gov/DataStore/Reference/Profile/2184396)). The bold black polygon delineates an active space estimate for flights at 3000 meters altitude. Points interior to the polygon are predicted to be audible, those exterior inaudible. <br> 
 
@@ -20,7 +20,7 @@ This project is made up of four packages:
     
 `ground-truthing`: a `tkinter`-based ground-truthing application
 
-`active-space`: generate and tune active space polygons
+`active-space`: generate and optimize active space polygons
 
 `analysis`: estimate acoustic metrics from the intersection of an active space polygon and vehicle tracks
 
@@ -52,3 +52,7 @@ This project is in the worldwide [public domain](LICENSE.md):
 >
 > All contributions to this project will be released under the CC0 dedication.
 > By submitting a pull request, you are agreeing to comply with this waiver of copyright interest.
+
+## Publications
+
+Publications about `NPS-ActiveSpace`:
