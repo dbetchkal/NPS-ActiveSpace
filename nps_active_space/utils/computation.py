@@ -384,12 +384,13 @@ def compute_fbeta(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame
 def contiguous_regions(condition):
 
     """
-    Finds contiguous True regions of an input array. 
+    Finds contiguous True regions of an input boolean array. 
     
     Parameters
     ----------
-    condition : `np.ndarray` of dtype "bool" or `np.ndarray` and conditional logic statement to produce the boolean array 
-        e.g., arr    or    arr > 5.5
+    condition : `np.ndarray` of dtype "bool" 
+                 or `np.ndarray` and conditional logic statement to produce the boolean array 
+                 e.g., arr    or    arr > 5.5
 
     Returns
     -------
@@ -428,7 +429,8 @@ def audibility_to_interval(aud, invert=False):
     bounds of each audible noise event, the second, each noise-free interval.
     
     Noise intervals are closed via observation, but to close noise-free intervals 
-    we must account for the beginning and end of the observation record.
+    we must account for the beginning and end of the observation record. Use of closed intervals 
+    ensures that no index is considered to be both noise and not-noise.
 
     Parameters
     ----------
@@ -440,10 +442,10 @@ def audibility_to_interval(aud, invert=False):
     Returns
     -------
     noise_intervals: 2-D numpy.ndarray
-        A 2-D int array of intervals bounding audible noise events.  
+        A 2-D int array of closed intervals bounding audible noise events.  
         The first value in the pair is the start index, the second value is the end index.
     noise_free_intervals: 2-D numpy.ndarray
-        A 2-D int array bounding noise-free intervals.  
+        A 2-D int array bounding closed noise-free intervals.  
         The first value in the pair is the start index, the second value is the end index.
     '''
     aud = aud.astype('bool')
