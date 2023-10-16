@@ -7,7 +7,7 @@ This repository is designed to estimate active spaces for motorized noise source
 
 Consider an example active space, below. It was computed using data from a long term acoustic monitoring site in Denali National Park, DENAUWBT Upper West Branch Toklat ([Withers 2012](https://irma.nps.gov/DataStore/Reference/Profile/2184396)). The bold black polygon delineates an active space estimate for flights at 3000 meters altitude. Points interior to the polygon are predicted to be audible, those exterior inaudible. <br> 
 
-Superposed over the polygon are colored flight track polylines. `NPS-ActiveSpace` includes an application that leverages the acoustic record to ground-truth audibility of co-variate vehicle tracks from GPS databases. Ground-truthing is used to "tune" an active space to the appropriate geographic extent.<br>
+Superposed over the polygon are colored flight track polylines. `NPS-ActiveSpace` includes an application that leverages the acoustic record to ground-truth audibility of co-variate vehicle tracks from GPS databases. Ground-truthing is used to "tune" an active space to the appropriate geographic extent via mathematical optimization.<br>
 <br>
 <img src="https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/nps_active_space/img/NPS-ActiveSpace_example.png" alt="active space polygon example" width="300">
 
@@ -34,9 +34,7 @@ While each package can be used and run individually, the project was designed so
 
 Packages were designed to be run in the following order:
 
-1. `ground-truthing`
-2. `active-space`
-3. `analysis`
+`ground-truthing` $\rightarrow$ `active-space` $\rightarrow$ `analysis`
 
 ---
 
