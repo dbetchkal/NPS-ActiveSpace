@@ -1,7 +1,7 @@
 [![DOI](https://zenodo.org/badge/389775527.svg)](https://zenodo.org/badge/latestdoi/389775527)
 # NPS-ActiveSpace
 
-An ***active space*** is a well-known concept in bioacoustics ([Marten and Marler 1977](https://www.jstor.org/stable/pdf/4599136.pdf)). It represents a geographic volume whose radii correspond to the limit of audibility for a specific signal. In other words, an active space provides an answer to the question, *"how far can you hear a given sound at a specific place on Earth's surface?"*
+An ***active space*** is a well-known concept in bioacoustics ([Marten and Marler 1977](https://www.jstor.org/stable/pdf/4599136.pdf)). It represents a geographic volume whose radii correspond to the limit of audibility for a specific signal. In other words, an active space provides an answer to the question, *"how far can you hear a given sound from a specific place on Earth's surface?"*
 
 This repository is designed to estimate active spaces for fixed-wing aircraft noise within the U.S. National Park System. Aircraft are powerful noise sources audible over vast areas. Thus [considerable NPS management efforts have focused on protecting natural quietude from aviation noise](https://www.nps.gov/subjects/sound/overflights.htm). `NPS-ActiveSpace` provides a quantitative tool to support managers in monitoring park resource condition. 
 
