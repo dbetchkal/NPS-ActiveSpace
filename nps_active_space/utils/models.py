@@ -338,7 +338,7 @@ class Ais(gpd.GeoDataFrame):
 
                 # Let us only consider events with more than 4 AIS points
                 df = df[df.groupby("event_id").event_id.transform(len) > 4]
-                data = data.append(df)
+                data = pd.concat([data, df], ignore_index=True)
 
             data = gpd.GeoDataFrame(
                 data,
@@ -482,7 +482,7 @@ class Adsb(gpd.GeoDataFrame):
                 df = df[df.groupby("flight_id").flight_id.transform(len) > 1]
                 df = df.drop(columns = ['tslc', 'dur_secs', 'diff_flight', 'cumsum', 'valid_BARO', 'valid_VERTICAL_VELOCITY', 'SIMULATED_REPORT', 'valid_IDENT', 'valid_CALLSIGN', 'valid_VELOCITY', 'valid_HEADING', 'valid_ALTITUDE', 'valid_LATLON', 'DATE'])
 
-                data = data.append(df)
+                data = pd.concat([data, df], ignore_index=True)
 
             data = gpd.GeoDataFrame(
                 data,
@@ -562,7 +562,7 @@ class EarlyAdsb(gpd.GeoDataFrame):
                 # Remove records where there is only one recorded waypoint for an aircraft
                 df = df[df.groupby("flight_id").flight_id.transform(len) > 1]
 
-                data = data.append(df)
+                data = pd.concat([data, df], ignore_index=True)
 
             data = gpd.GeoDataFrame(
                 data,

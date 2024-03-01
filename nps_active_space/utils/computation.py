@@ -14,12 +14,15 @@ if TYPE_CHECKING:
 
 
 __all__ = [
+    'audibility_to_interval',
     'ambience_from_nvspl',
     'ambience_from_raster',
     'audible_time_delay',
     'build_src_point_mesh',
+    'calculate_duration_summary',
     'climb_angle',
     'compute_fbeta',
+    'contiguous_regions',
     'coords_to_utm',
     'create_overlapping_mesh',
     'interpolate_spline',
@@ -377,3 +380,156 @@ def compute_fbeta(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame
     fbeta = (1 + np.power(beta, 2)) * ((precision * recall) / ((np.power(beta, 2) * precision) + recall))
 
     return fbeta, precision, recall, n_tot
+
+def contiguous_regions(condition):
+
+    """
+    Finds contiguous True regions of an input boolean array. 
+    
+    Parameters
+    ----------
+    condition : `np.ndarray` of dtype "bool" 
+                 or `np.ndarray` and conditional logic statement to produce the boolean array 
+                 e.g., arr    or    arr > 5.5
+
+    Returns
+    -------
+    idx : 2-D numpy.ndarray
+        A 2-D int array where the first column is the start index of each contiguous True region, 
+        and the second column is the end index of each contiguous True region.
+
+    """
+
+    # Find the indicies of changes in "condition"
+    d = np.diff(condition)
+    idx, = d.nonzero() 
+
+    # We need to start things after the change in "condition". Therefore, 
+    # we'll shift the index by 1 to the right.
+    idx += 1
+
+    if condition[0]:
+        # If the start of condition is True prepend a 0
+        idx = np.r_[0, idx]
+
+    if condition[-1]:
+        # If the end of condition is True, append the length of the array
+        idx = np.r_[idx, condition.size] # Edit
+
+    # Reshape the result into two columns
+    idx.shape = (-1,2)
+
+    return idx
+
+def audibility_to_interval(aud, invert=False):
+
+    '''
+    Given an audibility time series in 1-D binary format (e.g., detection/non-detection sequence)
+    separate it into two, 2-D arrays of {begin, end} interval pairs. The first represents the temporal 
+    bounds of each audible noise event, the second, each noise-free interval.
+    
+    Noise intervals are closed via observation, but to close noise-free intervals 
+    we must account for the beginning and end of the observation record. Use of closed intervals 
+    ensures that no index is considered to be both noise and not-noise.
+
+    Parameters
+    ----------
+    aud : 1-D array-like
+        A 1-D boolean array representing audibility states of detection (e.g., True or 1) and non-detection (False or 0).
+    invert : bool
+        Detection and non-detection are mapped to 0 and 1, respectively. If True, invert the mapping. Default: False.
+
+    Returns
+    -------
+    noise_intervals: 2-D numpy.ndarray
+        A 2-D int array of closed intervals bounding audible noise events.  
+        The first value in the pair is the start index, the second value is the end index.
+    noise_free_intervals: 2-D numpy.ndarray
+        A 2-D int array bounding closed noise-free intervals.  
+        The first value in the pair is the start index, the second value is the end index.
+    '''
+    aud = aud.astype('bool')
+    if invert == True:
+        aud = np.invert(aud) # invert detection mappings
+    
+    # compute naiive intervals
+    noise_intervals = contiguous_regions(aud == True)
+    noise_free_intervals_naiive = contiguous_regions(aud == False)
+    
+    nfi_starts = noise_free_intervals_naiive.T[0]
+    nfi_ends = noise_free_intervals_naiive.T[1]
+
+    # the record begins with noise...
+    if(noise_intervals[0, 0] == 0):
+        # ...the first noise free interval (and thus ALL intervals) 
+        #    need to start one second later
+        nfi_starts = nfi_starts + 1
+    
+    # the record begins with quietude...
+    else:
+        # ...the first noise free interval stays the same, and equals zero
+        # the rest are + 1
+        nfi_starts = nfi_starts + 1
+        nfi_starts[0] = 0
+
+    # the record ends with noise...
+    if(noise_intervals[-1, 0] == 0):
+        # ...the last noise free interval (and thus ALL intervals) need to end one second earlier
+        nfi_ends = nfi_ends - 1
+    
+    # the record ends with quietude...
+    else:
+        # ...the last noise free interval stays the same, and equals zero
+        # the rest are - 1
+        save = nfi_ends[-1]
+        print(save)
+        nfi_ends = nfi_ends - 1
+        nfi_ends[-1] = save
+
+    # recompose NFIs using updated, correct values
+    noise_free_intervals = np.array([nfi_starts, nfi_ends]).T
+    
+    return noise_intervals, noise_free_intervals
+
+def calculate_duration_summary(noise_intervals):
+
+    '''
+    Compute durations from interval-based noise event data. 
+    Summarize the central tendency and variability using parametric and non-parametric estimators.
+
+    Parameters
+    ----------
+    noise_intervals: 2-D numpy.ndarray
+        A 2-D int array where the first column is the start index of each contiguous True region, 
+        and the second column is the end index of each contiguous True region.
+
+    Returns
+    -------
+    duration_summary : tuple
+        A tuple of duration-based acoustic metrics:
+            idx [0] a list of each event's duration
+            idx [1] the mean duration
+            idx [2] the standard deviation of the durations
+            idx [3] the median duration
+            idx [4] the median absolute deviation of the durations
+    '''
+
+    # the durations, themselves, are found by differencing (end - begin)
+    duration_list = noise_intervals.T[1] - noise_intervals.T[0]
+
+    # mean duration
+    mean = np.mean(duration_list)
+
+    # standard deviation duration
+    stdev = np.std(duration_list)
+
+    # median duration
+    median = np.percentile(duration_list, 50)
+
+    # median absolute deviation of duration
+    mad = np.percentile(np.absolute(duration_list - median), 50)
+
+    # combine the results into a single array
+    duration_summary = (duration_list, mean, stdev, median, mad)
+
+    return duration_summary
