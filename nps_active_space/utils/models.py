@@ -245,10 +245,8 @@ class Ais(gpd.GeoDataFrame):
         # if there are 1090 MHz jet ADS-B points mixed into this dataset
         # this is a convenient way to make sure they are removed
         df = df.loc[df["MMSI"] >= 100000000, :].copy() # we strictly require a 9-digit MMSI code
-        # df.index = df.index.astype('str')
-        # df = df.loc[df.index.str.len() == 9, :].copy()
-
-        # 
+        
+        # tidy up all the header field names
         mask = df.iloc[:, 0].isin(['Base station time stamp'])
         df = df[~mask]
         header_list = ['Base station time stamp']
@@ -284,58 +282,65 @@ class Ais(gpd.GeoDataFrame):
         df.drop_duplicates(inplace=True)
         df.dropna(how="any", axis=0, inplace=True)
 
-        # For now, we assume the vessel's z-position is "at sea level"
-        # a slower, but more accurate z-position would be derived
-        # using the NOAA CO-OPS Data Retrieval API
-        # https://api.tidesandcurrents.noaa.gov/api/prod/
-        df["altitude"] = 0.0 # meters
+        # it is possible that upon removing ADS-B no points remain,
+        # in which case we're done... we return an empty `pd.DataFrame` with formatted field names
+        if(len(df) == 0):
+            return df
+        
+        else:
 
-        
-        df["TIME"] = pd.to_datetime(arg=df["TIME"], errors="coerce") # an older version which occasionally produced dtype 'object'??
-        df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
-  
+            # For now, we assume the vessel's z-position is "at sea level"
+            # a slower, but more accurate z-position would be derived
+            # using the NOAA CO-OPS Data Retrieval API
+            # https://api.tidesandcurrents.noaa.gov/api/prod/
+            df["altitude"] = 0.0 # meters
+
             
-        # attempt to extract the timezone
-        dt_tz = df["TIME"].iloc[0].utcoffset()
-        
-        if(dt_tz is None):
-            
-            # we know that the timezone is AKST (assuming listening never occurred during Daylight Savings!)
-            # we will work in the local timezone for ease in aligning the acoustic record
-            df["TIME"] = df["TIME"].dt.tz_localize(tz='US/Alaska')
-            
-        elif(dt_tz is not None):
-            
-            # we are in UTC to begin with... subtract 9 hours to get to AKST
-            # we will work in the local timezone for ease in aligning the acoustic record
-            df["TIME"] = df["TIME"] - dt.timedelta(hours=9)
-            df["TIME"] = df["TIME"].dt.tz_convert(tz='US/Alaska')
-            
+            df["TIME"] = pd.to_datetime(arg=df["TIME"], errors="coerce") # an older version which occasionally produced dtype 'object'??
+            df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
+    
+                
+            # attempt to extract the timezone
             dt_tz = df["TIME"].iloc[0].utcoffset()
             
-            # now we convert the homogenized timestamps back into strings
-            df["TIME"] = df["TIME"].dt.strftime('%Y-%m-%d %H:%M:%S')
+            if(dt_tz is None):
+                
+                # we know that the timezone is AKST (assuming listening never occurred during Daylight Savings!)
+                # we will work in the local timezone for ease in aligning the acoustic record
+                df["TIME"] = df["TIME"].dt.tz_localize(tz='US/Alaska')
+                
+            elif(dt_tz is not None):
+                
+                # we are in UTC to begin with... subtract 9 hours to get to AKST
+                # we will work in the local timezone for ease in aligning the acoustic record
+                df["TIME"] = df["TIME"] - dt.timedelta(hours=9)
+                df["TIME"] = df["TIME"].dt.tz_convert(tz='US/Alaska')
+                
+                dt_tz = df["TIME"].iloc[0].utcoffset()
+                
+                # now we convert the homogenized timestamps back into strings
+                df["TIME"] = df["TIME"].dt.strftime('%Y-%m-%d %H:%M:%S')
 
-        # Sort records by MMSI and TIME then reset dataframe index
-        df.sort_values(["MMSI", "TIME"], inplace=True, ignore_index=True)
+            # Sort records by MMSI and TIME then reset dataframe index
+            df.sort_values(["MMSI", "TIME"], inplace=True, ignore_index=True)
 
-        # Calculate time difference between sequential waypoints for each watercraft            
-        df["TIME"] = pd.to_datetime(arg=df["TIME"], errors="coerce")
-        df["dur_secs"] = df.groupby("MMSI")["TIME"].diff().dt.total_seconds()
-        df["dur_secs"] = df["dur_secs"].fillna(0)
+            # Calculate time difference between sequential waypoints for each watercraft            
+            df["TIME"] = pd.to_datetime(arg=df["TIME"], errors="coerce")
+            df["dur_secs"] = df.groupby("MMSI")["TIME"].diff().dt.total_seconds()
+            df["dur_secs"] = df["dur_secs"].fillna(0)
 
-        # Drop any identical waypoints in a single input file based on MMSI, time, lat, and lon
-        df.drop_duplicates(subset=['MMSI', 'TIME', 'lat', 'lon'], keep = 'last')
+            # Drop any identical waypoints in a single input file based on MMSI, time, lat, and lon
+            df.drop_duplicates(subset=['MMSI', 'TIME', 'lat', 'lon'], keep = 'last')
 
-        # Use threshold waypoint duration value to identify separate flights by a vessel then sum the number of "true" conditions to assign unique ID's
-        df['diff_event'] = df['dur_secs'] >= 1200 # ( = 20 minutes)
-        df['cumsum'] = df.groupby('MMSI')['diff_event'].cumsum()
-        df['event_id'] = df['MMSI'].astype('str') + "_" + df['cumsum'].astype(str) + "_" + df['DATE'].astype(str)
+            # Use threshold waypoint duration value to identify separate flights by a vessel then sum the number of "true" conditions to assign unique ID's
+            df['diff_event'] = df['dur_secs'] >= 1200 # ( = 20 minutes)
+            df['cumsum'] = df.groupby('MMSI')['diff_event'].cumsum()
+            df['event_id'] = df['MMSI'].astype('str') + "_" + df['cumsum'].astype(str) + "_" + df['DATE'].astype(str)
 
-        # Let us only consider events with more than 2 AIS points
-        df = df[df.groupby("event_id").event_id.transform(len) > 2]
+            # Let us only consider events with more than 2 AIS points
+            df = df[df.groupby("event_id").event_id.transform(len) > 2]
 
-        return df
+            return df
 
     def _read(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
         """
