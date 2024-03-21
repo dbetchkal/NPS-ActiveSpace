@@ -190,6 +190,10 @@ class Nvspl(pd.DataFrame):
         octave_columns = {c: c.replace('H', '').replace('p', '.') for c in filter(self.octave_regex.match, data.columns)}
         data.rename(columns=octave_columns, inplace=True)
 
+        # we deliberately sort the DatetimeIndex to ensure it is monotonic
+        # this avoids a `KeyError` when selecting using position report timestamps later on
+        data.sort_index(inplace=True)
+
         return data
 
     def _validate(self, columns: List[str], verifyNonStandardOctave):
