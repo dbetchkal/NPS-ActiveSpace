@@ -11,7 +11,7 @@ cycler==0.11.0
 Fiona==1.8.21
 fonttools==4.37.3
 future==0.18.2
-GDAL==3.4.2
+GDAL==3.4.3
 geographiclib==1.52
 geopandas==0.10.2
 geopy==2.2.0
@@ -26,7 +26,7 @@ mercantile==1.2.1
 munch==2.5.0
 numpy==1.21.6
 packaging==21.3
-pandas==1.1.5
+pandas
 Pillow==9.1.1
 psycopg2==2.9.3
 pygeos==0.13
