@@ -136,6 +136,8 @@ class _App(tk.Tk):
         annotated_lines: gpd.GeoDataFrame
             a GeoDataFrame of annotated lines for a track to add to the overall annotations GeoDataFrame.
         """
+        if annotated_lines.crs != self.annotations.crs:
+            annotated_lines = annotated_lines.to_crs(self.annotations.crs)
         self.annotations = pd.concat([self.annotations, annotated_lines], ignore_index=True)
         self._saved = False
 
@@ -579,6 +581,7 @@ class _GroundTruthingFrame(_AppFrame):
         try:
             idx, points = next(self.data)
             self.i += 1
+
             spectro = self.master.nvspl.loc[str(points.point_dt.iat[0]):str(points.point_dt.iat[-1]), '12.5':'20000']
 
             # If the track is already annotated, move on.
