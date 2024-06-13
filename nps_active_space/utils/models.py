@@ -12,7 +12,7 @@ import pandas as pd
 from pyproj import Transformer
 from tqdm import tqdm
 from tzwhere import tzwhere
-import concurrent
+import concurrent.futures
 from types import GeneratorType
 
 __all__ = [
