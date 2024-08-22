@@ -164,7 +164,7 @@ This script is used to estimate the geographic intersection of a set of tracks w
 | `-y`, `--year`         | **required.**<br/>The deployment year, YYYY. *Ex*: 2018                                                                                                    |
 | `-g`, `--gain` | **required.**<br/>The signed gain of the optimal active space fit, float. *Ex.*: -20.5 |
 | `-t0`, `--begintracks` | **required.**<br/>Date to begin parsing the position record, YYYY-MM-DD. *Ex.*: 2018-01-01 |
-| `-tf`, `--endtracks` | **required.**<br/>TDate to stop parsing the position record, YYYY-MM-DD. *Ex.*:  2018-06-05 |
+| `-tf`, `--endtracks` | **required.**<br/>Date to stop parsing the position record, YYYY-MM-DD. *Ex.*:  2018-06-05 |
 | `-t`, `--track-source` | ***default Database -> {Database, ADSB, AIS}***<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
 
 Example executions:
