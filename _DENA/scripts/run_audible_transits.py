@@ -51,7 +51,6 @@ from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query
 from nps_active_space.utils.computation import coords_to_utm, interpolate_spline
 from nps_active_space.utils.models import Tracks, Adsb
 
-
 class AudibleTransits:
     def __init__(self, metadata, paths):
         self.unit = metadata["unit"]
@@ -1604,6 +1603,22 @@ class AudibleTransits:
     def remove_jets(self):
         pass
 
+    def export_results(self):
+        '''
+        Save 
+
+        TODO: more specific and meaningful file names
+        TODO: using .config, save to the root of `NMSIM` project directory
+        TODO: determine final, formal geospatial format
+        '''
+        desktop = os.path.join(os.path.join(os.environ['USERPROFILE']), 'Desktop')
+        self.tracks.to_pickle(os.path.join(desktop, self.unit+self.site+str(self.year)+"_tracks.pkl"))
+        self.active.to_pickle(os.path.join(desktop, self.unit+self.site+str(self.year)+"_active.pkl"))
+        self.mic.to_pickle(os.path.join(desktop, self.unit+self.site+str(self.year)+"_mic.pkl"))
+        print("Saved results...")
+
+
+
 class AudibleTransitsGPS(AudibleTransits):
     def load_tracks_from_database(self, data='database', buffer=25000):
         '''
@@ -2277,8 +2292,6 @@ class AudibleTransitsADSB(AudibleTransits):
         if (return_jets):
             return jets
 
-
-
 if __name__ == '__main__':
 
     argparse = ArgumentParser()
@@ -2372,4 +2385,4 @@ if __name__ == '__main__':
 
     listener.summarize_data_quality()
     listener.visualize_tracks(show_DEM=True)
-
+    listener.export_results()
