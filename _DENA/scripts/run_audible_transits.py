@@ -121,7 +121,9 @@ class AudibleTransits:
 
     def load_DEM(self):
         # Load in digital elevation model (DEM)
-        raster_path = glob.glob(os.path.join(r"V:\NMSim\01 SITES", self.unit + self.site + r"\Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif"))[0]# Open raster
+        print(self.paths["project"])
+        print(self.paths["project"] + os.sep + r"Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif")
+        raster_path = glob.glob(self.paths["project"] + os.sep + r"Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif")[0]# Open raster
         ras = rasterio.open(raster_path)
         self.DEM = ras
         
@@ -1160,6 +1162,25 @@ class AudibleTransits:
             new_tracks = tracks.copy()
             new_tracks['speed_out_of_range'] = speed_out_of_range
             return new_tracks
+
+    @staticmethod
+    def split_paused_tracks(track_pts, threshold_s=900):
+        
+        counter = 0
+        
+        grouped_track_pts = track_pts.groupby('track_id')
+    
+        for idx, track in grouped_track_pts:
+            times = np.asarray(track.point_dt)
+            delta_t = (times[1:] - times[:-1]) / np.timedelta64(1,'s')
+            indices = np.where(delta_t > threshold_s)[0] + 1
+            if indices.size > 0:
+                counter += 1
+                for count, i in enumerate(indices):
+                    track_pts.loc[track.iloc[i:].index, 'track_id'] = f"{track.track_id.iloc[0]}_{count+1}"
+                    
+        print(f"Split {counter} tracks that paused for more than {threshold_s} seconds into multiple track IDs")
+        return track_pts.copy()
     
     @staticmethod
     def remove_hairballs(track_segments, active_ea, return_hairballs=False, visualize=False):
@@ -1654,7 +1675,7 @@ class AudibleTransitsGPS(AudibleTransits):
             tracks = Tracks(tracks, id_col='flight_id',datetime_col='ak_datetime', z_col='altitude_ft')
             tracks.z = tracks.z * 0.3048   # Convert from ft to meters
             tracks.geometry = gpd.points_from_xy(tracks.geometry.x, tracks.geometry.y, tracks.z)
-            
+       
             original_length = len(tracks)
             tracks.drop_duplicates(subset=['track_id', 'point_dt'], inplace=True)
             time_duplicates = original_length - len(tracks)
@@ -1689,40 +1710,35 @@ class AudibleTransitsGPS(AudibleTransits):
                                       datetime64               floats
         '''        
         tracks = self.tracks.copy()
-        
-        grouped = tracks.groupby('track_id') ## Edited to track_id to fit Dini's version
-        lookup_table = {}
-        points = []
-        times = []
-        lines = []
-        z = []
-        # Loop through each flight (track points grouped by flight ID)
-        for id, group in grouped:
-            n_number = group.n_number.iloc[0]
-            aircraft_type = group.aircraft_type.iloc[0]
-            
-            for g, t in zip(group.geometry, group.point_dt.values):
-                lat, lon = g.xy
-                alt = g.z
-                point = (lat[0], lon[0], alt)
-                points.append(point)
-                times.append(t)
-                z.append(alt)
-                
-            # Only take in tracks that have at least two points
-            if len(points) >= 2:
-                lines.append({'track_id': id, 'geometry': LineString(points), 'point_dt': np.asarray(times), 'geometry_pts': MultiPoint(points), 'z': np.asarray(z), 'n_number': n_number, 'aircraft_type': aircraft_type})
-            
-            points.clear()
-            times.clear()
-            z.clear()
 
-        track_lines = gpd.GeoDataFrame(lines, crs=self.utm_zone)
+        grouped_track_pts = tracks.groupby('track_id') ## Edited to track_id to fit Dini's version
+        
+        track_list = []
+        # Loop through each flight (track points grouped by flight ID)
+        for track_id, group in tqdm(grouped_track_pts, unit='tracks'):
+            if len(group) >= 2:
+                n_number = group.n_number.iloc[0]
+                aircraft_type = group.aircraft_type.iloc[0]
+                times = np.asarray(group.point_dt.values)
+                points = []
+                altitudes = []
+                for g, t in zip(group.geometry, group.point_dt.values):
+                    lat, lon = g.xy
+                    alt = g.z
+                    point = (lat[0], lon[0], alt)
+                    altitudes.append(alt)
+                    points.append(point)
+                    
+                altitudes = np.asarray(altitudes)   
+                
+                track_list.append({'track_id': track_id, 'geometry': LineString(points), 'point_dt': times, 'geometry_pts': MultiPoint(points), 'z': altitudes, 'n_number': n_number, 'aircraft_type': aircraft_type})
+                     
+        track_lines = gpd.GeoDataFrame(track_list, crs=self.utm_zone)
         
         self.tracks = track_lines.copy()
 
         return track_lines
-        
+    
     def detect_takeoffs_and_landings(self, tracks='self', AGL_thresh=25, speed_thresh=30, interval_thresh1 = 300, interval_thresh2 = 120, point_thresh1 = 4, point_thresh2 = 10):
         """
         Identifies tracks that appear to begin by taking off or end by landing inside of the active space; adds corresponding boolean columns 'takeoff' and 'landing to the input GeoDataFrame.
@@ -1883,7 +1899,7 @@ class AudibleTransitsGPS(AudibleTransits):
 
         return tracks.copy()
 
-    def extract_aircraft_info(self):
+    def extract_aircraft_info(self, FAA='load'):
 
         tracks = self.tracks
         FAA_path = self.paths["FAA"]
@@ -1891,10 +1907,20 @@ class AudibleTransitsGPS(AudibleTransits):
         
         # Parse track ID to obtain N-number
         tracks['n_number'] = tracks.track_id.apply(lambda id: id.split('_')[0][1:])
-        
-        # Create aircraft lookup table using FAA database
-        aircraft_lookup = AudibleTransitsGPS.create_aircraft_lookup(tracks, FAA_path, aircraft_corrections_path)
-        self.aircraft_lookup = aircraft_lookup.copy()
+
+        if type(FAA) is str:
+            assert FAA == 'load'
+            print("Loading aircrafts from FAA database...")
+    
+            # Create aircraft lookup table using FAA database
+            aircraft_lookup = AudibleTransitsGPS.create_aircraft_lookup(tracks, FAA_path, aircraft_corrections_path)
+            self.aircraft_lookup = aircraft_lookup.copy()
+            print('aircraft look up complete')
+        else:
+            aircraft_lookup = FAA.copy()
+            self.aircraft_lookup = aircraft_lookup.copy()
+            print("loaded aircraft lookup table directly")
+
         
         # Use the aircraft lookup table to identify each flight's N-number and aircraft type (jet, fixed-wing, or helicopter)
         for idx, group in tracks.groupby('n_number'):
@@ -1975,15 +2001,19 @@ class AudibleTransitsADSB(AudibleTransits):
             loaded_track_pts = loaded_track_pts_raw.copy()
             loaded_track_pts = loaded_track_pts[['flight_id', 'TIME', 'geometry', 'altitude']]
             loaded_track_pts = loaded_track_pts.rename(columns={'flight_id': 'track_id', 'TIME': 'point_dt', 'altitude': 'z'})
-            loaded_track_pts.set_crs('WGS84', inplace=True) # The CRS of the loaded tracks will be in standard lon/lat geographic crs
+            loaded_track_pts.set_crs('WGS84', inplace=True)    # The CRS of the loaded tracks will be in standard lon/lat geographic crs
             loaded_track_pts.z = loaded_track_pts.z * 0.3048   # Convert from ft to meters
             
             # Create 3D points using the 2D points and altitidue above MSL
             loaded_track_pts.geometry = gpd.points_from_xy(loaded_track_pts.geometry.x, loaded_track_pts.geometry.y, loaded_track_pts.z)
 
-            original_length = len(loaded_track_pts)
+            original_length = len(loaded_track_pts) # For calculating how many duplicated tracks are removed
+            
+            # Remove any point that shares a timestamp with another point in the same track (physically impossible)
             loaded_track_pts.drop_duplicates(subset=['track_id', 'point_dt'], inplace=True)
             time_duplicates = original_length - len(loaded_track_pts)
+            
+            # Remove any point that shares the exact position with another point in the same track (possible but generally erroneous or unhelpful)
             loaded_track_pts.drop_duplicates(subset=['track_id', 'geometry'], inplace=True)
             position_duplicates = original_length - time_duplicates - len(loaded_track_pts)
 
@@ -1991,11 +2021,14 @@ class AudibleTransitsADSB(AudibleTransits):
 
         else:
             loaded_track_pts = data.copy()
-            
+
+        # Only include points within the date range specified in the initialization 
+        loaded_track_pts = loaded_track_pts[(loaded_track_pts.point_dt >= self.study_start) & (loaded_track_pts.point_dt <= self.study_end)]
+         
         self.tracks = loaded_track_pts
         
         return loaded_track_pts.copy()
-
+    
     def create_segments(self, radius=400000, z_min=0, z_max=15000):
         '''
         Takes in track points and datetimes and converts them to tracks. 
@@ -2015,59 +2048,47 @@ class AudibleTransitsADSB(AudibleTransits):
                                       datetime64               floats
         '''        
         tracks = self.tracks.copy()
+        original_length = len(tracks)
             
         median_coord = (tracks.geometry.x.median(), tracks.geometry.y.median())
-        grouped = tracks.groupby('track_id') ## Edited to track_id to fit Dini's version
-        lookup_table = {}
-        points = []
-        times = []
-        lines = []
-        z = []
-        removed_count = 0
-        z_adj_count = 0
-        # Loop through each flight (track points grouped by flight ID)
-        for id, group in tqdm(grouped, unit='tracks'):
-            n_number = group.n_number.iloc[0]
-            aircraft_type = group.aircraft_type.iloc[0]
-            
-            for g, t in zip(group.geometry, group.point_dt.values):
-                outside = False
-                lat, lon = g.xy
-                alt = g.z
-                point = (lat[0], lon[0], alt)
-                # Check if coordinate falls within the given radius around the ADSB receiver
-                if math.dist(point[0:2], median_coord) > radius:
-                    #print(f"{id}: erroneous point removed, falls outside of radius")
-                    outside = True
-                if not outside:
-                    points.append(point)
-                    times.append(t)
-                    z.append(alt)
-                else:
-                    # print("point removed from ", id)
-                    removed_count += 1        
-    
-            for i in range(len(z)):
-                if (z[i] < z_min) | (z[i] > z_max):
-                    #print(f"{id}: z adjusted for being out of range, {z[i]}")
-                    z_filtered = median_filter(group.geometry.z, 5)
-                    z[i] = z_filtered[i]
-                    z_adj_count += 1
-                    
-                
-            # Only take in tracks that have at least two points
-            if len(points) >= 2:
-                lines.append({'track_id': id, 'geometry': LineString(points), 'point_dt': np.asarray(times), 'geometry_pts': MultiPoint(points), 'z': np.asarray(z), 'n_number': n_number, 'aircraft_type': aircraft_type})
-            
-            points.clear()
-            times.clear()
-            z.clear()
+        tracks = tracks[tracks.distance(Point(median_coord)) < radius]
+        removed_count = original_length - len(tracks)
+        grouped_track_pts = tracks.groupby('track_id') ## Edited to track_id to fit Dini's version
+        
 
+        z_adj_count = 0
+        track_list = []
+        # Loop through each flight (track points grouped by flight ID)
+        for track_id, group in tqdm(grouped_track_pts, unit='tracks'):
+            if len(group) >= 2:
+                n_number = group.n_number.iloc[0]
+                aircraft_type = group.aircraft_type.iloc[0]
+                times = np.asarray(group.point_dt.values)
+                points = []
+                altitudes = []
+                for g, t in zip(group.geometry, group.point_dt.values):
+                    lat, lon = g.xy
+                    alt = g.z
+                    point = (lat[0], lon[0], alt)
+                    altitudes.append(alt)
+                    points.append(point)
+                    
+                altitudes = np.asarray(altitudes)   
+                if np.any((altitudes < z_min) | (altitudes > z_max)):
+                    z_filtered = median_filter(altitudes, 5)
+                    for i in range(len(altitudes)):
+                        if (altitudes[i] < z_min) | (altitudes[i] > z_max):
+                            altitudes[i] = z_filtered[i]
+                            z_adj_count += 1
+
+                
+                track_list.append({'track_id': track_id, 'geometry': LineString(points), 'point_dt': times, 'geometry_pts': MultiPoint(points), 'z': altitudes, 'n_number': n_number, 'aircraft_type': aircraft_type})
+                     
         print(f"Removed {removed_count} outlier points, adjusted {z_adj_count} z-coordinates")
     
-        track_lines = gpd.GeoDataFrame(lines, crs=self.utm_zone)
+        track_lines = gpd.GeoDataFrame(track_list, crs=self.utm_zone)
         
-        self.tracks = track_lines.copy()
+        self.tracks = track_lines.copy()   
             
         return track_lines
 
@@ -2207,20 +2228,26 @@ class AudibleTransitsADSB(AudibleTransits):
 
         return tracks.copy()
         
-    def extract_aircraft_info(self):
+    def extract_aircraft_info(self, FAA='load'):
 
         FAA_path = self.paths["FAA"]
         aircraft_corrections_path = self.paths["aircraft corrections"]
         tracks = self.tracks  
           
         tracks['ICAO_address'] = tracks.track_id.apply(lambda id: id.split('_')[0])
-     
-        print("Loading aircrafts from FAA database...")
 
-        # Access the FAA database and identify all aircrafts on the current record, create aircraft lookup table
-        aircraft_lookup = AudibleTransitsADSB.create_aircraft_lookup(tracks, FAA_path, aircraft_corrections_path)  
-        self.aircraft_lookup = aircraft_lookup.copy()
-        print('aircraft look up complete')
+        if type(FAA) is str:
+            assert FAA == 'load'
+            print("Loading aircrafts from FAA database...")
+    
+            # Access the FAA database and identify all aircrafts on the current record, create aircraft lookup table
+            aircraft_lookup = AudibleTransitsADSB.create_aircraft_lookup(tracks, FAA_path, aircraft_corrections_path)  
+            self.aircraft_lookup = aircraft_lookup.copy()
+            print('aircraft look up complete')
+        else:
+            aircraft_lookup = FAA.copy()
+            self.aircraft_lookup = aircraft_lookup.copy()
+            print("loaded aircraft lookup table directly")
 
         # Use the aircraft lookup table to identify each flight's N-number and aircraft type (jet, fixed-wing, or helicopter)
         for idx, group in tracks.groupby('ICAO_address'):
@@ -2316,7 +2343,7 @@ if __name__ == '__main__':
     args = argparse.parse_args()
 
     cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
-    project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
+    project_dir = f"{cfg.read('project', 'dir')}\{args.unit}{args.site}"
     FAAReleasable_path = f"{cfg.read('project', 'FAA_Releasable_db')}"
     FAAType_corrections = f"{cfg.read('project', 'FAA_type_corrections')}"
 
@@ -2327,7 +2354,8 @@ if __name__ == '__main__':
                 "gain": args.gain,
                 "study start": args.begintracks, 
                 "study end": args.endtracks} 
-    paths = {"FAA": FAAReleasable_path,
+    paths = {"project": project_dir, 
+             "FAA": FAAReleasable_path,
              "aircraft corrections": FAAType_corrections}
 
     if args.track_source == 'ADSB':
@@ -2345,6 +2373,8 @@ if __name__ == '__main__':
     listener.init_spatial_data()
     listener.load_DEM()
     listener.load_tracks_from_database()
+
+    AudibleTransits.split_paused_tracks(listener.tracks)
 
     listener.extract_aircraft_info()
     listener.remove_jets()
