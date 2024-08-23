@@ -121,8 +121,6 @@ class AudibleTransits:
 
     def load_DEM(self):
         # Load in digital elevation model (DEM)
-        print(self.paths["project"])
-        print(self.paths["project"] + os.sep + r"Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif")
         raster_path = glob.glob(self.paths["project"] + os.sep + r"Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif")[0]# Open raster
         ras = rasterio.open(raster_path)
         self.DEM = ras
@@ -1672,8 +1670,8 @@ class AudibleTransitsGPS(AudibleTransits):
             tracks = query_tracks(engine=engine, start_date=self.study_start, end_date=self.study_end, mask=self.studyA, mask_buffer_distance=buffer)
             tracks.set_crs('WGS84', inplace=True)
             # ADD THIS LINE TO FORMAT TRACKS
-            tracks = Tracks(tracks, id_col='flight_id',datetime_col='ak_datetime', z_col='altitude_ft')
-            tracks.z = tracks.z * 0.3048   # Convert from ft to meters
+            tracks = Tracks(tracks, id_col='flight_id',datetime_col='ak_datetime', z_col='altitude_m')
+            tracks.drop(columns=['ak_hourtime'])
             tracks.geometry = gpd.points_from_xy(tracks.geometry.x, tracks.geometry.y, tracks.z)
        
             original_length = len(tracks)
@@ -1938,11 +1936,9 @@ class AudibleTransitsGPS(AudibleTransits):
     def create_aircraft_lookup(tracks, FAA_path, aircraft_corrections_path=None):
         # Requires N-number
         FAA = pd.read_csv(FAA_path, sep=",")
-        Type_Map = {4:"Fixed-wing", 5:"Jet", 6:"Helicopter"} # codifed type to human-readable type
-        Color_Map = {0:"gray", 1:"red", 2:"skyblue"}
+        Type_Map = {1:"Glider", 2:"2", 3:"3", 4:"Fixed-wing", 5:"Jet", 6:"Helicopter", 7:"7", 8:"8", 9:"Gyroplane"} # codifed type to human-readable type
         aircraft_list = []
     
-        
         for aircraft in tracks.n_number.unique():  
             # enter an n_number (or list of n_numbers)
             n_numbers = np.array([aircraft])
@@ -1951,10 +1947,10 @@ class AudibleTransitsGPS(AudibleTransits):
             FAA_lookup = FAA.loc[FAA['N-NUMBER'].isin(n_numbers), ['N-NUMBER', 'TYPE AIRCRAFT', "NAME", "MODE S CODE HEX"]]
             FAA_lookup['TYPE AIRCRAFT'] = FAA_lookup['TYPE AIRCRAFT'].apply(lambda l: Type_Map[int(l)])
             aircraft_list.append(FAA_lookup)
-        
+
         # Combine each single-row dataframe together into one lookup table
         aircraft_lookup = pd.concat(aircraft_list)
-    
+
         # If inaccurate aircraft types have been found for certain N-numbers, create dictionary from file that contains the corrections
         if aircraft_corrections_path != None:
             # Open aircraft corrections from specified path, reconstruct as a dictionary using json.loads
@@ -2373,6 +2369,9 @@ if __name__ == '__main__':
     listener.init_spatial_data()
     listener.load_DEM()
     listener.load_tracks_from_database()
+
+    pkl_path = r"C:\Users\jbrotman-krass\Documents\PythonScripts\TrackCheckpoints"
+    listener.tracks.to_pickle(os.path.join(pkl_path, '_BadTracks.pkl'))   
 
     AudibleTransits.split_paused_tracks(listener.tracks)
 
