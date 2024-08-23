@@ -62,8 +62,10 @@ class AudibleTransits:
         self.database_type = metadata["database type"]
         
         self.paths = paths
-        
-    def init_spatial_data(self):
+
+        self.garbage = gpd.GeoDataFrame({'track_id':[], 'n_number':[], 'point_dt':[], 'geometry':[]})
+
+    def init_spatial_data(self, visualize=False):
         '''
         Load all spatial data: the active space, study area, and mic location.
         
@@ -108,11 +110,12 @@ class AudibleTransits:
         mic_loc = AudibleTransits.load_miclocation(self.unit, self.site, self.year, crs=mic_crs).to_crs(self.utm_zone)
         print("\tMicrophone location has been determined.")
         
+        if (visualize):
         # Plot each in the standard lon/lat geographic crs
-        fig, ax = plt.subplots(1, 1, figsize=(7, 7))
-        active.boundary.plot(ax=ax, color="black", zorder=1)
-        mic_loc.to_crs(active.crs).plot(ax=ax, markersize=10, marker='x', color='r')
-        plt.show()
+            fig, ax = plt.subplots(1, 1, figsize=(7, 7))
+            active.boundary.plot(ax=ax, color="black", zorder=1)
+            mic_loc.to_crs(active.crs).plot(ax=ax, markersize=10, marker='x', color='r')
+            plt.show()
 
         self.active = active.copy()
         self.mic = mic_loc.copy()
@@ -346,7 +349,6 @@ class AudibleTransits:
         track_id_list = []            # List to store interpolated track id's (exclude failures)
         n_number_list = []            # List to store N-numbers
         aircraft_type_list = []       # List to store aircraft types
-        poor_track_list = []          # List to store flags for tracks with poor data quality
         num_points_list = []
         sampling_interval_list = []
         spline_time_list = []         # List to store lists of interpolated times for resulting splines
@@ -365,7 +367,6 @@ class AudibleTransits:
                 track_id_list.append(track_id)  # Add track ID to list
                 n_number_list.append(track_pts.iloc[0].n_number)
                 aircraft_type_list.append(track_pts.iloc[0].aircraft_type)
-                poor_track_list.append(track_pts.iloc[0].poor_track)
                 num_points_list.append(track_pts.iloc[0].num_points)
                 sampling_interval_list.append(track_pts.iloc[0].sampling_interval)
                 track_pts["point_dt"] = timestamps  # Add timestamps list as a column to geodataframe. Only works if correct size, hence the above conditional   
@@ -395,7 +396,6 @@ class AudibleTransits:
         interp_tracks['n_number'] = n_number_list
         interp_tracks['aircraft_type'] = aircraft_type_list
         interp_tracks['interp_flag'] = interp_flag_list
-        interp_tracks['poor_track'] = poor_track_list
         interp_tracks['num_points'] = num_points_list
         interp_tracks['sampling_interval'] = sampling_interval_list
         interp_tracks.set_geometry('interp_geometry', inplace=True)
@@ -557,9 +557,13 @@ class AudibleTransits:
         cleaned_tracks = AudibleTransits.glue_tracks(cleaned_tracks, self.active)
         
         print("removing tracks < 10s in duration")
+        quick_tracks = cleaned_tracks.loc[cleaned_tracks.transit_duration < 10]
+        self.add_to_garbage(tracks=quick_tracks, reason='short duration')
         cleaned_tracks = cleaned_tracks.loc[cleaned_tracks.transit_duration >= 10]
         
         print("removing tracks with avg speed = 0 or infinity...")
+        self.add_to_garbage(tracks=cleaned_tracks.loc[cleaned_tracks.avg_speed == 0], reason='zero speed')
+        self.add_to_garbage(tracks=cleaned_tracks.loc[cleaned_tracks.avg_speed == np.inf], reason='inf speed')
         cleaned_tracks = cleaned_tracks.loc[(cleaned_tracks.avg_speed != 0) & (cleaned_tracks.avg_speed != np.inf)]
         cleaned_tracks = cleaned_tracks.loc[cleaned_tracks.interp_geometry.within(self.active.geometry.iloc[0].buffer(100))]
         
@@ -727,7 +731,7 @@ class AudibleTransits:
         else:
             return new_tracks
 
-    def visualize_tracks(self, tracks_to_view='self', show_DEM=False, crs='self', show_active=True, show_mic=True, endpoints=False, title='default', fig='none', ax='none'):
+    def visualize_tracks(self, tracks_to_view='self', show_DEM=False, crs='self', show_active=True, show_mic=True, show_endpoints=False, title='default', fig='none', ax='none'):
         '''
         A method for visualizing tracks of any type, with or without the active space, microphone location, track endpoints, and DEM.
         Also includes options to pass a title, fig, and ax.
@@ -747,9 +751,9 @@ class AudibleTransits:
         active = self.active.copy()
         mic = self.mic.copy()
         tracklines = tracks.geometry
-        entry_positions = tracks.entry_position
-        exit_positions = tracks.exit_position
         studyA = active.buffer(25000)
+        if show_endpoints : entry_positions = tracks.entry_position
+        if show_endpoints : exit_positions = tracks.exit_position
 
         # If a DEM raster is provided, change default crs to plot in and colormap the raster
         if (show_DEM):
@@ -759,12 +763,13 @@ class AudibleTransits:
             fig.colorbar(im, ax=ax, label='Elevation (m)')
         # If a different default crs is set, we need to reproject all geometries: active space, track lines, and entry + exit positions
         if crs != 'self':
-            active = active.to_crs(crs)
+            if show_active : active = active.to_crs(crs)
             mic = mic.to_crs(crs)
             tracklines = tracklines.to_crs(crs)
-            entry_positions = entry_positions.to_crs(crs)
-            exit_positions = exit_positions.to_crs(crs)
             studyA = studyA.to_crs(crs)
+            if (show_endpoints):
+                entry_positions = entry_positions.to_crs(crs)
+                exit_positions = exit_positions.to_crs(crs)
 
         ## Setting bounds on the plot, priority: 1) DEM raster bounds, 2) Active space study area bounds, 3) None (tracks)
         if (show_DEM):
@@ -793,7 +798,7 @@ class AudibleTransits:
         tracklines.plot(ax=ax, color='k', alpha=alpha)
 
         # If 'endpoints' is True, plot the entries as green x's and exits as red points
-        if (endpoints): 
+        if (show_endpoints): 
             entry_positions.plot(marker = 'x', markersize=10, color='g', alpha=alpha, ax=ax, zorder=5)
             exit_positions.plot(marker = '.', markersize=10, color='r', alpha=alpha, ax=ax, zorder=5)
 
@@ -1181,7 +1186,7 @@ class AudibleTransits:
         return track_pts.copy()
     
     @staticmethod
-    def remove_hairballs(track_segments, active_ea, return_hairballs=False, visualize=False):
+    def remove_scrambled_tracks(track_segments, active_ea, return_scrambled_tracks=False, visualize=False):
         '''
         Get rid of tracks with poor data quality -- indicated by glitchy back-and-forth motions and unrealistic average speed (distance/time between each point)
         Adds the following columns to keep count of suspiciously unrealistic flight behaviors:
@@ -1203,7 +1208,7 @@ class AudibleTransits:
         active_ea: gpd.GeoDataFrame
             A gpd.GeoDataFrame object containing the equal area active space being studied. Should contain a Polygon or MultiPolygon geometry
     
-        return_hairballs: boolean
+        return_scrambled_tracks: boolean
             Defaults to False; when True, function will return a gpd.GeoDataFrame of the tracks that were removed due to the erratic 'hairball' behavior.
             Helpful for allowing user validation of the removal of tracks. Also provides an opportunity to recover these tracks.
     
@@ -1214,9 +1219,9 @@ class AudibleTransits:
         Returns
         -------
         new_track_segments: gpd.GeoDataFrame 
-            Cleaned tracks without the hairballs. Use these tracks to greatly improve data quality.
+            Cleaned tracks without the scrambled_tracks. Use these tracks to greatly improve data quality.
             
-        hairballs: gpd.GeoDataFrame (return_hairballs=True)
+        scrambled_tracks: gpd.GeoDataFrame (return_scrambled_tracks=True)
         '''
     
         warnings.filterwarnings('ignore', message=".*invalid value encountered in true_divide.*")
@@ -1225,7 +1230,6 @@ class AudibleTransits:
         speed_flag_list = []
     
         for idx, track in track_segments.iterrows():
-        
             line_coords = np.asarray(track.geometry.coords).T[0:2].T
             times = (track.point_dt - track.point_dt[0]) / np.timedelta64(1, 's')
             speed_flag = 0
@@ -1246,11 +1250,11 @@ class AudibleTransits:
         
         track_segments['speed_flag'] = speed_flag_list
         track_segments['angle_flag'] = angle_flag_list
-        hairballs = track_segments.loc[(track_segments.speed_flag > 1) & (track_segments.angle_flag > 15)]
+        scrambled_tracks = track_segments.loc[(track_segments.speed_flag > 1) & (track_segments.angle_flag > 15)]
         new_track_segments = track_segments.loc[~((track_segments.speed_flag > 1) & (track_segments.angle_flag > 15))]
         
         if (visualize):
-            for idx, track in hairballs.iterrows():   
+            for idx, track in scrambled_tracks.iterrows():   
                 fig, ax = plt.subplots(1,1,figsize=(8,8))
                 gpd.GeoSeries(track.geometry).plot(ax=ax, color='r')
                 plt.scatter(np.asarray(track.geometry.coords).T[0], np.asarray(track.geometry.coords).T[1], s=3, axes=ax)
@@ -1259,15 +1263,15 @@ class AudibleTransits:
                 ax.set_title(title)
                 plt.show()
                 plt.pause(.1)
-        print(len(hairballs), " hairballs removed (highly erratic data, likely garbage)")
+        print(len(scrambled_tracks), " scrambled tracks removed (highly erratic data, likely garbage)")
     
-        if (return_hairballs):
-            return new_track_segments, hairballs
+        if (return_scrambled_tracks):
+            return new_track_segments, scrambled_tracks
         else:
             return new_track_segments
 
     @staticmethod
-    def find_poor_tracks(raw_tracks):
+    def remove_low_quality_tracks(raw_tracks, return_low_quality_tracks=False):
         """
         Identifies and removes raw tracks that have really bad data quality. Indicators include: having only 2 sample points & having a very 
         low avg speed. It's very hard to make much out of 2 sample points. Avg speed is a horrible indicator of actual speed in such cases 
@@ -1287,10 +1291,16 @@ class AudibleTransits:
     
         raw_tracks['avg_speed'] = avg_speed
         raw_tracks['num_points'] = num_points
-        raw_tracks['poor_track'] = (raw_tracks.num_points == 2) & (raw_tracks.avg_speed < 10)
-        raw_tracks = raw_tracks[~((raw_tracks.poor_track) & (raw_tracks.geometry.length <= 5000))]
-        end_len = len(raw_tracks)
+        # Pull out tracks that have only 2 raw points, a very slow speed, and covers only a short distance
+        raw_tracks['bad_track'] = (raw_tracks.num_points == 2) & (raw_tracks.avg_speed < 10) & (raw_tracks.geometry.length <= 5000)
+        low_quality_tracks = raw_tracks[raw_tracks.bad_track]
+        cleaner_tracks = raw_tracks[~(raw_tracks.bad_track)]
+        end_len = len(cleaner_tracks)
         print("removed", start_len - end_len, "low quality tracks (only 2 points, very slow, & short)")
+        if (return_low_quality_tracks):
+            return cleaner_tracks.copy(), low_quality_tracks.copy()
+        else:
+            return cleaner_tracks.copy()
 
     @staticmethod
     def glue_tracks(tracks, active_ea):
@@ -1373,7 +1383,6 @@ class AudibleTransits:
             last_track = tracks.iloc[indices[-1]]  # last track in glue group
             track_id = first_track.track_id        # keep the same track ID
             interp_flag = first_track.interp_flag
-            poor_track = first_track.poor_track
             num_points = first_track.num_points
             sampling_interval = first_track.sampling_interval
             n_number = first_track.n_number
@@ -1410,7 +1419,7 @@ class AudibleTransits:
             transit_duration = (exit_time - entry_time) / pd.Timedelta(seconds = 1)  # calculate new transit duration
             
             # Replace the row of the first track with our new glued track
-            glued_tracks.iloc[indices[0]] = {'track_id': track_id, 'interp_point_dt': interp_point_dt, 'interp_geometry': interp_geometry, 'entry_time': entry_time, 'exit_time': exit_time, 'entry_position': entry_position, 'exit_position': exit_position, 'transit_duration': transit_duration, 'transit_distance': transit_distance, 'interp_flag': interp_flag, 'poor_track': poor_track, 'num_points': num_points, 'sampling_interval': sampling_interval, 'needs_extrapolation': np.nan, 'n_number': n_number, 'aircraft_type': aircraft_type}
+            glued_tracks.iloc[indices[0]] = {'track_id': track_id, 'interp_point_dt': interp_point_dt, 'interp_geometry': interp_geometry, 'entry_time': entry_time, 'exit_time': exit_time, 'entry_position': entry_position, 'exit_position': exit_position, 'transit_duration': transit_duration, 'transit_distance': transit_distance, 'interp_flag': interp_flag, 'num_points': num_points, 'sampling_interval': sampling_interval, 'needs_extrapolation': np.nan, 'n_number': n_number, 'aircraft_type': aircraft_type}
     
         print(" - Remove duplicates")
         # Now, we need to get rid of all the other rows of unglued tracks now that they are fully accounted for in the new glued track
@@ -1622,7 +1631,7 @@ class AudibleTransits:
     def remove_jets(self):
         pass
 
-    def export_results(self):
+    def export_results(self, export_garbage=False):
         '''
         Save 
 
@@ -1630,12 +1639,93 @@ class AudibleTransits:
         TODO: using .config, save to the root of `NMSIM` project directory
         TODO: determine final, formal geospatial format
         '''
+        identifier = self.unit+self.site+str(self.year)+self.database_type
         desktop = os.path.join(os.path.join(os.environ['USERPROFILE']), 'Desktop')
-        self.tracks.to_pickle(os.path.join(desktop, self.unit+self.site+str(self.year)+"_tracks.pkl"))
-        self.active.to_pickle(os.path.join(desktop, self.unit+self.site+str(self.year)+"_active.pkl"))
-        self.mic.to_pickle(os.path.join(desktop, self.unit+self.site+str(self.year)+"_mic.pkl"))
+        self.tracks.to_pickle(os.path.join(desktop, identifier+"_tracks.pkl"))
+        self.active.to_pickle(os.path.join(desktop, identifier+"_active.pkl"))
+        self.mic.to_pickle(os.path.join(desktop, identifier+"_mic.pkl"))
+        if export_garbage : self.garbage.to_pickle(os.path.join(desktop, identifier+"_garbage.pkl"))
         print("Saved results...")
+        
+    def add_to_garbage(self, tracks, reason, other_explanation=None):
+        '''
+        Method to add tracks to garbage along with one of the following reasons: {'low quality', 'scrambled', 'short duration', 'zero speed', 'inf speed'}
+        
+        Parameters
+        ----------
+        tracks : GeoDataFrame
+            A tracks GDF of garbage tracks that contains:
+                            track_id  |  n_number  |  point_dt / interp_point_dt  |  geometry / interp_geometry
+    
+        reason : str
+            A string containing one of the default reasons, or a new one. Need to add other_explanation if using a custom reason for adding to garbage
+    
+        other_explanation : str, default None
+            For custom additions to the garbage bin, provides entry to the 'explanation' column for the new garbage tracks being added
+            
+        Returns
+        -------
+        Nothing, just adds tracks to self.garbage, the attribute that holds all garbage tracks and can be optionally exported. 
+                            track_id  |  n_number  |  point_dt  |  geometry  |  reason  |  explanation
+        '''
 
+        if reason == 'low quality':
+            low_quality_tracks = tracks[['track_id', 'n_number', 'point_dt', 'geometry']]
+            low_quality_tracks['reason'] = reason
+            low_quality_tracks['explanation'] = 'raw data contains only 2 points, has very low avg speed, and covers only a short distance. Likely erroneous data'
+            self.garbage = pd.concat([self.garbage, low_quality_tracks])
+            
+        elif reason == 'scrambled':
+            scrambled_tracks = tracks[['track_id', 'n_number', 'point_dt', 'geometry']]
+            scrambled_tracks['reason'] = reason
+            scrambled_tracks['explanation'] = 'raw data features physically improbable flight paths invloving tight angles and speeds exceeding aircraft specs'
+            self.garbage = pd.concat([self.garbage, scrambled_tracks])
+            
+        elif reason == 'short duration':
+            quick_tracks = tracks[['track_id', 'n_number', 'interp_point_dt', 'interp_geometry']]
+            quick_tracks.rename_geometry('geometry', inplace=True)
+            quick_tracks.rename(columns={'interp_point_dt':'point_dt'}, inplace=True)
+            quick_tracks['reason'] = reason
+            quick_tracks['explanation'] = 'transit duration over active space is less than 10 seconds, unlikely to be noticed/annotated'
+            self.garbage = pd.concat([self.garbage, quick_tracks]) 
+            
+        elif reason == 'zero speed':
+            static_tracks = tracks[['track_id', 'n_number', 'interp_point_dt', 'interp_geometry']]
+            static_tracks.rename_geometry('geometry', inplace=True)
+            static_tracks.rename(columns={'interp_point_dt':'point_dt'}, inplace=True)
+            static_tracks['reason'] = reason
+            static_tracks['explanation'] = 'track appears to not move through space, avg speed = 0. Good indicator of erroneous data' 
+            self.garbage = pd.concat([self.garbage, static_tracks])
+        
+        elif reason == 'inf speed':
+            inf_tracks = tracks[['track_id', 'n_number', 'interp_point_dt', 'interp_geometry']]
+            inf_tracks.rename_geometry('geometry', inplace=True)
+            inf_tracks.rename(columns={'interp_point_dt':'point_dt'}, inplace=True)
+            inf_tracks['reason'] = reason
+            inf_tracks['explanation'] = 'track appears to have infinite speed. Good indicator of erroneous data'             
+            self.garbage = pd.concat([self.garbage, inf_tracks])
+        
+        else:
+            if 'point_dt' in tracks.columns: 
+                time_col = 'point_dt'
+            elif 'interp_point_dt' in tracks.columns: 
+                time_col = 'interp_point_dt'
+            else: 
+                return 0
+            
+            if 'geometry' in tracks.columns:
+                geom_col = 'geometry'
+            elif 'interp_geometry' in tracks.columns:
+                geom_col = 'interp_geometry'
+            else:
+                geom_col = tracks.geometry.name
+
+            garbage_tracks = tracks[['track_id', 'n_number', time_col, geom_col]]
+            garbage_tracks.rename_geometry('geometry', inplace=True)
+            if 'interp_point_dt' in garbage_tracks.columns : garbage_tracks.rename(columns={'interp_point_dt':'point_dt'}, inplace=True)
+            garbage_tracks['reason'] = reason
+            garbage_tracks['explanation'] = other_explanation         
+            self.garbage = pd.concat([self.garbage, inf_tracks])
 
 
 class AudibleTransitsGPS(AudibleTransits):
@@ -1662,7 +1752,7 @@ class AudibleTransitsGPS(AudibleTransits):
             GeoDataFrame containing all tracks in the buffered active space with standardized column names
         '''
         if type(data) is str:
-    
+
             print("Initializing engine...")
             engine = self.init_engine()
             print("\tengine has been initialized...")
@@ -1936,7 +2026,7 @@ class AudibleTransitsGPS(AudibleTransits):
     def create_aircraft_lookup(tracks, FAA_path, aircraft_corrections_path=None):
         # Requires N-number
         FAA = pd.read_csv(FAA_path, sep=",")
-        Type_Map = {1:"Glider", 2:"2", 3:"3", 4:"Fixed-wing", 5:"Jet", 6:"Helicopter", 7:"7", 8:"8", 9:"Gyroplane"} # codifed type to human-readable type
+        Type_Map = {4:"Fixed-wing", 5:"Jet", 6:"Helicopter"} # codifed type to human-readable type
         aircraft_list = []
     
         for aircraft in tracks.n_number.unique():  
@@ -1991,8 +2081,9 @@ class AudibleTransitsADSB(AudibleTransits):
             warnings.filterwarnings('ignore', message=".*before calling to_datetime.*")
             # Loading tracks from ADSB
             ADSB_DIR = self.paths["ADSB"]
-            loaded_track_pts_raw = Adsb(ADSB_DIR)
-        
+            #loaded_track_pts_raw = Adsb(ADSB_DIR)
+            self.studyA = self.active.copy()
+            loaded_track_pts_raw = query_adsb(ADSB_DIR, self.study_start, self.study_end, mask=self.studyA, mask_buffer_distance=25000, exclude_early_ADSB=True)
             # Now, lets filter down to the columns we actually want
             loaded_track_pts = loaded_track_pts_raw.copy()
             loaded_track_pts = loaded_track_pts[['flight_id', 'TIME', 'geometry', 'altitude']]
@@ -2335,6 +2426,8 @@ if __name__ == '__main__':
                           help="YYYY-MM-DD end date for position record. E.g. 2019-06-01")
     argparse.add_argument('-t', '--track-source', default='Database', choices=["Database", "ADSB", "AIS"],
                           help="Enter 'Database', 'ADSB', or 'AIS")
+    argparse.add_argument('-garb', '--exportgarbage', default='0', choices=['1', '0'],
+                          help="Enter '1' to export garbage tracks, 0 is default")
 
     args = argparse.parse_args()
 
@@ -2368,10 +2461,7 @@ if __name__ == '__main__':
     
     listener.init_spatial_data()
     listener.load_DEM()
-    listener.load_tracks_from_database()
-
-    pkl_path = r"C:\Users\jbrotman-krass\Documents\PythonScripts\TrackCheckpoints"
-    listener.tracks.to_pickle(os.path.join(pkl_path, '_BadTracks.pkl'))   
+    listener.load_tracks_from_database() 
 
     AudibleTransits.split_paused_tracks(listener.tracks)
 
@@ -2386,9 +2476,11 @@ if __name__ == '__main__':
     raw_tracks = listener.tracks.copy()
     listener.simplify_active_space()
 
-    listener.tracks, hairballs = AudibleTransits.remove_hairballs(listener.tracks, listener.active, return_hairballs=True)
+    listener.tracks, scrambled_tracks = AudibleTransits.remove_scrambled_tracks(listener.tracks, listener.active, return_scrambled_tracks=True)
+    listener.add_to_garbage(scrambled_tracks, 'scrambled')
 
-    AudibleTransits.find_poor_tracks(listener.tracks)
+    listener.tracks, low_quality_tracks = AudibleTransits.remove_low_quality_tracks(listener.tracks, return_low_quality_tracks=True)
+    listener.add_to_garbage(low_quality_tracks, 'low quality')
 
     AudibleTransits.get_sampling_interval(listener.tracks)
 
@@ -2414,4 +2506,5 @@ if __name__ == '__main__':
 
     listener.summarize_data_quality()
     listener.visualize_tracks(show_DEM=True)
-    listener.export_results()
+    plt.show()
+    listener.export_results(export_garbage=bool(int(args.exportgarbage)))
