@@ -114,7 +114,9 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
 
 
 def query_adsb(adsb_path: str,  start_date: str, end_date: str,
-               mask: Optional[gpd.GeoDataFrame] = None) -> Union[Adsb, EarlyAdsb]:
+               mask: Optional[gpd.GeoDataFrame] = None,
+               mask_buffer_distance: Optional[int] = None,
+               exclude_early_ADSB: Optional[bool] = False) -> Union[Adsb, EarlyAdsb]:
     """
     Query flight tracks from ADSB files for a specific date range and optional within a specific area.
 
@@ -134,7 +136,8 @@ def query_adsb(adsb_path: str,  start_date: str, end_date: str,
     adsb : ADSB or EarlyADSB
         An ADSB or EarlyADSB object of flight track points.
     """
-    if int(start_date[:4]) <= 2019:  # ADSB file formats changed after 2019.
+
+    if (int(start_date[:4]) <= 2019) & (exclude_early_ADSB == False):  # ADSB file formats changed after 2019.
         adsb_files = glob.glob(os.path.join(adsb_path, "*.txt"))
         adsb = EarlyAdsb(adsb_files)
     else:
@@ -145,6 +148,11 @@ def query_adsb(adsb_path: str,  start_date: str, end_date: str,
     if mask is not None:
         if not mask.crs.to_epsg() == 4326:  # If mask is not already in WGS84, project it.
             mask = mask.to_crs(epsg='4326')
+        if mask_buffer_distance:
+            ak_albers_mask = mask.to_crs(epsg=3338)
+            mask.geometry = ak_albers_mask.buffer(mask_buffer_distance).to_crs(epsg=4326)
+        print(adsb.crs)
+        adsb.set_crs(epsg='4326', inplace=True)
         adsb = gpd.clip(adsb, mask)
 
     adsb = adsb.loc[~(adsb.geometry.is_empty)]
