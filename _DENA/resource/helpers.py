@@ -61,7 +61,8 @@ def get_deployment(unit: str, site: str, year: int, filename: str, elevation: bo
 
 
 def query_tracks(engine: 'Engine', start_date: str, end_date: str,
-                 mask: Optional[gpd.GeoDataFrame] = None) -> gpd.GeoDataFrame:
+                 mask: Optional[gpd.GeoDataFrame] = None, 
+                 mask_buffer_distance: Optional[int] = None) -> gpd.GeoDataFrame:
     """
     Query flight tracks from the FlightsDB for a specific date range and optional within a specific area.
 
@@ -87,12 +88,15 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
         if mask.crs.to_epsg() != 4326:  # If mask is not already in WGS84, project it.
             mask = mask.to_crs(epsg='4326')
         mask['dissolve_field'] = 1
+        if mask_buffer_distance:
+            ak_albers_mask = mask.to_crs(epsg=3338)
+            mask.geometry = ak_albers_mask.buffer(mask_buffer_distance).to_crs(epsg=4326)
         mask_wkt = mask.dissolve(by='dissolve_field').squeeze()['geometry'].wkt
         wheres.append(f"ST_Intersects(geom, ST_GeomFromText('{mask_wkt}', 4326))")
 
     query = f"""
         SELECT
-            f.id as flight_id,
+            f.flight_id as flight_id,
             fp.altitude_ft * 0.3048 as altitude_m,
             fp.ak_datetime,
             fp.geom, 
