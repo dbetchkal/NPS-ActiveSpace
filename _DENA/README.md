@@ -166,6 +166,7 @@ This script is used to estimate the geographic intersection of a set of tracks w
 | `-t0`, `--begintracks` | **required.**<br/>Date to begin parsing the position record, YYYY-MM-DD. *Ex.*: 2018-01-01 |
 | `-tf`, `--endtracks` | **required.**<br/>Date to stop parsing the position record, YYYY-MM-DD. *Ex.*:  2018-06-05 |
 | `-t`, `--track-source` | ***default Database -> {Database, ADSB, AIS}***<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
+| `-garb`, `--exportgarbage` | **default 0 -> {0, 1}***<br/>Whether to export garbage tracks (1) or not (0).  *Ex.*:  1 |
 
 Example executions:
 
