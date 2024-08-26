@@ -128,9 +128,10 @@ class ActiveSpaceGenerator:
             study_area_m = study_area.to_crs(equal_area_crs)
             study_area_m = study_area_m.buffer(buffer*1000)
             study_area = study_area_m.to_crs(study_area.crs)
-        # study_area.to_pickle(r"C:\Users\DBetchkal\Desktop\study_area_pickle.pkl")
-        # study_area.index = pd.Index(study_area.index) #, dtype=np.int64)
-        study_area.to_file(study_area_filename, index=False)
+
+        # we avoid the deprecated `pd.Int64Index` and an associated AttributeError
+        # by simply setting the `index` parameter to False...
+        study_area.to_file(study_area_filename, index=False) 
 
         # Mask the DEM file with the study area shapefile.
         dem_masked_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_mask{suffix}.tif"
