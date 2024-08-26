@@ -13,6 +13,9 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from shapely.geometry import Point
 from tqdm import tqdm
+
+# for some users relative imports are prohibitive
+# we simplify imports by adding three directories to the path environment variable
 import sys
 repo_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 config_dir = os.path.join(repo_dir, "_DENA")

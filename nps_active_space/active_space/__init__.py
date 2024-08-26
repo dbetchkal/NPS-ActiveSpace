@@ -466,11 +466,9 @@ class ActiveSpaceGenerator:
         # Run NMSIM.
         process = subprocess.Popen([self.NMSIM, batch_file], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         stdout, stderr = process.communicate()
-        print("THIS IS YOUR STANDARD OUTPUT\n", stdout)
 
         if stderr:
             for s in stderr.decode("utf-8").split("\r\n"):
-                print("THIS IS YOUR STANDARD ERROR\n", stdout)
                 print(s.strip())
 
         # Determine the audibility of points that were tested during the NMSIM run.
