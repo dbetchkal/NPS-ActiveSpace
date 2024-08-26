@@ -587,6 +587,11 @@ class EarlyAdsb(gpd.GeoDataFrame):
                 # we need to convert altitude from feet to meters!
                 df["altitude"] = 0.3048*df["altitude"]
 
+                # Keep only those records with realistic altitudes
+                # 10000 meters = 32808 feet; this should encompass most flights
+                # NOTE: some jet aircraft may be eliminated by this process
+                df = df.loc[df["altitude"] <= 10000, :] 
+
                 # Sort records by ICAO Address and TIME then reset dataframe index
                 df.sort_values(["ICAO_address", "TIME"], inplace=True, ignore_index=True)
 

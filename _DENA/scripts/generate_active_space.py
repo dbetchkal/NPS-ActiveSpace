@@ -147,7 +147,9 @@ if __name__ == '__main__':
     if not args.altitude:
         logger.info("Calculating average altitude (in meters)...")
         annotations['z_vals'] = (annotations['geometry'].apply(lambda geom: mean([coords[-1] for coords in geom.coords])))
-        altitude_ = int(mean(annotations[annotations.audible == True].z_vals.tolist()))
+        altitudes_ = annotations[annotations.audible == True].z_vals
+        altitudes_ = altitudes_[altitudes <= 10000]
+        altitude_ = int(mean(altitudes_.tolist()))
         logger.info(f"Average altitude is: {altitude_}m")
     else:
         altitude_ = args.altitude
