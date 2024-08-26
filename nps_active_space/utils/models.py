@@ -498,6 +498,11 @@ class Adsb(gpd.GeoDataFrame):
                 df.drop(df[df["tslc"] >= 3].index, inplace = True)
                 df.drop(df[df["tslc"] == 0].index, inplace = True)
 
+                # Keep only those records with realistic altitudes
+                # 10000 meters = 32808 feet; this should encompass most flights
+                # NOTE: some jet aircraft may be eliminated by this process
+                df = df.loc[df["altitude"] <= 10000, :] 
+
                 # Sort records by ICAO Address and TIME then reset dfframe index
                 df.sort_values(["ICAO_address", "TIME"], inplace=True, ignore_index=True)
 
