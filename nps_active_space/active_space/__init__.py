@@ -128,9 +128,9 @@ class ActiveSpaceGenerator:
             study_area_m = study_area.to_crs(equal_area_crs)
             study_area_m = study_area_m.buffer(buffer*1000)
             study_area = study_area_m.to_crs(study_area.crs)
-
-        study_area.index = pd.Index(study_area.index) #, dtype=np.int64)
-        study_area.to_file(study_area_filename)
+        # study_area.to_pickle(r"C:\Users\DBetchkal\Desktop\study_area_pickle.pkl")
+        # study_area.index = pd.Index(study_area.index) #, dtype=np.int64)
+        study_area.to_file(study_area_filename, index=False)
 
         # Mask the DEM file with the study area shapefile.
         dem_masked_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_mask{suffix}.tif"
@@ -465,9 +465,11 @@ class ActiveSpaceGenerator:
         # Run NMSIM.
         process = subprocess.Popen([self.NMSIM, batch_file], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         stdout, stderr = process.communicate()
+        print("THIS IS YOUR STANDARD OUTPUT\n", stdout)
 
         if stderr:
             for s in stderr.decode("utf-8").split("\r\n"):
+                print("THIS IS YOUR STANDARD ERROR\n", stdout)
                 print(s.strip())
 
         # Determine the audibility of points that were tested during the NMSIM run.
