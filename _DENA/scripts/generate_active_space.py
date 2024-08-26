@@ -217,7 +217,7 @@ if __name__ == '__main__':
         fbeta, precision, recall, n_tot = compute_fbeta(valid_points, res, args.beta)
         precisions.append(precision)
         recalls.append(recall)
-        print(f"omni: {omni} --> fbeta: {fbeta} precision: {precision} recall: {recall}")
+        print(f"omni: {omni} --> fbeta: {fbeta:0.3f} precision: {precision:0.3f} recall: {recall:0.3f}")
         if fbeta > max_fbeta:
             max_fbeta = fbeta
             best_omni = omni
