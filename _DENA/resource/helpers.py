@@ -32,7 +32,7 @@ def get_deployment(unit: str, site: str, year: int, filename: str, elevation: bo
     unit : str
         Four letter park service unit code E.g. 'DENA'
     site : str
-        Deployment site character code. E.g. 'TRLA'
+        Deployment site character code. E.g. 'TRLA', '009'
     year : int
         Deployment year. YYYY
     filename : str
@@ -46,7 +46,13 @@ def get_deployment(unit: str, site: str, year: int, filename: str, elevation: bo
     mic : Microphone
         A Microphone object containing the mic deployment site metadata from the specific unit/site/year combination.
     """
+
+    print(unit, site, year)
     metadata = pd.read_csv(filename, delimiter='\t', encoding='ISO-8859-1')
+
+    # this rather cumbersome line assures that any sites styled as '009' or '099' are correctly formatted as strings
+    metadata.loc[metadata["code"].astype('str').str.len() <= 3, "code"] = metadata.loc[metadata["code"].astype('str').str.len() <= 3, "code"].apply(lambda s: str(s).zfill(3))
+    
     site_meta = metadata.loc[(metadata['unit'] == unit) & (metadata['code'] == site) & (metadata['year'] == year)]
 
     # Microphone coordinates are stored in WGS84, epsg:4326
