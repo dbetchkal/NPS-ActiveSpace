@@ -229,7 +229,7 @@ class AudibleTransits:
         AudibleTransits.needs_glue(tracks, self.active)
         # TODO attribute for 
         print(" - very short track")
-        AudibleTransits.find_short_tracks(tracks, max_distance=100)
+        AudibleTransits.find_short_tracks(tracks, max_distance=500)
         print(" - erroneous flight speed")
         AudibleTransits.find_err_flight_speeds(tracks, min_speed=1, max_speed=100)
         print("------------ Track QC Completed -------------")
@@ -572,6 +572,11 @@ class AudibleTransits:
         quick_tracks = cleaned_tracks.loc[cleaned_tracks.transit_duration < 10]
         self.add_to_garbage(tracks=quick_tracks, reason='short duration')
         cleaned_tracks = cleaned_tracks.loc[cleaned_tracks.transit_duration >= 10]
+
+        print("removing tracks < 500m in distance")
+        short_tracks = cleaned_tracks.loc[cleaned_tracks.short_distance]
+        self.add_to_garbage(tracks=short_tracks, reason='short distance', other_explanation='track distance less than 500 meters')
+        cleaned_tracks = cleaned_tracks.loc[cleaned_tracks.short_distance == False]
         
         print("removing tracks with avg speed = 0 or infinity...")
         self.add_to_garbage(tracks=cleaned_tracks.loc[cleaned_tracks.avg_speed == 0], reason='zero speed')
@@ -842,7 +847,7 @@ class AudibleTransits:
             exit_positions.plot(marker = '.', markersize=10, color='r', alpha=alpha, ax=ax, zorder=5)
 
         if title=='default':
-            title = f'{self.unit}{self.site} Audible Transits'
+            title = f'{self.unit}{self.site}{self.year} Audible Transits'
 
         ax.set_title(title)
 
@@ -1070,7 +1075,7 @@ class AudibleTransits:
             return new_tracks
 
     @staticmethod
-    def find_short_tracks(tracks, max_distance=100, inplace=True):
+    def find_short_tracks(tracks, max_distance=500, inplace=True):
         """
         Identifies tracks that are below a threshold distance; adds a corresponding boolean column 'short_distance' to the input GeoDataFrame.
         Can be an indicator of garbage data.
@@ -1082,7 +1087,7 @@ class AudibleTransits:
             index(unlabeled) | track_id | entry_position | exit_position 
     
         max_distance: int (in meters)
-            Defaults to 100 m, sets the threshold for defining a "short" track. 
+            Defaults to 500 m, sets the threshold for defining a "short" track. 
             While short tracks aren't necessarily bad, this can be an indicator for erroneous track data. Nice to have this metric.
         
         inplace: boolean
@@ -1679,13 +1684,14 @@ class AudibleTransits:
         TODO: determine final, formal geospatial format
         '''
         identifier = self.unit+self.site+str(self.year)+self.database_type
-        desktop = os.path.join(os.path.join(os.environ['USERPROFILE']), 'Desktop')
-        self.tracks.to_pickle(os.path.join(desktop, identifier+"_tracks.pkl"))
-        self.active.to_pickle(os.path.join(desktop, identifier+"_active.pkl"))
-        self.mic.to_pickle(os.path.join(desktop, identifier+"_mic.pkl"))
+        path = r'V:\NMSim\04 RESULTS\AudibleTransits'
+        #desktop = os.path.join(os.path.join(os.environ['USERPROFILE']), 'Desktop')
+        self.tracks.to_pickle(os.path.join(path, identifier+"_tracks.pkl"))
+        self.active.to_pickle(os.path.join(path, identifier+"_active.pkl"))
+        self.mic.to_pickle(os.path.join(path, identifier+"_mic.pkl"))
         if export_garbage: 
-            self.garbage.to_pickle(os.path.join(desktop, identifier+"_garbage.pkl"))
-            self.export_garbage_summary(desktop)
+            self.garbage.to_pickle(os.path.join(path, identifier+"_garbage.pkl"))
+            self.export_garbage_summary(path)
         print("Saved results...")
 
     def export_garbage_summary(self, path):
@@ -1714,7 +1720,8 @@ class AudibleTransits:
                 fig.suptitle(f"{num_garbs} {reason} tracks")
                 figs.append(fig)
 
-        with PdfPages(os.path.join(path, 'view_garbage.pdf')) as pdf:
+        identifier = self.unit+self.site+str(self.year)+self.database_type
+        with PdfPages(os.path.join(path, identifier+'view_garbage.pdf')) as pdf:
             for fig in figs:
                 pdf.savefig(fig, bbox_inches='tight') 
         
@@ -1797,7 +1804,7 @@ class AudibleTransits:
             if 'interp_point_dt' in garbage_tracks.columns : garbage_tracks.rename(columns={'interp_point_dt':'point_dt'}, inplace=True)
             garbage_tracks['reason'] = reason
             garbage_tracks['explanation'] = other_explanation         
-            self.garbage = pd.concat([self.garbage, inf_tracks])
+            self.garbage = pd.concat([self.garbage, garbage_tracks])
 
 
 class AudibleTransitsGPS(AudibleTransits):
@@ -2560,7 +2567,7 @@ if __name__ == '__main__':
     interpolated_tracks = listener.tracks.copy()
 
     listener.update_track_parameters()
-    listener.visualize_tracks(show_DEM=True)
+    listener.visualize_tracks(show_DEM=True, title=f"{listener.unit}{listener.site}{listener.year} Nearby Overflights")
 
     listener.clip_tracks()
     listener.update_track_parameters()
