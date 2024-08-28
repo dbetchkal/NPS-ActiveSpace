@@ -4,7 +4,7 @@ import geopandas as gpd
 from scipy import stats
 from scipy.spatial.distance import directed_hausdorff, cdist
 from scipy.signal import find_peaks
-from shapely import Point, LineString
+from shapely.geometry import Point, LineString
 from tqdm import tqdm
 ## ========================================== STATISTICS/METRCIS ======================================== ##
 
