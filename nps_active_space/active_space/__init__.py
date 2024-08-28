@@ -466,6 +466,8 @@ class ActiveSpaceGenerator:
         # Run NMSIM.
         process = subprocess.Popen([self.NMSIM, batch_file], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         stdout, stderr = process.communicate()
+        print("HERE IS THE STANDARD OUTPUT\n", stdout)
+        print("\n\nHERE IS THE STANDARD ERROR", stderr)
 
         if stderr:
             for s in stderr.decode("utf-8").split("\r\n"):
