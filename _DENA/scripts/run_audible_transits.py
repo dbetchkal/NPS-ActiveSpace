@@ -20,6 +20,7 @@ import ipykernel
 import json
 import math
 import matplotlib as mpl
+from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import cm
 from matplotlib.tri import Triangulation
@@ -71,21 +72,14 @@ class AudibleTransits:
         
         Parameters
         ----------
-        u : string
-            Unit that the active space resides in (ex: 'DENA')
-        s : string
-            The active space's site name (ex: 'TRLA')
-        y : int, 4 digits
-            The year that the active space was calculated in (ex: 2019)
-        gain : float
-            The optimal gain, or scaling factor, of the active space, determined during ground truthing
-    
+        self : utilizes self.unit, self.site, self.year, and self.gain attributes -- all set upon object initialization.
+        visualize : bool
+            Default is False, determines whether a plot of the active space and mic location is generated.
+
         Returns
         -------
         active_space : GeoDataFrame
             GeoDataFrame containing all geometries of the active space. Can be a single polygon or a multipolygon.
-        study_area : GeoDataFrame
-            GeoDataFrame containing the geometry of the study area. A single polygon.
         mic_loc : GeoDataFrame
             GeoDataFrame containing the mic's point in the xy plane, as well as the mic height (z above ground level) in its own column. 
             Should be in the equal area UTM zone.
@@ -123,7 +117,9 @@ class AudibleTransits:
         return active, mic_loc
 
     def load_DEM(self):
-        # Load in digital elevation model (DEM)
+        '''
+        Loads the digital elevation model using the project info
+        '''
         raster_path = glob.glob(self.paths["project"] + os.sep + r"Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif")[0]# Open raster
         ras = rasterio.open(raster_path)
         self.DEM = ras
@@ -137,10 +133,11 @@ class AudibleTransits:
 
         Parameters
         ----------
-        tracks: GeoDataFrame
-            Geodataframe containing all tracks (as points)
+        tracks: GeoDataFrame (or string 'self')
+            Default is 'self', which uses self.tracks. Otherwise, Geodataframe containing all tracks (as points).
         '''
         if type(tracks) is str:
+            assert tracks=='self'
             tracks=self.tracks
             self_flag = True
         else:
@@ -168,7 +165,7 @@ class AudibleTransits:
     def create_track_segments(self):
         pass
 
-    def simplify_active_space(self, inplace=True):
+    def simplify_active_space(self, inplace=True, visualize=False):
         
         # Simplify active space boundaries within a tolerance of 100 meters 
         # (arbitrary, but helps prevent overly fragmented audible transits)
@@ -180,12 +177,20 @@ class AudibleTransits:
             active_ea_simple = gpd.GeoSeries(polygons[np.argmax([poly.area for poly in polygons])], crs=self.active.crs) # Select largest polygon
             print("Largest polygon chosen as active space")
 
+        if len(active_ea_simple.interiors[0]) > 0:
+            print("Removing small interior holes in active space")
+            interior_area_thresh = .05
+            new_interiors = [i for i in active_ea_simple.interiors[0] if Polygon(i).area/active_ea_simple.area[0] >= interior_area_thresh]
+            active_ea_simple = gpd.GeoSeries(Polygon(active_ea_simple.exterior[0], new_interiors), crs=self.active.crs)
+            
         # Make a plot to illustrate the active space simplifications
-        fig, ax = plt.subplots(1,1,figsize=(6,6))
-        self.active.boundary.plot(color='k', ax=ax, label='original')
-        active_ea_simple.boundary.plot(color='r', ax=ax, label='simplified')
-        ax.legend()
-        ax.set_title("Active Space Simplified")
+        if (visualize):
+            fig, ax = plt.subplots(1,1,figsize=(6,6))
+            self.active.boundary.plot(color='k', ax=ax, label='original')
+            active_ea_simple.boundary.plot(color='r', ax=ax, label='simplified')
+            ax.legend()
+            ax.set_title("Active Space Simplified")
+            plt.show()
 
         if (inplace):
             self.active = active_ea_simple.copy()
@@ -203,8 +208,9 @@ class AudibleTransits:
         
         Parameters
         ----------
-        tracks : GeoDataFrame
-            GeoDataFrame of flight tracks, requires basic parameters of the tracks:
+        tracks: GeoDataFrame (or string 'self')
+            Default is 'self', which uses self.tracks. Otherwise, Geodataframe containing all tracks.
+            Requires basic parameters of the tracks:
                 entry_time | exit_time | entry_position | exit_position | transit_distance
          
         Returns
@@ -212,6 +218,7 @@ class AudibleTransits:
         None, just adds/updates columns in 'tracks' 
         '''
         if type(tracks) is str:
+            assert tracks=='self'
             tracks=self.tracks
             
         print("=============================================")
@@ -240,8 +247,9 @@ class AudibleTransits:
         
         Parameters
         ----------
-        tracks : GeoDataFrame
-            GeoDataFrame of flight tracks, requires interpolated geometries and times:
+        tracks: GeoDataFrame (or string 'self')
+            Default is 'self', which uses self.tracks. Otherwise, Geodataframe containing interpolated tracks (LineStrings).
+            Requires interpolated geometries and times:
                 interp_goemetry | interp_point_dt
          
         Returns
@@ -249,6 +257,7 @@ class AudibleTransits:
         None, just adds/updates columns in 'tracks'
         '''
         if type(tracks) is str:
+            assert tracks=='self'
             tracks=self.tracks
 
         print("--------- Updating track parameters ---------")
@@ -297,6 +306,7 @@ class AudibleTransits:
     def summarize_data_quality(self, tracks='self'):
         
         if type(tracks) is str:
+            assert tracks=='self'
             tracks=self.tracks
 
         num_tracks = len(tracks)
@@ -315,8 +325,9 @@ class AudibleTransits:
         
         Parameters
         ----------
-        tracks : GeoDataFrame
-            GeoDataFrame of uninterpolated flight tracks, requires basic track elements:
+        tracks: GeoDataFrame (or string 'self')
+            Default is 'self', which uses self.tracks. Otherwise, Geodataframe containing raw track points. 
+            Requires basic track elements:
                 goemetry_pts | geometry | point_dt
          
         Returns
@@ -327,6 +338,7 @@ class AudibleTransits:
                                                                                     'point_dt' --> 'interp_point_dt'
         '''
         if type(tracks) is str:
+            assert tracks=='self'
             tracks=self.tracks
             self_flag = True
         else:
@@ -353,7 +365,6 @@ class AudibleTransits:
         sampling_interval_list = []
         spline_time_list = []         # List to store lists of interpolated times for resulting splines
         spline_line_list = []         # List to store resulting interpolated LineStrings
-        interp_flag_list = []
         # At the end, we'll take all these lists and combine them into a GeoDataFrame
         
         # LOOP THROUGH EACH FLIGHT ID AND INTERPOLATE THE TRACK
@@ -381,8 +392,6 @@ class AudibleTransits:
                 # Convert spline timestamps to a pandas Series to convert to datetime64, add list of timestamps to spline_time_list (list of lists)
                 spline_time = pd.Series([time for time in track_spline.point_dt])  
                 spline_time_list.append(pd.to_datetime(spline_time).values)
-                
-                interp_flag_list.append(track_spline.iloc[0].interp_flag > 0)  
 
             else:
                 track_pts["point_dt"] = np.zeros(len(track_pts))
@@ -395,7 +404,6 @@ class AudibleTransits:
         interp_tracks['interp_geometry'] = spline_line_list
         interp_tracks['n_number'] = n_number_list
         interp_tracks['aircraft_type'] = aircraft_type_list
-        interp_tracks['interp_flag'] = interp_flag_list
         interp_tracks['num_points'] = num_points_list
         interp_tracks['sampling_interval'] = sampling_interval_list
         interp_tracks.set_geometry('interp_geometry', inplace=True)
@@ -416,8 +424,9 @@ class AudibleTransits:
         
         Parameters
         ----------
-        tracks : GeoDataFrame
-            GeoDataFrame of interpolated flight tracks, requires basic track elements:
+        tracks: GeoDataFrame (or string 'self')
+            Default is 'self', which uses self.tracks. Otherwise, Geodataframe containing tracks. 
+            Requires basic track elements:
                 interp_geometry | interp_point_dt
                 
         Returns
@@ -427,6 +436,7 @@ class AudibleTransits:
         '''        
 
         if type(tracks) is str:
+            assert tracks=='self'
             tracks=self.tracks
             self_flag = True
         else:
@@ -446,7 +456,7 @@ class AudibleTransits:
             clipped_tracks.rename(columns = {'index':'track_id'}, inplace = True)
         clipped_tracks = clipped_tracks.explode('interp_geometry',ignore_index=True) 
         # Reorder and remove extra columns -- we can always repopulate
-        #clipped_tracks = clipped_tracks[['preclip_id', 'track_id', 'interp_point_dt', 'interp_geometry', 'interp_flag', 'poor_track', 'num_points', 'sampling_interval']]
+        #clipped_tracks = clipped_tracks[['preclip_id', 'track_id', 'interp_point_dt', 'interp_geometry', 'num_points', 'sampling_interval']]
         
         # NEED TO EXPLODE TIMESTAMPS, TOO
         print("Adjusting timestamps to clipped tracks")
@@ -533,8 +543,9 @@ class AudibleTransits:
         
         Parameters
         ----------
-        tracks : GeoDataFrame
-            GeoDataFrame of flight tracks, requires track parameters and QC columns:
+        tracks: GeoDataFrame (or string 'self')
+            Default is 'self', which uses self.tracks. Otherwise, Geodataframe containing clipped, interpolated tracks. 
+            Requires track parameters and QC columns:
                 interp_geometry | entry_time | exit_time | entry_position | exit_position | transit_duration | avg_speed
                 
         Returns
@@ -543,6 +554,7 @@ class AudibleTransits:
             GeoDataFrame of cleaned flight tracks
         '''        
         if type(tracks) is str:
+            assert tracks=='self'
             tracks=self.tracks
             self_flag = True
         else:
@@ -583,8 +595,9 @@ class AudibleTransits:
         
         Parameters
         ----------
-        tracks : GeoDataFrame
-            GeoDataFrame of flight tracks, requires track parameters and QC columns that indicate a need to extrapolate:
+        tracks: GeoDataFrame (or string 'self')
+            Default is 'self', which uses self.tracks. Otherwise, Geodataframe containing interpolated tracks. 
+            Requires track parameters and QC columns that indicate a need to extrapolate:
                 interp_geometry | interp_point_dt | needs_extrapolation | starts_inside | ends_inside | takeoff | landing
         extrapolation_time : int (in seconds)
             Defaults to 800 s, determines how long to extrapolate tracks for. Tradeoff between extrapolation not being completed vs. lots of 
@@ -601,6 +614,7 @@ class AudibleTransits:
             of extrapolation and takeoff/landing detection.
         '''        
         if type(tracks) is str:
+            assert tracks=='self'
             tracks=self.tracks
             self_flag = True
         else:
@@ -708,13 +722,11 @@ class AudibleTransits:
         extrapolated_clipped = self.clip_tracks(tracks=extrapolated_tracks)
         self.update_track_parameters(tracks=extrapolated_clipped)
         self.update_trackQC(tracks=extrapolated_clipped)
-        self.summarize_data_quality(tracks=extrapolated_clipped)
 
         # Clean the clipped, extrapolated tracks and update parameters and QC
         extrapolated_cleaned = self.clean_tracks(tracks=extrapolated_clipped)
         self.update_track_parameters(tracks=extrapolated_cleaned)
         self.update_trackQC(tracks=extrapolated_cleaned)
-        self.summarize_data_quality(tracks=extrapolated_cleaned)
         
         ## Add extrapolated tracks back into full dataframe
         unextrapolated_tracks = tracks[~(tracks.needs_extrapolation)]
@@ -731,11 +743,36 @@ class AudibleTransits:
         else:
             return new_tracks
 
-    def visualize_tracks(self, tracks_to_view='self', show_DEM=False, crs='self', show_active=True, show_mic=True, show_endpoints=False, title='default', fig='none', ax='none'):
+    def visualize_tracks(self, tracks_to_view='self', show_DEM=False, crs='self', show_active=True, show_mic=True, show_endpoints=False, title='default', alpha='auto', fig='none', ax='none'):
         '''
         A method for visualizing tracks of any type, with or without the active space, microphone location, track endpoints, and DEM.
         Also includes options to pass a title, fig, and ax.
-        '''
+        
+        Parameters
+        ----------
+        tracks_to_view: GeoDataFrame (or string 'self')
+            Default is 'self', which uses self.tracks. Otherwise, Geodataframe containing tracks or track points. 
+            Requires a geometry column, ideally in self.utm_zone.
+        show_DEM : bool
+            Defaults to False, toggles whether the digital elevation model (self.DEM) is visible.
+        crs : str
+            Defaults to 'self', sets the CRS of the plot and its elements.
+        show_active : bool
+            Defaults to True, toggles whether the active space boundary (from self.active) is visible.        
+        show_mic : bool
+            Defaults to True, toggles whether the mic location (self.mic) is visible.
+        show_endpoints : bool
+            Defaults to False, toggles whether the endpoints of each clipped track is visible. 
+            Requires entry_position and exit_position columns in tracks_to_view.
+        title : str
+            Defaults to 'default', which = "{self.unit}{self.site} Flight Tracks". Title of the resulting plot.
+        fig, ax 
+            Defaults to 'None'; allows you to pass more customization of the plot, as well as use subplots
+         
+        Returns
+        -------
+        Creates a plot of flight tracks/points with optional features such as the active space boundary, mic location, and DEM
+        '''        
         
         ### TODO: add options for plotting linestrings as points, with colormapping options using other GDF columns
         if type(tracks_to_view) is str:
@@ -764,7 +801,7 @@ class AudibleTransits:
         # If a different default crs is set, we need to reproject all geometries: active space, track lines, and entry + exit positions
         if crs != 'self':
             if show_active : active = active.to_crs(crs)
-            mic = mic.to_crs(crs)
+            if show_mic : mic = mic.to_crs(crs)
             tracklines = tracklines.to_crs(crs)
             studyA = studyA.to_crs(crs)
             if (show_endpoints):
@@ -792,7 +829,9 @@ class AudibleTransits:
             mic.plot(ax=ax, color='r', markersize=10, marker='*', zorder=10)
 
         # Automatically calculate the alpha for the tracklines based on the density of the data
-        alpha = min(1, 50/len(tracks))
+        if type(alpha) is str:
+            assert alpha == 'auto'
+            alpha = min(1, 50/len(tracks))
             
         # Plot the track lines
         tracklines.plot(ax=ax, color='k', alpha=alpha)
@@ -803,10 +842,11 @@ class AudibleTransits:
             exit_positions.plot(marker = '.', markersize=10, color='r', alpha=alpha, ax=ax, zorder=5)
 
         if title=='default':
-            title = f'{self.unit}{self.site} Flight Tracks'
+            title = f'{self.unit}{self.site} Audible Transits'
 
         ax.set_title(title)
-        
+
+
     # CHECKPT
     ## ========================================== INITIALIZATION UTILITIES =================================================== ##
     @staticmethod
@@ -1382,7 +1422,6 @@ class AudibleTransits:
             first_track = tracks.iloc[indices[0]]  # first track in glue group
             last_track = tracks.iloc[indices[-1]]  # last track in glue group
             track_id = first_track.track_id        # keep the same track ID
-            interp_flag = first_track.interp_flag
             num_points = first_track.num_points
             sampling_interval = first_track.sampling_interval
             n_number = first_track.n_number
@@ -1419,7 +1458,7 @@ class AudibleTransits:
             transit_duration = (exit_time - entry_time) / pd.Timedelta(seconds = 1)  # calculate new transit duration
             
             # Replace the row of the first track with our new glued track
-            glued_tracks.iloc[indices[0]] = {'track_id': track_id, 'interp_point_dt': interp_point_dt, 'interp_geometry': interp_geometry, 'entry_time': entry_time, 'exit_time': exit_time, 'entry_position': entry_position, 'exit_position': exit_position, 'transit_duration': transit_duration, 'transit_distance': transit_distance, 'interp_flag': interp_flag, 'num_points': num_points, 'sampling_interval': sampling_interval, 'needs_extrapolation': np.nan, 'n_number': n_number, 'aircraft_type': aircraft_type}
+            glued_tracks.iloc[indices[0]] = {'track_id': track_id, 'interp_point_dt': interp_point_dt, 'interp_geometry': interp_geometry, 'entry_time': entry_time, 'exit_time': exit_time, 'entry_position': entry_position, 'exit_position': exit_position, 'transit_duration': transit_duration, 'transit_distance': transit_distance, 'num_points': num_points, 'sampling_interval': sampling_interval, 'needs_extrapolation': np.nan, 'n_number': n_number, 'aircraft_type': aircraft_type}
     
         print(" - Remove duplicates")
         # Now, we need to get rid of all the other rows of unglued tracks now that they are fully accounted for in the new glued track
@@ -1486,7 +1525,7 @@ class AudibleTransits:
         duration = (endtime - starttime).total_seconds()
         tnew = np.arange(0, duration + ds, ds)
         spl_out = interpolate.splev(tnew, tck)
-        track_spline = gpd.GeoDataFrame({'point_dt': [starttime + dt.timedelta(seconds=offset) for offset in tnew], 'interp_flag': ier},
+        track_spline = gpd.GeoDataFrame({'point_dt': [starttime + dt.timedelta(seconds=offset) for offset in tnew]},
                                         geometry=[Point(xyz) for xyz in zip(spl_out[0], spl_out[1], spl_out[2])],
                                         crs=points.crs)
         
@@ -1644,8 +1683,40 @@ class AudibleTransits:
         self.tracks.to_pickle(os.path.join(desktop, identifier+"_tracks.pkl"))
         self.active.to_pickle(os.path.join(desktop, identifier+"_active.pkl"))
         self.mic.to_pickle(os.path.join(desktop, identifier+"_mic.pkl"))
-        if export_garbage : self.garbage.to_pickle(os.path.join(desktop, identifier+"_garbage.pkl"))
+        if export_garbage: 
+            self.garbage.to_pickle(os.path.join(desktop, identifier+"_garbage.pkl"))
+            self.export_garbage_summary(desktop)
         print("Saved results...")
+
+    def export_garbage_summary(self, path):
+
+        print("exporting garbage pdf")
+        figs = []
+        for reason in self.garbage.reason.unique():
+            garb_tracks = self.garbage[self.garbage.reason == reason]
+            num_garbs = len(garb_tracks)
+            
+            if reason == 'scrambled':
+                for page_num in range(math.ceil(num_garbs/30)):
+                    fig, ax = plt.subplots(6, 5, figsize=(10,10), sharex=True, sharey=True)
+                    for i in tqdm(range(30), unit='plots'):
+                        idx = page_num*30+i
+                        if idx < num_garbs:
+                            garbage_track = garb_tracks[idx:idx+1]
+                            listener.visualize_tracks(tracks_to_view=garbage_track, crs='WGS84', fig=fig, ax=np.ravel(ax)[i], title=None)
+                            plt.setp(np.ravel(ax)[i].get_xticklabels(), rotation=45, horizontalalignment='right', fontsize='x-small')
+                    fig.suptitle(f"{reason} tracks, Page {page_num + 1}")
+                    figs.append(fig)
+                    plt.pause(.1)
+            else:
+                fig, ax = plt.subplots(1, 1, figsize=(10,10))
+                listener.visualize_tracks(tracks_to_view=garb_tracks, crs='WGS84', fig=fig, ax=ax, title=None)
+                fig.suptitle(f"{num_garbs} {reason} tracks")
+                figs.append(fig)
+
+        with PdfPages(os.path.join(path, 'view_garbage.pdf')) as pdf:
+            for fig in figs:
+                pdf.savefig(fig, bbox_inches='tight') 
         
     def add_to_garbage(self, tracks, reason, other_explanation=None):
         '''
@@ -1668,6 +1739,7 @@ class AudibleTransits:
         Nothing, just adds tracks to self.garbage, the attribute that holds all garbage tracks and can be optionally exported. 
                             track_id  |  n_number  |  point_dt  |  geometry  |  reason  |  explanation
         '''
+        self.garbage.set_crs(self.utm_zone, inplace=True)
 
         if reason == 'low quality':
             low_quality_tracks = tracks[['track_id', 'n_number', 'point_dt', 'geometry']]
@@ -2502,7 +2574,8 @@ if __name__ == '__main__':
     ### EXTRAPOLATION ===================================================================================#
     if listener.tracks.needs_extrapolation.sum() > 0:
         listener.detect_takeoffs_and_landings()
-        final_tracks, extrapolated_tracks = listener.extrapolate_tracks(return_extrapolated=True)
+        if listener.tracks.needs_extrapolation.sum() > 0:
+            final_tracks, extrapolated_tracks = listener.extrapolate_tracks(return_extrapolated=True)
 
     listener.summarize_data_quality()
     listener.visualize_tracks(show_DEM=True)
