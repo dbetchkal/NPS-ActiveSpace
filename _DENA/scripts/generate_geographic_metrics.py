@@ -2,6 +2,10 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 from scipy import stats
+from scipy.spatial.distance import directed_hausdorff, cdist
+from scipy.signal import find_peaks
+from shapely import Point, LineString
+from tqdm import tqdm
 ## ========================================== STATISTICS/METRCIS ======================================== ##
 
 def tracks2events(tracks, start_date, end_date, min_dur=30):
@@ -381,3 +385,254 @@ def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13
     NFI_stats = compute_NFI_stats(NFI_df, start_date, end_date, months=months, quantiles=quantiles)
     daily_audibility_stats, hourly_audibility_stats = compute_audibility_stats(event_df, start_date, end_date, months=months, quantiles=quantiles)
     return duration_stats, daily_event_stats, hourly_event_stats, daily_audibility_stats, hourly_audibility_stats, NFI_stats
+
+def calculate_spatial_stats(tracks, active):
+    '''
+    Calculates spatial statistics on audible transits through a given active space. Specifically, this function finds the mean and maximum distance
+    from inaudiblity for each audible transit and outputs min, max, mean, and median over all audible transits.
+
+    Parameters
+    ----------
+    tracks : gpd.GeoDataFrame
+        GeoDataFrame containing the audible transit flight tracks. Need to have geometry column.
+    active : gpd.GeoDataFrame
+        GeoDataFrame containing the active space geometries.
+
+    Returns
+    -------
+    distance_from_audibility_stats : gpd.GeoDataFrame
+        GeoDataFrame of overall stats containing the min, max, mean, and median for:
+            mean distance from inaudibility and max distance from inaudibility
+
+    '''
+    boundary = np.asarray(active.iloc[0].exterior.coords)
+    
+    # Calculate distance between each line point and active space
+    distances = tracks.geometry.apply([lambda line: cdist(np.asarray(line.coords)[:,:2], boundary).min(axis=1)])
+    
+    # Calculate mean of these distances for each track
+    tracks['mean_distance_from_inaudibility'] = distances.apply([lambda dists: dists.mean()])
+    
+    # Calculate max of these distances for each track
+    tracks['max_distance_from_inaudibility'] = distances.apply([lambda dists: dists.max()])
+    
+    # Create statistics dataframe consisting of min, max, mean, and median for each
+    distance_from_inaudibility_stats = tracks.agg({'max_distance_from_inaudibility':['min', 'max', 'mean', 'median'], 'mean_distance_from_inaudibility':['min', 'max', 'mean', 'median']})
+    
+    return distance_from_inaudibility_stats
+
+## ========================================== STEREOTYPICAL TRACKS ======================================== ##
+
+def circular_sliding_avg(vector, window_len):
+    '''
+    Quick function to smooth circular data by calculating sliding averages on a circular array. 
+    Used to create an integrated map of entry/exit points around the boundary of an active space.
+
+    Parameters
+    ----------
+    vector : numpy arrary
+        Array that contains the values to be calculated on
+    window_len: int (odd, positive)
+        Length of sliding average window. Creates window, centered around each sample, of np.ones(window_len). In other words, equally weighted.
+
+    Returns
+    -------
+    smoothed : numpy array
+        Array of same length as input vector, contains respective sliding average values.
+    
+    '''
+    # prepend end half-window of vector and append start half-window of vector
+    vector_wrapped = np.concatenate((vector[-(window_len//2):], vector, vector[:window_len//2]))
+
+    # Convolution using mode 'valid' will only output frames where an entire window can fit
+    smoothed = np.convolve(vector_wrapped, np.ones(window_len), mode='valid')/window_len
+    
+    return smoothed
+
+def find_circular_peaks(column, distance_delta, peak_distance):
+    '''
+    Adaptation of SciPy.Signal's 'find_peaks' algorithm, with the ability to wrap the input array. 
+    Specifically intended for usage on active space boundary. 
+    This is important if you wish to only use peaks separated by at least a certain distance for a circular array, such as values on a closed LineString.
+
+    Parameters
+    ----------
+    column : gpd.GeoSeries
+        Column from a GeoDataFrame to find circular peaks from. Each value corresponds with a segment of the active space boundary.
+    distance_delta : int (m)
+        The length of the segments that the active space boundary has been broken up into.
+    peak_distance : int (m)
+        Minimum distance between peaks, in meters.
+
+    Returns
+    -------
+    sorted_peak_indices : numpy array of ints
+        Array containing the indices of the peaks, sorted by descending peak height.
+    
+    '''
+    samples_between_peaks = peak_distance//distance_delta 
+    entries_vector = column.to_list()
+    # Add bits of the end to the beginning and vice versa to give the impression of a circular array
+    entries_wrapped = np.concatenate((entries_vector[-samples_between_peaks:], entries_vector, entries_vector[:samples_between_peaks]))
+
+    # Use SciPy's find_peaks to identify peaks that are above the 80% quantile and meet the distance between peaks requirement
+    peaks, properties = find_peaks(entries_wrapped, height=column.quantile(.8), distance=samples_between_peaks)
+
+    # Sort indices by peak_height
+    sort_indices = properties["peak_heights"].argsort()
+    sorted_peaks = peaks[sort_indices[::-1]]
+
+    # Adjust indices to undo the wrapping of the indices; get rid of peaks in the prepended and appended parts of the wrapped vector.
+    sorted_peak_indices = sorted_peaks[(sorted_peaks >= samples_between_peaks) & (sorted_peaks < len(entries_vector)+samples_between_peaks)] - samples_between_peaks
+    return sorted_peak_indices
+
+def endpoints_around_active(active, tracks, distance_delta, peak_distance, endpoint_type):
+    '''
+    Function to calculate where the most frequent entry and exit points are through an active space. Uses a sliding average on 
+    a segmented active space to generate smoothed spatial data, while also detecting the peaks of this data.
+
+    Parameters
+    ----------
+    active : gpd.GeoDataFrame
+        GeoDataFrame containing the active space geometries.
+    tracks : gpd.GeoDataFrame
+        GeoDataFrame containing the audible transit flight tracks. Need to have entry_position and exit_position columns.
+    distance_delta : int (m)
+        The length of the segments that the active space boundary has been broken up into.
+    peak_distance : int (m)
+        Minimum distance between peaks, in meters.
+    endpoint_type : str
+        Either 'entry' or 'exit', depending on what we're searching for
+
+    Returns
+    -------
+    active_gdf : gpd.GeoDataFrame
+        GeoDataFrame of segmentized active space boundary. Segmented into n distance_delta length pieces, where n is boundary.length/distance_delta.
+        Looks like:
+            midpoints  |  segments  |  entries  | exits
+    peak_indices : numpy array of ints
+        Array containing the indices of the peaks, sorted by descending peak height. 
+    '''   
+    line = active.exterior.iloc[0]
+    # generate the equidistant points
+    distances = np.arange(0, line.length, distance_delta)
+    
+    pts = [line.interpolate(distance) for distance in distances]
+    if len(pts)%2 == 0 : pts = pts + [Point(line.coords[-1])]
+    line_pts = pts[::2]
+    midpoints = pts[1::2]
+    
+    lines=[]
+    for i in range(len(line_pts)-1):
+        lines.append(LineString(line_pts[i:i+2]))
+    
+    active_gdf = gpd.GeoDataFrame()
+    active_gdf['midpoints'] = gpd.GeoSeries(midpoints, crs=active.crs)
+    active_gdf['segments'] = gpd.GeoSeries(lines, crs=active.crs)
+    active_gdf.set_geometry('segments', inplace=True)
+    
+    entries = active_gdf.segments.apply([lambda line: tracks.entry_position.intersects(line.buffer(1)).sum()])
+    exits = active_gdf.segments.apply([lambda line: tracks.exit_position.intersects(line.buffer(1)).sum()])
+    active_gdf['entries'] = circular_sliding_avg(entries.values.T[0], 11)
+    active_gdf['exits'] = circular_sliding_avg(exits.values.T[0], 11)
+    active_gdf.set_geometry('midpoints', inplace=True)
+
+    if endpoint_type == 'entry': 
+        peak_indices = find_circular_peaks(active_gdf.entries, distance_delta, peak_distance)
+    elif endpoint_type == 'exit':
+        peak_indices = find_circular_peaks(active_gdf.exits, distance_delta, peak_distance)
+    else:
+        print("error: endpoint_type must be 'entry' or 'exit'")
+        return 0
+                                            
+    return active_gdf, peak_indices
+
+def identify_stereotypical_tracks(active, tracks, distance_delta=100, peak_distance=1000):
+    '''
+    Function to identify stereotypical tracks across an active space. Picks out specific paths that closely resemble the most tracks.
+
+    Parameters
+    ----------
+    active : gpd.GeoDataFrame
+        GeoDataFrame containing the active space geometries.
+    tracks : gpd.GeoDataFrame
+        GeoDataFrame containing the audible transit flight tracks. Need to have entry_position and exit_position columns.
+    distance_delta : int (m)
+        Defaults to 100 meters, the length of the segments that the active space boundary has been broken up into.
+    peak_distance : int (m)
+        Defaults to 1000 meters, the minimum distance between peaks.
+
+    Returns
+    -------
+    active_gdf : gpd.GeoDataFrame
+        GeoDataFrame of segmentized active space boundary. Segmented into n distance_delta length pieces, where n is boundary.length/distance_delta.
+        Looks like:
+            midpoints  |  segments  |  entries  | exits
+    peak_indices : numpy array of ints
+        Array containing the indices of the peaks, sorted by descending peak height.
+    '''
+    print("Identifying stereotypical tracks...")
+    print(" - finding common entries and exits")
+    
+    # Identify common entry points and generate segmented active space boundary
+    active_gdf, peak_entry_indices = endpoints_around_active(active, tracks, distance_delta, peak_distance, endpoint_type='entry')
+    
+    common_endpoints_rows = []
+    for peak_entry_index in peak_entry_indices:
+        
+        # For each commmon entry point, isolate tracks that start at near the entry point (within peak_distance)
+        entry_point = active_gdf.midpoints.iloc[peak_entry_index]
+        tracks_entryA = tracks[tracks.entry_position.distance(entry_point) < peak_distance]
+        
+        # Identify common exit points for each common entry point, generate segmented active space
+        active_gdf_entryA, peak_exit_indices = endpoints_around_active(active, tracks_entryA, distance_delta, peak_distance, endpoint_type='exit')
+        
+        for peak_exit_index in peak_exit_indices:
+
+            # For each entry-exit pair, create a row that contains the number of tracks that start and end near the respective entry/exit (within peak_distance)
+            exit_point = active_gdf_entryA.midpoints.iloc[peak_exit_index]
+            transit_length = entry_point.distance(exit_point)
+            corresponding_tracks = tracks_entryA[(tracks_entryA.exit_position.distance(exit_point) < peak_distance) & (tracks_entryA.entry_position.distance(entry_point) < peak_distance)]
+            common_endpoints_rows.append({"entry_point":entry_point,"exit_point":exit_point, "transit_length":transit_length, "number_of_corresponding_tracks":len(corresponding_tracks)})
+            
+    common_endpoints_gdf = gpd.GeoDataFrame(common_endpoints_rows, geometry='entry_point', crs = tracks.crs)
+
+    
+    # Pick out the top 10 entry/exit pairs
+    if len(common_endpoints_gdf) > 10:
+        #common_endpoints_gdf = common_endpoints_gdf[common_endpoints_gdf.number_of_corresponding_tracks >
+        common_endpoints_gdf = common_endpoints_gdf[common_endpoints_gdf.transit_length > 2000]
+    common_endpoints_gdf = common_endpoints_gdf.sort_values(by='number_of_corresponding_tracks', ascending=False)
+
+    print(f" - of {len(common_endpoints_gdf)}, identifying possible stereotypical tracks")
+    
+    all_tracks = tracks.copy()
+    stereotype_locs = []   # list to store gdf indices of stereotypical tracks
+    bundle_count = []      # list to store number of tracks that each potential stereotypical track represents        
+    
+    for idx, common_endpoints in tqdm(common_endpoints_gdf.iterrows(), unit=' possible stereotypes'):
+
+        # Identify possible stereotypical tracks, should start/end near the common entry/exit point
+        buffer = peak_distance # buffer around each track for identifying other similar tracks  
+        subset_pct = 100
+        while subset_pct > 5:
+            # This while loop helps optimize performance. Make buffer smaller until only 5% or fewer tracks make the cut
+            near_entry = all_tracks.entry_position.intersects(common_endpoints.entry_point.buffer(buffer))
+            near_exit = all_tracks.exit_position.intersects(common_endpoints.exit_point.buffer(buffer))
+            possible_tracks = all_tracks[near_entry & near_exit]
+            subset_pct = 100 * len(possible_tracks)/len(all_tracks)
+            buffer *= 0.95
+
+        # Calculate number of tracks that could be bundled up with each possible stereotypical track
+        possible_tracks['bundle_count'] = possible_tracks.interp_geometry.apply([lambda track: all_tracks.within(track.buffer(1000)).sum()])
+        # The maximum bundle count for each entry/exit pair will be the representative track for a given path
+        print(len(possible_tracks), len(all_tracks))
+        stereotype_locs.append(possible_tracks[possible_tracks.bundle_count == possible_tracks.bundle_count.max()].index[0])
+        bundle_count.append(possible_tracks.bundle_count.max())
+
+    print(" - narrowing down results")
+    
+    stereotypical_tracks = all_tracks.loc[stereotype_locs]
+    stereotypical_tracks['represents_pct'] = np.array(bundle_count)/len(all_tracks) * 100
+    
+    return stereotypical_tracks
