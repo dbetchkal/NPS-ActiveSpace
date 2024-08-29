@@ -1683,7 +1683,7 @@ class AudibleTransits:
         TODO: using .config, save to the root of `NMSIM` project directory
         TODO: determine final, formal geospatial format
         '''
-        identifier = self.unit+self.site+str(self.year)+'_'+self.gain+'_'+self.database_type
+        identifier = self.unit+self.site+str(self.year)+'_'+str(self.gain)+'_'+self.database_type
         path = r'V:\NMSim\04 RESULTS\AudibleTransits'
         #desktop = os.path.join(os.path.join(os.environ['USERPROFILE']), 'Desktop')
         self.tracks.to_pickle(os.path.join(path, identifier+"_tracks.pkl"))
@@ -1720,7 +1720,7 @@ class AudibleTransits:
                 fig.suptitle(f"{num_garbs} {reason} tracks")
                 figs.append(fig)
 
-        identifier = self.unit+self.site+str(self.year)+'_'+self.gain+'_'+self.database_type
+        identifier = self.unit+self.site+str(self.year)+'_'+str(self.gain)+'_'+self.database_type
         with PdfPages(os.path.join(path, identifier+'view_garbage.pdf')) as pdf:
             for fig in figs:
                 pdf.savefig(fig, bbox_inches='tight') 
