@@ -1713,7 +1713,6 @@ class AudibleTransits:
                             plt.setp(np.ravel(ax)[i].get_xticklabels(), rotation=45, horizontalalignment='right', fontsize='x-small')
                     fig.suptitle(f"{reason} tracks, Page {page_num + 1}")
                     figs.append(fig)
-                    plt.pause(.1)
             else:
                 fig, ax = plt.subplots(1, 1, figsize=(10,10))
                 listener.visualize_tracks(tracks_to_view=garb_tracks, crs='WGS84', fig=fig, ax=ax, title=None)
@@ -2227,6 +2226,7 @@ class AudibleTransitsADSB(AudibleTransits):
         # Loop through each flight (track points grouped by flight ID)
         for track_id, group in tqdm(grouped_track_pts, unit='tracks'):
             if len(group) >= 2:
+                group = group.sort_values('point_dt')
                 n_number = group.n_number.iloc[0]
                 aircraft_type = group.aircraft_type.iloc[0]
                 times = np.asarray(group.point_dt.values)
