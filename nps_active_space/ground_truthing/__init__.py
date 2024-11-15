@@ -671,18 +671,8 @@ class _GroundTruthingFrame(_AppFrame):
             audible_segment = points[(points.time_audible >= audibility_start) &
                                      (points.time_audible <= audibility_end)]
 
-            try:
-                inaudible_segment_1 = points[points.point_dt <= audible_segment.point_dt.iat[0]]
-            except IndexError: 
-                print("INDEX ERROR WAS EXCEPTED, segment 1")
-                inaudible_segment_1 = gpd.GeoDataFrame([], geometry=[])
-
-            try:
-                inaudible_segment_2 = points[points.point_dt >= audible_segment.point_dt.iat[-1]]
-            except IndexError:
-                print("INDEX ERROR WAS EXCEPTED, segment 2")
-                inaudible_segment_2 = gpd.GeoDataFrame([], geometry=[])
-
+            inaudible_segment_1 = points[points.point_dt < audible_segment.point_dt.iat[0]]
+            inaudible_segment_2 = points[points.point_dt > audible_segment.point_dt.iat[-1]]
 
             line_segments = []
             for i, segment in enumerate([inaudible_segment_1, audible_segment, inaudible_segment_2]):
