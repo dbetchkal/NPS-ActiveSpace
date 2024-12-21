@@ -25,19 +25,22 @@ __all__ = [
 
 def tracks2events(tracks, start_date, end_date, min_dur=30):
     '''
-    Collapses a group of tracks into individual noise 'events', which may contain multiple overlapping tracks (in time). 
-    The resulting event dataframe has updated start and end times for each event, as well as the total time.
-    Also outputs the inverse, AKA the noise-free intervals (NFI). Uses the start and end date to bookend the NFI dataframe
+    Performs audibility binarization on a set of tracks produced by the `NPS-ActiveSpace.audible_transits` module. 
+    
+    This collapses a group of tracks into individual 'noise events', which may contain multiple overlapping tracks in time.
+    Two resulting event dataframes capture alternating periods of time: 
+                (0) 'Noisy intervals' 
+                (1)  Noise-free intervals (NFI)
     
     Parameters
     ----------
     tracks : GeoDataFrame
-        A GeoDataFrame containing processed tracks. These should be the fully interpolated, cleaned, clipped, and extrapolated tracks 
-        for best results. Only requires columns 'entry_time' and 'exit_time'
+        A GeoDataFrame containing the fully interpolated, cleaned, clipped, and extrapolated tracks
+        resembling those produced by `NPS-ActiveSpace.audible_transits`. Only requires columns 'entry_time' and 'exit_time'
     start_date : string
-        The start date to begin making events out of tracks, formatted as 'yyyy-mm-dd'
+        The initial date of tracks to include, formatted as 'yyyy-mm-dd'
      end_date : string
-        The end date to stop making events out of tracks, formatted as 'yyyy-mm-dd'       
+        The last date of tracks to include, formatted as 'yyyy-mm-dd'       
         
     Returns
     -------
@@ -113,7 +116,7 @@ def tracks2events(tracks, start_date, end_date, min_dur=30):
     
 def compute_audibility_stats(event_dataframe, start_date, end_date, months=list(range(1,13)), quantiles=.5):
     '''
-    Computes audibility using the event dataframe from tracks2events(). 
+    Computes audibility using the event dataframe from `tracks2events()`. 
     The output includes the following, both hourly and daily in %:
                                                                  - min
                                                                  - max
@@ -391,6 +394,9 @@ def compute_duration_stats(event_dataframe, start_date, end_date, months=list(ra
     return duration_stats
 
 def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13)), quantiles=.5):
+    '''
+    A convenience function to run all the event summary functions included in this module.
+    '''
 
     start_date = np.datetime64(start_date)  # Convert to datetime64
     end_date = np.datetime64(end_date)      # Convert to datetime64
@@ -403,9 +409,17 @@ def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13
 
 def calculate_spatial_stats(tracks, active):
     '''
-    Calculates spatial statistics on audible transits through a given active space. Specifically, this function finds the mean and maximum distance
-    from inaudiblity for each audible transit and outputs min, max, mean, and median over all audible transits.
+    Calculates spatial statistics on audible transits through a given active space. 
+    On an event-wise basis, the displacement distance that could render the track inaudible:
+                                                                            - mean
+                                                                            - maximum
+    In aggregate:
+                                                                             - min
+                                                                             - max
+                                                                             - mean
+                                                                             - median
 
+                                                    
     Parameters
     ----------
     tracks : gpd.GeoDataFrame
@@ -440,7 +454,7 @@ def calculate_spatial_stats(tracks, active):
 
 def circular_sliding_avg(vector, window_len):
     '''
-    Quick function to smooth circular data by calculating sliding averages on a circular array. 
+    Smooth circular data by calculating sliding averages on a circular array. 
     Used to create an integrated map of entry/exit points around the boundary of an active space.
 
     Parameters
@@ -466,9 +480,12 @@ def circular_sliding_avg(vector, window_len):
 
 def find_circular_peaks(column, distance_delta, peak_distance):
     '''
-    Adaptation of SciPy.Signal's 'find_peaks' algorithm, with the ability to wrap the input array. 
-    Specifically intended for usage on active space boundary. 
-    This is important if you wish to only use peaks separated by at least a certain distance for a circular array, such as values on a closed LineString.
+    A specific adaptation of SciPy.Signal's 'find_peaks' algorithm for use on an active space polygon.
+    Critical to implementation is the ability to wrap the input array. In this case, we use a minimum-distance
+    criterion to separate peaks on a polygon (e.g., values on a closed LineString).
+    
+    This is important if you wish to only use peaks separated by at least a certain distance for a circular array, 
+    such as values on a closed LineString.
 
     Parameters
     ----------
@@ -487,6 +504,7 @@ def find_circular_peaks(column, distance_delta, peak_distance):
     '''
     samples_between_peaks = peak_distance//distance_delta 
     entries_vector = column.to_list()
+    
     # Add bits of the end to the beginning and vice versa to give the impression of a circular array
     entries_wrapped = np.concatenate((entries_vector[-samples_between_peaks:], entries_vector, entries_vector[:samples_between_peaks]))
 
@@ -495,16 +513,19 @@ def find_circular_peaks(column, distance_delta, peak_distance):
 
     # Sort indices by peak_height
     sort_indices = properties["peak_heights"].argsort()
-    sorted_peaks = peaks[sort_indices[::-1]]
+    sorted_peaks = peaks[sort_indices[::-1]] # reverse sort
 
-    # Adjust indices to undo the wrapping of the indices; get rid of peaks in the prepended and appended parts of the wrapped vector.
+    # Adjust indices to undo the wrapping of the indices; 
+    # get rid of peaks in the prepended AND appended parts of the wrapped vector.
     sorted_peak_indices = sorted_peaks[(sorted_peaks >= samples_between_peaks) & (sorted_peaks < len(entries_vector)+samples_between_peaks)] - samples_between_peaks
     return sorted_peak_indices
 
 def endpoints_around_active(active, tracks, distance_delta, peak_distance, endpoint_type):
     '''
-    Function to calculate where the most frequent entry and exit points are through an active space. Uses a sliding average on 
-    a segmented active space to generate smoothed spatial data, while also detecting the peaks of this data.
+    Function to calculate the position of the most frequent entry and exit points through an active space.
+    (e.g., transportation fluxes along the polygon). A sliding average is applied to spatially smooth
+    Uses a sliding average on a segmented active space to generate smoothed spatial data, 
+    while also detecting the peaks of this data.
 
     Parameters
     ----------
@@ -522,7 +543,8 @@ def endpoints_around_active(active, tracks, distance_delta, peak_distance, endpo
     Returns
     -------
     active_gdf : gpd.GeoDataFrame
-        GeoDataFrame of segmentized active space boundary. Segmented into n distance_delta length pieces, where n is boundary.length/distance_delta.
+        GeoDataFrame of segmentized active space boundary. Segmented into n distance_delta length pieces, 
+        where n is boundary.length/distance_delta.
         Looks like:
             midpoints  |  segments  |  entries  | exits
     peak_indices : numpy array of ints
@@ -532,7 +554,7 @@ def endpoints_around_active(active, tracks, distance_delta, peak_distance, endpo
     # generate the equidistant points
     distances = np.arange(0, line.length, distance_delta)
     
-    pts = [line.interpolate(distance) for distance in distances]
+    pts = [line.interpolate(distance) for distance in distances] # perform the interpolation
     if len(pts)%2 == 0 : pts = pts + [Point(line.coords[-1])]
     line_pts = pts[::2]
     midpoints = pts[1::2]
@@ -564,7 +586,8 @@ def endpoints_around_active(active, tracks, distance_delta, peak_distance, endpo
 
 def identify_stereotypical_tracks(active, tracks, distance_delta=100, peak_distance=1000):
     '''
-    Function to identify stereotypical tracks across an active space. Picks out specific paths that closely resemble the most tracks.
+    Function to identify stereotypical tracks across an active space. 
+    Picks out specific paths that closely resemble the most tracks.
 
     Parameters
     ----------
