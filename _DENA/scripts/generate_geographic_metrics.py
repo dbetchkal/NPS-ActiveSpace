@@ -6,6 +6,21 @@ from scipy.spatial.distance import directed_hausdorff, cdist
 from scipy.signal import find_peaks
 from shapely.geometry import Point, LineString
 from tqdm import tqdm
+
+__all__ = [
+    'calculate_special_stats',
+    'circular_sliding_avg',
+    'compute_audibility_stats',
+    'compute_duration_stats',
+    'compute_event_stats',
+    'compute_NFI_stats',
+    'endpoints_around_active',
+    'find_circular_peaks',
+    'get_all_stats',
+    'identify_stereotypical_tracks',
+    'tracks2events' 
+]
+
 ## ========================================== STATISTICS/METRCIS ======================================== ##
 
 def tracks2events(tracks, start_date, end_date, min_dur=30):
