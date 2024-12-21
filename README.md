@@ -17,7 +17,7 @@ Superposed over the polygon are colored flight track polylines. `NPS-ActiveSpace
 
 ## Packages
 
-This project is made up of four packages:
+This project is made up of four modules:
 
 [`ground-truthing`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/_DENA/README.md#ground-truthing): a `tkinter`-based ground-truthing application
 
@@ -31,7 +31,6 @@ This project is made up of four packages:
     
 Also included are noise source [data](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v2/nps_active_space/data) for tuning active space polygons.
 
-***For more specific information on each package, view their individual READMEs.***
 
 ## Order of Operations
 
@@ -61,8 +60,10 @@ Detailed [CLI documentation is available to initialize the construction](https:/
 
 ## geographic-metrics
 
-The `geographic-metrics` module 
+The `geographic-metrics` module collapses a set of `audible-transits` into a binary audibility sequence in time. 
+Then, from attributes of these *noise events* (or dualistically, *noise-free intervals*) a variety of acoustical and spatial metrics may be computed.
 
+At present, no CLI interface exists for `geographic-metrics`. Instead it has been designed to be imported into a more flexible IDE.
 
 ## utils
 
