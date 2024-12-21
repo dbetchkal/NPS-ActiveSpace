@@ -51,7 +51,7 @@ The module is initialized in the Command Line Interface (CLI). Detailed [CLI doc
 
 The `active-space` module is a CLI implementation of observer-based audibility modelling procedures. It produces an active space estimate through synthesis. This module exists primarially as a wrapper for the `FORTRAN`-based physics engine `Nord2000` as implemented in `NMSIM`. Previously-saved `ground-truthing.Annotations` files are required as an input. Diverse spatial and sound source inputs are also required to stage the `NMSIM` simulation (see [Ikelheimer and Plotkin 2005](https://github.com/dbetchkal/NMSIM-Python/blob/main/NMSIM/Manual/NMSim%20Manual.pdf)). 
 
-Detailed [CLI documentation is available to configure a model](https://github.com/dbetchkal/NPS-ActiveSpace/tree/Analysis/_DENA#generate-active-space) to synthesize the optimal active space estimate for a park listener in a specific location.
+Detailed [CLI documentation is available to configure a synthesis](https://github.com/dbetchkal/NPS-ActiveSpace/tree/Analysis/_DENA#generate-active-space) of the optimal active space estimate for a park listener in a specific location.
 
 ## audible-transits
 
