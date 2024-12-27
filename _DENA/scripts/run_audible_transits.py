@@ -2611,8 +2611,11 @@ if __name__ == '__main__':
         metadata["database type"] = "GPS" # TODO rename to 'Database'
         listener = AudibleTransitsGPS(metadata, paths)
 
-    else:
+    elif args.track_source == "AIS":
         raise NotImplementedError('AIS functionality has not been implemented.')
+
+    else:
+        raise NotImplementedError('Currently tracks may only be loaded from a SQL database or from raw ADS-B tab-separated value files.')
     
     listener.init_spatial_data()
     listener.load_DEM()
