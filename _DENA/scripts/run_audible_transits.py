@@ -2209,7 +2209,7 @@ class AudibleTransitsGPS(AudibleTransits):
 
     def init_engine(self):
         '''
-        This returns the engine that is used by query_tracks() to access the flight database. See load_tracks_from_database.
+        This returns the engine that is used by `.query_tracks()` to access the flight database. See `.load_tracks_from_database()`.
 
         Returns
         -------
@@ -2220,9 +2220,8 @@ class AudibleTransitsGPS(AudibleTransits):
         host = "165.83.50.64"
         port = "5432"
         name = "overflights"
-        engine = sqlalchemy.create_engine(
-            f'postgresql://{username}:{password}@{host}:{port}/{name}'
-        )
+        engine = sqlalchemy.create_engine(f'postgresql://{username}:{password}@{host}:{port}/{name}')
+        
         return engine
 
 class AudibleTransitsADSB(AudibleTransits):
@@ -2512,7 +2511,9 @@ class AudibleTransitsADSB(AudibleTransits):
     @staticmethod
     def create_aircraft_lookup(tracks, FAA_path, aircraft_corrections_path=None):
         '''
-        
+        Use a pre-downloaded copy of the U.S. Federal Aviation Administration's releasable aircraft database
+        (https://www.faa.gov/licenses_certificates/aircraft_certification/aircraft_registry/releasable_aircraft_download)
+        to glean various properties associated with a set of aircraft tracks.
         '''
         
         # Requires ICAO address
@@ -2534,14 +2535,14 @@ class AudibleTransitsADSB(AudibleTransits):
         # Combine each single-row dataframe together into one lookup table
         aircraft_lookup = pd.concat(aircraft_list)
     
-        # If inaccurate aircraft types have been found for certain N-numbers, create dictionary from file that contains the corrections
+        # If inaccurate aircraft types have been found for certain N-numbers, create dictionary from file that contains the corrections.
         if aircraft_corrections_path != None:
             # Open aircraft corrections from specified path, reconstruct as a dictionary using json.loads
             with open(aircraft_corrections_path) as f: 
                 raw_aircraft_corrections = f.read() 
             aircraft_corrections = json.loads(raw_aircraft_corrections)
     
-            # Correct the aircraft lookup table
+            # Correct the aircraft lookup table.
             for n_number in aircraft_corrections:
                 aircraft_lookup.loc[aircraft_lookup['N-NUMBER'] == n_number, 'TYPE AIRCRAFT'] = aircraft_corrections[n_number]
                 
@@ -2611,7 +2612,7 @@ if __name__ == '__main__':
         listener = AudibleTransitsGPS(metadata, paths)
 
     else:
-        raise NotImplementedError('Code for AIS is not ready yet.')
+        raise NotImplementedError('AIS functionality has not been implemented.')
     
     listener.init_spatial_data()
     listener.load_DEM()
