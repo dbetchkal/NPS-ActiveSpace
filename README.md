@@ -69,15 +69,15 @@ At present, no CLI interface exists for `geographic-metrics`. Instead it has bee
 
 The utilities module `utils` contains two sub-modules:
 1. `computation` for tasks related to:
-   >**geoprocessing** `.build_src_point_mesh`,`.climb_angle`,`.coords_to_utm`,`.create_overlapping_mesh`,`.interpolate_spline`,`.NMSIM_bbox_utm`,`.project_raster`<br>
-   >**audibility** `.audibility_to_interval`,`.ambience_from_nvspl`,`.ambience_from_raster`,`.contiguous_regions` <br>
+   >**geoprocessing** `.build_src_point_mesh`,`.climb_angle`,`.coords_to_utm`,`.create_overlapping_mesh`,`.interpolate_spline`,`.NMSIM_bbox_utm`,`.project_raster`<br><br>
+   >**audibility** `.audibility_to_interval`,`.ambience_from_nvspl`,`.ambience_from_raster`,`.contiguous_regions` <br><br>
    >**detection statistics** `.calculate_duration_summary`,`.compute_fbeta` <br>
 2.  and `models` containing classes which parse various forms of input data:
-    > **Automatic Dependent Surveillance–Broadcast (ADS-B)** broacasts from aircraft `.Adsb`, `.EarlyAdsb`<br>
-    > **Automatic Identification System (AIS)** broadcasts from ships `.Ais`<br>
-    > human **spectrogram annotations** from the `NPS-ActiveSpace.ground_truthing` module as `.Annotations`<br>
-    > descriptions of canonical NPS Type-1 acoustic monitoring **Deployments** `.Microphone`<br>
-    > an **acoustic record** as 1/3rd-octave band spectral sound levels from a Deployment `.Nvspl` <br>
+    > **Automatic Dependent Surveillance–Broadcast (ADS-B)** broacasts from aircraft `.Adsb`, `.EarlyAdsb`<br><br>
+    > **Automatic Identification System (AIS)** broadcasts from ships `.Ais`<br><br>
+    > human **spectrogram annotations** from the `NPS-ActiveSpace.ground_truthing` module as `.Annotations`<br><br>
+    > descriptions of canonical NPS Type-1 acoustic monitoring **Deployments** `.Microphone`<br><br>
+    > an **acoustic record** as 1/3rd-octave band spectral sound levels from a Deployment `.Nvspl` <br><br>
     > generalized `.Tracks`<br>
 
 Most users should not need to use `utils` directly, but the data parsing classes may have use to other transportation geography projects.
