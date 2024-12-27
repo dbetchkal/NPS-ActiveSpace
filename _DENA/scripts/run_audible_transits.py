@@ -35,7 +35,7 @@ from scipy.ndimage import median_filter
 import sqlalchemy
 import subprocess
 import sys
-repo_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+repo_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__))) # relative paths
 config_dir = os.path.join(repo_dir, "_DENA")
 script_dir = os.path.join(repo_dir, "nps_active_space")
 sys.path.append(repo_dir)
@@ -46,13 +46,20 @@ from time import mktime, sleep
 from tqdm import tqdm
 import warnings
 
-import _DENA.resource.config as cfg
+import _DENA.resource.config as cfg # we'll use the configuration file (.config)
 from _DENA import DENA_DIR
 from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks
 from nps_active_space.utils.computation import coords_to_utm, interpolate_spline
 from nps_active_space.utils.models import Tracks, Adsb
 
 class AudibleTransits:
+    """
+    A geoprocessing class to construct the spatiotemporal intersections of a set of tracks with an active space.
+    
+    Because each specific intersection of an active space represents the geographic extent of how far 
+    a source in motion may be heard, we refer to it as an "audible transit" of the active space.
+    """
+    
     def __init__(self, metadata, paths):
         self.unit = metadata["unit"]
         self.site = metadata["site"]
@@ -64,6 +71,7 @@ class AudibleTransits:
         
         self.paths = paths
 
+        # Errant tracks will be removed and tabulated for reassurance.
         self.garbage = gpd.GeoDataFrame({'track_id':[], 'n_number':[], 'point_dt':[], 'geometry':[]})
 
     def init_spatial_data(self, visualize=False):
@@ -78,34 +86,36 @@ class AudibleTransits:
 
         Returns
         -------
-        active_space : GeoDataFrame
-            GeoDataFrame containing all geometries of the active space. Can be a single polygon or a multipolygon.
-        mic_loc : GeoDataFrame
-            GeoDataFrame containing the mic's point in the xy plane, as well as the mic height (z above ground level) in its own column. 
+        active_space : `gpd.GeoDataFrame`
+            A dataframe containing all geometries of the active space. Can be a single polygon or a multipolygon.
+        mic_loc : `gpd.GeoDataFrame`
+            A dataframe containing the mic's point in the xy plane, as well as the mic height (z above ground level) in its own column. 
             Should be in the equal area UTM zone.
         '''
 
+        # We filter an irrelevant, repetitious geoprocessing warning raised by `geopandas`.
         warnings.filterwarnings('ignore', message=".*Results from 'centroid' are likely incorrect.*")
         
         print(" Loading Active Space and Study Area ")
         
-        # Load in active space and study area
+        # Load in active space and study area.
         active = AudibleTransits.load_activespace(self.unit, self.site, self.year, self.gain, crs="epsg:4326")
         original_study_area = AudibleTransits.load_studyarea(self.unit, self.site, self.year, crs="epsg:4326")
 
         print("\tLoaded active space and study area.")
         print(" Determining UTM zone and microphone location ")
-        # Calculate the UTM equal area crs from the centroid of the active space
+        
+        # Calculate the UTM zone from the active space centroid.
         self.utm_zone = AudibleTransits.coords_to_utm(lat=active.centroid.y.iloc[0], lon=active.centroid.x.iloc[0])
-        # Calculate mic crs (from NMSIM, uses western-most bound of the study area) MAY BE DIFFERENT
+        # Calculate mic crs (`NMSIM` uses western-most bound of the study area); notably this may be a different zone than `self.utm_zone`.
         mic_crs = AudibleTransits.NMSIM_bbox_utm(original_study_area)
         
-        # Load in mic location, convert from the NMSIM crs to the UTM zone at the centroid of the active space
+        # Parse mic location, convert from the `NMSIM` crs to the UTM zone at the centroid of the active space.
         mic_loc = AudibleTransits.load_miclocation(self.unit, self.site, self.year, crs=mic_crs).to_crs(self.utm_zone)
         print("\tMicrophone location has been determined.")
         
         if (visualize):
-        # Plot each in the standard lon/lat geographic crs
+        # Plot each in the standard lon/lat geographic crs.
             fig, ax = plt.subplots(1, 1, figsize=(7, 7))
             active.boundary.plot(ax=ax, color="black", zorder=1)
             mic_loc.to_crs(active.crs).plot(ax=ax, markersize=10, marker='x', color='r')
@@ -118,9 +128,10 @@ class AudibleTransits:
 
     def load_DEM(self):
         '''
-        Loads the digital elevation model using the project info
+        Loads the `NMSIM` digital elevation model using the project info
         '''
-        raster_path = glob.glob(self.paths["project"] + os.sep + r"Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif")[0]# Open raster
+        
+        raster_path = glob.glob(self.paths["project"] + os.sep + r"Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif")[0] # open raster
         ras = rasterio.open(raster_path)
         self.DEM = ras
         
@@ -129,27 +140,31 @@ class AudibleTransits:
 
     def convert_tracks_to_utm(self, tracks='self'):
         '''
-        Convert tracks to UTM zone. Requires the attribute anlytics.utm_zone to be already determined (see init_spatial_data())
+        Convert tracks to UTM zone. The attribute `AudibleTransits.utm_zone` must already be 
+        determined using `AudibleTransits.init_spatial_data`.
 
         Parameters
         ----------
-        tracks: GeoDataFrame (or string 'self')
-            Default is 'self', which uses self.tracks. Otherwise, Geodataframe containing all tracks (as points).
+        tracks : `gpd.GeoDataFrame` (or string 'self')
+            Default is 'self', which uses `self.tracks`. 
+            Otherwise, `gpd.Geodataframe` containing all tracks (as points).
         '''
+        
         if type(tracks) is str:
-            assert tracks=='self'
-            tracks=self.tracks
+            assert tracks == 'self'
+            tracks = self.tracks
             self_flag = True
         else:
             self_flag = False
             
-        # The tracks come in the standard lon/lat geographic crs
+        # Various track data are logged in the World Geodetic System.
+        # https://en.wikipedia.org/wiki/World_Geodetic_System
         tracks = tracks.set_crs('WGS84')
         
-        # Convert to the equal area UTM zone, as determined previously and saved as attribute utm_zone
+        # Convert to the equal area UTM zone, as determined previously and saved as the attribute `self.utm_zone`.
         utm_tracks = tracks.to_crs(self.utm_zone)
         
-        # Create Shapely Point objects for each geometry using the previously saved xy points and altitude MSL
+        # Create `shapely.geometry.Point` objects for each geometry using the previously saved xy points and altitude MSL.
         utm_tracks.geometry = gpd.points_from_xy(utm_tracks.geometry.x, utm_tracks.geometry.y, utm_tracks.z)
 
         if self_flag:
@@ -158,32 +173,54 @@ class AudibleTransits:
         return utm_tracks
 
     def convert_active_to_utm(self):
+        '''
+        Convert an active space from an arbitrary spatial reference into UTM.
+        '''
+
         utm_active = self.active.to_crs(self.utm_zone)
         self.active = utm_active.copy()
+        
         return utm_active
         
     def create_track_segments(self):
         pass
 
-    def simplify_active_space(self, inplace=True, visualize=False):
+    def simplify_active_space(self, inplace=True, visualize=False, tolerance=100, interior_area_thresh=0.05):
+        '''
+        Simplify an active space by selecting only the largest polygon,
+        minimizing the number of vertices it has, and removing small interior rings from it.
         
-        # Simplify active space boundaries within a tolerance of 100 meters 
-        # (arbitrary, but helps prevent overly fragmented audible transits)
+        For reassurance a user may also visualize the introduced simplifications.
+
+        Parameters
+        ----------
+        inplace : bool
+            Whether to perform geoprocessing opertions inplace. Defaults to True.
+        tolerance : float
+            The distance tolerance for simplifying vertices, in meters. Default is 100 meters.
+        interior_area_thresh : float
+            The area tolerance for removing interior rings, in percent (%). Default is to preserve rings >5% the size of the largest active space polygon.
+        '''
+        
+        # Simplify active space boundary perimeter within a certain tolerance.
+        # The tolerance is a somewhat arbitrary parameter, but this step helps prevent overly-fragmented audible transits.
         active_ea_simple = self.active.simplify(100)
         
-        # Select out the largest polygon if the Active Space is a MultiPolygon to remove small exterior polygons, for simplicity
+        # If the active space is `shapely.geomtry.MultiPolygon`, we further simplify by:
+        #   (1) selecting only the largest `.Polygon` for downstream analysis
+        #   (2) removing small interior rings on a proprotional basis
+
         if active_ea_simple.geometry.iloc[0].geom_type == 'MultiPolygon':
             polygons = list(active_ea_simple.geometry.iloc[0].geoms)
-            active_ea_simple = gpd.GeoSeries(polygons[np.argmax([poly.area for poly in polygons])], crs=self.active.crs) # Select largest polygon
+            active_ea_simple = gpd.GeoSeries(polygons[np.argmax([poly.area for poly in polygons])], crs=self.active.crs) # select largest polygon
             print("Largest polygon chosen as active space")
 
         if len(active_ea_simple.interiors[0]) > 0:
             print("Removing small interior holes in active space")
-            interior_area_thresh = .05
             new_interiors = [i for i in active_ea_simple.interiors[0] if Polygon(i).area/active_ea_simple.area[0] >= interior_area_thresh]
             active_ea_simple = gpd.GeoSeries(Polygon(active_ea_simple.exterior[0], new_interiors), crs=self.active.crs)
             
-        # Make a plot to illustrate the active space simplifications
+        # An optional plot to review any active space simplifications.
         if (visualize):
             fig, ax = plt.subplots(1,1,figsize=(6,6))
             self.active.boundary.plot(color='k', ax=ax, label='original')
@@ -197,64 +234,75 @@ class AudibleTransits:
         else:
             return active_ea_simple
         
-    def update_trackQC(self, tracks='self'):
+    def update_trackQC(self, tracks='self', max_distance=500, min_speed=1, max_speed=100):
         '''
-        Update some information about each track's preparedness for analysis. Adds or updates existing columns. 
-        Includes the following:
-                                - needs_extrapolation: whether a track endpoint is inside of the active space -- see `needs_extrapolation()`
-                                - needs_glue: a bug from clipping, indicates whether a track needs to be repaired -- `see needs_glue()`
-                                - short_distance: whether a track travels less than a preset threshold, generally 100 meters -- see `find_short_tracks()`
-                                - speed_out_of_range: whether a flight's speed is outside of a realistic range -- see `find_err_flight_speeds()`
+        Updates analysis status for each track. Adds or updates existing columns in the `self.track` dataframe. 
+        This function introduces the following fields:
+            - needs_extrapolation: indicates whether a track endpoint is inside of the active space -- see `.needs_extrapolation()`
+            - needs_glue: indicates whether a track suffers from `gpd.clip()` self-intersection errors -- `.see needs_glue()`
+            - short_distance: whether a track traverses a distance less than a default threshold -- see `.find_short_tracks()`
+            - speed_out_of_range: whether the groundspeed is outside of a realistic range -- see `.find_err_flight_speeds()`
         
         Parameters
         ----------
-        tracks: GeoDataFrame (or string 'self')
-            Default is 'self', which uses self.tracks. Otherwise, Geodataframe containing all tracks.
+        tracks : `gpd.GeoDataFrame` (or string 'self')
+            Default is 'self', which uses self.tracks. Otherwise, a dataframe containing all tracks.
             Requires basic parameters of the tracks:
                 entry_time | exit_time | entry_position | exit_position | transit_distance
-         
+        max_distance : float
+            The upper bound on tracks too short to analyze. A pass-through parameter for `.find_short_tracks()`. 
+            The default is 500 meters. Most users will not need to change this parameter.
+        min_speed : float
+            The lower bound on groundspeed; tracks too slow to analyze. A pass-through parameter for `.find_err_flight_speeds()`. 
+            The default is 1 meter per second. Most users should not need to change this parameter.
+        max_speed : float
+            The lower bound on groundspeed; tracks too slow to analyze. A pass-through parameter for `.find_err_flight_speeds()`. 
+            The default is 100 meters per second. Most users should not need to change this parameter.
+            
         Returns
         -------
-        None, just adds/updates columns in 'tracks' 
+        None
         '''
+        
         if type(tracks) is str:
             assert tracks=='self'
             tracks=self.tracks
             
         print("=============================================")
         print("------------- Updating track QC -------------")
+        
         print(" - needs extrapolation")
         AudibleTransits.needs_extrapolation(tracks, self.active)
         print(" - needs glue")
         AudibleTransits.needs_glue(tracks, self.active)
-        # TODO attribute for 
         print(" - very short track")
-        AudibleTransits.find_short_tracks(tracks, max_distance=500)
+        AudibleTransits.find_short_tracks(tracks, max_distance=max_distance)
         print(" - erroneous flight speed")
-        AudibleTransits.find_err_flight_speeds(tracks, min_speed=1, max_speed=100)
+        AudibleTransits.find_err_flight_speeds(tracks, min_speed=min_speed, max_speed=max_speed)
+        
         print("------------ Track QC Completed -------------")
         print("=============================================")
 
     def update_track_parameters(self, tracks='self'):
         '''
-        Updates physical paramters of each track. 
-        Includes the following:
-                                - entry_time and exit_time: datetimes at the beginning and end of a track
-                                - entry_position and exit_position: Shapely Points at the beginning and end of a track
-                                - transit_duration: total time inside active space for each track, in seconds
-                                - transit_distance: the length of the LineString that represents the track, in meters
-                                - avg_speed: the average speed of the track, taken as distance/duration in meters/second
+        Updates physical parameters of each track in `self.tracks`. 
+        Introduces the following fields to the dataframe:
+            - entry_time and exit_time : datetimes corresponding to the beginning and end of a track
+            - entry_position and exit_position : `shapely.geometry.Point` objects at the beginning and end of a track
+            - transit_duration : total time inside active space for each track, in seconds
+            - transit_distance : the length of the LineString that represents the track, in meters
+            - avg_speed : the average speed of the track, taken as distance/duration in meters/second
         
         Parameters
         ----------
-        tracks: GeoDataFrame (or string 'self')
-            Default is 'self', which uses self.tracks. Otherwise, Geodataframe containing interpolated tracks (LineStrings).
+        tracks : `gpd.GeoDataFrame` (or string 'self')
+            Default is 'self', which uses self.tracks. Otherwise, a dataframe containing interpolated tracks (LineStrings).
             Requires interpolated geometries and times:
                 interp_goemetry | interp_point_dt
          
         Returns
         -------
-        None, just adds/updates columns in 'tracks'
+        None
         '''
         if type(tracks) is str:
             assert tracks=='self'
@@ -266,7 +314,7 @@ class AudibleTransits:
             print("Error: No interpolated geometry found (column = 'interp_geometry'). Cannot update track parameters.")
             return 0
         
-        # Initialize lists to store each entry/exit postion and time, as well as the total event duration for each track
+        # Initialize lists to store each entry/exit postion and time, as well as the total event duration for each track.
         entry_pos = []
         exit_pos = []
         entry_times = []
@@ -274,25 +322,27 @@ class AudibleTransits:
         transit_durations = []
 
         print("Extracting entry/exit positions")
-        # Extract the initial and final coordinate from each track's LineString
+        # Extract the initial and final coordinate from each track's `shapely.geometry.LineString`.
         for spline in tracks['interp_geometry']:
             entry_pos.append(Point(spline.coords[0]))
             exit_pos.append(Point(spline.coords[-1]))
     
         print("Extracting entry/exit times")
-        # Extract the initial and final times (+ duration) from each track's timestamp list
+        # Extract the initial and final times (and duration) from each track's timestamp list.
         for timelist in tracks['interp_point_dt']:
             entry_times.append(timelist[0])
             exit_times.append(timelist[-1])
             transit_durations.append((timelist[-1] - timelist[0])/ pd.Timedelta(seconds = 1))
             
-        # Add entry and exit times to clipped_tracks GeoDataFrame
+        # Add entry and exit times to clipped_tracks `gpd.GeoDataFrame`.
         tracks["entry_time"] = entry_times
         tracks["exit_time"] = exit_times
-        # Add entry and exit points to clipped_tracks GeoDataFrame
+        
+        # Add entry and exit points to clipped_tracks `gpd.GeoDataFrame`.
         tracks["entry_position"] = gpd.GeoSeries(entry_pos, index=tracks.index, crs=self.tracks.crs)
         tracks["exit_position"] = gpd.GeoSeries(exit_pos, index=tracks.index, crs=self.tracks.crs)
-        # Calculate and add transit duration, distance, and average speed to clipped_tracks Geodataframe
+        
+        # Calculate and add transit duration, distance, and average speed to clipped_tracks `gpd.Geodataframe`.
         print("Calculating transit duration")
         tracks["transit_duration"] = transit_durations
         print("Calculating transit distance")
@@ -304,7 +354,9 @@ class AudibleTransits:
         print("=============================================")
 
     def summarize_data_quality(self, tracks='self'):
-        
+        '''
+        A helper function to print data quality summaries to the console.
+        '''
         if type(tracks) is str:
             assert tracks=='self'
             tracks=self.tracks
@@ -325,18 +377,19 @@ class AudibleTransits:
         
         Parameters
         ----------
-        tracks: GeoDataFrame (or string 'self')
-            Default is 'self', which uses self.tracks. Otherwise, Geodataframe containing raw track points. 
+        tracks : `gpd.GeoDataFrame` (or string 'self')
+            Default is 'self', which uses `self.tracks`. Otherwise, a dataframe containing raw track points. 
             Requires basic track elements:
                 goemetry_pts | geometry | point_dt
          
         Returns
         -------
-        interp_tracks : GeoDataFrame
-            GeoDataFrame of interpolated flight tracks, which will replace tracks':
-                                                                                    'geometry' --> 'interp_geometry'
-                                                                                    'point_dt' --> 'interp_point_dt'
+        interp_tracks : `gpd.GeoDataFrame`
+            A dataframe of interpolated flight tracks, which will replace tracks':
+                'geometry' --> 'interp_geometry'
+                'point_dt' --> 'interp_point_dt'
         '''
+        
         if type(tracks) is str:
             assert tracks=='self'
             tracks=self.tracks
@@ -350,46 +403,47 @@ class AudibleTransits:
             print("Error: Cannot perform interpolation. Tracks missing column 'geometry_pts'")
             return 0
             
-        ###### INTERPOLATION =================================================================================#
-
-        # Break each track multipoint down to individual points (Timestamp still needs to be dealt with)
+        # =========== INTERPOLATION ==============================================================================
+        
+        # Break each track multipoint down to individual points.
         sorted_tracks = tracks.dissolve(by='track_id')
         sorted_tracks_pts = sorted_tracks.set_geometry('geometry_pts')  
         sorted_tracks_pts = sorted_tracks_pts.explode('geometry', index_parts=True) 
         sorted_tracks_pts['z'] = sorted_tracks_pts.geometry.z
         
-        track_id_list = []            # List to store interpolated track id's (exclude failures)
-        n_number_list = []            # List to store N-numbers
-        aircraft_type_list = []       # List to store aircraft types
+        track_id_list = []            # list to store interpolated track id's (exclude failures)
+        n_number_list = []            # list to store N-numbers
+        aircraft_type_list = []       # list to store aircraft types
         num_points_list = []
         sampling_interval_list = []
-        spline_time_list = []         # List to store lists of interpolated times for resulting splines
-        spline_line_list = []         # List to store resulting interpolated LineStrings
-        # At the end, we'll take all these lists and combine them into a GeoDataFrame
+        spline_time_list = []         # list to store lists of interpolated times for resulting splines
+        spline_line_list = []         # list to store resulting interpolated LineStrings
+        # ...at the end, we'll take all these lists and combine them into a `gpd.GeoDataFrame`.
         
-        # LOOP THROUGH EACH FLIGHT ID AND INTERPOLATE THE TRACK
+        # Loop through each flight ID and interpolate the track.
         for track_id, track_pts in tqdm(sorted_tracks_pts.groupby(level=0), unit=" splines"):
             # Currently, each track point has the entire list of timestamps in its respective row
-            # We want to assign each timestamp to its respective track point. Store full list in 'timestamps'
+            #   we want to assign each timestamp to its respective track point. Store full list in 'timestamps'.
             timestamps = track_pts.point_dt[0]
             
             # Check for weird case where timestamps don't line up with the number of rows...
             if len(track_pts) == len(timestamps):
-                track_id_list.append(track_id)  # Add track ID to list
+                track_id_list.append(track_id)  # add track ID to list
                 n_number_list.append(track_pts.iloc[0].n_number)
                 aircraft_type_list.append(track_pts.iloc[0].aircraft_type)
                 num_points_list.append(track_pts.iloc[0].num_points)
                 sampling_interval_list.append(track_pts.iloc[0].sampling_interval)
-                track_pts["point_dt"] = timestamps  # Add timestamps list as a column to geodataframe. Only works if correct size, hence the above conditional   
+                track_pts["point_dt"] = timestamps  # add timestamps list as a column to the dataframe. (Only works if correct size, hence the above conditional.)  
 
-                # Interpolate spline given this new gdf with rows of track points and timestamps, then extract coordinates
+                # Interpolate spline given this new gdf with rows of track points and timestamps, then extract coordinates.
                 track_spline = AudibleTransits.interpolate_spline2(track_pts, s=0)  
                 spline_points = [(x,y,z) for x,y,z in zip(track_spline.geometry.x, track_spline.geometry.y, track_spline.geometry.z)] 
                 
-                spline_line = LineString(spline_points)  # Turn points into a LineString
-                spline_line_list.append(spline_line)  # Add LineString to list
+                spline_line = LineString(spline_points)  # merge points
+                spline_line_list.append(spline_line)
                 
-                # Convert spline timestamps to a pandas Series to convert to datetime64, add list of timestamps to spline_time_list (list of lists)
+                # Convert spline timestamps to a pandas Series to convert to datetime64, 
+                #   then add list of timestamps to spline_time_list (list of lists).
                 spline_time = pd.Series([time for time in track_spline.point_dt])  
                 spline_time_list.append(pd.to_datetime(spline_time).values)
 
@@ -398,7 +452,7 @@ class AudibleTransits:
                 print("timestamps: ", len(timestamps), ",  track_pts: ", len(track_pts))
                 print("Numer of timestamps doesn't line up with number of rows")
 
-        # Create new GeoDataFrame with track IDs, interpolated track points and timestamps
+        # Create a new dataframe with track IDs, interpolated track points and timestamps.
         interp_tracks = gpd.GeoDataFrame(index=track_id_list, geometry='interp_geometry', columns=['interp_point_dt', 'interp_geometry'], crs=self.tracks.crs) 
         interp_tracks['interp_point_dt'] = spline_time_list
         interp_tracks['interp_geometry'] = spline_line_list
@@ -419,20 +473,24 @@ class AudibleTransits:
     def clip_tracks(self, tracks='self'):
         '''
         Clips tracks to the active space, cutting out any parts of tracks exterior to the active space polygon.
-        Unfortunately, LineString coordinates are not connected to their respective timestamps, so we need to manually find and align timestamps
-        to the clipped tracks (there can be many clipped tracks for each individual flight; e.g., track goes back and forth across active space).
+        Finds and manually aligns each resultant `shapely.geometry.LineString` coordinate to its respective timestamp. 
+        
+        This function can specifically handle cases where there are many clipped tracks for each individual 
+        flight (e.g., track goes back and forth across active space). For this reason, objects returned
+        downstream of `.clip_tracks()` do not have a unique `track_id`; the field should no longer be 
+        considered indexical. 
         
         Parameters
         ----------
-        tracks: GeoDataFrame (or string 'self')
-            Default is 'self', which uses self.tracks. Otherwise, Geodataframe containing tracks. 
+        tracks: `gpd.GeoDataFrame` (or string 'self')
+            Default is 'self', which uses `self.tracks`. Otherwise, a dataframe containing tracks. 
             Requires basic track elements:
                 interp_geometry | interp_point_dt
                 
         Returns
         -------
-        interp_tracks : GeoDataFrame
-            GeoDataFrame of clipped flight tracks. At this point, track_id's can no longer be used as indices, as they will not be unique. 
+        interp_tracks : `gpd.GeoDataFrame`
+            A dataframe of clipped flight tracks. 
         '''        
 
         if type(tracks) is str:
@@ -448,26 +506,24 @@ class AudibleTransits:
             print("Error: No interpolated geometry found (column = 'interp_geometry'). Cannot clip tracks to active space.")
             return 0        
             
-        #### CLIPPING tracks to active space ===================================================#
+        # Clip tracks to the input active space.
         tracks['preclip_id'] = np.arange(0, len(tracks))
         clipped_tracks = tracks.clip(self.active).copy()
         clipped_tracks.reset_index(inplace=True)
         if 'track_id' not in clipped_tracks:
             clipped_tracks.rename(columns = {'index':'track_id'}, inplace = True)
-        clipped_tracks = clipped_tracks.explode('interp_geometry',ignore_index=True) 
-        # Reorder and remove extra columns -- we can always repopulate
-        #clipped_tracks = clipped_tracks[['preclip_id', 'track_id', 'interp_point_dt', 'interp_geometry', 'num_points', 'sampling_interval']]
+        clipped_tracks = clipped_tracks.explode('interp_geometry',ignore_index=True) # multi-part geometries -> multiple single geometries
         
-        # NEED TO EXPLODE TIMESTAMPS, TOO
-        print("Adjusting timestamps to clipped tracks")
+        # Because we just exploded the `MultiLineString` tracks, we must likewise explode the timestamps to match...
+        print("Adjusting timestamps to match clipped tracks")
         prev_id = np.nan
         real_timestamps = []
         for idx, clipped_track in tqdm(clipped_tracks.iterrows(), unit=' tracks adjusted'):
-            this_time = []
-            id = clipped_track.preclip_id
-                    
-            if id != prev_id:
-                ### New track
+            this_time = [] # (re)initialize an empty list
+            
+            id = clipped_track.preclip_id    
+            if id != prev_id: 
+                # initialize a new track!
                 iii=0
                 initial_index = 0
                 final_index = 0
@@ -475,46 +531,49 @@ class AudibleTransits:
                 prev_coords = tuple([[0, 0, 0],[0, 0, 0]])
                 
             unclipped_track = tracks[tracks.preclip_id == id].iloc[0]
-            timestamp_list = unclipped_track.interp_point_dt   # Extract timestamps (list) of unclipped track
-            clipped_coords = tuple(clipped_track.interp_geometry.coords)   # Convert clipped track coordinates to a list of tuples
+            timestamp_list = unclipped_track.interp_point_dt   # extract timestamps (list) of unclipped track
+            clipped_coords = tuple(clipped_track.interp_geometry.coords)   # convert clipped track coordinates to a list of tuples
             unclipped_coords = tuple(unclipped_track.interp_geometry.coords)
-            current_index = 0  # Keeping track of index
+            current_index = 0  # keeping track of index
+            
             # If clipped track contains more than 2 points, we can use the following algorithm 
-            # NOTE: endpoints likely do not exist in the original interpolated track
+            # NOTE: endpoints likely do not exist in the original interpolated track.
             found_match = False
             if len(clipped_coords) > 2: 
-                # Find the index of the unclipped track's coordinate that is an identical match to the 1st non-endpoint clipped track's coordinate
+                # Find the index of the unclipped track's coordinate that is an identical match 
+                #  to the 1st non-endpoint coordinate of the clipped track.
                 for x,y,z in unclipped_coords:
                     if x == clipped_coords[1][0]:
                         if y == clipped_coords[1][1]:
-                            # It's a match! Set as the initial coordinate and leave the for loop
+                            # It's a match! set as the initial coordinate and leave the loop.
                             initial_index = current_index
                             found_match = True
                             break
                     current_index=current_index+1
-                # Set final index of unclipped track, lines up with the last coordinate of the clipped track before the endpoint
+                # Set final index of unclipped track, lines up with the last coordinate of the clipped track before the endpoint.
                 final_index = initial_index + len(clipped_coords) - 3
-                # Isolate the desired timestamps, include the final index
+                # Isolate the desired timestamps, include the final index.
                 this_time = timestamp_list[initial_index:final_index+1]
-                # Estimate the endpoints at the boundary
+                # Estimate the endpoints at the boundary.
                 start_time, end_time = AudibleTransits.calculate_boundary_times(timestamp_list, initial_index, final_index, unclipped_coords, clipped_coords)
-                # Add in the start time and end time at the boundary
+                # Add in the start time and end time at the boundary.
                 this_time = np.insert(this_time, 0, start_time)
                 this_time = np.append(this_time, end_time)
                 if found_match==False:
                     print('uh oh')
             else:
-                ## This is a weird case, both coordinates are clipped endpoints--they do not exist in the interpolation, so finding the corresponding time is difficult
-                ## We only need to keep these miniscule 2-point tracks if they're part of a long chain of glue-needing track clips
+                # An unusual case: both coordinates are clipped endpoints--they do not exist in the interpolation, 
+                #   so finding the corresponding time is difficult.
+                
+                # If miniscule 2-point tracks, we'll only keep if they're part of a long chain of track clips that "need glue"...
                 if clipped_coords[0][0] == prev_coords[-1][0]:
-                    # Assume that if the last coord of the previous track is the same as the first coord of the current track, they should be sequential
-                    #print("tiny clip error", clipped_track.track_id)
-                    center_idx = final_index  ## Use the previous final index to be the center of this tiny track
+                    # We assume that if the last coord of the previous track is the same as the first coord of the current track, they should be sequential
+                    center_idx = final_index  # use the previous final index to be the center of this tiny track
                 else:
-                    ### This will get thrown out anyway, almost certainly (short track, not glue)
+                    # This will get thrown out anyway, almost certainly (short track, not glue)
                     middle_coord = (np.array(clipped_coords[0]) + np.array(clipped_coords[-1])) / 2
                     distances = np.linalg.norm(np.array(unclipped_track.interp_geometry.coords)-middle_coord, axis=1)
-                    center_idx = distances.argmin()  # Find the index of the closest coordinate to the average of the two points
+                    center_idx = distances.argmin()  # find the index of the closest coordinate to the average of the two points
                     
                 this_time = [timestamp_list[center_idx]-np.timedelta64(500,'ms'), timestamp_list[center_idx]+np.timedelta64(500,'ms')]
                 
@@ -534,24 +593,24 @@ class AudibleTransits:
     
     def clean_tracks(self, tracks='self'):
         '''
-        Perform essential data cleaning on tracks. These operations include:
+        Perform essential cleaning on track data. These operations include:
             1) Remove tracks that are comprised of a single point (instead of a line)
-            2) Glue together tracks that are broken by self intersection -- this is essentially a bug patch -- see glue_tracks()
+            2) Glue together tracks that are broken by self intersection -- this is essentially a bug patch -- see `.glue_tracks()`
             3) Remove tracks that are less than 10 seconds (unlikely to be annotated)
             4) Remove tracks that have 0 or infinite average flight speeds (physically impossible, indicates bad data)
             5) Remove tracks that have still somehow managed to be outside the active space -- no clue why clip didn't get rid of them        
         
         Parameters
         ----------
-        tracks: GeoDataFrame (or string 'self')
-            Default is 'self', which uses self.tracks. Otherwise, Geodataframe containing clipped, interpolated tracks. 
+        tracks : `gpd.GeoDataFrame` (or string 'self')
+            Default is 'self', which uses self.tracks. Otherwise, a dataframe containing clipped, interpolated tracks. 
             Requires track parameters and QC columns:
                 interp_geometry | entry_time | exit_time | entry_position | exit_position | transit_duration | avg_speed
                 
         Returns
         -------
-        cleaned_tracks : GeoDataFrame
-            GeoDataFrame of cleaned flight tracks
+        cleaned_tracks : `gpd.GeoDataFrame`
+            A dataframe of cleaned flight tracks.
         '''        
         if type(tracks) is str:
             assert tracks=='self'
@@ -594,28 +653,29 @@ class AudibleTransits:
 
     def extrapolate_tracks(self, tracks='self', extrapolation_time=800, return_extrapolated=False):
         '''
-        REQUIRES detect_takeoffs_and_landings() !!!!!!!!!!!
         Extrapolates tracks that start/end in the active space and have been determined to not be takeoffs or landings.
         This is a linear extrapolation, based on the first two or last two points in the track. 
+
+        Before using this function, `.detect_takeoffs_and_landings()` must be used.
         
         Parameters
         ----------
-        tracks: GeoDataFrame (or string 'self')
-            Default is 'self', which uses self.tracks. Otherwise, Geodataframe containing interpolated tracks. 
+        tracks : `gpd.GeoDataFrame` (or string 'self')
+            Default is 'self', which uses self.tracks. Otherwise, a dataframe containing interpolated tracks. 
             Requires track parameters and QC columns that indicate a need to extrapolate:
                 interp_geometry | interp_point_dt | needs_extrapolation | starts_inside | ends_inside | takeoff | landing
         extrapolation_time : int (in seconds)
             Defaults to 800 s, determines how long to extrapolate tracks for. Tradeoff between extrapolation not being completed vs. lots of 
             computation time.
         return_extrapolated : boolean
-            Defaults to False, determines whether the extrapolated tracks are returned as their own GeoDataFrame
+            Defaults to False, determines whether the extrapolated tracks are returned as their own dataframe.
          
         Returns
         -------
-        new_tracks : GeoDataFrame
-            GeoDataFrame of tracks that contains extrapolated tracks along with the rest that didn't require extrapolation
-        extrapolated_tracks : GeoDataFrame (if return_extrapolated=True)
-            GeoDataFrame of just the extrapolated tracks, is only returned if return_extrapolated is set True. This may be helpful for validation
+        new_tracks : `gpd.GeoDataFrame`
+            A dataframe of tracks that contains extrapolated tracks along with the rest that didn't require extrapolation
+        extrapolated_tracks : `gpd.GeoDataFrame` (if return_extrapolated=True)
+            A dataframe of the extrapolated tracks, is only returned if return_extrapolated is set True. This may be helpful for validation
             of extrapolation and takeoff/landing detection.
         '''        
         if type(tracks) is str:
@@ -643,7 +703,7 @@ class AudibleTransits:
             old_geometry = track.interp_geometry  # For each track, pull out geometry and timestamps
             old_times = track.interp_point_dt
             
-            ## If beginning needs extrapolation
+            ## If the beginning of a track, extrapolation is required.
             if (track.starts_inside & ~track.takeoff):
                 points = np.asarray(old_geometry.coords)            
                 ## Calculate slope between first two points
@@ -652,25 +712,25 @@ class AudibleTransits:
                 delta_t = (t1 - t0) / np.timedelta64(1, 's')
                 p0 = points[0]
                 p1 = points[1]
-                ## Slope dl/dt in all three directions (basically a velocity vector: Vx, Vy, and Vz)
+                # Slope dl/dt in all three directions (basically a velocity vector: Vx, Vy, and Vz)
                 dldt = (p1 - p0) /delta_t
                 
-                ## Calculate new relative positions by multiplying each velocity component by the number of seconds before track actually begins
-                ## deltaX = Vx * ticks, for example
+                # Calculate new relative positions by multiplying each velocity component by the number of seconds before track actually begins
+                #   deltaX = Vx * ticks, for example
                 ticks = np.arange(-extrapolation_time, 0)
                 pos_extrap = np.matmul(dldt[:,None], ticks[None,:])
                 points_extrap = []
                 for i in range(max(np.shape(pos_extrap))):
-                    ## Create each new point (absolute, not relative) by adding the first real point -- in x, y, and z
+                    ## Create each new point (absolute, not relative) by adding the first real point -- in x, y, and z.
                     point = [pos_extrap[0,i], pos_extrap[1,i], pos_extrap[2,i]] + p0
                     points_extrap.append(point)
-                ## Create a LineString geometry by combining new points with old points
+                # Create a LineString geometry by combining new points with old points.
                 new_geometry.append(LineString(np.concatenate((points_extrap, points))))
-                ## Same stuff with time: Calculate new times and add to beginning of time list
+                # The same operation as above in time: calculate new times and add to beginning of time list.
                 times_extrap = t0 + ticks*np.timedelta64(1, 's')
                 new_times.append(list(np.concatenate((times_extrap, old_times))))
             else:
-                # If beginning is fine, just pass through original geometry and time
+                # If beginning is fine, just pass through original geometry and time.
                 new_geometry.append(old_geometry)
                 new_times.append(old_times)
                 takeoffs.append(False)
@@ -678,7 +738,6 @@ class AudibleTransits:
         extrapolated_tracks.interp_geometry = new_geometry
         extrapolated_tracks.interp_point_dt = new_times
             
-                    
         new_times = []
         new_geometry = []
         landings = []
@@ -688,10 +747,10 @@ class AudibleTransits:
             old_geometry = track.interp_geometry
             old_times = track.interp_point_dt
             
-            ## If ending needs extrapolation
+            ## If the end of a track, needs extrapolation.
             if (track.ends_inside & ~track.landing):
                 points = np.asarray(old_geometry.coords)            
-                ## Calculate slope between last two points
+                ## calculate slope between last two points
                 t0 = old_times[-2]
                 t1 = old_times[-1]
                 delta_t = (t1 - t0) / np.timedelta64(1, 's')
@@ -706,34 +765,34 @@ class AudibleTransits:
                 pos_extrap = np.matmul(dldt[:,None], ticks[None,:])
                 points_extrap = []
                 for i in range(max(np.shape(pos_extrap))):
-                    ## Create each new point (absolute, not relative) by adding the last real point -- in x, y, and z -- to the relative positions
+                    ## Create each new point (absolute, not relative) by adding the last real point -- in x, y, and z -- to the relative positions.
                     point = [pos_extrap[0,i], pos_extrap[1,i], pos_extrap[2,i]] + p1
                     points_extrap.append(point)
-                ## Create a LineString geometry by combining new points with old points
+                ## Create a LineString geometry by combining new points with old points.
                 new_geometry.append(LineString(np.concatenate((points, points_extrap))))
-                ## Same stuff with time: Calculate new times and add to beginning of time list
+                ## Same stuff with time: Calculate new times and add to beginning of time list.
                 times_extrap = t1 + ticks*np.timedelta64(1, 's')
                 new_times.append(list(np.concatenate((old_times, times_extrap))))
             else:
-                # If ending is fine, just pass through original geometry and time
+                # If ending is fine, just pass through original geometry and time.
                 new_geometry.append(old_geometry)
                 new_times.append(old_times)
 
-        # Set extrapolated tracks' geometries and timestamps (these are just the tracks that were extrapolated)
+        # Set extrapolated tracks' geometries and timestamps (these are just the tracks that were extrapolated).
         extrapolated_tracks.interp_geometry = new_geometry
         extrapolated_tracks.interp_point_dt = new_times
 
-        # Clip the newly extrapolated tracks, update parameters and QC
+        # Clip the newly extrapolated tracks, update parameters and QC.
         extrapolated_clipped = self.clip_tracks(tracks=extrapolated_tracks)
         self.update_track_parameters(tracks=extrapolated_clipped)
         self.update_trackQC(tracks=extrapolated_clipped)
 
-        # Clean the clipped, extrapolated tracks and update parameters and QC
+        # Clean the clipped, extrapolated tracks and update parameters and QC.
         extrapolated_cleaned = self.clean_tracks(tracks=extrapolated_clipped)
         self.update_track_parameters(tracks=extrapolated_cleaned)
         self.update_trackQC(tracks=extrapolated_cleaned)
         
-        ## Add extrapolated tracks back into full dataframe
+        ## Add extrapolated tracks back into full dataframe.
         unextrapolated_tracks = tracks[~(tracks.needs_extrapolation)]
         new_tracks = pd.concat((unextrapolated_tracks, extrapolated_cleaned))
 
@@ -755,40 +814,41 @@ class AudibleTransits:
         
         Parameters
         ----------
-        tracks_to_view: GeoDataFrame (or string 'self')
-            Default is 'self', which uses self.tracks. Otherwise, Geodataframe containing tracks or track points. 
+        tracks_to_view : `gpd.GeoDataFrame` (or string 'self')
+            The tracks to be visualized. Default is 'self', which uses `self.tracks`. 
+            Otherwise, a dataframe containing tracks or track points. 
             Requires a geometry column, ideally in self.utm_zone.
         show_DEM : bool
-            Defaults to False, toggles whether the digital elevation model (self.DEM) is visible.
+            Determines whether to visualize the digital elevation model (self.DEM). Defaults to False.
         crs : str
-            Defaults to 'self', sets the CRS of the plot and its elements.
+            Sets the CRS of the plot and its elements. Defaults to the same crs as 'self'.
         show_active : bool
-            Defaults to True, toggles whether the active space boundary (from self.active) is visible.        
+            Determines whether to visualize the active space boundary (from self.active). Defaults to True.     
         show_mic : bool
             Defaults to True, toggles whether the mic location (self.mic) is visible.
         show_endpoints : bool
-            Defaults to False, toggles whether the endpoints of each clipped track is visible. 
+            Determines whether the endpoints of each clipped track are visualized. Defaults to False. 
             Requires entry_position and exit_position columns in tracks_to_view.
         title : str
-            Defaults to 'default', which = "{self.unit}{self.site} Flight Tracks". Title of the resulting plot.
+            Title of the resulting plot. Default is "{self.unit}{self.site} Flight Tracks".
         fig, ax 
-            Defaults to 'None'; allows you to pass more customization of the plot, as well as use subplots
+            Allows a user to pass more customization of the plot, as well as use subplots. Defaults to 'None'.
          
         Returns
         -------
-        Creates a plot of flight tracks/points with optional features such as the active space boundary, mic location, and DEM
+        Creates a plot of flight tracks/points with optional features such as the active space boundary, mic location, and DEM.
         '''        
-        
         ### TODO: add options for plotting linestrings as points, with colormapping options using other GDF columns
+
         if type(tracks_to_view) is str:
             assert tracks_to_view == 'self'
             tracks_to_view = self.tracks
             
-        ## If no fig and axis are passed, generate the figure here
+        ## If no figure and axis are passed, generate the figure here.
         if ax == 'none':
             fig, ax = plt.subplots(1,1,figsize=(6,6))
 
-        # Turn geometry columns into separate GeoSeries'
+        # Turn geometry columns into separate `gpd.GeoSeries`.
         tracks = tracks_to_view.copy()
         active = self.active.copy()
         mic = self.mic.copy()
@@ -797,13 +857,14 @@ class AudibleTransits:
         if show_endpoints : entry_positions = tracks.entry_position
         if show_endpoints : exit_positions = tracks.exit_position
 
-        # If a DEM raster is provided, change default crs to plot in and colormap the raster
+        # If a DEM raster is provided, change default crs to plot in and colormap the raster.
         if (show_DEM):
             crs = self.DEM.crs
             retted = rasterio.plot.show(self.DEM, ax=ax, alpha=.4, cmap='Blues_r')
             im = retted.get_images()[0]
             fig.colorbar(im, ax=ax, label='Elevation (m)')
-        # If a different default crs is set, we need to reproject all geometries: active space, track lines, and entry + exit positions
+            
+        # If a different default crs is set, we need to reproject all geometries: active space, track lines, and entry + exit positions.
         if crs != 'self':
             if show_active : active = active.to_crs(crs)
             if show_mic : mic = mic.to_crs(crs)
@@ -813,7 +874,10 @@ class AudibleTransits:
                 entry_positions = entry_positions.to_crs(crs)
                 exit_positions = exit_positions.to_crs(crs)
 
-        ## Setting bounds on the plot, priority: 1) DEM raster bounds, 2) Active space study area bounds, 3) None (tracks)
+        # The spatial bounds of the visualizion obey the following priority order: 
+        #  (1) DEM raster bounds if `show_DEM` True,
+        #  (2) Active space study area bounds, if `show_active` True,
+        #  (3) tracks, themselves
         if (show_DEM):
             minx, miny, maxx, maxy = self.DEM.bounds
             ax.set_xlim(minx, maxx)
@@ -823,25 +887,26 @@ class AudibleTransits:
             ax.set_xlim(minx, maxx)
             ax.set_ylim(miny, maxy)
 
-        # If 'show_active' is True, plot the active space
+        # Conditionally visualize the active space.
         if (show_active):
             active.boundary.plot(ax=ax, color='grey', zorder = 4)
             aminx, aminy, amaxx, amaxy = active.bounds.iloc[0]
             ax.set_xlim(max(minx, 2*aminx-amaxx), min(maxx, 2*amaxx-aminx))
             ax.set_ylim(max(miny, 2*aminy-amaxy), min(maxy, 2*amaxy-aminy))
-            
+
+        # Conditionally visualize the microphone position.
         if (show_mic):
             mic.plot(ax=ax, color='r', markersize=10, marker='*', zorder=10)
 
-        # Automatically calculate the alpha for the tracklines based on the density of the data
+        # Automatically calculate the alpha for the tracklines based on the density of the data.
         if type(alpha) is str:
             assert alpha == 'auto'
             alpha = min(1, 50/len(tracks))
             
-        # Plot the track lines
+        # Plot the track lines.
         tracklines.plot(ax=ax, color='k', alpha=alpha)
 
-        # If 'endpoints' is True, plot the entries as green x's and exits as red points
+        # If 'endpoints' is True, plot the entries as green x's and exits as red points.
         if (show_endpoints): 
             entry_positions.plot(marker = 'x', markersize=10, color='g', alpha=alpha, ax=ax, zorder=5)
             exit_positions.plot(marker = '.', markersize=10, color='r', alpha=alpha, ax=ax, zorder=5)
@@ -851,9 +916,7 @@ class AudibleTransits:
 
         ax.set_title(title)
 
-
-    # CHECKPT
-    ## ========================================== INITIALIZATION UTILITIES =================================================== ##
+    # ========================================== INITIALIZATION UTILITIES =================================================== 
     @staticmethod
     def load_activespace(u, s, y, gain, third_octave=True, crs=None, PROJ_DIR=r"V:\NMSim\01 SITES"):
         '''
@@ -879,8 +942,8 @@ class AudibleTransits:
     
         Returns
         -------
-        active_space : GeoDataFrame
-            GeoDataFrame containing all geometries of the active space. Can be a single polygon or a multipolygon.
+        active_space : `gpd.GeoDataFrame`
+            A dataframe containing the geometry of the active space. Can be a single polygon or a multipolygon.
         '''
         
         if gain < 0:
@@ -903,8 +966,8 @@ class AudibleTransits:
     @staticmethod
     def load_studyarea(u, s, y, crs=None, PROJ_DIR=r"V:\NMSim\01 SITES"):
         '''
-        Load in the study area that contains the active space for a given unit, site, and year. Currently, this is actually being
-        overridden by query_tracks(), which is set to provide a study area = active space buffered by 25km
+        Load in the study area that contains the active space for a given unit, site, and year. 
+        At present this function is overridden by `query_tracks()`, which is set to provide a study area = active space buffered by 25km.
         
         Parameters
         ----------
@@ -919,11 +982,10 @@ class AudibleTransits:
         PROJ_DIR : string
             This is the path that leads to all sites. This function will find the right folder given the unit, site, year, and gain
             
-    
         Returns
         -------
-        study_area : GeoDataFrame
-            GeoDataFrame containing the geometry of the study area. A single polygon.
+        study_area : `gpd.GeoDataFrame`
+            A dataframe containing the geometry of the study area. A single polygon.
         '''
     
         study_area_path = glob.glob(os.path.join(PROJ_DIR, u + s, u + s + '*study*area*.shp'))[0]
@@ -952,11 +1014,10 @@ class AudibleTransits:
         PROJ_DIR : string
             This is the path that leads to all sites. This function will find the right folder given the unit, site, year, and gain
             
-    
         Returns
         -------
-        mic_location : GeoDataFrame
-            GeoDataFrame containing a point in the xy plane, as well as the mic height (z above ground level) in its own column
+        mic_location : `gpd.GeoDataFrame`
+            A dataframe containing a point in the xy plane, as well as the mic height (z above ground level) in its own column
         '''
     
         mic_location_path = os.path.join(PROJ_DIR, u+s,'Input_Data','05_SITES', u+s + str(y) + '.sit')    
@@ -1009,7 +1070,7 @@ class AudibleTransits:
     
         Parameters
         ----------
-        study_area : gpd.GeoDataFrame
+        study_area : `gpd.GeoDataFrame`
             A study area (Polygon) to find the UTM zone of the westernmost extent for.
     
         Returns
@@ -1024,11 +1085,11 @@ class AudibleTransits:
     
         return AudibleTransits.coords_to_utm(lat, lon)
         
-    ## ========================================== DATA QC + DETECTION =================================================== ##
+    # ========================================== DATA QC + DETECTION ===================================================
     @staticmethod
     def needs_extrapolation(tracks, active_ea, buffer=10, inplace=True):
         """
-        Identifies tracks that end or begin inside of the active space; adds a corresponding boolean column 'needs_extrapolation' to the input GeoDataFrame.
+        Identifies tracks that end or begin inside of the active space; adds a corresponding boolean column 'needs_extrapolation' to the input dataframe.
         This column is needed in order to run glue_tracks and needs_glue -- some of the needs_extrapolation==true rows will actually just need to be glued
         NEW COLUMNS: starts_inside and ends_inside specifies which end(s) of the tracks may need extrapolation. Usable downstream in extrapolation, but mainly
         necessary for detection of takeoffs and landings.
@@ -1037,25 +1098,25 @@ class AudibleTransits:
     
         Parameters
         ----------
-        tracks: gpd.GeoDataFrame
-            A gpd.GeoDataframe object containing flight tracks. Must have the following columns in order to compute:
+        tracks: `gpd.GeoDataFrame`
+            A dataframe containing flight tracks. Must have the following columns in order to compute:
             index(unlabeled) | track_id | entry_position | exit_position 
     
-        active_ea: gpd.GeoDataFrame
-            A gpd.GeoDataFrame object containing the equal area active space being studied. Should contain a Polygon or MultiPolygon geometry
+        active_ea: `gpd.GeoDataFrame`
+            A dataframe containing the equal area active space being studied. Should contain a Polygon or MultiPolygon geometry
     
         buffer: int (in meters)
-            Defaults to 10 m, can be used to avoid unnecessarily extrapolating objects that are very close to the border. 
+            Defaults to 10 m, can be used to avoid unnecessarily extrapolating tracks that are very close to the border. 
             Might be worth considering if we should just set to 1 and extrapolate no matter what.
         
         inplace: boolean
-            Defaults to True, set False if you'd like to create a new GeoDataFrame
+            Whether to modify the input dataframe as part of the process. Defaults to True. If False, returns a new dataframe.
             
         Returns
         -------
-        Nothing, just adds columns to your dataframe (inplace=True)
+        None
         OR
-        new_tracks: gpd.GeoDataFrame (inplace=False)
+        new_tracks: `gpd.GeoDataFrame` (inplace=False)
             
         """
         starts_inside = ~(tracks['entry_position'].buffer(buffer).intersects(active_ea.geometry.iloc[0].boundary))
@@ -1077,13 +1138,13 @@ class AudibleTransits:
     @staticmethod
     def find_short_tracks(tracks, max_distance=500, inplace=True):
         """
-        Identifies tracks that are below a threshold distance; adds a corresponding boolean column 'short_distance' to the input GeoDataFrame.
-        Can be an indicator of garbage data.
+        Identifies tracks that are below a threshold distance; adds a corresponding boolean 
+        column 'short_distance' to the input dataframe. Can be an indicator of garbage data.
     
         Parameters
         ----------
-        tracks: gpd.GeoDataFrame
-            A gpd.GeoDataframe object containing flight tracks. Must have the following columns in order to compute:
+        tracks: `gpd.GeoDataFrame`
+            A dataframe containing flight tracks. Must have the following columns in order to compute:
             index(unlabeled) | track_id | entry_position | exit_position 
     
         max_distance: int (in meters)
@@ -1091,13 +1152,13 @@ class AudibleTransits:
             While short tracks aren't necessarily bad, this can be an indicator for erroneous track data. Nice to have this metric.
         
         inplace: boolean
-            Defaults to True, set False if you'd like to create a new GeoDataFrame
+            Whether to modify the input dataframe as part of the process. Defaults to True. If False, returns a new dataframe.
             
         Returns
         -------
         Nothing, just adds a column to your dataframe (inplace=True)
         OR
-        new_tracks: gpd.GeoDataFrame (inplace=False)
+        new_tracks: `gpd.GeoDataFrame` (inplace=False)
             
         """
         short_distance = tracks['transit_distance'] < max_distance
@@ -1112,9 +1173,9 @@ class AudibleTransits:
     @staticmethod
     def needs_glue(tracks, active_ea, inplace=True):
         """
-        Identifies tracks that will need gluing, and adds a corresponding boolean column to the input GeoDataFrame.
-        This function SHOULD NOT be used to bound tracks for the actual gluing process.
-        Instead, it is designed to give an idea as to how many tracks are fragmented due to a clipping-related intersection bug.
+        Identifies tracks that will need gluing, and adds a corresponding boolean column to the input dataframe.
+        NOTE: this function should not be used to bound tracks for the actual gluing process. It is designed to 
+        give an idea as to how many tracks are fragmented due to a clipping-related intersection bug.
     
         conditions for gluing: needs_extrapolation[i] == True
                                needs_extrapolation[i+1] == True
@@ -1125,32 +1186,34 @@ class AudibleTransits:
     
         Parameters
         ----------
-        tracks: gpd.GeoDataFrame
-            A gpd.GeoDataframe object containing flight tracks. Must have the following columns in order to compute:
+        tracks: `gpd.GeoDataFrame`
+            A dataframe containing flight tracks. Must have the following columns in order to compute:
             index(unlabeled) | track_id | entry_time | exit_time | entry_position | exit_position 
         
-        active_ea: gpd.GeoDataFrame
-            A gpd.GeoDataFrame object containing the equal area active space being studied. Should contain a Polygon or MultiPolygon geometry    
+        active_ea: `gpd.GeoDataFrame`
+            A dataframe containing the equal area active space being studied. Should contain a Polygon or MultiPolygon geometry    
         
         inplace: boolean
-            Defaults to True, set False if you'd like to create a new GeoDataFrame
+            Whether to modify the input dataframe as part of the process. Defaults to True. If False, returns a new dataframe.
             
         Returns
         -------
-        Nothing, just adds a column to your dataframe (inplace=True)
-        OR
-        new_tracks: gpd.GeoDataFrame
+        None (if inplace=True)
+        new_tracks: `gpd.GeoDataFrame` (if inplace=False)
             
         """
+        
         AudibleTransits.needs_extrapolation(tracks, active_ea)
-        needs_glue = [] # Hold all pairs of track indices that need gluing (e.g., [[1,2],[4,5],[5,6],[11,12]])
-        glued_to_prev = False  # Flags when the next track should also be marked
+        needs_glue = [] # hold all pairs of track indices that need gluing (e.g., [[1,2],[4,5],[5,6],[11,12]])
+        glued_to_prev = False  # flags when the next track should also be marked
         i=0 # track counter for iteration ('index' below is specific to the pandas object and may not be sequential/consecutive)
-        ### Loop through each track up until the final one (there will be no track to glue the final track to) 
+        
+        # Loop through each track up until the final one (there will be no track to glue the final track to). 
         for index, track in tracks[:-1].iterrows():
             current_track = tracks.iloc[i]
             next_track = tracks.iloc[i+1]
-            ### If current and next track meet all of the above criteria, they will need to be glued  
+            
+            # If current and next track meet all of the above criteria, they will need to be glued.  
             if (current_track.needs_extrapolation) & (next_track.needs_extrapolation) & (current_track.track_id == next_track.track_id) & (next_track.entry_position == current_track.exit_position) & ((next_track.entry_time - current_track.exit_time) / pd.Timedelta(seconds = 1) <= 2):
                 needs_glue.append(True)
                 glued_to_prev = True
@@ -1160,12 +1223,13 @@ class AudibleTransits:
             else:
                 needs_glue.append(False)
                 glued_to_prev = False # probably redundant
+                
             i = i+1
             
-        # Need to account for the final track, will need to be glued if the previous track met all the criteria for gluing        
+        # Need to account for the final track, will need to be glued if the previous track met all the criteria for gluing.       
         needs_glue.append(glued_to_prev)
     
-        # Add column if inplace==True, create new GDF if inplace==False
+        # Add column if inplace==True, else create new dataframe.
         if (inplace):
             tracks['needs_glue'] = needs_glue
         else:
@@ -1176,34 +1240,35 @@ class AudibleTransits:
     @staticmethod
     def find_err_flight_speeds(tracks, min_speed=20, max_speed=75, inplace=True):
         """
-        Identifies tracks that have erroneous average speeds; adds a corresponding boolean column 'speed_out_of_range' to the input GeoDataFrame.
+        Identifies tracks that have erroneous average speeds; adds a corresponding boolean column 'speed_out_of_range' to the input dataframe.
     
         Parameters
         ----------
-        tracks: gpd.GeoDataFrame
-            A gpd.GeoDataframe object containing flight tracks. Must have the following columns in order to compute:
+        tracks : `gpd.GeoDataFrame`
+            A dataframe containing flight tracks. Must have the following columns in order to compute:
             index(unlabeled) | track_id | entry_position | exit_position 
     
-        min_speed: int (in meters/second)
+        min_speed : int (in meters/second)
             Defaults to 20 m/s, sets the min threshold for defining a reasonable speed. 
             Lower speeds indicate very unlikely flight paths; either bad data or bad interpolation. Also could be landing/hovering.
         
-        max_speed: int (in meters/second)
+        max_speed : int (in meters/second)
             Defaults to 75 m/s, sets the max threshold for defining a reasonable speed. 
             Higher speeds indicate very unlikely flight paths; either bad data or bad interpolation.
         
-        inplace: boolean
-            Defaults to True, set False if you'd like to create a new GeoDataFrame
+        inplace : boolean
+            Whether to modify `self.tracks` as part of the process. Defaults to True. If False, returns a new dataframe.
             
         Returns
         -------
-        Nothing, just adds a column to your dataframe (inplace=True)
+        None
         OR
-        new_tracks: gpd.GeoDataFrame (inplace=False)
-            
+        new_tracks : `gpd.GeoDataFrame`  
         """
+        
         speed_out_of_range = (tracks['avg_speed'] > max_speed) | (tracks['avg_speed'] < min_speed)
-        # Add column if inplace==True, create new GDF if inplace==False
+        
+        # Add column if inplace==True, create new GDF if inplace==False.
         if (inplace):
             tracks['speed_out_of_range'] = speed_out_of_range
         else:
@@ -1213,7 +1278,14 @@ class AudibleTransits:
 
     @staticmethod
     def split_paused_tracks(track_pts, threshold_s=900):
-        
+        '''
+        Break a track that pauses within the active space (e.g., landing -> takeoff sequence) into separate tracks.
+
+        Parameters
+        ----------
+        threshold_s : float
+            The length of time required to consider a track to be "paused".
+        '''
         counter = 0
         
         grouped_track_pts = track_pts.groupby('track_id')
@@ -1233,42 +1305,37 @@ class AudibleTransits:
     @staticmethod
     def remove_scrambled_tracks(track_segments, active_ea, return_scrambled_tracks=False, visualize=False):
         '''
-        Get rid of tracks with poor data quality -- indicated by glitchy back-and-forth motions and unrealistic average speed (distance/time between each point)
-        Adds the following columns to keep count of suspiciously unrealistic flight behaviors:
-            - speed_flag: Indicates how many times the distance/time between two points exceeds a reasonable value for fixed-wing aircraft and helicopter velocity
-                          in the park. Currently, the threshold is 100 m/s (190 knots).
+        Get rid of tracks with poor data quality as indicated by erratic back-and-forth motions and 
+        unrealistic average speed (distance/time between each point). Adds the following columns to 
+        keep count of suspiciously unrealistic flight behaviors:
+            - speed_flag: Indicates how many times the distance/time between two points exceeds a reasonable value 
+                          for fixed-wing aircraft and helicopter velocity in the park. Currently, the threshold is 100 m/s (190 knots).
             - angle_flag: Indicates how many times the velocity vector, the approximate direction of the flight, changes direction drastically.
                           The threshold is set to +/- 30 degrees from a complete 180. This is unrealistic behavior to happen frequently.
-        Could probably get rid of these columns after this function is used.
     
-        Note: This function is highly dependent on the aircrafts in question (max speed, etc) and was created in direct response to a data quality issue from one of the 
-        flight tourism companies in Denali. ADS-B data is unlikely to require this purge of crazy tracks.
+        Note: This function was created to handle an issue with a specific data acquisition platform.
         
         Parameters
         ----------
-        track_segments: gpd.GeoDataFrame
-            A gpd.GeoDataframe object containing raw flight tracks. Must have the following columns in order to compute:
+        track_segments : `gpd.GeoDataFrame`
+            A dataframe containing raw flight tracks. Must have the following columns in order to compute:
             track_id | point_dt | geometry
-    
-        active_ea: gpd.GeoDataFrame
-            A gpd.GeoDataFrame object containing the equal area active space being studied. Should contain a Polygon or MultiPolygon geometry
-    
-        return_scrambled_tracks: boolean
-            Defaults to False; when True, function will return a gpd.GeoDataFrame of the tracks that were removed due to the erratic 'hairball' behavior.
-            Helpful for allowing user validation of the removal of tracks. Also provides an opportunity to recover these tracks.
-    
-        visualize: boolean
-            Defaults to False; when True, function will plot and show each removed hairball track individually. Quick option for user validation of the 
-            data cleaning.
+        active_ea : `gpd.GeoDataFrame`
+            A dataframe containing the equal area active space being studied. Should contain a Polygon or MultiPolygon geometry.
+        return_scrambled_tracks : boolean
+            Whether to return an `gpd.GeoDataFrame` containing the tracks identified as exhibiting this specific 'scrambling' issue. Defaults to False.
+        visualize : boolean
+            Whether to visualize each scrambled track individually for user validation. Defaults to False.
             
         Returns
         -------
-        new_track_segments: gpd.GeoDataFrame 
-            Cleaned tracks without the scrambled_tracks. Use these tracks to greatly improve data quality.
-            
-        scrambled_tracks: gpd.GeoDataFrame (return_scrambled_tracks=True)
+        new_track_segments : `gpd.GeoDataFrame` 
+            Cleaned tracks without the scrambled_tracks. Use these tracks to greatly improve data quality.  
+        scrambled_tracks : `gpd.GeoDataFrame`
+            The 'scrambled' tracks that were removed. Only returned if `returned_scrambled_tracks` is set to True.
         '''
-    
+
+        # We filter out an irrelevant and redundant warning related to timedelta division.
         warnings.filterwarnings('ignore', message=".*invalid value encountered in true_divide.*")
         
         angle_flag_list = []
@@ -1289,7 +1356,6 @@ class AudibleTransits:
                 if speed>100:
                     speed_flag+=1
                 
-            
             speed_flag_list.append(speed_flag)
             angle_flag_list.append(100*angle_flag/len(line_coords))
         
@@ -1308,6 +1374,7 @@ class AudibleTransits:
                 ax.set_title(title)
                 plt.show()
                 plt.pause(.1)
+                
         print(len(scrambled_tracks), " scrambled tracks removed (highly erratic data, likely garbage)")
     
         if (return_scrambled_tracks):
@@ -1318,15 +1385,20 @@ class AudibleTransits:
     @staticmethod
     def remove_low_quality_tracks(raw_tracks, return_low_quality_tracks=False):
         """
-        Identifies and removes raw tracks that have really bad data quality. Indicators include: having only 2 sample points & having a very 
-        low avg speed. It's very hard to make much out of 2 sample points. Avg speed is a horrible indicator of actual speed in such cases 
-        (there is no accounting for curvature of possible paths). Main concern is that extrapolation at very slow speeds will falsely inflate 
-        the audible time.
-    
-        Current plan: 
-          -  Remove tracks that are 2 points, very slow (< 20 knots (10 m/s)), and short (< 5000 m)
-          -  Mark tracks that are 2 points, very slow, but longer. These tracks can be extrapolated at a set minimum speed (e.g., 30 knots)
+        Identifies and removes raw tracks with poor data quality. To be removed, tracks must meet three conditions:
+            (1) have only 2 points,
+            (2) have very slow average groundspeeds (e.g., <20 knots = 10 m/s)
+            (3) span a relatively short distance (e.g., <5000 m)
+
+        If the first two conditions are met, but the third is not, the track is flagged. In this latter case a track
+        may be successfully extrapolated using a set minimum speed (e.g., 30 knots = 15 m/s).
+ 
+        IMPLEMENTATION NOTE: average speed is a poor indicator of actual groundspeed - especially for sparse points - because any 
+        possible curvature in the track not captured by the data logger is also not incorporated into the calculation of speed. 
+        The purpose of removing tracks with low average speed is instead to avoid issues with extrapolation. Specifically, 
+        extrapolation at very low speeds may falsely inflate the estimated duration of the audible transit.
         """
+        
         start_len = len(raw_tracks) # for bookkeeping
         avg_speed = []
         num_points=[]
@@ -1336,12 +1408,15 @@ class AudibleTransits:
     
         raw_tracks['avg_speed'] = avg_speed
         raw_tracks['num_points'] = num_points
+        
         # Pull out tracks that have only 2 raw points, a very slow speed, and covers only a short distance
         raw_tracks['bad_track'] = (raw_tracks.num_points == 2) & (raw_tracks.avg_speed < 10) & (raw_tracks.geometry.length <= 5000)
         low_quality_tracks = raw_tracks[raw_tracks.bad_track]
         cleaner_tracks = raw_tracks[~(raw_tracks.bad_track)]
         end_len = len(cleaner_tracks)
+        
         print("removed", start_len - end_len, "low quality tracks (only 2 points, very slow, & short)")
+        
         if (return_low_quality_tracks):
             return cleaner_tracks.copy(), low_quality_tracks.copy()
         else:
@@ -1350,38 +1425,38 @@ class AudibleTransits:
     @staticmethod
     def glue_tracks(tracks, active_ea):
         """
-        #### GLUE TRACKS
-        
-        Identifies tracks that can/should be glued together and performs the gluing operation. Broken tracks are created from self-intersecting tracks,
-        and they have a pretty straightforward signature (conditions below). Most importantly, these tracks will have entry/exit points inside of the 
-        active space, as opposed to the border. We need to repair any such tracks before performing extrapolation on other tracks that do not enter/exit
-        on the active space boundary.
-    
-        conditions for gluing: needs_extrapolation[i] == True
-                               needs_extrapolation[i+1] == True
-                               track_id[i] == track_id[i+1]
-                               entry_time[i+1] - exit_time[i] == 1 second
-                               exit_position[i] == entry_position[i+1]
-                               
+        Identifies tracks that exhibit properties that suggest that they can/should be "glued" together 
+        and performs the gluing operation. This functionality is intended to address undesired behavior 
+        of `gpd.clip()` where self-intersecting input `shapely.geometry.LineString` geometries are exploded 
+        into multiple separate geometries. Thus the need to "glue them back together".
+
+        The conditional test for gluing may be performed on `self.tracks` after running `ActiveSpace.update_track_parameters()`.
+        A track needs glue if:
+            (1) needs_extrapolation[i] == True
+            (2) needs_extrapolation[i+1] == True
+            (3) track_id[i] == track_id[i+1]
+            (4) entry_time[i+1] - exit_time[i] == 1 second
+            (5) exit_position[i] == entry_position[i+1]
+
+        IMPLEMENTATION NOTE: All tracks needing glue will have entry/exit points inside of the active space, not on the perimeter. 
+        Before performing extrapolation on any tracks in a set, we must fix tracks needing glue.
+                        
         Parameters
         ----------
-        tracks: gpd.GeoDataFrame
-            A gpd.GeoDataframe object containing flight tracks. Must have the following columns in order to compute:
+        tracks : `gpd.GeoDataFrame`
+            A dataframe containing flight tracks. Must have the following columns in order to compute:
             index(unlabeled) | track_id | interp_point_dt | interp_geometry | entry_position | exit_position | transit_distance | entry_time | exit_time | transit_duration | needs_extrapolation
-    
-        active_ea: gpd.GeoDataFrame
-            A gpd.GeoDataFrame object containing the equal area active space being studied. Should contain a Polygon or MultiPolygon geometry
-    
+        active_ea : `gpd.GeoDataFrame`
+            A dataframe containing the equal area active space being studied. Should contain a Polygon or MultiPolygon geometry
         buffer: int (in meters)
-            Defaults to 100 m, can be used to avoid unnecessarily extrapolating objects that are very close to the border. 
+            Defaults to 100 m, can be used to avoid unnecessarily extrapolating tracks that are very close to the border. 
             Might be worth considering if we should just set to 1 and extrapolate no matter what.
-        
         inplace: boolean
             Defaults to True, set False if you'd like to create a new GeoDataFrame
             
         Returns
         -------
-        glued_tracks: gpd.GeoDataFrame
+        glued_tracks: `gpd.GeoDataFrame`
             
         """
         print(" - Identifying sets of tracks that should be glued together")
@@ -1499,14 +1574,14 @@ class AudibleTransits:
         Parameters
         ----------
         points : Tracks
-            A Track gpd.GeoDataframe object containing known track points in a path. A minimum of 2 points is required.
+            A dataframe containing known track points in a path. A minimum of 2 points is required.
         ds : int, default 1
             The second interval in which to calculate the spline for.
             E.g. ds = 1 is "calculate a spline point at every 1 second delta"
     
         Returns
         -------
-        gpd.GeoDataFrame of all points in the interpolated spline.
+        `gpd.GeoDataFrame` of all points in the interpolated spline.
         Columns: point_dt, geometry
     
         Raises
@@ -1608,8 +1683,8 @@ class AudibleTransits:
     
         Parameters
         ----------
-        tracks : GeoDataFrame
-            GeoDataFrame with the tracks, needs to have z coordinates
+        tracks : `gpd.GeoDataFrame`
+            A dataframe with tracks, needs to have z coordinates
         DEM_raster : rasterio object
             DEM raster for the active space and surrounding area
     
@@ -1652,8 +1727,8 @@ class AudibleTransits:
     
         Parameters
         ----------
-        tracks : GeoDataFrame
-            Simple GeoDataFrame of flight tracks with column point_dt storing the datetimes of the raw tracks.
+        tracks : `gpd.GeoDataFrame`
+            Simple dataframe of flight tracks with column point_dt storing the datetimes of the raw tracks.
     
         Returns
         -------
@@ -1730,9 +1805,9 @@ class AudibleTransits:
         
         Parameters
         ----------
-        tracks : GeoDataFrame
+        tracks : `gpd.GeoDataFrame`
             A tracks GDF of garbage tracks that contains:
-                            track_id  |  n_number  |  point_dt / interp_point_dt  |  geometry / interp_geometry
+                track_id  |  n_number  |  point_dt / interp_point_dt  |  geometry / interp_geometry
     
         reason : str
             A string containing one of the default reasons, or a new one. Need to add other_explanation if using a custom reason for adding to garbage
@@ -1818,7 +1893,7 @@ class AudibleTransitsGPS(AudibleTransits):
             The date to begin looking for tracks, formatted as 'yyyy-mm-dd'
         end_date : string
             The date to stop looking for tracks, formatted as 'yyyy-mm-dd'
-        active : GeoDataFrame
+        active : `gpd.GeoDataFrame`
             The active space of our site
         buffer : int
             The buffer (in meters) around the active space to look for tracks. This helps get points that are not quite inside the active space
@@ -1826,8 +1901,8 @@ class AudibleTransitsGPS(AudibleTransits):
     
         Returns
         -------
-        tracks : GeoDataFrame
-            GeoDataFrame containing all tracks in the buffered active space with standardized column names
+        tracks : `gpd.GeoDataFrame`
+            A dataframe containing all tracks in the buffered active space with standardized column names
         '''
         if type(data) is str:
 
@@ -1863,14 +1938,14 @@ class AudibleTransitsGPS(AudibleTransits):
 
         Parameters
         ----------
-        tracks : GeoDataFrame
-            GeoDataFrame containing all tracks (as points). Must have the following columns:
+        tracks : `gpd.GeoDataFrame`
+            A dataframe containing all tracks (as points). Must have the following columns:
                 track_id | geometry | z | point_dt
 
         Returns
         -------
-        track_lines : GeoDataFrame
-            GeoDataFrame containing all tracks, condensed to LineStrings (geometry) and MultiPoints (geometry_pts). Has the following columns:
+        track_lines : `gpd.GeoDataFrame`
+            A dataframe containing all tracks, condensed to LineStrings (geometry) and MultiPoints (geometry_pts). Has the following columns:
                 track_id | geometry | point_dt | geometry_pts | z
                  str      LineString  list of    MultiPoint    list of
                                       datetime64               floats
@@ -1907,7 +1982,7 @@ class AudibleTransitsGPS(AudibleTransits):
     
     def detect_takeoffs_and_landings(self, tracks='self', AGL_thresh=25, speed_thresh=30, interval_thresh1 = 300, interval_thresh2 = 120, point_thresh1 = 4, point_thresh2 = 10):
         """
-        Identifies tracks that appear to begin by taking off or end by landing inside of the active space; adds corresponding boolean columns 'takeoff' and 'landing to the input GeoDataFrame.
+        Identifies tracks that appear to begin by taking off or end by landing inside of the active space; adds corresponding boolean columns 'takeoff' and 'landing to the input dataframe.
         These columns are needed in order to perform extrapolation. This will also downgrade needs_extrapolation to False as appropriate.
         Adds columns for initial speed and final speed of tracks that begin or end inside of the active space.
     
@@ -1915,8 +1990,8 @@ class AudibleTransitsGPS(AudibleTransits):
     
         Parameters
         ----------
-        tracks : gpd.GeoDataFrame
-            A gpd.GeoDataframe object containing flight tracks. Must have the following columns in order to compute:
+        tracks : `gpd.GeoDataFrame`
+            A dataframe containing flight tracks. Must have the following columns in order to compute:
             track_id | interp_point_dt | interp_geometry | entry_position | exit_position | transit_duration | avg_s | num_points | sampling_interval
     
         DEM_raster : rasterio 
@@ -1941,13 +2016,13 @@ class AudibleTransitsGPS(AudibleTransits):
             Defaults to 10 samples, a more stringent threshold to indicate high quality tracks with fairly decent degree of confidence in a stopped track
     
         inplace : boolean
-            Defaults to True, determines whether to output a new GeoDataFrame or just modify the existing one in place.
+            Defaults to True, determines whether to output a new dataframe or just modify the existing one in place.
             
         Returns
         -------
         Nothing, just adds columns to your dataframe (inplace=True)
         OR
-        new_tracks: gpd.GeoDataFrame (inplace=False)
+        new_tracks: `gpd.GeoDataFrame` (inplace=False)
             
         """
         if type(tracks) is str:
@@ -2200,14 +2275,14 @@ class AudibleTransitsADSB(AudibleTransits):
     
         Parameters
         ----------
-        tracks : GeoDataFrame
-            GeoDataFrame containing all tracks (as points). Must have the following columns:
+        tracks : `gpd.GeoDataFrame`
+            A dataframe containing all tracks (as points). Must have the following columns:
                 track_id | geometry | z | point_dt
     
         Returns
         -------
-        track_lines : GeoDataFrame
-            GeoDataFrame containing all tracks, condensed to LineStrings (geometry) and MultiPoints (geometry_pts). Has the following columns:
+        track_lines : `gpd.GeoDataFrame`
+            A dataframe containing all tracks, condensed to LineStrings (geometry) and MultiPoints (geometry_pts). Has the following columns:
                 track_id | geometry | point_dt | geometry_pts | z
                  str      LineString  list of    MultiPoint    list of
                                       datetime64               floats
@@ -2260,7 +2335,7 @@ class AudibleTransitsADSB(AudibleTransits):
 
     def detect_takeoffs_and_landings(self, tracks='self', AGL_thresh=25, speed_thresh=30):
         """
-        Identifies tracks that appear to begin by taking off or end by landing inside of the active space; adds corresponding boolean columns 'takeoff' and 'landing to the input GeoDataFrame.
+        Identifies tracks that appear to begin by taking off or end by landing inside of the active space; adds corresponding boolean columns 'takeoff' and 'landing to the input dataframe.
         These columns are needed in order to perform extrapolation. This will also downgrade needs_extrapolation to False as appropriate.
         Adds columns for initial speed and final speed of tracks that begin or end inside of the active space.
     
@@ -2268,8 +2343,8 @@ class AudibleTransitsADSB(AudibleTransits):
     
         Parameters
         ----------
-        tracks : gpd.GeoDataFrame
-            A gpd.GeoDataframe object containing flight tracks. Must have the following columns in order to compute:
+        tracks : `gpd.GeoDataFrame`
+            A dataframe containing flight tracks. Must have the following columns in order to compute:
             track_id | interp_point_dt | interp_geometry | entry_position | exit_position | transit_duration | avg_s | num_points | sampling_interval
     
         DEM_raster : rasterio 
@@ -2286,7 +2361,7 @@ class AudibleTransitsADSB(AudibleTransits):
         -------
         Nothing, just adds columns to your dataframe (inplace=True)
         OR
-        new_tracks: gpd.GeoDataFrame (inplace=False)
+        new_tracks: `gpd.GeoDataFrame` (inplace=False)
             
         """
         if type(tracks) is str:
