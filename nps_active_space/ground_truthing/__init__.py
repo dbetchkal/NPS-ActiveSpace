@@ -136,6 +136,8 @@ class _App(tk.Tk):
         annotated_lines: gpd.GeoDataFrame
             a GeoDataFrame of annotated lines for a track to add to the overall annotations GeoDataFrame.
         """
+        if annotated_lines.crs != self.annotations.crs:
+            annotated_lines = annotated_lines.to_crs(self.annotations.crs)
         self.annotations = pd.concat([self.annotations, annotated_lines], ignore_index=True)
         self._saved = False
 
@@ -579,7 +581,9 @@ class _GroundTruthingFrame(_AppFrame):
         try:
             idx, points = next(self.data)
             self.i += 1
-            spectro = self.master.nvspl.loc[str(points.point_dt.iat[0]):str(points.point_dt.iat[-1]), '12.5':'20000']
+
+            time_pad = dt.timedelta(seconds=5*60)
+            spectro = self.master.nvspl.loc[str(points.point_dt.iat[0] - time_pad):str(points.point_dt.iat[-1] + time_pad), '12.5':'20000']
 
             # If the track is already annotated, move on.
             if str(idx) in self.master.annotations._id.values:
@@ -668,8 +672,8 @@ class _GroundTruthingFrame(_AppFrame):
             audible_segment = points[(points.time_audible >= audibility_start) &
                                      (points.time_audible <= audibility_end)]
 
-            inaudible_segment_1 = points[points.point_dt <= audible_segment.point_dt.iat[0]]
-            inaudible_segment_2 = points[points.point_dt >= audible_segment.point_dt.iat[-1]]
+            inaudible_segment_1 = points.loc[points.point_dt < audible_segment.point_dt.iat[0]]
+            inaudible_segment_2 = points.loc[points.point_dt > audible_segment.point_dt.iat[-1]]
 
             line_segments = []
             for i, segment in enumerate([inaudible_segment_1, audible_segment, inaudible_segment_2]):
@@ -880,6 +884,7 @@ class _GroundTruthingFrame(_AppFrame):
             ax2.set_yticks(np.arange(spectrogram.shape[1])[::6])
             ax2.set_yticklabels(spectrogram.columns.astype('float')[::6])
             ax2.set_ylabel("Freq. (Hz)", labelpad=15)
+            ax2.axhline(8, lw=1.0, color="white", ls=":", alpha=0.4, zorder=200)
             ax2.xaxis_date()  # tell matplotlib that the numeric axis should be formatted as dates
             ax2.xaxis.set_major_formatter(DateFormatter("%b-%d\n%H:%M"))  # tidy them!
 

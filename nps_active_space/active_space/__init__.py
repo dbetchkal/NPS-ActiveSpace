@@ -128,7 +128,10 @@ class ActiveSpaceGenerator:
             study_area_m = study_area.to_crs(equal_area_crs)
             study_area_m = study_area_m.buffer(buffer*1000)
             study_area = study_area_m.to_crs(study_area.crs)
-        study_area.to_file(study_area_filename)
+
+        # we avoid the deprecated `pd.Int64Index` and an associated AttributeError
+        # by simply setting the `index` parameter to False...
+        study_area.to_file(study_area_filename, index=False) 
 
         # Mask the DEM file with the study area shapefile.
         dem_masked_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_mask{suffix}.tif"
@@ -348,7 +351,8 @@ class ActiveSpaceGenerator:
             depending on the point's audibility.
         """
         # Read in the trajectory input file.
-        trajectory_df = pd.read_fwf(trajectory_file, header=15, widths=[16, 14] + [15]*7)
+        trajectory_df = pd.read_fwf(trajectory_file, header=14, widths=[16, 14] + [15]*7)
+        # trajectory_df = pd.read_fwf(trajectory_file, header=15, widths=[16, 14] + [15]*7)
 
         # Read in the tis NMSIM output file.
         tis_df = pd.read_fwf(tis_file, header=15, skipfooter=1, widths=[4, 12] + [5]*35)
@@ -383,8 +387,8 @@ class ActiveSpaceGenerator:
             geometry=gpd.points_from_xy(x=inaudible_pts.Xpos, y=inaudible_pts.Ypos, z=inaudible_pts.Zpos)
         )
 
-        total_space = active_space.append(null_space, ignore_index=True)
-
+        total_space = pd.concat([active_space, null_space], ignore_index=True)
+ 
         return total_space
 
     @staticmethod
@@ -579,7 +583,7 @@ class ActiveSpaceGenerator:
                 heading
             )
 
-            tested_space = tested_space.append(new_audibility_pts, ignore_index=True)
+            tested_space = pd.concat([tested_space, new_audibility_pts], ignore_index=True) 
             active_space = tested_space[tested_space.audible == 1]
 
             # Create a small buffer around the extent of audible points. If the padded active space is less than
@@ -606,7 +610,7 @@ class ActiveSpaceGenerator:
                 ambience,
                 heading
             )
-            tested_space = tested_space.append(new_audibility_pts, ignore_index=True)
+            tested_space = pd.concat([tested_space, new_audibility_pts], ignore_index=True)
 
         active_space = self._build_active_space(tested_space, crs)
         active_space['altitude_m'] = altitude_m
@@ -736,6 +740,6 @@ class ActiveSpaceGenerator:
             results = [p.get() for p in processes]
             active_spaces = results.pop()
             for res in results:
-                active_spaces = active_spaces.append(res, ignore_index=True)
+                active_spaces = pd.concat([active_spaces, res], ignore_index=True)
 
         return active_spaces, centroids.to_crs(active_spaces.crs)

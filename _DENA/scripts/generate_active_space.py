@@ -10,8 +10,19 @@ from typing import List, Tuple, TYPE_CHECKING
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
+import pandas as pd
 from shapely.geometry import Point
 from tqdm import tqdm
+
+# for some users relative imports are prohibitive
+# we simplify imports by adding three directories to the path environment variable
+import sys
+repo_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+config_dir = os.path.join(repo_dir, "_DENA")
+script_dir = os.path.join(repo_dir, "nps_active_space")
+sys.path.append(repo_dir)
+sys.path.append(config_dir)
+sys.path.append(script_dir)
 
 import iyore
 
@@ -75,7 +86,7 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
         if active_spaces is None:
             active_spaces = active_space
         else:
-            active_spaces = active_spaces.append(active_space, ignore_index=True)
+            active_spaces = pd.concat([active_spaces, active_space], ignore_index=True)
 
     # Combine the active spaces from each heading into a single active space and write it to a geojson file.
     dissolved_active_space = active_spaces.dissolve()
@@ -126,16 +137,19 @@ if __name__ == '__main__':
     if len(annotation_files) == 0:
         logger.info(f"No track annotations found for {args.unit}{args.site}{args.year}. Exiting...")
         exit(-1)
-    annotations = Annotations()
+    annotations = []
     for file in tqdm(annotation_files, desc='Loading annotation files', unit='files', colour='white'):
-        annotations = annotations.append(Annotations(file, only_valid=True), ignore_index=True)
+        annotations.append(Annotations(file, only_valid=True))
+    annotations = pd.concat(annotations)
 
     # If the user does not pass an altitude, calculate the average altitude of all valid tracks. Extract the altitudes
     #  from each linestring to get the average height (in meters) of audible flight segments.
     if not args.altitude:
         logger.info("Calculating average altitude (in meters)...")
         annotations['z_vals'] = (annotations['geometry'].apply(lambda geom: mean([coords[-1] for coords in geom.coords])))
-        altitude_ = int(mean(annotations[annotations.audible == True].z_vals.tolist()))
+        altitudes_ = annotations[annotations.audible == True].z_vals
+        altitudes_ = altitudes_[(altitudes_ > 0)&(altitudes_ <= 10000)] # NOTE removing the negative values could be severe for some ADS-B loggers
+        altitude_ = int(mean(altitudes_.tolist()))
         logger.info(f"Average altitude is: {altitude_}m")
     else:
         altitude_ = args.altitude
@@ -205,7 +219,7 @@ if __name__ == '__main__':
         fbeta, precision, recall, n_tot = compute_fbeta(valid_points, res, args.beta)
         precisions.append(precision)
         recalls.append(recall)
-        print(f"omni: {omni} --> fbeta: {fbeta} precision: {precision} recall: {recall}")
+        print(f"omni: {omni} --> fbeta: {fbeta:0.3f} precision: {precision:0.3f} recall: {recall:0.3f}")
         if fbeta > max_fbeta:
             max_fbeta = fbeta
             best_omni = omni

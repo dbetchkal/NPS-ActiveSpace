@@ -2,7 +2,15 @@ import glob
 from argparse import ArgumentParser
 
 import geopandas as gpd
+import os
 import sqlalchemy
+import sys
+repo_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+config_dir = os.path.join(repo_dir, "_DENA")
+script_dir = os.path.join(repo_dir, "nps_active_space")
+sys.path.append(repo_dir)
+sys.path.append(config_dir)
+sys.path.append(script_dir)
 
 import iyore
 import nps_active_space.ground_truthing as app

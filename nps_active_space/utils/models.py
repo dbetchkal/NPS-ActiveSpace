@@ -12,7 +12,7 @@ import pandas as pd
 from pyproj import Transformer
 from tqdm import tqdm
 from tzwhere import tzwhere
-import concurrent
+import concurrent.futures
 from types import GeneratorType
 
 __all__ = [
@@ -190,6 +190,10 @@ class Nvspl(pd.DataFrame):
         octave_columns = {c: c.replace('H', '').replace('p', '.') for c in filter(self.octave_regex.match, data.columns)}
         data.rename(columns=octave_columns, inplace=True)
 
+        # we deliberately sort the DatetimeIndex to ensure it is monotonic
+        # this avoids a `KeyError` when selecting using position report timestamps later on
+        data.sort_index(inplace=True)
+
         return data
 
     def _validate(self, columns: List[str], verifyNonStandardOctave):
@@ -223,11 +227,124 @@ class Ais(gpd.GeoDataFrame):
     ----------
     filepaths_or_data : List, str, or gpd.GeoDataFrame
         A directory containing AIS 
+
     """
 
     def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
         data = self._read(filepaths_or_data)
         super().__init__(data=data)
+
+    def parseAis(self, aisFileEntry, state= (None, None, 1)):
+
+        timestamps, columns, index_index = state
+  
+        df = pd.read_csv(str(aisFileEntry),
+                         engine='c',
+                         usecols=columns,
+                         low_memory=False
+                        ) # read the .csv
+        
+        #print(df.head())
+        
+        # if there are 1090 MHz jet ADS-B points mixed into this dataset
+        # this is a convenient way to make sure they are removed
+        df = df.loc[df["MMSI"] >= 100000000, :].copy() # we strictly require a 9-digit MMSI code
+        
+        # tidy up all the header field names
+        mask = df.iloc[:, 0].isin(['Base station time stamp'])
+        df = df[~mask]
+        header_list = ['Base station time stamp']
+        import_header = df.axes[1]
+        result = any(elem in import_header for elem in header_list)
+        if result:
+            pass
+        else:
+            raise KeyError
+
+        # Standardize key field names and remove extra columns collected by the AIS logger
+        if 'Base station time stamp' in df.columns:
+            df = df.rename(columns={'Base station time stamp':"TIME"})
+
+        df.drop(['IMO', 'Ship name', 'Type of ship (text)', 'Size A',
+                'Size B', 'Size C', 'Size D', 'Draught', 'Destination', 'Heading',
+                'Navigational status (text)', 'Country (AIS)', 'Target class (text)',
+                'Data source type (text)', 'Data source region'], axis=1, inplace=True, errors="ignore")
+
+        if 'Course over ground' in df.columns:
+            df = df.rename(columns={'Course over ground':"heading"})
+
+        if 'Latitude' in df.columns:
+            df = df.rename(columns={'Latitude':"lat"})
+
+        if 'Longitude' in df.columns:
+            df = df.rename(columns={'Longitude':"lon"})
+
+        if 'Speed over ground' in df.columns:
+            df = df.rename(columns={'Speed over ground':"velocity"})
+
+        # Delete duplicate records
+        df.drop_duplicates(inplace=True)
+        df.dropna(how="any", axis=0, inplace=True)
+
+        # it is possible that upon removing ADS-B no points remain,
+        # in which case we're done... we return an empty `pd.DataFrame` with formatted field names
+        if(len(df) == 0):
+            return df
+        
+        else:
+
+            # For now, we assume the vessel's z-position is "at sea level"
+            # a slower, but more accurate z-position would be derived
+            # using the NOAA CO-OPS Data Retrieval API
+            # https://api.tidesandcurrents.noaa.gov/api/prod/
+            df["altitude"] = 0.0 # meters
+
+            
+            df["TIME"] = pd.to_datetime(arg=df["TIME"], errors="coerce") # an older version which occasionally produced dtype 'object'??
+            df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
+    
+                
+            # attempt to extract the timezone
+            dt_tz = df["TIME"].iloc[0].utcoffset()
+            
+            if(dt_tz is None):
+                
+                # we know that the timezone is AKST (assuming listening never occurred during Daylight Savings!)
+                # we will work in the local timezone for ease in aligning the acoustic record
+                df["TIME"] = df["TIME"].dt.tz_localize(tz='US/Alaska')
+                
+            elif(dt_tz is not None):
+                
+                # we are in UTC to begin with... subtract 9 hours to get to AKST
+                # we will work in the local timezone for ease in aligning the acoustic record
+                df["TIME"] = df["TIME"] - dt.timedelta(hours=9)
+                df["TIME"] = df["TIME"].dt.tz_convert(tz='US/Alaska')
+                
+                dt_tz = df["TIME"].iloc[0].utcoffset()
+                
+                # now we convert the homogenized timestamps back into strings
+                df["TIME"] = df["TIME"].dt.strftime('%Y-%m-%d %H:%M:%S')
+
+            # Sort records by MMSI and TIME then reset dataframe index
+            df.sort_values(["MMSI", "TIME"], inplace=True, ignore_index=True)
+
+            # Calculate time difference between sequential waypoints for each watercraft            
+            df["TIME"] = pd.to_datetime(arg=df["TIME"], errors="coerce")
+            df["dur_secs"] = df.groupby("MMSI")["TIME"].diff().dt.total_seconds()
+            df["dur_secs"] = df["dur_secs"].fillna(0)
+
+            # Drop any identical waypoints in a single input file based on MMSI, time, lat, and lon
+            df.drop_duplicates(subset=['MMSI', 'TIME', 'lat', 'lon'], keep = 'last')
+
+            # Use threshold waypoint duration value to identify separate flights by a vessel then sum the number of "true" conditions to assign unique ID's
+            df['diff_event'] = df['dur_secs'] >= 1200 # ( = 20 minutes)
+            df['cumsum'] = df.groupby('MMSI')['diff_event'].cumsum()
+            df['event_id'] = df['MMSI'].astype('str') + "_" + df['cumsum'].astype(str) + "_" + df['DATE'].astype(str)
+
+            # Let us only consider events with more than 2 AIS points
+            df = df[df.groupby("event_id").event_id.transform(len) > 2]
+
+            return df
 
     def _read(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
         """
@@ -255,91 +372,10 @@ class Ais(gpd.GeoDataFrame):
                     assert os.path.isfile(file), f"{file} does not exist."
                     assert file.endswith('.csv'), f"Only .csv AIS files accepted."
 
-            data = pd.DataFrame()
-            for file in tqdm(filepaths_or_data, desc='Loading AIS files', unit='files', colour='cyan'):
-                
-                df = pd.read_csv(file) # read the .csv
-                
-                # if there are 1090 MHz jet ADS-B points mixed into this dataset
-                # this is a convenient way to make sure they are removed
-                df["MMSI"] = df["MMSI"].astype('str')
-                df = df.loc[df["MMSI"].str.len() == 9, :].copy()
-                
-                mask = df.iloc[:, 0].isin(['Base station time stamp'])
-                df = df[~mask]
-                header_list = ['Base station time stamp']
-                import_header = df.axes[1]
-                result = any(elem in import_header for elem in header_list)
-                if result:
-                    pass
-                else:
-                    raise KeyError
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                parts = list(tqdm(pool.map(self.parseAis, filepaths_or_data), total=len(filepaths_or_data), unit="AIS files"))
 
-                # Standardize key field names and remove extra columns collected by the AIS logger
-                if 'Base station time stamp' in df.columns:
-                    df = df.rename(columns={'Base station time stamp':"TIME"})
-
-                df.drop(['IMO', 'Ship name', 'Type of ship (text)', 'Size A',
-                        'Size B', 'Size C', 'Size D', 'Draught', 'Destination', 'Heading',
-                        'Navigational status (text)', 'Country (AIS)', 'Target class (text)',
-                        'Data source type (text)', 'Data source region'], axis=1, inplace=True, errors="ignore")
-
-                if 'Course over ground' in df.columns:
-                    df = df.rename(columns={'Course over ground':"heading"})
-
-                if 'Latitude' in df.columns:
-                    df = df.rename(columns={'Latitude':"lat"})
-
-                if 'Longitude' in df.columns:
-                    df = df.rename(columns={'Longitude':"lon"})
-
-                if 'Speed over ground' in df.columns:
-                    df = df.rename(columns={'Speed over ground':"velocity"})
-
-                # Delete duplicate records
-                df.drop_duplicates(inplace=True)
-                df.dropna(how="any", axis=0, inplace=True)
-
-                # Vessels are always on the surface of the ocean
-                #   TO DO: CONFIRM THE SURFACE OF THE OCEAN IS 0.0 METERS
-                #    (do tides affect this much?)
-                df["altitude"] = 1.0 # we make the altitude slightly above the ocean surface
-
-                # convert datetimes strings to python `dt.datetime` objects 
-                try:
-                    df['TIME'] = df['TIME'].apply(lambda t: dt.datetime.strptime(t, "%d %b %Y %H:%M:%S UTC"))
-                except ValueError: 
-                    df['TIME'] = df['TIME'].apply(lambda t: dt.datetime.strptime(t, "%Y-%m-%d %H:%M:%S UTC"))
-                
-                # adjust datetimes from UTC to local time
-                tz = tzwhere.tzwhere(forceTZ=True)
-                timezone_str = tz.tzNameAt(df.lat.quantile(0.5), df.lon.quantile(0.5), forceTZ=True)
-                timezone = pytz.timezone(timezone_str)
-                offset = timezone.utcoffset(pd.to_datetime(df['TIME'].iloc[0]))
-                df["TIME"] = df["TIME"] + offset
-
-                # create a date column
-                df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
-
-                # Sort records by MMSI and TIME then reset dataframe index
-                df.sort_values(["MMSI", "TIME"], inplace=True, ignore_index=True)
-
-                # Calculate time difference between sequential waypoints for each aircraft
-                df["dur_secs"] = df.groupby("MMSI")["TIME"].diff().dt.total_seconds()
-                df["dur_secs"] = df["dur_secs"].fillna(0)
-
-                # Drop any identical waypoints in a single input file based on MMSI, time, lat, and lon
-                df.drop_duplicates(subset=['MMSI', 'TIME', 'lat', 'lon'], keep = 'last')
-
-                # Use threshold waypoint duration value to identify separate flights by an aircraft then sum the number of "true" conditions to assign unique ID's
-                df['diff_event'] = df['dur_secs'] >= 1200 # ( = 20 minutes)
-                df['cumsum'] = df.groupby('MMSI')['diff_event'].cumsum()
-                df['event_id'] = df['MMSI'] + "_" + df['cumsum'].astype(str) + "_" + df['DATE']
-
-                # Let us only consider events with more than 4 AIS points
-                df = df[df.groupby("event_id").event_id.transform(len) > 4]
-                data = data.append(df)
-
+            data = pd.concat(parts)
             data = gpd.GeoDataFrame(
                 data,
                 geometry=gpd.points_from_xy(data["lon"], data["lat"]),
@@ -462,6 +498,11 @@ class Adsb(gpd.GeoDataFrame):
                 df.drop(df[df["tslc"] >= 3].index, inplace = True)
                 df.drop(df[df["tslc"] == 0].index, inplace = True)
 
+                # Keep only those records with realistic altitudes
+                # 10000 meters = 32808 feet; this should encompass most flights
+                # NOTE: some jet aircraft may be eliminated by this process
+                df = df.loc[(df["altitude"] > 0)&(df["altitude"] <= 10000), :] 
+
                 # Sort records by ICAO Address and TIME then reset dfframe index
                 df.sort_values(["ICAO_address", "TIME"], inplace=True, ignore_index=True)
 
@@ -482,7 +523,7 @@ class Adsb(gpd.GeoDataFrame):
                 df = df[df.groupby("flight_id").flight_id.transform(len) > 1]
                 df = df.drop(columns = ['tslc', 'dur_secs', 'diff_flight', 'cumsum', 'valid_BARO', 'valid_VERTICAL_VELOCITY', 'SIMULATED_REPORT', 'valid_IDENT', 'valid_CALLSIGN', 'valid_VELOCITY', 'valid_HEADING', 'valid_ALTITUDE', 'valid_LATLON', 'DATE'])
 
-                data = data.append(df)
+                data = pd.concat([data, df], ignore_index=True)
 
             data = gpd.GeoDataFrame(
                 data,
@@ -546,6 +587,11 @@ class EarlyAdsb(gpd.GeoDataFrame):
                 # we need to convert altitude from feet to meters!
                 df["altitude"] = 0.3048*df["altitude"]
 
+                # Keep only those records with realistic altitudes
+                # 10000 meters = 32808 feet; this should encompass most flights
+                # NOTE: some jet aircraft may be eliminated by this process
+                df = df.loc[(df["altitude"] > 0)&(df["altitude"] <= 10000), :] 
+
                 # Sort records by ICAO Address and TIME then reset dataframe index
                 df.sort_values(["ICAO_address", "TIME"], inplace=True, ignore_index=True)
 
@@ -562,7 +608,7 @@ class EarlyAdsb(gpd.GeoDataFrame):
                 # Remove records where there is only one recorded waypoint for an aircraft
                 df = df[df.groupby("flight_id").flight_id.transform(len) > 1]
 
-                data = data.append(df)
+                data = pd.concat([data, df], ignore_index=True)
 
             data = gpd.GeoDataFrame(
                 data,
