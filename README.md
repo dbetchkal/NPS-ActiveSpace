@@ -23,10 +23,9 @@ This project is made up of four modules:
 
 [`active-space`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/_DENA/README.md#generate-active-space): observer-based audibility modelling procedures that produce an optimized active space estimate through synthesis.
 
-[`audible-transits`](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space#audible-transits): geoprocess to construct the spatiotemporal intersections of a set of tracks with an active space.
+[`audible-transits`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/_DENA/README.md#audible-transits): geoprocess to construct the spatiotemporal intersections of a set of tracks with an active space.
 
-
-[`geographic-metrics`](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space#geographic-metrics): tabulation of transits into a variety of acoustic and spatial metrics 
+`geographic-metrics` Beta: tabulation of transits into a variety of acoustic and spatial metrics
 
 [`utils`](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space#utils): diverse utilities - file I/O, geoprocessing, acoustic propagation modelling, and detection statistics
     
@@ -59,7 +58,7 @@ The `audible-transits` module is a CLI geoprocess to construct the spatiotempora
 
 Detailed [CLI documentation is available to initialize the construction](https://github.com/dbetchkal/NPS-ActiveSpace/tree/Analysis/_DENA#audible-transits).
 
-## geographic-metrics
+## geographic-metrics [beta]
 
 The `geographic-metrics` module estimates what we hear. To do this, it collapses the set of `audible-transits` into a binary audibility sequence in time. 
 Then, from attributes of these *noise events* (or dualistically, *noise-free intervals*) a variety of acoustical and spatial metrics may be computed.
@@ -70,16 +69,37 @@ At present, no CLI interface exists for `geographic-metrics`. Instead it has bee
 
 The utilities module `utils` contains two sub-modules:
 1. `computation` for tasks related to:
-   >**geoprocessing** `.build_src_point_mesh`,`.climb_angle`,`.coords_to_utm`,`.create_overlapping_mesh`,`.interpolate_spline`,`.NMSIM_bbox_utm`,`.project_raster`<br><br>
-   >**audibility** `.audibility_to_interval`,`.ambience_from_nvspl`,`.ambience_from_raster`,`.contiguous_regions` <br><br>
-   >**detection statistics** `.calculate_duration_summary`,`.compute_fbeta` <br>
+   - geoprocessing
+     - `.build_src_point_mesh()`
+     - `.climb_angle()`
+     - `.coords_to_utm()`
+     - `.create_overlapping_mesh()`
+     - `.interpolate_spline()`
+     - `.NMSIM_bbox_utm()`
+     - `.project_raster()`
+   - audibility
+     - `.audibility_to_interval()`
+     - `.ambience_from_nvspl()`
+     - `.ambience_from_raster()`
+     - `.contiguous_regions()`
+   - detection statistics
+     - `.calculate_duration_summary()`
+     - `.compute_fbeta()`
+
 2.  and `models` containing classes which parse various forms of input data:
-    > **Automatic Dependent Surveillance–Broadcast (ADS-B)** broacasts from aircraft `.Adsb`, `.EarlyAdsb`<br><br>
-    > **Automatic Identification System (AIS)** broadcasts from ships `.Ais`<br><br>
-    > human **spectrogram annotations** from the `NPS-ActiveSpace.ground_truthing` module as `.Annotations`<br><br>
-    > descriptions of canonical NPS Type-1 acoustic monitoring **Deployments** `.Microphone`<br><br>
-    > an **acoustic record** as 1/3rd-octave band spectral sound levels from a Deployment `.Nvspl` <br><br>
-    > generalized `.Tracks`<br>
+    - **Automatic Dependent Surveillance–Broadcast (ADS-B)** broacasts from aircraft
+      - `.Adsb()`
+      - `.EarlyAdsb()`
+    - **Automatic Identification System (AIS)** broadcasts from ships
+      - `.Ais()`
+    - human **spectrogram annotations** from the `NPS-ActiveSpace.ground_truthing` module as
+      - `.Annotations()`
+    - descriptions of canonical NPS Type-1 acoustic monitoring **Deployments**
+      - `.Microphone()`
+    - an **acoustic record** as 1/3rd-octave band spectral sound levels from a Deployment
+      - `.Nvspl()` 
+    - generalized
+      - `.Tracks()`
 
 Most users should not need to use `utils` directly, but the data parsing classes may have use to other transportation geography projects.
 
