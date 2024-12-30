@@ -197,6 +197,8 @@ class AudibleTransits:
         interior_area_thresh : float
             The area tolerance for removing interior rings, in percent (%). Default is to preserve rings >5% the size of the largest active space polygon.
         '''
+
+        print("\tSimplifying active space prior to computing intersections...")
         
         # Simplify active space boundary perimeter within a certain tolerance.
         # The tolerance is a somewhat arbitrary parameter, but this step helps prevent overly-fragmented audible transits.
@@ -208,10 +210,10 @@ class AudibleTransits:
         if active_ea_simple.geometry.iloc[0].geom_type == 'MultiPolygon':
             polygons = list(active_ea_simple.geometry.iloc[0].geoms)
             active_ea_simple = gpd.GeoSeries(polygons[np.argmax([poly.area for poly in polygons])], crs=self.active.crs) # select largest polygon
-            print("\tLargest active space polygon has been selected.")
+            print("\t\tLargest active space polygon has been selected.")
 
         if len(active_ea_simple.interiors[0]) > 0:
-            print("\tRemoving small interior rings from largest polygon...")
+            print("\t\tRemoving small interior rings from largest polygon...")
             new_interiors = [i for i in active_ea_simple.interiors[0] if Polygon(i).area/active_ea_simple.area[0] >= interior_area_thresh]
             active_ea_simple = gpd.GeoSeries(Polygon(active_ea_simple.exterior[0], new_interiors), crs=self.active.crs)
             
@@ -303,7 +305,7 @@ class AudibleTransits:
             assert tracks=='self'
             tracks=self.tracks
 
-        print("--------- Updating track parameters ---------")
+        print("Updating track parameters...")
         
         if 'interp_geometry' not in tracks:
             print("Error: No interpolated geometry found (column = 'interp_geometry'). Cannot update track parameters.")
@@ -316,19 +318,19 @@ class AudibleTransits:
         exit_times = []
         transit_durations = []
 
-        print("Extracting entry/exit positions")
         # Extract the initial and final coordinate from each track's `shapely.geometry.LineString`.
         for spline in tracks['interp_geometry']:
             entry_pos.append(Point(spline.coords[0]))
             exit_pos.append(Point(spline.coords[-1]))
+        print("\tEntry/exit positions extracted.")
     
-        print("Extracting entry/exit times")
         # Extract the initial and final times (and duration) from each track's timestamp list.
         for timelist in tracks['interp_point_dt']:
             entry_times.append(timelist[0])
             exit_times.append(timelist[-1])
             transit_durations.append((timelist[-1] - timelist[0])/ pd.Timedelta(seconds = 1))
-            
+        print("Entry/exit times extracted.") 
+
         # Add entry and exit times to clipped_tracks `gpd.GeoDataFrame`.
         tracks["entry_time"] = entry_times
         tracks["exit_time"] = exit_times
@@ -338,15 +340,13 @@ class AudibleTransits:
         tracks["exit_position"] = gpd.GeoSeries(exit_pos, index=tracks.index, crs=self.tracks.crs)
         
         # Calculate and add transit duration, distance, and average speed to clipped_tracks `gpd.Geodataframe`.
-        print("Calculating transit duration")
+        
         tracks["transit_duration"] = transit_durations
-        print("Calculating transit distance")
+        print("Durations have been calculated.")
         tracks["transit_distance"] = tracks.length
-        print("Calculating average speed")
+        print("Distances have been calculated")
         tracks["avg_speed"] = tracks.transit_distance / tracks.transit_duration
-
-        print("----- Track parameters update completed -----")
-        print("=============================================")
+        print("Average speeds have been calculated.\n")
 
     def summarize_data_quality(self, tracks='self'):
         '''
@@ -392,7 +392,7 @@ class AudibleTransits:
         else:
             self_flag = False
             
-        print("Interpolating tracks, may take a few minutes:")
+        print("\tInterpolating tracks, may take a few minutes:")
         
         if 'geometry_pts' not in tracks:
             print("Error: Cannot perform interpolation. Tracks missing column 'geometry_pts'")
@@ -457,8 +457,7 @@ class AudibleTransits:
         interp_tracks['sampling_interval'] = sampling_interval_list
         interp_tracks.set_geometry('interp_geometry', inplace=True)
 
-        print("\t\tInterpolation complete.")
-        print("=============================================")
+        print("\t\tInterpolation complete!")
 
         if (self_flag):
             self.tracks = interp_tracks.copy()
@@ -2619,6 +2618,7 @@ if __name__ == '__main__':
     print("Parsing geospatial inputs...")
     listener.init_spatial_data()
     listener.load_DEM()
+    listener.simplify_active_space()
 
     print("Parsing tracks...")
     listener.load_tracks_from_database() 
@@ -2630,8 +2630,6 @@ if __name__ == '__main__':
     listener.create_segments()
 
     raw_tracks = listener.tracks.copy()
-    print("Simplifying active space prior to computing intersections...")
-    listener.simplify_active_space()
 
     listener.tracks, scrambled_tracks = AudibleTransits.remove_scrambled_tracks(listener.tracks, listener.active, return_scrambled_tracks=True)
     listener.add_to_garbage(scrambled_tracks, 'scrambled')
