@@ -1952,7 +1952,7 @@ class AudibleTransitsGPS(AudibleTransits):
                 altitudes = np.asarray(altitudes)   
                 
                 track_list.append({'track_id': track_id, 'geometry': LineString(points), 'point_dt': times, 'geometry_pts': MultiPoint(points), 'z': altitudes, 'n_number': n_number, 'aircraft_type': aircraft_type})
-                     
+        
         track_lines = gpd.GeoDataFrame(track_list, crs=self.utm_zone)
         
         self.tracks = track_lines.copy()
@@ -2235,7 +2235,7 @@ class AudibleTransitsADSB(AudibleTransits):
             loaded_track_pts.drop_duplicates(subset=['track_id', 'geometry'], inplace=True)
             position_duplicates = original_length - time_duplicates - len(loaded_track_pts)
 
-            print(f"Removed {time_duplicates} points with repeated times and {position_duplicates} points with repeated positions")
+            print(f"\t\tRemoved {time_duplicates} points with repeated times and {position_duplicates} points with repeated positions.")
 
         else:
             loaded_track_pts = data.copy()
@@ -2303,7 +2303,7 @@ class AudibleTransitsADSB(AudibleTransits):
                 
                 track_list.append({'track_id': track_id, 'geometry': LineString(points), 'point_dt': times, 'geometry_pts': MultiPoint(points), 'z': altitudes, 'n_number': n_number, 'aircraft_type': aircraft_type})
                      
-        print(f"Removed {removed_count} outlier points, adjusted {z_adj_count} z-coordinates")
+        print(f"\t\tRemoved {removed_count} outlier points, adjusted {z_adj_count} z-coordinates.")
     
         track_lines = gpd.GeoDataFrame(track_list, crs=self.utm_zone)
         
@@ -2458,16 +2458,15 @@ class AudibleTransitsADSB(AudibleTransits):
 
         if type(FAA) is str:
             assert FAA == 'load'
-            print("Loading aircrafts from FAA database...")
     
             # Access the FAA database and identify all aircrafts on the current record, create aircraft lookup table
             aircraft_lookup = AudibleTransitsADSB.create_aircraft_lookup(tracks, FAA_path, aircraft_corrections_path)  
             self.aircraft_lookup = aircraft_lookup.copy()
-            print('aircraft look up complete')
+            print('\t\tAircraft look up complete.')
         else:
             aircraft_lookup = FAA.copy()
             self.aircraft_lookup = aircraft_lookup.copy()
-            print("loaded aircraft lookup table directly")
+            print("\t\tLoaded aircraft lookup table directly.")
 
         # Use the aircraft lookup table to identify each flight's N-number and aircraft type (jet, fixed-wing, or helicopter)
         for idx, group in tracks.groupby('ICAO_address'):
