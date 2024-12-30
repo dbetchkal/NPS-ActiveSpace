@@ -1913,7 +1913,7 @@ class AudibleTransitsGPS(AudibleTransits):
             tracks = Tracks(tracks, id_col='flight_id',datetime_col='ak_datetime', z_col='altitude_m')
             tracks.drop(columns=['ak_hourtime'])
             tracks.geometry = gpd.points_from_xy(tracks.geometry.x, tracks.geometry.y, tracks.z)
-            
+            print("\tTracks have been parsed.")
             print("\tFiltering duplicate records...")
             original_length = len(tracks)
             tracks.drop_duplicates(subset=['track_id', 'point_dt'], inplace=True)
@@ -2139,6 +2139,7 @@ class AudibleTransitsGPS(AudibleTransits):
 
     def extract_aircraft_info(self, FAA='load'):
 
+        print("\tIdentifying aircraft within the FAA releasable database...")
         tracks = self.tracks
         FAA_path = self.paths["FAA"]
         aircraft_corrections_path = self.paths["aircraft corrections"]
@@ -2466,6 +2467,7 @@ class AudibleTransitsADSB(AudibleTransits):
         
     def extract_aircraft_info(self, FAA='load'):
 
+        print("\tIdentifying aircraft within the FAA releasable database...")
         FAA_path = self.paths["FAA"]
         aircraft_corrections_path = self.paths["aircraft corrections"]
         tracks = self.tracks  
@@ -2613,27 +2615,22 @@ if __name__ == '__main__':
     else:
         raise NotImplementedError('Currently tracks may only be loaded from a SQL database or from raw ADS-B tab-separated value files.')
     
-    print("=========  NPS-ActiveSpace Audible Transits module  ==========\n")
+    print("\n=========  NPS-ActiveSpace Audible Transits module  ==========\n")
     print("Parsing geospatial inputs...")
     listener.init_spatial_data()
     listener.load_DEM()
 
     print("Parsing tracks...")
     listener.load_tracks_from_database() 
-
-    print("Simplifying active space prior to computing intersections...")
     AudibleTransits.split_paused_tracks(listener.tracks)
-
-    print("Identifying aircraft within the FAA releasable database...")
     listener.extract_aircraft_info()
     listener.remove_jets()
-
     listener.convert_tracks_to_utm()
     listener.convert_active_to_utm()
-
     listener.create_segments()
 
     raw_tracks = listener.tracks.copy()
+    print("Simplifying active space prior to computing intersections...")
     listener.simplify_active_space()
 
     listener.tracks, scrambled_tracks = AudibleTransits.remove_scrambled_tracks(listener.tracks, listener.active, return_scrambled_tracks=True)
