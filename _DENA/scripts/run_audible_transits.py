@@ -96,14 +96,14 @@ class AudibleTransits:
         # We filter an irrelevant, repetitious geoprocessing warning raised by `geopandas`.
         warnings.filterwarnings('ignore', message=".*Results from 'centroid' are likely incorrect.*")
         
-        print(" Loading Active Space and Study Area ")
+        print("\tParsing active space and study area...")
         
         # Load in active space and study area.
         active = AudibleTransits.load_activespace(self.unit, self.site, self.year, self.gain, crs="epsg:4326")
         original_study_area = AudibleTransits.load_studyarea(self.unit, self.site, self.year, crs="epsg:4326")
 
-        print("\tLoaded active space and study area.")
-        print(" Determining UTM zone and microphone location ")
+        print("\t\tActive space and study area have been parsed.")
+        print("\tDetermining UTM zone and microphone position...")
         
         # Calculate the UTM zone from the active space centroid.
         self.utm_zone = AudibleTransits.coords_to_utm(lat=active.centroid.y.iloc[0], lon=active.centroid.x.iloc[0])
@@ -112,7 +112,7 @@ class AudibleTransits:
         
         # Parse mic location, convert from the `NMSIM` crs to the UTM zone at the centroid of the active space.
         mic_loc = AudibleTransits.load_miclocation(self.unit, self.site, self.year, crs=mic_crs).to_crs(self.utm_zone)
-        print("\tMicrophone location has been determined.")
+        print("\t\tMicrophone position has been determined.")
         
         if (visualize):
         # Plot each in the standard lon/lat geographic crs.
@@ -209,14 +209,14 @@ class AudibleTransits:
         # If the active space is `shapely.geomtry.MultiPolygon`, we further simplify by:
         #   (1) selecting only the largest `.Polygon` for downstream analysis
         #   (2) removing small interior rings on a proprotional basis
-
+        print("\tSimplifying active space prior to computing intersections...")
         if active_ea_simple.geometry.iloc[0].geom_type == 'MultiPolygon':
             polygons = list(active_ea_simple.geometry.iloc[0].geoms)
             active_ea_simple = gpd.GeoSeries(polygons[np.argmax([poly.area for poly in polygons])], crs=self.active.crs) # select largest polygon
-            print("Largest polygon chosen as active space")
+            print("\t\tLargest polygon chosen as active space.")
 
         if len(active_ea_simple.interiors[0]) > 0:
-            print("Removing small interior holes in active space")
+            print("\t\tRemoving small interior rings from active space.")
             new_interiors = [i for i in active_ea_simple.interiors[0] if Polygon(i).area/active_ea_simple.area[0] >= interior_area_thresh]
             active_ea_simple = gpd.GeoSeries(Polygon(active_ea_simple.exterior[0], new_interiors), crs=self.active.crs)
             
@@ -226,7 +226,7 @@ class AudibleTransits:
             self.active.boundary.plot(color='k', ax=ax, label='original')
             active_ea_simple.boundary.plot(color='r', ax=ax, label='simplified')
             ax.legend()
-            ax.set_title("Active Space Simplified")
+            ax.set_title("Simplified active space")
             plt.show()
 
         if (inplace):
@@ -462,7 +462,7 @@ class AudibleTransits:
         interp_tracks['sampling_interval'] = sampling_interval_list
         interp_tracks.set_geometry('interp_geometry', inplace=True)
 
-        print("---------- Interpolation completed ----------")
+        print("\t\tInterpolation complete.")
         print("=============================================")
 
         if (self_flag):
@@ -1299,7 +1299,7 @@ class AudibleTransits:
                 for count, i in enumerate(indices):
                     track_pts.loc[track.iloc[i:].index, 'track_id'] = f"{track.track_id.iloc[0]}_{count+1}"
                     
-        print(f"Split {counter} tracks that paused for more than {threshold_s} seconds into multiple track IDs")
+        print(f"\t\tSplit {counter} tracks that paused for more than {threshold_s} seconds into multiple track IDs.")
         return track_pts.copy()
     
     @staticmethod
@@ -1375,7 +1375,7 @@ class AudibleTransits:
                 plt.show()
                 plt.pause(.1)
                 
-        print(len(scrambled_tracks), " scrambled tracks removed (highly erratic data, likely garbage)")
+        print(f"\t\t{len(scrambled_tracks)} scrambled tracks removed (highly erratic data, likely logging errors)")
     
         if (return_scrambled_tracks):
             return new_track_segments, scrambled_tracks
@@ -1415,7 +1415,7 @@ class AudibleTransits:
         cleaner_tracks = raw_tracks[~(raw_tracks.bad_track)]
         end_len = len(cleaner_tracks)
         
-        print("removed", start_len - end_len, "low quality tracks (only 2 points, very slow, & short)")
+        print(f"\t\tRemoved {start_len - end_len} low quality tracks (only 2 points & very slow & short)")
         
         if (return_low_quality_tracks):
             return cleaner_tracks.copy(), low_quality_tracks.copy()
@@ -1906,24 +1906,27 @@ class AudibleTransitsGPS(AudibleTransits):
         '''
         if type(data) is str:
 
-            print("Initializing engine...")
+            print("\tInitializing database engine...")
             engine = self.init_engine()
-            print("\tengine has been initialized...")
+            print("\t\tDatabase engine has been initialized...")
             self.studyA = self.active.copy()
+
+            # query the SQL database
             tracks = query_tracks(engine=engine, start_date=self.study_start, end_date=self.study_end, mask=self.studyA, mask_buffer_distance=buffer)
-            tracks.set_crs('WGS84', inplace=True)
-            # ADD THIS LINE TO FORMAT TRACKS
+            tracks.set_crs('WGS84', inplace=True) 
+            # we use `nps_active_space.utils.models.Tracks` to parse the track data
             tracks = Tracks(tracks, id_col='flight_id',datetime_col='ak_datetime', z_col='altitude_m')
             tracks.drop(columns=['ak_hourtime'])
             tracks.geometry = gpd.points_from_xy(tracks.geometry.x, tracks.geometry.y, tracks.z)
-       
+            
+            print("\tFiltering duplicate records...")
             original_length = len(tracks)
             tracks.drop_duplicates(subset=['track_id', 'point_dt'], inplace=True)
             time_duplicates = original_length - len(tracks)
             tracks.drop_duplicates(subset=['track_id', 'geometry'], inplace=True)
             position_duplicates = original_length - time_duplicates - len(tracks)
 
-            print(f"Removed {time_duplicates} points with repeated times and {position_duplicates} points with repeated positions")
+            print(f"\t\tRemoved {time_duplicates} points with repeated times and {position_duplicates} points with repeated positions.")
 
         else:
             tracks = data.copy()
@@ -2151,16 +2154,16 @@ class AudibleTransitsGPS(AudibleTransits):
 
         if type(FAA) is str:
             assert FAA == 'load'
-            print("Loading aircrafts from FAA database...")
+            print("\tIdentifying aircraft within the FAA releasable database...")
     
             # Create aircraft lookup table using FAA database
             aircraft_lookup = AudibleTransitsGPS.create_aircraft_lookup(tracks, FAA_path, aircraft_corrections_path)
             self.aircraft_lookup = aircraft_lookup.copy()
-            print('aircraft look up complete')
+            print('\t\tAircraft look up complete.')
         else:
             aircraft_lookup = FAA.copy()
             self.aircraft_lookup = aircraft_lookup.copy()
-            print("loaded aircraft lookup table directly")
+            print("\t\tLoaded aircraft lookup table directly.")
 
         
         # Use the aircraft lookup table to identify each flight's N-number and aircraft type (jet, fixed-wing, or helicopter)
@@ -2617,6 +2620,7 @@ if __name__ == '__main__':
     else:
         raise NotImplementedError('Currently tracks may only be loaded from a SQL database or from raw ADS-B tab-separated value files.')
     
+    print("=========  NPS-ActiveSpace Audible Transits module  ==========")
     listener.init_spatial_data()
     listener.load_DEM()
     listener.load_tracks_from_database() 
