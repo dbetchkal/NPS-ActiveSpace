@@ -1,7 +1,6 @@
 [![DOI](https://zenodo.org/badge/389775527.svg)](https://zenodo.org/badge/latestdoi/389775527)
 # NPS-ActiveSpace
 
-
 An ***active space*** is a well-known sensory concept from bioacoustics ([Marten and Marler 1977](https://www.jstor.org/stable/pdf/4599136.pdf), [Gabriele et al. 2018](https://www.frontiersin.org/articles/10.3389/fmars.2018.00270/full)). It represents a geographic volume whose radii correspond to the limit of audibility for a specific signal in each direction. In other words, an active space provides an answer to the question, *"how far can you hear a certain sound source from a specific location on the Earth's surface?"*
 
 This repository is designed to estimate active spaces for motorized noise sources transiting the U.S. National Park System. Aircraft are powerful noise sources audible over vast areas. Thus [considerable NPS management efforts have focused on protecting natural quietude from aviation noise intrusions](https://www.nps.gov/subjects/sound/overflights.htm). For coastal parks, vessels are similarly powerful noise sources of concern. For both transportation modalities `NPS-ActiveSpace` provides meaningful, quantitative spatial guides for noise mitigation and subsequent monitoring. 
@@ -11,6 +10,7 @@ This repository is designed to estimate active spaces for motorized noise source
 Consider an example active space, below. It was computed using data from a long term acoustic monitoring site in Denali National Park, DENAUWBT Upper West Branch Toklat ([Withers 2012](https://irma.nps.gov/DataStore/Reference/Profile/2184396)). The bold black polygon delineates an active space estimate for flights at 3000 meters altitude. Points interior to the polygon are predicted to be audible, those exterior, inaudible. <br> 
 
 Superposed over the polygon are colored flight track polylines. `NPS-ActiveSpace` includes an application that leverages the acoustic record to ground-truth audibility of co-variate vehicle tracks from GPS databases. Ground-truthing is used to "tune" an active space to the appropriate geographic extent via mathematical optimization.<br>
+
 <br>
 <img src="https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/nps_active_space/img/NPS-ActiveSpace_example.png" alt="active space polygon example" width="200">
 
@@ -24,6 +24,7 @@ This project is made up of four modules:
 [`active-space`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/_DENA/README.md#generate-active-space): observer-based audibility modelling procedures that produce an optimized active space estimate through synthesis.
 
 [`audible-transits`](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space#audible-transits): geoprocess to construct the spatiotemporal intersections of a set of tracks with an active space.
+
 
 [`geographic-metrics`](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space#geographic-metrics): tabulation of transits into a variety of acoustic and spatial metrics 
 
