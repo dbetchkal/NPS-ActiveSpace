@@ -265,14 +265,10 @@ class AudibleTransits:
             assert tracks=='self'
             tracks=self.tracks
             
-        print("Identifying tracks in need of quality control...")
-        
         AudibleTransits.needs_extrapolation(tracks, self.active)
         AudibleTransits.needs_glue(tracks, self.active)
         AudibleTransits.find_short_tracks(tracks, max_distance=max_distance)
         AudibleTransits.find_err_flight_speeds(tracks, min_speed=min_speed, max_speed=max_speed)
-        
-        print("\tQuality control assessment:")
 
     def update_track_parameters(self, tracks='self'):
         '''
@@ -351,11 +347,12 @@ class AudibleTransits:
             tracks=self.tracks
 
         num_tracks = len(tracks)
-        print(f"\tNeed Extrapolation: {tracks.needs_extrapolation.sum()}  ....  {round(100*tracks.needs_extrapolation.sum()/num_tracks,2)} %")
-        print(f"\tNeed Glue: {tracks.needs_glue.sum()}  ....  {round(100*tracks.needs_glue.sum()/num_tracks, 2)}%")
-        print(f"\tShort Tracks: {tracks.short_distance.sum()}  ....  {round(100*tracks.short_distance.sum()/num_tracks, 2)}%")
-        print(f"\tErroneous Average Flight Speed: {tracks.speed_out_of_range.sum()}  ....  {round(100*tracks.speed_out_of_range.sum()/num_tracks, 2)}%")
-        print(f"\t[Out of {num_tracks} total tracks]\n")
+        print("\tQuality control assessment:")
+        print(f"\t\tNeed Extrapolation: {tracks.needs_extrapolation.sum()}  ....  {round(100*tracks.needs_extrapolation.sum()/num_tracks,2)} %")
+        print(f"\t\tNeed Glue: {tracks.needs_glue.sum()}  ....  {round(100*tracks.needs_glue.sum()/num_tracks, 2)}%")
+        print(f"\t\tShort Tracks: {tracks.short_distance.sum()}  ....  {round(100*tracks.short_distance.sum()/num_tracks, 2)}%")
+        print(f"\t\tErroneous Average Flight Speed: {tracks.speed_out_of_range.sum()}  ....  {round(100*tracks.speed_out_of_range.sum()/num_tracks, 2)}%")
+        print(f"\t\t[Out of {num_tracks} total tracks]\n")
 
     def interpolate_tracks(self, tracks='self'):
         '''
@@ -2601,11 +2598,11 @@ if __name__ == '__main__':
         raise NotImplementedError('Currently tracks may only be loaded from a SQL database or from raw ADS-B tab-separated value files.')
     
     print("\n=========  NPS-ActiveSpace Audible Transits module  ==========\n")
-    print("Parsing geospatial data inputs...")
+    print("[1] Parsing geospatial data inputs...")
     listener.init_spatial_data()
     listener.load_DEM()
 
-    print("Parsing and pre-processing track data inputs...")
+    print("[2] Parsing and pre-processing track data inputs...")
     listener.load_tracks_from_database() 
     AudibleTransits.split_paused_tracks(listener.tracks)
     listener.extract_aircraft_info()
@@ -2632,18 +2629,18 @@ if __name__ == '__main__':
     listener.update_track_parameters()
     listener.visualize_tracks(show_DEM=True, title=f"{listener.unit}{listener.site}{listener.year} Nearby Overflights")
 
-    print("Clipping tracks to the active space...")
+    print("[3] Creating audible transits by clipping tracks to the active space...")
     listener.clip_tracks()
     listener.update_track_parameters()
     listener.update_trackQC()
     listener.summarize_data_quality()
  
-    print("Cleaning audible transits...")
+    print("[4] Cleaning audible transits...")
     listener.clean_tracks()
     listener.update_trackQC()
     listener.summarize_data_quality()
 
-    print("Detecting takeoffs and landings...")
+    print("[5] Detecting takeoffs and landings...")
     if listener.tracks.needs_extrapolation.sum() > 0:
         listener.detect_takeoffs_and_landings()
         if listener.tracks.needs_extrapolation.sum() > 0:
