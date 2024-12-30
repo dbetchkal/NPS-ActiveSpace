@@ -1435,7 +1435,7 @@ class AudibleTransits:
         glued_tracks: `gpd.GeoDataFrame`
             
         """
-        print(" - Identifying sets of tracks that should be glued together")
+
         # PART 1: Identify bounds where gluing is needed
         #===========================================================================================================================
         glue_idx = [] # This will hold all pairs of track indices that need gluing (e.g., [[1,2],[4,5],[5,6],[11,12]])
@@ -1467,7 +1467,6 @@ class AudibleTransits:
     
         number_of_glued_sets = len(glue_idx)  # How many sets of tracks are glued together?
         
-        print(" - Gluing tracks")
         #PART 2: Glue tracks together given above indices
         #================================================================================================================================
         glued_tracks = tracks.copy() # avoid changing the original?
@@ -1516,7 +1515,6 @@ class AudibleTransits:
             # Replace the row of the first track with our new glued track
             glued_tracks.iloc[indices[0]] = {'track_id': track_id, 'interp_point_dt': interp_point_dt, 'interp_geometry': interp_geometry, 'entry_time': entry_time, 'exit_time': exit_time, 'entry_position': entry_position, 'exit_position': exit_position, 'transit_duration': transit_duration, 'transit_distance': transit_distance, 'num_points': num_points, 'sampling_interval': sampling_interval, 'needs_extrapolation': np.nan, 'n_number': n_number, 'aircraft_type': aircraft_type}
     
-        print(" - Remove duplicates")
         # Now, we need to get rid of all the other rows of unglued tracks now that they are fully accounted for in the new glued track
         drop_list = np.zeros(len(glued_tracks))
         for i, f in glue_idx:
@@ -1537,8 +1535,6 @@ class AudibleTransits:
         if (glue_check.needs_glue.sum() != 0):
             print("something aint right")
     
-        print("Glued", number_of_glued_sets, " sets of broken tracks (patch for GeoPandas clipping bug)")
-                
         return glued_tracks
 
     @staticmethod
@@ -1933,6 +1929,7 @@ class AudibleTransitsGPS(AudibleTransits):
 
         grouped_track_pts = tracks.groupby('track_id') ## Edited to track_id to fit Dini's version
         
+        print("\tSegmenting raw transportation into tracks...")
         track_list = []
         # Loop through each flight (track points grouped by flight ID)
         for track_id, group in tqdm(grouped_track_pts, unit='tracks'):
@@ -1953,6 +1950,7 @@ class AudibleTransitsGPS(AudibleTransits):
                 
                 track_list.append({'track_id': track_id, 'geometry': LineString(points), 'point_dt': times, 'geometry_pts': MultiPoint(points), 'z': altitudes, 'n_number': n_number, 'aircraft_type': aircraft_type})
         
+        print("\t\tSegmentation complete.")
         track_lines = gpd.GeoDataFrame(track_list, crs=self.utm_zone)
         
         self.tracks = track_lines.copy()
@@ -2273,7 +2271,7 @@ class AudibleTransitsADSB(AudibleTransits):
         removed_count = original_length - len(tracks)
         grouped_track_pts = tracks.groupby('track_id') ## Edited to track_id to fit Dini's version
         
-
+        print("\tSegmenting raw transportation into tracks...")
         z_adj_count = 0
         track_list = []
         # Loop through each flight (track points grouped by flight ID)
@@ -2302,7 +2300,8 @@ class AudibleTransitsADSB(AudibleTransits):
 
                 
                 track_list.append({'track_id': track_id, 'geometry': LineString(points), 'point_dt': times, 'geometry_pts': MultiPoint(points), 'z': altitudes, 'n_number': n_number, 'aircraft_type': aircraft_type})
-                     
+        
+        print("\t\tSegementation complete.")           
         print(f"\t\tRemoved {removed_count} outlier points, adjusted {z_adj_count} z-coordinates.")
     
         track_lines = gpd.GeoDataFrame(track_list, crs=self.utm_zone)
