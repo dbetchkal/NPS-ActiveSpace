@@ -2618,7 +2618,6 @@ if __name__ == '__main__':
     print("Parsing geospatial inputs...")
     listener.init_spatial_data()
     listener.load_DEM()
-    listener.simplify_active_space()
 
     print("Parsing tracks...")
     listener.load_tracks_from_database() 
@@ -2630,6 +2629,7 @@ if __name__ == '__main__':
     listener.create_segments()
 
     raw_tracks = listener.tracks.copy()
+    listener.simplify_active_space()
 
     listener.tracks, scrambled_tracks = AudibleTransits.remove_scrambled_tracks(listener.tracks, listener.active, return_scrambled_tracks=True)
     listener.add_to_garbage(scrambled_tracks, 'scrambled')
