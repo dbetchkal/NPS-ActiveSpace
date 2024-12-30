@@ -96,23 +96,18 @@ class AudibleTransits:
         # We filter an irrelevant, repetitious geoprocessing warning raised by `geopandas`.
         warnings.filterwarnings('ignore', message=".*Results from 'centroid' are likely incorrect.*")
         
-        print("\tParsing active space and study area...")
-        
         # Load in active space and study area.
         active = AudibleTransits.load_activespace(self.unit, self.site, self.year, self.gain, crs="epsg:4326")
         original_study_area = AudibleTransits.load_studyarea(self.unit, self.site, self.year, crs="epsg:4326")
-
-        print("\t\tActive space and study area have been parsed.")
-        print("\tDetermining UTM zone and microphone position...")
+        print("\tActive space and study area have been parsed.")
         
         # Calculate the UTM zone from the active space centroid.
         self.utm_zone = AudibleTransits.coords_to_utm(lat=active.centroid.y.iloc[0], lon=active.centroid.x.iloc[0])
         # Calculate mic crs (`NMSIM` uses western-most bound of the study area); notably this may be a different zone than `self.utm_zone`.
         mic_crs = AudibleTransits.NMSIM_bbox_utm(original_study_area)
-        
         # Parse mic location, convert from the `NMSIM` crs to the UTM zone at the centroid of the active space.
         mic_loc = AudibleTransits.load_miclocation(self.unit, self.site, self.year, crs=mic_crs).to_crs(self.utm_zone)
-        print("\t\tMicrophone position has been determined.")
+        print("\tMicrophone position has been determined.")
         
         if (visualize):
         # Plot each in the standard lon/lat geographic crs.
@@ -133,6 +128,7 @@ class AudibleTransits:
         
         raster_path = glob.glob(self.paths["project"] + os.sep + r"Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif")[0] # open raster
         ras = rasterio.open(raster_path)
+        print("\tThe Digital Elevation Model (DEM) has been parsed.")
         self.DEM = ras
         
     def load_tracks_from_database(self):
@@ -209,14 +205,13 @@ class AudibleTransits:
         # If the active space is `shapely.geomtry.MultiPolygon`, we further simplify by:
         #   (1) selecting only the largest `.Polygon` for downstream analysis
         #   (2) removing small interior rings on a proprotional basis
-        print("\tSimplifying active space prior to computing intersections...")
         if active_ea_simple.geometry.iloc[0].geom_type == 'MultiPolygon':
             polygons = list(active_ea_simple.geometry.iloc[0].geoms)
             active_ea_simple = gpd.GeoSeries(polygons[np.argmax([poly.area for poly in polygons])], crs=self.active.crs) # select largest polygon
-            print("\t\tLargest polygon chosen as active space.")
+            print("\tLargest active space polygon has been selected.")
 
         if len(active_ea_simple.interiors[0]) > 0:
-            print("\t\tRemoving small interior rings from active space.")
+            print("\tRemoving small interior rings from largest polygon...")
             new_interiors = [i for i in active_ea_simple.interiors[0] if Polygon(i).area/active_ea_simple.area[0] >= interior_area_thresh]
             active_ea_simple = gpd.GeoSeries(Polygon(active_ea_simple.exterior[0], new_interiors), crs=self.active.crs)
             
@@ -1286,8 +1281,9 @@ class AudibleTransits:
         threshold_s : float
             The length of time required to consider a track to be "paused".
         '''
+
+        print("\tIdentifying periods where the source's position did not change...")
         counter = 0
-        
         grouped_track_pts = track_pts.groupby('track_id')
     
         for idx, track in grouped_track_pts:
@@ -1906,9 +1902,8 @@ class AudibleTransitsGPS(AudibleTransits):
         '''
         if type(data) is str:
 
-            print("\tInitializing database engine...")
             engine = self.init_engine()
-            print("\t\tDatabase engine has been initialized...")
+            print("\tDatabase engine initialized.")
             self.studyA = self.active.copy()
 
             # query the SQL database
@@ -1925,7 +1920,6 @@ class AudibleTransitsGPS(AudibleTransits):
             time_duplicates = original_length - len(tracks)
             tracks.drop_duplicates(subset=['track_id', 'geometry'], inplace=True)
             position_duplicates = original_length - time_duplicates - len(tracks)
-
             print(f"\t\tRemoved {time_duplicates} points with repeated times and {position_duplicates} points with repeated positions.")
 
         else:
@@ -2154,16 +2148,15 @@ class AudibleTransitsGPS(AudibleTransits):
 
         if type(FAA) is str:
             assert FAA == 'load'
-            print("\tIdentifying aircraft within the FAA releasable database...")
     
             # Create aircraft lookup table using FAA database
             aircraft_lookup = AudibleTransitsGPS.create_aircraft_lookup(tracks, FAA_path, aircraft_corrections_path)
             self.aircraft_lookup = aircraft_lookup.copy()
-            print('\t\tAircraft look up complete.')
+            print('\tAircraft look up complete.')
         else:
             aircraft_lookup = FAA.copy()
             self.aircraft_lookup = aircraft_lookup.copy()
-            print("\t\tLoaded aircraft lookup table directly.")
+            print("\tLoaded aircraft lookup table directly.")
 
         
         # Use the aircraft lookup table to identify each flight's N-number and aircraft type (jet, fixed-wing, or helicopter)
@@ -2559,7 +2552,7 @@ class AudibleTransitsADSB(AudibleTransits):
         jets = tracks[tracks.aircraft_type == 'Jet']
         tracks.drop(tracks[tracks.aircraft_type == 'Jet'].index, inplace=True)
         
-        print(f'Removed {len(jets)} jets from overflight list')
+        print(f'\tRemoved {len(jets)} jets from overflight list.')
         
         if (return_jets):
             return jets
@@ -2620,13 +2613,18 @@ if __name__ == '__main__':
     else:
         raise NotImplementedError('Currently tracks may only be loaded from a SQL database or from raw ADS-B tab-separated value files.')
     
-    print("=========  NPS-ActiveSpace Audible Transits module  ==========")
+    print("=========  NPS-ActiveSpace Audible Transits module  ==========\n")
+    print("Parsing geospatial inputs...")
     listener.init_spatial_data()
     listener.load_DEM()
+
+    print("Parsing tracks...")
     listener.load_tracks_from_database() 
 
+    print("Simplifying active space prior to computing intersections...")
     AudibleTransits.split_paused_tracks(listener.tracks)
 
+    print("Identifying aircraft within the FAA releasable database...")
     listener.extract_aircraft_info()
     listener.remove_jets()
 
