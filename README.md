@@ -19,17 +19,17 @@ Superposed over the polygon are colored flight track polylines. `NPS-ActiveSpace
 
 This project is made up of four modules:
 
-[`ground-truthing`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/_DENA/README.md#ground-truthing): a `tkinter`-based interactive GUI app for the annotation of georeferenced sound events.
+[`ground-truthing`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/README.md#ground-truthing): a `tkinter`-based interactive GUI app for the annotation of georeferenced sound events.
 
-[`active-space`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/_DENA/README.md#generate-active-space): observer-based audibility modelling procedures that produce an optimized active space estimate through synthesis.
+[`active-space`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/README.md#active-space): observer-based audibility modelling procedures that produce an optimized active space estimate through synthesis.
 
-[`audible-transits`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/_DENA/README.md#audible-transits): geoprocess to construct the spatiotemporal intersections of a set of tracks with an active space.
+[`audible-transits`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/README.md#audible-transits): geoprocess to construct the spatiotemporal intersections of a set of tracks with an active space.
 
 `geographic-metrics` Beta: tabulation of transits into a variety of acoustic and spatial metrics
 
-[`utils`](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space#utils): diverse utilities - file I/O, geoprocessing, acoustic propagation modelling, and detection statistics
+[`utils`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/README.md#utils): diverse utilities - file I/O, geoprocessing, acoustic propagation modelling, and detection statistics
     
-Also included are noise source [data](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v2/nps_active_space/data) for tuning active space polygons.
+Also included are noise source [data](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space/data) for tuning active space polygons.
 
 
 ## Order of Operations
@@ -38,25 +38,33 @@ While each package can be used and run individually, the project was designed so
 
 `ground-truthing` $\rightarrow$ `active-space` $\rightarrow$ `audible-transits` $\rightarrow$ `geographic-metrics`
 
+---
+
 ## ground-truthing
 
 <img src="https://ars.els-cdn.com/content/image/1-s2.0-S0301479723019898-gr2.jpg" alt="The provided `NPS-ActiveSpace.ground_truthing` module `tkinter`-based app. Reproduced from Betchkal et al. 2023, Fig. 2. A view of the NPS-ActiveSpace ground-truthing application with a completed spectrogram annotation for an audible helicopter overflying HAVO009A. The upper map frame shows ADS-B data (brown points) in the xy-plane and the user-estimated spatial extent of audibility (cyan highlight). The lower spectrogram frame includes the noise event as contrasted against the natural residual ambience. It also provides the user a cue: the timestamp corresponding to the most proximal ADS-B point (vertical green line). Audible extent was then estimated by adjusting the temporal boundary (cyan slider)." width="700">
 
 The `ground-truthing` module provides a `tkinter`-based interactive GUI app for the annotation of georeferenced sound events. This module is the initial step of the process. Prerequesite to using this module is logging a simultaneous pair of datasets in the field: (1) a canonical Type-1 NPS acoustic record (`Nvspl`) and (2) a transportation dataset (`Adsb`, `Ais`, or generalized `Tracks`).
 
-The module is initialized in the Command Line Interface (CLI). Detailed [CLI documentation is available to initialize the app](https://github.com/dbetchkal/NPS-ActiveSpace/tree/Analysis/_DENA#ground-truthing) from a park-specific configuration file (see [`template.config`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/Analysis/_DENA/config/template.config)).
+The module is initialized in the Command Line Interface (CLI). Detailed [CLI documentation is available to initialize the app](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/_DENA#ground-truthing) from a park-specific configuration file (see [`template.config`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/_DENA/config/template.config)).
+
+---
 
 ## active-space
 
 The `active-space` module is a CLI implementation of observer-based audibility modelling procedures. It produces an active space estimate through synthesis. This module exists primarially as a wrapper for the `FORTRAN`-based physics engine `Nord2000` as implemented in `NMSIM`. Previously-saved `ground-truthing.Annotations` files are required as an input. Diverse spatial and sound source inputs are also required to stage the `NMSIM` simulation (see [Ikelheimer and Plotkin 2005](https://github.com/dbetchkal/NMSIM-Python/blob/main/NMSIM/Manual/NMSim%20Manual.pdf)). 
 
-Detailed [CLI documentation is available to configure a synthesis](https://github.com/dbetchkal/NPS-ActiveSpace/tree/Analysis/_DENA#generate-active-space) of the optimal active space estimate for a park listener in a specific location.
+Detailed [CLI documentation is available to configure a synthesis](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/_DENA/README.md#generate-active-space) of the optimal active space estimate for a park listener in a specific location.
+
+---
 
 ## audible-transits
 
 The `audible-transits` module is a CLI geoprocess to construct the spatiotemporal intersections of a set of tracks with an active space. As part of the construction errant `Tracks` are removed and tabulated. Output `Tracks` are imbued with the information necessary to produce an audiblity time series.
 
-Detailed [CLI documentation is available to initialize the construction](https://github.com/dbetchkal/NPS-ActiveSpace/tree/Analysis/_DENA#audible-transits).
+Detailed [CLI documentation is available to initialize the construction](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/_DENA#audible-transits).
+
+---
 
 ## geographic-metrics [beta]
 
@@ -64,6 +72,8 @@ The `geographic-metrics` module estimates what we hear. To do this, it collapses
 Then, from attributes of these *noise events* (or dualistically, *noise-free intervals*) a variety of acoustical and spatial metrics may be computed.
 
 At present, no CLI interface exists for `geographic-metrics`. Instead it has been designed to be imported into a more flexible IDE.
+
+---
 
 ## utils
 
