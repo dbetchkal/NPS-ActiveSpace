@@ -128,7 +128,7 @@ class AudibleTransits:
         
         raster_path = glob.glob(self.paths["project"] + os.sep + r"Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif")[0] # open raster
         ras = rasterio.open(raster_path)
-        print("\tThe Digital Elevation Model (DEM) has been parsed.")
+        print("\tThe Digital Elevation Model (DEM) has been parsed.\n\n")
         self.DEM = ras
         
     def load_tracks_from_database(self):
@@ -265,20 +265,14 @@ class AudibleTransits:
             assert tracks=='self'
             tracks=self.tracks
             
-        print("=============================================")
-        print("------------- Updating track QC -------------")
+        print("Identifying tracks in need of quality control...")
         
-        print(" - needs extrapolation")
         AudibleTransits.needs_extrapolation(tracks, self.active)
-        print(" - needs glue")
         AudibleTransits.needs_glue(tracks, self.active)
-        print(" - very short track")
         AudibleTransits.find_short_tracks(tracks, max_distance=max_distance)
-        print(" - erroneous flight speed")
         AudibleTransits.find_err_flight_speeds(tracks, min_speed=min_speed, max_speed=max_speed)
         
-        print("------------ Track QC Completed -------------")
-        print("=============================================")
+        print("\tQuality control complete:")
 
     def update_track_parameters(self, tracks='self'):
         '''
@@ -295,7 +289,7 @@ class AudibleTransits:
         tracks : `gpd.GeoDataFrame` (or string 'self')
             Default is 'self', which uses self.tracks. Otherwise, a dataframe containing interpolated tracks (LineStrings).
             Requires interpolated geometries and times:
-                interp_goemetry | interp_point_dt
+                interp_geometry | interp_point_dt
          
         Returns
         -------
@@ -305,7 +299,7 @@ class AudibleTransits:
             assert tracks=='self'
             tracks=self.tracks
 
-        print("Updating track parameters...")
+        print("\tUpdating track parameters...")
         
         if 'interp_geometry' not in tracks:
             print("Error: No interpolated geometry found (column = 'interp_geometry'). Cannot update track parameters.")
@@ -322,14 +316,14 @@ class AudibleTransits:
         for spline in tracks['interp_geometry']:
             entry_pos.append(Point(spline.coords[0]))
             exit_pos.append(Point(spline.coords[-1]))
-        print("\tEntry/exit positions extracted.")
+        print("\t\tEntry/exit positions extracted.")
     
         # Extract the initial and final times (and duration) from each track's timestamp list.
         for timelist in tracks['interp_point_dt']:
             entry_times.append(timelist[0])
             exit_times.append(timelist[-1])
             transit_durations.append((timelist[-1] - timelist[0])/ pd.Timedelta(seconds = 1))
-        print("Entry/exit times extracted.") 
+        print("\t\tEntry/exit times extracted.") 
 
         # Add entry and exit times to clipped_tracks `gpd.GeoDataFrame`.
         tracks["entry_time"] = entry_times
@@ -342,11 +336,11 @@ class AudibleTransits:
         # Calculate and add transit duration, distance, and average speed to clipped_tracks `gpd.Geodataframe`.
         
         tracks["transit_duration"] = transit_durations
-        print("Durations have been calculated.")
+        print("\t\tDurations have been calculated.")
         tracks["transit_distance"] = tracks.length
-        print("Distances have been calculated")
+        print("\t\tDistances have been calculated")
         tracks["avg_speed"] = tracks.transit_distance / tracks.transit_duration
-        print("Average speeds have been calculated.\n")
+        print("\t\tAverage speeds have been calculated.\n\n")
 
     def summarize_data_quality(self, tracks='self'):
         '''
@@ -358,11 +352,11 @@ class AudibleTransits:
 
         num_tracks = len(tracks)
         print("----------- Data Quality Summary ------------")
-        print(f"Needs Extrapolation: {tracks.needs_extrapolation.sum()}  ....  {round(100*tracks.needs_extrapolation.sum()/num_tracks,2)} %")
-        print(f"Needs Glue: {tracks.needs_glue.sum()}  ....  {round(100*tracks.needs_glue.sum()/num_tracks, 2)}%")
-        print(f"Short Tracks: {tracks.short_distance.sum()}  ....  {round(100*tracks.short_distance.sum()/num_tracks, 2)}%")
-        print(f"Erroneous Average Flight Speed: {tracks.speed_out_of_range.sum()}  ....  {round(100*tracks.speed_out_of_range.sum()/num_tracks, 2)}%")
-        print(f"Out of {num_tracks} total tracks")
+        print(f"\t\tNeed Extrapolation: {tracks.needs_extrapolation.sum()}  ....  {round(100*tracks.needs_extrapolation.sum()/num_tracks,2)} %")
+        print(f"\t\tNeed Glue: {tracks.needs_glue.sum()}  ....  {round(100*tracks.needs_glue.sum()/num_tracks, 2)}%")
+        print(f"\t\tShort Tracks: {tracks.short_distance.sum()}  ....  {round(100*tracks.short_distance.sum()/num_tracks, 2)}%")
+        print(f"\t\tErroneous Average Flight Speed: {tracks.speed_out_of_range.sum()}  ....  {round(100*tracks.speed_out_of_range.sum()/num_tracks, 2)}%")
+        print(f"\t\tOut of {num_tracks} total tracks")
         print("=============================================")
 
     def interpolate_tracks(self, tracks='self'):
@@ -457,7 +451,7 @@ class AudibleTransits:
         interp_tracks['sampling_interval'] = sampling_interval_list
         interp_tracks.set_geometry('interp_geometry', inplace=True)
 
-        print("\t\tInterpolation complete!")
+        print("\t\tInterpolation complete!\n")
 
         if (self_flag):
             self.tracks = interp_tracks.copy()
@@ -494,8 +488,6 @@ class AudibleTransits:
         else:
             self_flag = False
         
-        print("------ Clipping tracks to active space ------")
-        
         if 'interp_geometry' not in tracks:
             print("Error: No interpolated geometry found (column = 'interp_geometry'). Cannot clip tracks to active space.")
             return 0        
@@ -509,7 +501,7 @@ class AudibleTransits:
         clipped_tracks = clipped_tracks.explode('interp_geometry',ignore_index=True) # multi-part geometries -> multiple single geometries
         
         # Because we just exploded the `MultiLineString` tracks, we must likewise explode the timestamps to match...
-        print("Adjusting timestamps to match clipped tracks")
+        print("\tAdjusting timestamps to match clipped tracks...")
         prev_id = np.nan
         real_timestamps = []
         for idx, clipped_track in tqdm(clipped_tracks.iterrows(), unit=' tracks adjusted'):
@@ -577,8 +569,7 @@ class AudibleTransits:
             
         clipped_tracks['interp_point_dt'] = real_timestamps
         
-        print("------------- Tracks clipped ----------------")
-        print("=============================================")
+        print("\tTracks clipped.")
         
         if (self_flag):
             self.tracks = clipped_tracks.copy()
@@ -1912,7 +1903,7 @@ class AudibleTransitsGPS(AudibleTransits):
             tracks = Tracks(tracks, id_col='flight_id',datetime_col='ak_datetime', z_col='altitude_m')
             tracks.drop(columns=['ak_hourtime'])
             tracks.geometry = gpd.points_from_xy(tracks.geometry.x, tracks.geometry.y, tracks.z)
-            print("\tTracks have been parsed.")
+            print("\tTracks have been parsed.\n")
             print("\tFiltering duplicate records...")
             original_length = len(tracks)
             tracks.drop_duplicates(subset=['track_id', 'point_dt'], inplace=True)
@@ -2615,11 +2606,11 @@ if __name__ == '__main__':
         raise NotImplementedError('Currently tracks may only be loaded from a SQL database or from raw ADS-B tab-separated value files.')
     
     print("\n=========  NPS-ActiveSpace Audible Transits module  ==========\n")
-    print("Parsing geospatial inputs...")
+    print("Parsing geospatial data inputs...")
     listener.init_spatial_data()
     listener.load_DEM()
 
-    print("Parsing tracks...")
+    print("Parsing and pre-processing track data inputs...")
     listener.load_tracks_from_database() 
     AudibleTransits.split_paused_tracks(listener.tracks)
     listener.extract_aircraft_info()
@@ -2631,6 +2622,7 @@ if __name__ == '__main__':
     raw_tracks = listener.tracks.copy()
     listener.simplify_active_space()
 
+    print("\tRemoving tracks with data collection issues...")
     listener.tracks, scrambled_tracks = AudibleTransits.remove_scrambled_tracks(listener.tracks, listener.active, return_scrambled_tracks=True)
     listener.add_to_garbage(scrambled_tracks, 'scrambled')
 
@@ -2645,6 +2637,7 @@ if __name__ == '__main__':
     listener.update_track_parameters()
     listener.visualize_tracks(show_DEM=True, title=f"{listener.unit}{listener.site}{listener.year} Nearby Overflights")
 
+    print("Clipping tracks to the active space...")
     listener.clip_tracks()
     listener.update_track_parameters()
     listener.update_trackQC()
