@@ -243,8 +243,17 @@ class Ais(gpd.GeoDataFrame):
                          usecols=columns,
                          low_memory=False
                         ) # read the .csv
-        
-        #print(df.head())
+         
+        if 'mmsi' in df.columns: # Then this is the more modern version of AIS file...
+
+            # We must rename the headers to match
+            df.columns = ['Base station time stamp', 'MMSI', 'callsign', 'IMO', 'Ship name', 
+                        'Navigational status (text)', 'Latitude', 'Longitude', 'Course over ground',
+                        'Speed over ground', 'Destination', 'eta', 'Type of ship (text)', 'Draught',
+                        'length', 'width']
+            
+            # We drop the fields that don't exist in the legacy files
+            df.drop(['callsign', 'eta', 'length', 'width'], axis=1, inplace=True, errors="ignore")
         
         # if there are 1090 MHz jet ADS-B points mixed into this dataset
         # this is a convenient way to make sure they are removed
