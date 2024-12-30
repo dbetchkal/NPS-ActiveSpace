@@ -128,7 +128,7 @@ class AudibleTransits:
         
         raster_path = glob.glob(self.paths["project"] + os.sep + r"Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif")[0] # open raster
         ras = rasterio.open(raster_path)
-        print("\tThe Digital Elevation Model (DEM) has been parsed.\n\n")
+        print("\tThe Digital Elevation Model (DEM) has been parsed.\n")
         self.DEM = ras
         
     def load_tracks_from_database(self):
@@ -213,10 +213,10 @@ class AudibleTransits:
             print("\t\tLargest active space polygon has been selected.")
 
         if len(active_ea_simple.interiors[0]) > 0:
-            print("\t\tRemoving small interior rings from largest polygon...")
             new_interiors = [i for i in active_ea_simple.interiors[0] if Polygon(i).area/active_ea_simple.area[0] >= interior_area_thresh]
             active_ea_simple = gpd.GeoSeries(Polygon(active_ea_simple.exterior[0], new_interiors), crs=self.active.crs)
-            
+            print("\t\tSmall interior rings have been removed.")
+
         # An optional plot to review any active space simplifications.
         if (visualize):
             fig, ax = plt.subplots(1,1,figsize=(6,6))
@@ -272,7 +272,7 @@ class AudibleTransits:
         AudibleTransits.find_short_tracks(tracks, max_distance=max_distance)
         AudibleTransits.find_err_flight_speeds(tracks, min_speed=min_speed, max_speed=max_speed)
         
-        print("\tQuality control complete:")
+        print("\tQuality control assessment:")
 
     def update_track_parameters(self, tracks='self'):
         '''
@@ -299,7 +299,7 @@ class AudibleTransits:
             assert tracks=='self'
             tracks=self.tracks
 
-        print("\tUpdating track parameters...")
+        print("\tUpdating parameters...")
         
         if 'interp_geometry' not in tracks:
             print("Error: No interpolated geometry found (column = 'interp_geometry'). Cannot update track parameters.")
@@ -340,7 +340,7 @@ class AudibleTransits:
         tracks["transit_distance"] = tracks.length
         print("\t\tDistances have been calculated")
         tracks["avg_speed"] = tracks.transit_distance / tracks.transit_duration
-        print("\t\tAverage speeds have been calculated.\n\n")
+        print("\t\tAverage speeds have been calculated.\n")
 
     def summarize_data_quality(self, tracks='self'):
         '''
@@ -351,13 +351,11 @@ class AudibleTransits:
             tracks=self.tracks
 
         num_tracks = len(tracks)
-        print("----------- Data Quality Summary ------------")
-        print(f"\t\tNeed Extrapolation: {tracks.needs_extrapolation.sum()}  ....  {round(100*tracks.needs_extrapolation.sum()/num_tracks,2)} %")
-        print(f"\t\tNeed Glue: {tracks.needs_glue.sum()}  ....  {round(100*tracks.needs_glue.sum()/num_tracks, 2)}%")
-        print(f"\t\tShort Tracks: {tracks.short_distance.sum()}  ....  {round(100*tracks.short_distance.sum()/num_tracks, 2)}%")
-        print(f"\t\tErroneous Average Flight Speed: {tracks.speed_out_of_range.sum()}  ....  {round(100*tracks.speed_out_of_range.sum()/num_tracks, 2)}%")
-        print(f"\t\tOut of {num_tracks} total tracks")
-        print("=============================================")
+        print(f"\tNeed Extrapolation: {tracks.needs_extrapolation.sum()}  ....  {round(100*tracks.needs_extrapolation.sum()/num_tracks,2)} %")
+        print(f"\tNeed Glue: {tracks.needs_glue.sum()}  ....  {round(100*tracks.needs_glue.sum()/num_tracks, 2)}%")
+        print(f"\tShort Tracks: {tracks.short_distance.sum()}  ....  {round(100*tracks.short_distance.sum()/num_tracks, 2)}%")
+        print(f"\tErroneous Average Flight Speed: {tracks.speed_out_of_range.sum()}  ....  {round(100*tracks.speed_out_of_range.sum()/num_tracks, 2)}%")
+        print(f"\t[Out of {num_tracks} total tracks]\n")
 
     def interpolate_tracks(self, tracks='self'):
         '''
@@ -504,7 +502,7 @@ class AudibleTransits:
         print("\tAdjusting timestamps to match clipped tracks...")
         prev_id = np.nan
         real_timestamps = []
-        for idx, clipped_track in tqdm(clipped_tracks.iterrows(), unit=' tracks adjusted'):
+        for idx, clipped_track in clipped_tracks.iterrows():
             this_time = [] # (re)initialize an empty list
             
             id = clipped_track.preclip_id    
@@ -569,7 +567,7 @@ class AudibleTransits:
             
         clipped_tracks['interp_point_dt'] = real_timestamps
         
-        print("\tTracks clipped.")
+        print("\tTracks clipped into audible transits.")
         
         if (self_flag):
             self.tracks = clipped_tracks.copy()
@@ -604,32 +602,28 @@ class AudibleTransits:
         else:
             self_flag = False
         
-        print("-------------- Cleaning tracks --------------")
-        
-        print("getting rid of single points...")
         cleaned_tracks = tracks.copy().loc[tracks.interp_geometry.geom_type != "Point"]
-        
-        print("glueing up segmented tracks...")
+        print("\tTransits consisting of a single point have been removed.")
+
         cleaned_tracks = AudibleTransits.glue_tracks(cleaned_tracks, self.active)
-        
-        print("removing tracks < 10s in duration")
+        print("\tTransits erroneously segmented at self-intersection points have been glued back together.")
+
         quick_tracks = cleaned_tracks.loc[cleaned_tracks.transit_duration < 10]
         self.add_to_garbage(tracks=quick_tracks, reason='short duration')
         cleaned_tracks = cleaned_tracks.loc[cleaned_tracks.transit_duration >= 10]
+        print("\tTransits < 10s in duration have been removed.")
 
-        print("removing tracks < 500m in distance")
         short_tracks = cleaned_tracks.loc[cleaned_tracks.short_distance]
         self.add_to_garbage(tracks=short_tracks, reason='short distance', other_explanation='track distance less than 500 meters')
         cleaned_tracks = cleaned_tracks.loc[cleaned_tracks.short_distance == False]
-        
-        print("removing tracks with avg speed = 0 or infinity...")
+        print("\tTransits < 500m in distance have been removed.")
+
         self.add_to_garbage(tracks=cleaned_tracks.loc[cleaned_tracks.avg_speed == 0], reason='zero speed')
         self.add_to_garbage(tracks=cleaned_tracks.loc[cleaned_tracks.avg_speed == np.inf], reason='inf speed')
         cleaned_tracks = cleaned_tracks.loc[(cleaned_tracks.avg_speed != 0) & (cleaned_tracks.avg_speed != np.inf)]
         cleaned_tracks = cleaned_tracks.loc[cleaned_tracks.interp_geometry.within(self.active.geometry.iloc[0].buffer(100))]
-        
-        print("-------------- Tracks cleaned ---------------")
-        print("=============================================")
+        print("\tTransits with average speed = 0 or infinity have been removed.")
+        print("\tQuality control completed!")
 
         if (self_flag):
             self.tracks = cleaned_tracks.copy()
@@ -781,8 +775,7 @@ class AudibleTransits:
         unextrapolated_tracks = tracks[~(tracks.needs_extrapolation)]
         new_tracks = pd.concat((unextrapolated_tracks, extrapolated_cleaned))
 
-        print("--------- Extrapolation complete ------------")
-        print("=============================================")
+        print("\tExtrapolation has been completed.")
 
         if (self_flag):
             self.tracks = new_tracks.copy()
@@ -1361,7 +1354,7 @@ class AudibleTransits:
                 plt.show()
                 plt.pause(.1)
                 
-        print(f"\t\t{len(scrambled_tracks)} scrambled tracks removed (highly erratic data, likely logging errors)")
+        print(f"\t\tRemoved {len(scrambled_tracks)} scrambled tracks (highly erratic data, likely logging errors)")
     
         if (return_scrambled_tracks):
             return new_track_segments, scrambled_tracks
@@ -1679,7 +1672,7 @@ class AudibleTransits:
         Nothing, just adds columns to the tracks GDF
         '''
         
-        print("Extracting track heights above mean sea level (MSL)")
+        print("\tExtracting track heights above mean sea level (MSL)")
         # Extract z coordinates from tracks -- height above Mean Sea Level
         MSL_list = []
         for id, track in tracks.iterrows():
@@ -1689,7 +1682,7 @@ class AudibleTransits:
         
         tracks['MSL'] = MSL_list
     
-        print("Grabbing ground levels from the digital elevation model at track points")
+        print("\tQuerying elevation at each track point...")
         # The raster is in a geographic CRS, so let's instead convert our tracks' CRS (much simpler)
         tracks_deg = tracks.to_crs(DEM_raster.crs)
         # Loop through each track and extract each individual point. We can use these coordinates to access their respective raster cells from the DEM
@@ -1702,7 +1695,7 @@ class AudibleTransits:
         
         tracks['ground_level'] = GL_list                                         # Create 'ground_level' column for computing altitudes above ground level (AGL)
     
-        print("Calculating heights above ground level (AGL) for each track...")
+        print("\tCalculating heights above ground level (AGL) for each track...")
         tracks['AGL'] = tracks.MSL - tracks.ground_level                         # Calculate altitude above ground level (MSL - ground level)
 
     @staticmethod
@@ -1753,7 +1746,9 @@ class AudibleTransits:
         if export_garbage: 
             self.garbage.to_pickle(os.path.join(path, identifier+"_garbage.pkl"))
             self.export_garbage_summary(path)
-        print("Saved results...")
+
+        # A terminal message for the process.
+        print("Saved results! Process complete.")
 
     def export_garbage_summary(self, path):
 
@@ -1903,7 +1898,7 @@ class AudibleTransitsGPS(AudibleTransits):
             tracks = Tracks(tracks, id_col='flight_id',datetime_col='ak_datetime', z_col='altitude_m')
             tracks.drop(columns=['ak_hourtime'])
             tracks.geometry = gpd.points_from_xy(tracks.geometry.x, tracks.geometry.y, tracks.z)
-            print("\tTracks have been parsed.\n")
+            print("\tTracks have been parsed.")
             print("\tFiltering duplicate records...")
             original_length = len(tracks)
             tracks.drop_duplicates(subset=['track_id', 'point_dt'], inplace=True)
@@ -2109,13 +2104,13 @@ class AudibleTransitsGPS(AudibleTransits):
                 updated_needs_extrapolation.append(True)
             sinuosity_list.append(sinuosity)
         
-        print(tracks.needs_extrapolation.sum() - sum(updated_needs_extrapolation), " flights downgraded from needs_extrapolation due to takeoffs/landings")
-        print("Possible takeoffs identified: ", sum(takeoffs))
-        print("Possible landings identified: ", sum(landings))
-        print("Low AGL takeoffs/landings: ", ht)
-        print("High res takeoffs/landings: ", hires)
-        print("Sinuosity>=1.1 takeoffs/landings: ", sinu)
-        print("Physics-based takeoffs/landings", phys)
+        print(f"\tEliminated {tracks.needs_extrapolation.sum() - sum(updated_needs_extrapolation)} potential takeoffs/landings from the list of transits to be extrapolated.")
+        print("\tPotential takeoffs identified: ", sum(takeoffs))
+        print("\tPotential landings identified: ", sum(landings))
+        print("\tLow AGL takeoffs/landings: ", ht)
+        print("\tHigh res takeoffs/landings: ", hires)
+        print("\tSinuosity>=1.1 takeoffs/landings: ", sinu)
+        print("\tPhysics-based takeoffs/landings", phys)
         
 
         tracks['takeoff'] = takeoffs
@@ -2143,11 +2138,11 @@ class AudibleTransitsGPS(AudibleTransits):
             # Create aircraft lookup table using FAA database
             aircraft_lookup = AudibleTransitsGPS.create_aircraft_lookup(tracks, FAA_path, aircraft_corrections_path)
             self.aircraft_lookup = aircraft_lookup.copy()
-            print('\tAircraft look up complete.')
+            print('\t\tAircraft look up complete.')
         else:
             aircraft_lookup = FAA.copy()
             self.aircraft_lookup = aircraft_lookup.copy()
-            print("\tLoaded aircraft lookup table directly.")
+            print("\t\tLoaded aircraft lookup table directly.")
 
         
         # Use the aircraft lookup table to identify each flight's N-number and aircraft type (jet, fixed-wing, or helicopter)
@@ -2642,12 +2637,13 @@ if __name__ == '__main__':
     listener.update_track_parameters()
     listener.update_trackQC()
     listener.summarize_data_quality()
-
+ 
+    print("Cleaning audible transits...")
     listener.clean_tracks()
     listener.update_trackQC()
     listener.summarize_data_quality()
 
-    ### EXTRAPOLATION ===================================================================================#
+    print("Detecting takeoffs and landings...")
     if listener.tracks.needs_extrapolation.sum() > 0:
         listener.detect_takeoffs_and_landings()
         if listener.tracks.needs_extrapolation.sum() > 0:
