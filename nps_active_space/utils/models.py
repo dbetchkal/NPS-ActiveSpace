@@ -9,6 +9,7 @@ from typing import List, Optional, Union
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+pd.options.mode.copy_on_write = True
 from pyproj import Transformer
 from tqdm import tqdm
 from tzwhere import tzwhere
@@ -301,38 +302,67 @@ class Ais(gpd.GeoDataFrame):
             return df
         
         else:
-
             # For now, we assume the vessel's z-position is "at sea level"
             # a slower, but more accurate z-position would be derived
             # using the NOAA CO-OPS Data Retrieval API
             # https://api.tidesandcurrents.noaa.gov/api/prod/
             df["altitude"] = 0.0 # meters
 
+            # The MXAK has released data with many different time formats
+            # we can safely assume that a single fine has a consistent time format over all rows
+            # our best approach is to check the first row against the known patterns:
+            test = df["TIME"].iloc[0]
+            time_pattern = test.split(" ")
             
-            df["TIME"] = pd.to_datetime(arg=df["TIME"], errors="coerce") # an older version which occasionally produced dtype 'object'??
+            # Files exist with the following patterns:
+            MXAK_timestamp_patterns = {1:"%d %b %Y %H:%M:%S UTC",
+                                       2:"%Y-%m-%d %H:%M:%S UTC",
+                                       3:"%m-%d-%Y %H:%M:%S UTC",
+                                       4:"%Y-%m-%d %H:%M:%S AKST",
+                                       5:"%Y-%m-%d %H:%M:%S AKDT",
+                                       6:"%Y-%m-%d %H:%M:%S"}   
+            
+            # Begin conditional timestamp formatting...
+            if((len(time_pattern) == 5)&(time_pattern[-1] == "UTC")):
+                df["TIME"] = pd.to_datetime(df["TIME"], format=MXAK_timestamp_patterns[1])
+
+            elif((len(time_pattern) == 3)&(time_pattern[-1] == "UTC")):
+                try:
+                    df["TIME"] = pd.to_datetime(df["TIME"], format=MXAK_timestamp_patterns[2])
+
+                except ValueError:
+                    df["TIME"] = pd.to_datetime(df["TIME"], format=MXAK_timestamp_patterns[3])
+
+            elif((len(time_pattern) == 3)&(time_pattern[-1] == "AKST")):
+                try:
+                    df["TIME"] = pd.to_datetime(df["TIME"], format=MXAK_timestamp_patterns[4]) + dt.timedelta(hours=9)
+                except ValueError:
+                    # we must handle the day in November where we change from AKST to AKDT
+                    df.loc[df["TIME"].str[-4:] == "AKST", "TIME"] = pd.to_datetime(df["TIME"].loc[df["TIME"].str[-4:] == "AKST"],
+                                                                                   format=MXAK_timestamp_patterns[4]) + dt.timedelta(hours=9)
+                    df.loc[df["TIME"].str[-4:] == "AKDT", "TIME"] = pd.to_datetime(df["TIME"].loc[df["TIME"].str[-4:] == "AKDT"],
+                                                                                   format=MXAK_timestamp_patterns[5]) + dt.timedelta(hours=8)
+                    df["TIME"] = pd.to_datetime(df["TIME"]) # apparently we still need to nudge these into datetime format?
+                    
+            elif((len(time_pattern) == 3)&(time_pattern[-1] == "AKDT")):
+                try:
+                    df["TIME"] = pd.to_datetime(df["TIME"], format=MXAK_timestamp_patterns[5]) + dt.timedelta(hours=8)
+                except ValueError: 
+                    # we must handle the day in March where we change from AKDT to AKST
+                    df.loc[df["TIME"].str[-4:] == "AKST", "TIME"] = pd.to_datetime(df["TIME"].loc[df["TIME"].str[-4:] == "AKST"],
+                                                                                   format=MXAK_timestamp_patterns[4]) + dt.timedelta(hours=9)
+                    df.loc[df["TIME"].str[-4:] == "AKDT", "TIME"] = pd.to_datetime(df["TIME"].loc[df["TIME"].str[-4:] == "AKDT"],
+                                                                                   format=MXAK_timestamp_patterns[5]) + dt.timedelta(hours=8)
+                    df["TIME"] = pd.to_datetime(df["TIME"])
+                    
+            elif((len(time_pattern) == 2)):
+                df["TIME"] = pd.to_datetime(df["TIME"], format=MXAK_timestamp_patterns[6])
+
+            else:
+                raise ValueError("The file's timestamp format is not recognized!")
+
+            df["TIME"].dt.tz_localize(tz="UTC")
             df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
-    
-                
-            # attempt to extract the timezone
-            dt_tz = df["TIME"].iloc[0].utcoffset()
-            
-            if(dt_tz is None):
-                
-                # we know that the timezone is AKST (assuming listening never occurred during Daylight Savings!)
-                # we will work in the local timezone for ease in aligning the acoustic record
-                df["TIME"] = df["TIME"].dt.tz_localize(tz='US/Alaska')
-                
-            elif(dt_tz is not None):
-                
-                # we are in UTC to begin with... subtract 9 hours to get to AKST
-                # we will work in the local timezone for ease in aligning the acoustic record
-                df["TIME"] = df["TIME"] - dt.timedelta(hours=9)
-                df["TIME"] = df["TIME"].dt.tz_convert(tz='US/Alaska')
-                
-                dt_tz = df["TIME"].iloc[0].utcoffset()
-                
-                # now we convert the homogenized timestamps back into strings
-                df["TIME"] = df["TIME"].dt.strftime('%Y-%m-%d %H:%M:%S')
 
             # Sort records by MMSI and TIME then reset dataframe index
             df.sort_values(["MMSI", "TIME"], inplace=True, ignore_index=True)
