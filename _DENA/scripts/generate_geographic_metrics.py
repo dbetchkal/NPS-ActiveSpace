@@ -25,12 +25,14 @@ __all__ = [
 
 def tracks2events(tracks, start_date, end_date, min_dur=30):
     '''
-    Performs audibility binarization on a set of tracks produced by the `NPS-ActiveSpace.audible_transits` module. 
+    Performs audibility binarization on outputs of the `NPS-ActiveSpace.audible_transits` module. 
     
-    This collapses a group of tracks into individual 'noise events', which may contain multiple overlapping tracks in time.
-    Two resulting event dataframes capture alternating periods of time: 
-                (0) 'Noisy intervals' 
-                (1)  Noise-free intervals (NFI)
+    This function collapses a set of audible transits spanning a certain time period into 
+    unique noise events, which may contain multiple overlapping transits.
+    
+    The two output event dataframes capture alternating periods of time: 
+        (0)  Noise Events (e.g., 'Noisy intervals')
+        (1)  Noise-free intervals (NFI)
     
     Parameters
     ----------
@@ -39,8 +41,11 @@ def tracks2events(tracks, start_date, end_date, min_dur=30):
         resembling those produced by `NPS-ActiveSpace.audible_transits`. Only requires columns 'entry_time' and 'exit_time'
     start_date : string
         The initial date of tracks to include, formatted as 'yyyy-mm-dd'
-     end_date : string
-        The last date of tracks to include, formatted as 'yyyy-mm-dd'       
+    end_date : string
+        The last date of tracks to include, formatted as 'yyyy-mm-dd'
+    min_dur : float
+        The minimum duration ____________
+         
         
     Returns
     -------
@@ -50,20 +55,22 @@ def tracks2events(tracks, start_date, end_date, min_dur=30):
     NFI_df : GeoDataFrame
         A GeoDataFrame containing each noise-free interval. Looks like:
             start_time | end_time | duration
-    '''    
-    print("Combining tracks into binary event time series.")
+    ''' 
+
+    print("Combining audible transits into a binary event time series.")
     
-    buffer = np.timedelta64(30, 's') # max number of seconds between tracks in order to combine
+    buffer = np.timedelta64(30, 's') # Max number of seconds between tracks in order to combine
     
-    start_date = np.datetime64(start_date)  # Convert to datetime64
-    end_date = np.datetime64(end_date)      # Convert to datetime64
+    start_date = np.datetime64(start_date)  # conversion to datetime64
+    end_date = np.datetime64(end_date)      # conversion to datetime64
     
     tracks.sort_values(by=['entry_time'], inplace=True)
     entry_times = np.asarray(tracks.entry_time) # datetime format
     exit_times = np.asarray(tracks.exit_time)   # datetime format
     elapsed_times = exit_times - entry_times    # timedelta64 format
     
-    # Make copies of the entry and exit times arrays for calculation, may want to use the originals later
+    # Make copies of the entry and exit times arrays for calculation, 
+    # we may want to use the originals later
     entry_times_cp = entry_times.copy()
     exit_times_cp = exit_times.copy()
     
@@ -72,16 +79,22 @@ def tracks2events(tracks, start_date, end_date, min_dur=30):
     i = 0      # increment for entry times
     while i < len(entry_times_cp)-1:
         j = 0       # increment for exit times
-        event_end = exit_times_cp[i]  # Set event end time to the first track's exit time (overwrite if needed in while loop)
-        # Check if the current track exits after the next track starts; if so, adjust the event end time and increment
+
+        # set event end time to the first track's exit time (overwrite if needed in while loop)
+        event_end = exit_times_cp[i]  
+
+        # check if the current track exits after the next track starts; 
+        # if so, adjust the event end time and increment
         while event_end >= (entry_times_cp[i+j+1] - buffer):
-            event_end = max(exit_times_cp[i+j+1], event_end)  # Account for case where first track starts first but also ends later
+            event_end = max(exit_times_cp[i+j+1], event_end)  # account for case where first track starts first but also ends later
             j += 1
             if (i+j+1) >= len(entry_times_cp):
                 break  # NEED to leave while loop if we are about to exceed the size our entry_times array -- !can't look forward beyond the last track!
         # entry time stays the same, set new exit time
         exit_times_cp[i] = event_end
-        # Get rid of all the tracks that were blobbed together with the first one (i). The 'j' increment tells us how many tracks we combined
+
+        # Get rid of all the tracks that were blobbed together with the first one (e.g., i). 
+        # the 'j' increment tells us how many tracks we combined
         exit_times_cp = np.delete(exit_times_cp, slice(i+1, i+j+1))
         entry_times_cp = np.delete(entry_times_cp, slice(i+1, i+j+1))
         i += 1
@@ -99,6 +112,7 @@ def tracks2events(tracks, start_date, end_date, min_dur=30):
     # Note that if timeframe starts/ends with an event, no inaudible time will actually be added
     inaudible_begins = np.insert(event_end_times, 0, start_date)
     inaudible_ends = np.append(event_start_times, end_date)
+
     # Create a list of tuples of the inaudible intervals (time in between audible intervals)
     inaudible_intervals = [(a, b) for a, b in zip(inaudible_begins, inaudible_ends)]
     inaudible_times = inaudible_ends - inaudible_begins            # List of noise-free interval durations in timedelta64 format
@@ -106,12 +120,15 @@ def tracks2events(tracks, start_date, end_date, min_dur=30):
     
     total_time = (end_date - start_date)/np.timedelta64(1,'s')     # Calculate total time of timeframe in seconds 
     
-    # GENERAL STATS
+    # Format the statistics
     duration_list = audible_times/np.timedelta64(1,'s')  # list of event duration lengths in seconds
     NFI_list = inaudible_times/np.timedelta64(1,'s')     # list of noise-free interval lengths in seconds
     TA = 100 * total_audible / total_time                # (%) of total time with an audible event (Time Audible)
+
+    # We organize this information into two dataframes -> Noise events, Noise-free intervals
     event_df = pd.DataFrame(data={'start_time': event_start_times, 'end_time': event_end_times, 'duration': duration_list})
     NFI_df = pd.DataFrame(data={'start_time': inaudible_begins, 'end_time': inaudible_ends, 'duration': NFI_list})
+
     return event_df, NFI_df
     
 def compute_audibility_stats(event_dataframe, start_date, end_date, months=list(range(1,13)), quantiles=.5):
