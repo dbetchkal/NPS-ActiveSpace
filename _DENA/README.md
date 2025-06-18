@@ -139,7 +139,7 @@ $ python -u -W ignore _DENA/scripts/generate_active_space.py -e production -u DE
 | `--omni-source`       | ***default 0***<br/>Gain to generate the mesh with.                                                                                                                      |
 | `--mesh-spacing`      | ***default 1***<br/>How far apart, in km, mesh square centroids should be.                                                                                               |
 | `--mesh-size`         | ***default 25***<br/>How large, in km, each mesh square should be. Mesh squares will be mesh-size x mesh-size.                                                           |
-| `-l`, `--altitude`    | ***default 3658***Use this flag to generate the active spaces at a particular altitude (in meters). *Ex*: `-l 1524` generates active spaces at 1524 meters or 5000 feet. |
+| `-l`, `--altitude`    | ***default 3658***<br/>Use this flag to generate the active spaces at a particular altitude (in meters). *Ex*: `-l 1524` generates active spaces at 1524 meters or 5000 feet. |
 | `--cleanup`           | If this flag is added, all intermediary control and batch files will be deleted upon script completion.                                                                  |
 
 Example executions:

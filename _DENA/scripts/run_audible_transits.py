@@ -61,6 +61,27 @@ class AudibleTransits:
     """
     
     def __init__(self, metadata, paths):
+        '''
+        Initializes properties of the site and paths to the data.
+
+        Parameters
+        ----------
+        metadata : dict
+            A dictionary containing site-specific metadata. Should have the following keys:
+            - "unit": 4-letter NPS unit code (e.g. Denali = "DENA")
+            - "site": 4-letter site code (e.g. Triple Lakes = "TRLA")
+            - "year": study year
+            - "gain": modeled gain value from fitting the active space
+            - "study start": date of format yyyy-mm-dd
+            - "study end": date of format yyyy-mm-dd
+            - "database type": type of database, e.g. "ADSB" or "GPS"
+        paths: dict
+            A dictionary containing paths to the project directory and data files. Should have the following keys:
+            - "project": directory containing subfolders for each site, each named [unit][site] (e.g. DENATRLA/)
+            - "ADSB": directory containing ADSB files in the .TSV format
+            - "FAA": path to MASTER.txt file provided by the FAA
+            - "aircraft corrections": path to FAA_AircraftCorrections.txt file provided by the FAA
+        '''
         self.unit = metadata["unit"]
         self.site = metadata["site"]
         self.year = metadata["year"]
@@ -68,7 +89,6 @@ class AudibleTransits:
         self.study_start = metadata["study start"]
         self.study_end = metadata["study end"]
         self.database_type = metadata["database type"]
-        
         self.paths = paths
 
         # Errant tracks will be removed and tabulated for reassurance.
@@ -80,7 +100,6 @@ class AudibleTransits:
         
         Parameters
         ----------
-        self : utilizes self.unit, self.site, self.year, and self.gain attributes -- all set upon object initialization.
         visualize : bool
             Default is False, determines whether a plot of the active space and mic location is generated.
 
@@ -97,8 +116,8 @@ class AudibleTransits:
         warnings.filterwarnings('ignore', message=".*Results from 'centroid' are likely incorrect.*")
         
         # Load in active space and study area.
-        active = AudibleTransits.load_activespace(self.unit, self.site, self.year, self.gain, crs="epsg:4326", PROJ_DIR=self.paths["project"])
-        original_study_area = AudibleTransits.load_studyarea(self.unit, self.site, self.year, crs="epsg:4326", PROJ_DIR=self.paths["project"])
+        active = AudibleTransits.load_activespace(self.paths["project"], self.unit, self.site, self.year, self.gain, crs="epsg:4326")
+        original_study_area = AudibleTransits.load_studyarea(self.paths["project"], self.unit, self.site, self.year, crs="epsg:4326")
         print("\tActive space and study area have been parsed.")
         
         # Calculate the UTM zone from the active space centroid.
@@ -106,7 +125,7 @@ class AudibleTransits:
         # Calculate mic crs (`NMSIM` uses western-most bound of the study area); notably this may be a different zone than `self.utm_zone`.
         mic_crs = AudibleTransits.NMSIM_bbox_utm(original_study_area)
         # Parse mic location, convert from the `NMSIM` crs to the UTM zone at the centroid of the active space.
-        mic_loc = AudibleTransits.load_miclocation(self.unit, self.site, self.year, crs=mic_crs, PROJ_DIR=self.paths["project"]).to_crs(self.utm_zone)
+        mic_loc = AudibleTransits.load_miclocation(self.paths["project"], self.unit, self.site, self.year, crs=mic_crs).to_crs(self.utm_zone)
         print("\tMicrophone position has been determined.")
         
         if (visualize):
@@ -895,12 +914,14 @@ class AudibleTransits:
 
     # ========================================== INITIALIZATION UTILITIES =================================================== 
     @staticmethod
-    def load_activespace(u, s, y, gain, third_octave=True, crs=None, PROJ_DIR=r"V:\NMSim\01 SITES"):
+    def load_activespace(PROJ_DIR, u, s, y, gain, third_octave=True, crs=None):
         '''
         Load in the active space for a given unit, site, year, and gain
         
         Parameters
         ----------
+        PROJ_DIR : string
+            This is the directory containing subfolders for each site. This function will find the right folder given the unit, site, year, and gain
         u : string
             Unit that the active space resides in (ex: 'DENA')
         s : string
@@ -913,9 +934,6 @@ class AudibleTransits:
             Default is True, indicates whether the gain is calculated broadband or using third-octave band data
         crs : string
             Optional argument to provide a coordinate reference system to convert the active space to (e.g.  'epsg:26905'). Defaults to None
-        PROJ_DIR : string
-            This is the path that leads to all sites. This function will find the right folder given the unit, site, year, and gain
-            
     
         Returns
         -------
@@ -941,13 +959,15 @@ class AudibleTransits:
         return active_space
 
     @staticmethod
-    def load_studyarea(u, s, y, crs=None, PROJ_DIR=r"V:\NMSim\01 SITES"):
+    def load_studyarea(PROJ_DIR, u, s, y, crs=None):
         '''
         Load in the study area that contains the active space for a given unit, site, and year. 
         At present this function is overridden by `query_tracks()`, which is set to provide a study area = active space buffered by 25km.
         
         Parameters
         ----------
+        PROJ_DIR : string
+            This is the directory containing subfolders for each site. This function will find the right folder given the unit, site, year, and gain
         u : string
             Unit that the active space resides in (ex: 'DENA')
         s : string
@@ -956,8 +976,6 @@ class AudibleTransits:
             The year that the active space was calculated in (ex: 2019)
         crs : string
             Optional argument to provide a coordinate reference system to convert the study area to (e.g.  'epsg:26905'). Defaults to None
-        PROJ_DIR : string
-            This is the path that leads to all sites. This function will find the right folder given the unit, site, year, and gain
             
         Returns
         -------
@@ -974,12 +992,14 @@ class AudibleTransits:
         return study_area
 
     @staticmethod
-    def load_miclocation(u, s, y, crs=None, PROJ_DIR=r"V:\NMSim\01 SITES"):
+    def load_miclocation(PROJ_DIR, u, s, y, crs=None):
         '''
         Load in the mic location for the active space at a given unit, site, and year. 
         
         Parameters
         ----------
+        PROJ_DIR : string
+            This is the directory containing subfolders for each site. This function will find the right folder given the unit, site, year, and gain
         u : string
             Unit that the active space resides in (ex: 'DENA')
         s : string
@@ -988,8 +1008,6 @@ class AudibleTransits:
             The year that the active space was calculated in (ex: 2019)
         crs : string
             Optional argument to provide the coordinate reference system that the mic location is in (e.g.  'epsg:26905'). Defaults to None
-        PROJ_DIR : string
-            This is the path that leads to all sites. This function will find the right folder given the unit, site, year, and gain
             
         Returns
         -------
