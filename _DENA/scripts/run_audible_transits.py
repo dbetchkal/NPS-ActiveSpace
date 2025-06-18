@@ -216,9 +216,70 @@ class AudibleTransits(ABC):
         
         return utm_active
     
-    @abstractmethod
-    def create_track_segments(self):
-        pass
+    def create_segments(self, radius=400000, z_min=0, z_max=15000):
+        '''
+        Takes in track points and datetimes and converts them to tracks. Filters out outlier positions and replaces altitudes outside the expected range with the median altitude of nearby points in the track.
+    
+        Parameters
+        ----------
+        radius: int, float
+            In meters. Discard points outside of a circle with this radius centered on the median coordinate. Default 400000.
+        z_min: int, float
+            Minimum expected altitude in meters. Default 0.
+        z_max: int, float
+            Maximum expected altitude in meters. Default 15000.
+            
+        Returns
+        -------
+        track_lines : `gpd.GeoDataFrame`
+            A dataframe containing all tracks, condensed to LineStrings (geometry) and MultiPoints (geometry_pts). Has the following columns:
+                track_id | geometry | point_dt | geometry_pts | z
+                 str      LineString  list of    MultiPoint    list of
+                                      datetime64               floats
+        '''        
+        tracks = self.tracks.copy()
+        original_length = len(tracks)
+            
+        median_coord = (tracks.geometry.x.median(), tracks.geometry.y.median())
+        tracks = tracks[tracks.distance(Point(median_coord)) < radius]
+        removed_count = original_length - len(tracks)
+        
+        grouped_track_pts = tracks.groupby('track_id') ## Edited to track_id to fit Dini's version
+        
+        print("\tSegmenting raw transportation into tracks...")
+        z_adj_count = 0
+        track_list = []
+        # Loop through each flight (track points grouped by flight ID)
+        for track_id, group in tqdm(grouped_track_pts, unit='tracks'):
+            if len(group) >= 2:
+                group = group.sort_values('point_dt')
+                n_number = group.n_number.iloc[0]
+                aircraft_type = group.aircraft_type.iloc[0]
+                times = np.asarray(group.point_dt.values)
+                points = []
+                altitudes = []
+                for g in group.geometry:
+                    lat, lon = g.xy
+                    alt = g.z
+                    point = (lat[0], lon[0], alt)
+                    altitudes.append(alt)
+                    points.append(point)
+                    
+                altitudes = np.asarray(altitudes)   
+                if np.any((altitudes < z_min) | (altitudes > z_max)):
+                    z_filtered = median_filter(altitudes, 5)
+                    for i in range(len(altitudes)):
+                        if (altitudes[i] < z_min) | (altitudes[i] > z_max):
+                            altitudes[i] = z_filtered[i]
+                            z_adj_count += 1
+
+                track_list.append({'track_id': track_id, 'geometry': LineString(points), 'point_dt': times, 'geometry_pts': MultiPoint(points), 'z': altitudes, 'n_number': n_number, 'aircraft_type': aircraft_type})
+        
+        track_lines = gpd.GeoDataFrame(track_list, crs=self.utm_zone)
+        self.tracks = track_lines.copy()   
+        print("\t\tSegmentation complete.")           
+        print(f"\t\tRemoved {removed_count} outlier points, adjusted {z_adj_count} z-coordinates.")
+        return track_lines
 
     def simplify_active_space(self, inplace=True, visualize=False, tolerance=100, interior_area_thresh=0.05):
         '''
@@ -1922,56 +1983,6 @@ class AudibleTransitsGPS(AudibleTransits):
         
         return tracks
     
-    def create_segments(self):
-        '''
-        Takes in track points and datetimes and converts them to tracks. 
-
-        Parameters
-        ----------
-        tracks : `gpd.GeoDataFrame`
-            A dataframe containing all tracks (as points). Must have the following columns:
-                track_id | geometry | z | point_dt
-
-        Returns
-        -------
-        track_lines : `gpd.GeoDataFrame`
-            A dataframe containing all tracks, condensed to LineStrings (geometry) and MultiPoints (geometry_pts). Has the following columns:
-                track_id | geometry | point_dt | geometry_pts | z
-                 str      LineString  list of    MultiPoint    list of
-                                      datetime64               floats
-        '''        
-        tracks = self.tracks.copy()
-
-        grouped_track_pts = tracks.groupby('track_id') ## Edited to track_id to fit Dini's version
-        
-        print("\tSegmenting raw transportation into tracks...")
-        track_list = []
-        # Loop through each flight (track points grouped by flight ID)
-        for track_id, group in tqdm(grouped_track_pts, unit='tracks'):
-            if len(group) >= 2:
-                n_number = group.n_number.iloc[0]
-                aircraft_type = group.aircraft_type.iloc[0]
-                times = np.asarray(group.point_dt.values)
-                points = []
-                altitudes = []
-                for g, t in zip(group.geometry, group.point_dt.values):
-                    lat, lon = g.xy
-                    alt = g.z
-                    point = (lat[0], lon[0], alt)
-                    altitudes.append(alt)
-                    points.append(point)
-                    
-                altitudes = np.asarray(altitudes)   
-                
-                track_list.append({'track_id': track_id, 'geometry': LineString(points), 'point_dt': times, 'geometry_pts': MultiPoint(points), 'z': altitudes, 'n_number': n_number, 'aircraft_type': aircraft_type})
-        
-        print("\t\tSegmentation complete.")
-        track_lines = gpd.GeoDataFrame(track_list, crs=self.utm_zone)
-        
-        self.tracks = track_lines.copy()
-
-        return track_lines
-    
     def detect_takeoffs_and_landings(self, tracks='self', AGL_thresh=25, speed_thresh=30, interval_thresh1 = 300, interval_thresh2 = 120, point_thresh1 = 4, point_thresh2 = 10):
         """
         Identifies tracks that appear to begin by taking off or end by landing inside of the active space; adds corresponding boolean columns 'takeoff' and 'landing to the input dataframe.
@@ -2275,7 +2286,7 @@ class AudibleTransitsADSB(AudibleTransits):
         median_coord = (tracks.geometry.x.median(), tracks.geometry.y.median())
         tracks = tracks[tracks.distance(Point(median_coord)) < radius]
         removed_count = original_length - len(tracks)
-        
+
         grouped_track_pts = tracks.groupby('track_id') ## Edited to track_id to fit Dini's version
         
         print("\tSegmenting raw transportation into tracks...")
