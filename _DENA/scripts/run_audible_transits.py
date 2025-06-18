@@ -13,6 +13,7 @@ from shapely import ops
 
 # other libraries
 from argparse import ArgumentParser
+from abc import ABC, abstractmethod
 import datetime as dt
 import glob
 from itertools import islice
@@ -52,7 +53,7 @@ from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query
 from nps_active_space.utils.computation import coords_to_utm, interpolate_spline
 from nps_active_space.utils.models import Tracks, Adsb
 
-class AudibleTransits:
+class AudibleTransits(ABC):
     """
     A geoprocessing class to construct the spatiotemporal intersections of a set of tracks with an active space.
     
@@ -96,7 +97,7 @@ class AudibleTransits:
 
     def init_spatial_data(self, visualize=False):
         '''
-        Load all spatial data: the active space, study area, and mic location.
+        Load all spatial data into this object: the active space, study area, and mic location.
         
         Parameters
         ----------
@@ -151,8 +152,24 @@ class AudibleTransits:
         ras = rasterio.open(raster_path)
         print("\tThe Digital Elevation Model (DEM) has been parsed.\n")
         self.DEM = ras
+    
+    @abstractmethod
+    def load_tracks_from_database(self, buffer=25000):
+        '''
+        Load all tracks that have points in the given active space with a buffer around it, within the start and end date.
+        This buffered active space acts as a study area. Larger buffer will take longer to process but gives better results.
         
-    def load_tracks_from_database(self):
+        Parameters
+        ----------
+        buffer : int
+            The buffer (in meters) around the active space to look for tracks. This helps get points that are not quite inside the active space
+            yet, but hold relevant information about trajectory, overall speed of transit, and data quality. Default 25000.
+    
+        Returns
+        -------
+        tracks : `gpd.GeoDataFrame`
+            A dataframe containing all tracks in the buffered active space with standardized column names
+        '''
         pass
 
     def convert_tracks_to_utm(self, tracks='self'):
@@ -198,7 +215,8 @@ class AudibleTransits:
         self.active = utm_active.copy()
         
         return utm_active
-        
+    
+    @abstractmethod
     def create_track_segments(self):
         pass
 
@@ -1876,52 +1894,29 @@ class AudibleTransits:
 
 
 class AudibleTransitsGPS(AudibleTransits):
-    def load_tracks_from_database(self, data='database', buffer=25000):
-        '''
-        Load all tracks that have points in the given active space with a buffer around it, within the start and end date.
-        This buffered active space acts as a study area. Larger buffer will take longer to process but gives better results.
-        
-        Parameters
-        ----------
-        start_date : string
-            The date to begin looking for tracks, formatted as 'yyyy-mm-dd'
-        end_date : string
-            The date to stop looking for tracks, formatted as 'yyyy-mm-dd'
-        active : `gpd.GeoDataFrame`
-            The active space of our site
-        buffer : int
-            The buffer (in meters) around the active space to look for tracks. This helps get points that are not quite inside the active space
-            yet, but hold relevant information about trajectory, overall speed of transit, and data quality.
-    
-        Returns
-        -------
-        tracks : `gpd.GeoDataFrame`
-            A dataframe containing all tracks in the buffered active space with standardized column names
-        '''
-        if type(data) is str:
+    def load_tracks_from_database(self, buffer=25000):
 
-            engine = self.init_engine()
-            print("\tDatabase engine initialized.")
-            self.studyA = self.active.copy()
+        assert self.active is not None, "Active space hasn't been loaded yet."
 
-            # query the SQL database
-            tracks = query_tracks(engine=engine, start_date=self.study_start, end_date=self.study_end, mask=self.studyA, mask_buffer_distance=buffer)
-            tracks.set_crs('WGS84', inplace=True) 
-            # we use `nps_active_space.utils.models.Tracks` to parse the track data
-            tracks = Tracks(tracks, id_col='flight_id',datetime_col='ak_datetime', z_col='altitude_m')
-            tracks.drop(columns=['ak_hourtime'])
-            tracks.geometry = gpd.points_from_xy(tracks.geometry.x, tracks.geometry.y, tracks.z)
-            print("\tTracks have been parsed.")
-            print("\tFiltering duplicate records...")
-            original_length = len(tracks)
-            tracks.drop_duplicates(subset=['track_id', 'point_dt'], inplace=True)
-            time_duplicates = original_length - len(tracks)
-            tracks.drop_duplicates(subset=['track_id', 'geometry'], inplace=True)
-            position_duplicates = original_length - time_duplicates - len(tracks)
-            print(f"\t\tRemoved {time_duplicates} points with repeated times and {position_duplicates} points with repeated positions.")
+        engine = self.init_engine()
+        print("\tDatabase engine initialized.")
+        self.studyA = self.active.copy()
 
-        else:
-            tracks = data.copy()
+        # query the SQL database
+        tracks = query_tracks(engine=engine, start_date=self.study_start, end_date=self.study_end, mask=self.studyA, mask_buffer_distance=buffer)
+        tracks.set_crs('WGS84', inplace=True) 
+        # we use `nps_active_space.utils.models.Tracks` to parse the track data
+        tracks = Tracks(tracks, id_col='flight_id',datetime_col='ak_datetime', z_col='altitude_m')
+        tracks.drop(columns=['ak_hourtime'])
+        tracks.geometry = gpd.points_from_xy(tracks.geometry.x, tracks.geometry.y, tracks.z)
+        print("\tTracks have been parsed.")
+        print("\tFiltering duplicate records...")
+        original_length = len(tracks)
+        tracks.drop_duplicates(subset=['track_id', 'point_dt'], inplace=True)
+        time_duplicates = original_length - len(tracks)
+        tracks.drop_duplicates(subset=['track_id', 'geometry'], inplace=True)
+        position_duplicates = original_length - time_duplicates - len(tracks)
+        print(f"\t\tRemoved {time_duplicates} points with repeated times and {position_duplicates} points with repeated positions.")
             
         self.tracks = tracks.copy()
         
@@ -2223,40 +2218,37 @@ class AudibleTransitsGPS(AudibleTransits):
 
 class AudibleTransitsADSB(AudibleTransits):
 
-    def load_tracks_from_database(self, data='database'):
+    def load_tracks_from_database(self, buffer=25000):
 
-        if type(data) is str:
+        assert self.active is not None, "Active space hasn't been loaded yet."
             
-            warnings.filterwarnings('ignore', message=".*before calling to_datetime.*")
-            # Loading tracks from ADSB
-            ADSB_DIR = self.paths["ADSB"]
-            #loaded_track_pts_raw = Adsb(ADSB_DIR)
-            self.studyA = self.active.copy()
-            loaded_track_pts_raw = query_adsb(ADSB_DIR, self.study_start, self.study_end, mask=self.studyA, mask_buffer_distance=25000, exclude_early_ADSB=True)
-            # Now, lets filter down to the columns we actually want
-            loaded_track_pts = loaded_track_pts_raw.copy()
-            loaded_track_pts = loaded_track_pts[['flight_id', 'TIME', 'geometry', 'altitude']]
-            loaded_track_pts = loaded_track_pts.rename(columns={'flight_id': 'track_id', 'TIME': 'point_dt', 'altitude': 'z'})
-            loaded_track_pts.set_crs('WGS84', inplace=True)    # The CRS of the loaded tracks will be in standard lon/lat geographic crs
-            loaded_track_pts.z = loaded_track_pts.z * 0.3048   # Convert from ft to meters
-            
-            # Create 3D points using the 2D points and altitidue above MSL
-            loaded_track_pts.geometry = gpd.points_from_xy(loaded_track_pts.geometry.x, loaded_track_pts.geometry.y, loaded_track_pts.z)
+        warnings.filterwarnings('ignore', message=".*before calling to_datetime.*")
+        # Loading tracks from ADSB
+        ADSB_DIR = self.paths["ADSB"]
+        #loaded_track_pts_raw = Adsb(ADSB_DIR)
+        self.studyA = self.active.copy()
+        loaded_track_pts_raw = query_adsb(ADSB_DIR, self.study_start, self.study_end, mask=self.studyA, mask_buffer_distance=buffer, exclude_early_ADSB=True)
+        # Now, lets filter down to the columns we actually want
+        loaded_track_pts = loaded_track_pts_raw.copy()
+        loaded_track_pts = loaded_track_pts[['flight_id', 'TIME', 'geometry', 'altitude']]
+        loaded_track_pts = loaded_track_pts.rename(columns={'flight_id': 'track_id', 'TIME': 'point_dt', 'altitude': 'z'})
+        loaded_track_pts.set_crs('WGS84', inplace=True)    # The CRS of the loaded tracks will be in standard lon/lat geographic crs
+        loaded_track_pts.z = loaded_track_pts.z * 0.3048   # Convert from ft to meters
+        
+        # Create 3D points using the 2D points and altitidue above MSL
+        loaded_track_pts.geometry = gpd.points_from_xy(loaded_track_pts.geometry.x, loaded_track_pts.geometry.y, loaded_track_pts.z)
 
-            original_length = len(loaded_track_pts) # For calculating how many duplicated tracks are removed
-            
-            # Remove any point that shares a timestamp with another point in the same track (physically impossible)
-            loaded_track_pts.drop_duplicates(subset=['track_id', 'point_dt'], inplace=True)
-            time_duplicates = original_length - len(loaded_track_pts)
-            
-            # Remove any point that shares the exact position with another point in the same track (possible but generally erroneous or unhelpful)
-            loaded_track_pts.drop_duplicates(subset=['track_id', 'geometry'], inplace=True)
-            position_duplicates = original_length - time_duplicates - len(loaded_track_pts)
+        original_length = len(loaded_track_pts) # For calculating how many duplicated tracks are removed
+        
+        # Remove any point that shares a timestamp with another point in the same track (physically impossible)
+        loaded_track_pts.drop_duplicates(subset=['track_id', 'point_dt'], inplace=True)
+        time_duplicates = original_length - len(loaded_track_pts)
+        
+        # Remove any point that shares the exact position with another point in the same track (possible but generally erroneous or unhelpful)
+        loaded_track_pts.drop_duplicates(subset=['track_id', 'geometry'], inplace=True)
+        position_duplicates = original_length - time_duplicates - len(loaded_track_pts)
 
-            print(f"\t\tRemoved {time_duplicates} points with repeated times and {position_duplicates} points with repeated positions.")
-
-        else:
-            loaded_track_pts = data.copy()
+        print(f"\t\tRemoved {time_duplicates} points with repeated times and {position_duplicates} points with repeated positions.")
 
         # Only include points within the date range specified in the initialization 
         loaded_track_pts = loaded_track_pts[(loaded_track_pts.point_dt >= self.study_start) & (loaded_track_pts.point_dt <= self.study_end)]
@@ -2268,12 +2260,6 @@ class AudibleTransitsADSB(AudibleTransits):
     def create_segments(self, radius=400000, z_min=0, z_max=15000):
         '''
         Takes in track points and datetimes and converts them to tracks. 
-    
-        Parameters
-        ----------
-        tracks : `gpd.GeoDataFrame`
-            A dataframe containing all tracks (as points). Must have the following columns:
-                track_id | geometry | z | point_dt
     
         Returns
         -------
@@ -2289,6 +2275,7 @@ class AudibleTransitsADSB(AudibleTransits):
         median_coord = (tracks.geometry.x.median(), tracks.geometry.y.median())
         tracks = tracks[tracks.distance(Point(median_coord)) < radius]
         removed_count = original_length - len(tracks)
+        
         grouped_track_pts = tracks.groupby('track_id') ## Edited to track_id to fit Dini's version
         
         print("\tSegmenting raw transportation into tracks...")
@@ -2321,7 +2308,7 @@ class AudibleTransitsADSB(AudibleTransits):
                 
                 track_list.append({'track_id': track_id, 'geometry': LineString(points), 'point_dt': times, 'geometry_pts': MultiPoint(points), 'z': altitudes, 'n_number': n_number, 'aircraft_type': aircraft_type})
         
-        print("\t\tSegementation complete.")           
+        print("\t\tSegmentation complete.")           
         print(f"\t\tRemoved {removed_count} outlier points, adjusted {z_adj_count} z-coordinates.")
     
         track_lines = gpd.GeoDataFrame(track_list, crs=self.utm_zone)
@@ -2621,7 +2608,7 @@ if __name__ == '__main__':
     listener.load_DEM()
 
     print("[2] Parsing and pre-processing track data inputs...")
-    listener.load_tracks_from_database() 
+    listener.load_tracks_from_database()
     AudibleTransits.split_paused_tracks(listener.tracks)
     listener.extract_aircraft_info()
     listener.remove_jets()
