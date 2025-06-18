@@ -494,7 +494,7 @@ class Adsb(gpd.GeoDataFrame):
                 flags_names = ["valid_BARO", "valid_VERTICAL_VELOCITY", "SIMULATED_REPORT", "valid_IDENT",
                             "valid_CALLSIGN", "valid_VELOCITY", "valid_HEADING", "valid_ALTITUDE", "valid_LATLON"]
                 flags = df["validFlags"].apply(lambda t: list(bin(int(t, 16))[2:].zfill(9)[-9:]))
-                flags_df = pd.DataFrame(list(flags), columns=flags_names).replace({'0': False, '1': True})
+                flags_df = pd.DataFrame(list(flags), columns=flags_names).replace({'0': False, '1': True}).infer_objects(copy=False)
                 df = pd.concat([df.drop("validFlags", axis=1), flags_df], axis=1)
 
                 # Keep only those records with valid latlon and altitude values based on validFlags

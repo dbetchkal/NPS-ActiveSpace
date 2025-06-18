@@ -55,6 +55,7 @@ from scipy.ndimage import median_filter
 import sqlalchemy
 import subprocess
 
+pd.set_option('future.no_silent_downcasting', True)
 
 
 class AudibleTransits(ABC):
@@ -540,7 +541,7 @@ class AudibleTransits(ABC):
         for track_id, track_pts in tqdm(sorted_tracks_pts.groupby(level=0), unit=" splines"):
             # Currently, each track point has the entire list of timestamps in its respective row
             #   we want to assign each timestamp to its respective track point. Store full list in 'timestamps'.
-            timestamps = track_pts.point_dt[0]
+            timestamps = track_pts.point_dt.iloc[0]
 
             # Check for weird case where timestamps don't line up with the number of rows...
             if len(track_pts) != len(timestamps):
@@ -1059,7 +1060,7 @@ class AudibleTransits(ABC):
 
         ax.set_title(title)
 
-        if(self.paths["output"]):
+        if("output" in self.paths):
             fig.savefig(os.path.join(self.paths["output"], f"{title}.png"))
 
     # ========================================== INITIALIZATION UTILITIES ===================================================
@@ -1718,8 +1719,10 @@ class AudibleTransits(ABC):
                 pd.Timedelta(seconds=1)
 
             # Replace the row of the first track with our new glued track
-            glued_tracks.iloc[indices[0]] = {'track_id': track_id, 'interp_point_dt': interp_point_dt, 'interp_geometry': interp_geometry, 'entry_time': entry_time, 'exit_time': exit_time, 'entry_position': entry_position, 'exit_position': exit_position,
-                                             'transit_duration': transit_duration, 'transit_distance': transit_distance, 'num_points': num_points, 'sampling_interval': sampling_interval, 'needs_extrapolation': np.nan, 'n_number': n_number, 'aircraft_type': aircraft_type}
+            row_update = {'track_id': track_id, 'interp_point_dt': interp_point_dt, 'interp_geometry': interp_geometry, 'entry_time': entry_time, 'exit_time': exit_time, 'entry_position': entry_position, 'exit_position': exit_position,
+                                             'transit_duration': transit_duration, 'transit_distance': transit_distance, 'num_points': num_points, 'sampling_interval': sampling_interval, 'n_number': n_number, 'aircraft_type': aircraft_type}
+            # we didn't specify all the columns in row_update, so only replace columns we specify
+            glued_tracks.loc[indices[0], row_update.keys()] = row_update.values()
 
         # Now, we need to get rid of all the other rows of unglued tracks now that they are fully accounted for in the new glued track
         drop_list = np.zeros(len(glued_tracks))
@@ -1945,12 +1948,15 @@ class AudibleTransits(ABC):
             sampling_interval.append(np.median(delta_t))
         tracks['sampling_interval'] = sampling_interval
 
+    @abstractmethod
     def create_aircraft_lookup(self):
         pass
 
+    @abstractmethod
     def extract_aircraft_info(self):
         pass
 
+    @abstractmethod
     def remove_jets(self):
         pass
 
@@ -2337,7 +2343,7 @@ class AudibleTransitsGPS(AudibleTransits):
     @staticmethod
     def create_aircraft_lookup(tracks, FAA_path, aircraft_corrections_path=None):
         # Requires N-number
-        FAA = pd.read_csv(FAA_path, sep=",")
+        FAA = pd.read_csv(FAA_path, sep=",", dtype={"TYPE AIRCRAFT": str})
         # codifed type to human-readable type
         Type_Map = {4: "Fixed-wing", 5: "Jet", 6: "Helicopter"}
         aircraft_list = []
@@ -2671,13 +2677,12 @@ class AudibleTransitsADSB(AudibleTransits):
         for idx, group in tracks.groupby('ICAO_address'):
             icao = group.ICAO_address.iloc[0]
             if icao in aircraft_lookup['MODE S CODE HEX'].to_list():
-                n_number = aircraft_lookup[aircraft_lookup['MODE S CODE HEX']
-                                           == icao].iloc[0].at['N-NUMBER']
-                aircraft_type = aircraft_lookup[aircraft_lookup['MODE S CODE HEX']
-                                                == icao].iloc[0].at['TYPE AIRCRAFT']
+                row = aircraft_lookup[aircraft_lookup['MODE S CODE HEX'] == icao].iloc[0]
+                n_number = row.at['N-NUMBER']
+                aircraft_type = row.at['TYPE AIRCRAFT']
             else:
-                n_number = np.nan
-                aircraft_type = np.nan
+                n_number = pd.NA
+                aircraft_type = pd.NA
 
             tracks.loc[group.index, 'n_number'] = n_number
             tracks.loc[group.index, 'aircraft_type'] = aircraft_type
@@ -2697,7 +2702,7 @@ class AudibleTransitsADSB(AudibleTransits):
         '''
 
         # Requires ICAO address
-        FAA = pd.read_csv(FAA_path, sep=",")
+        FAA = pd.read_csv(FAA_path, sep=",", dtype={"TYPE AIRCRAFT": str})
         # codifed type to human-readable type
         Type_Map = {4: "Fixed-wing", 5: "Jet", 6: "Helicopter"}
         Color_Map = {0: "gray", 1: "red", 2: "skyblue"}

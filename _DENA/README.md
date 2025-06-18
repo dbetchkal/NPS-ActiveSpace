@@ -172,9 +172,9 @@ This script is used to estimate the geographic intersection of a set of tracks w
 Example executions:
 
 ```bash
-$ python -u -W ignore _DENA/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20
+$ python _DENA/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20
 ```
 
 ```bash
-$ python -u -W ignore _DENA/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20 -t ADSB
+$ python _DENA/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20 -t ADSB
 ```
