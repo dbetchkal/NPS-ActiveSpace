@@ -97,8 +97,8 @@ class AudibleTransits:
         warnings.filterwarnings('ignore', message=".*Results from 'centroid' are likely incorrect.*")
         
         # Load in active space and study area.
-        active = AudibleTransits.load_activespace(self.unit, self.site, self.year, self.gain, crs="epsg:4326")
-        original_study_area = AudibleTransits.load_studyarea(self.unit, self.site, self.year, crs="epsg:4326")
+        active = AudibleTransits.load_activespace(self.unit, self.site, self.year, self.gain, crs="epsg:4326", PROJ_DIR=self.paths["project"])
+        original_study_area = AudibleTransits.load_studyarea(self.unit, self.site, self.year, crs="epsg:4326", PROJ_DIR=self.paths["project"])
         print("\tActive space and study area have been parsed.")
         
         # Calculate the UTM zone from the active space centroid.
@@ -106,7 +106,7 @@ class AudibleTransits:
         # Calculate mic crs (`NMSIM` uses western-most bound of the study area); notably this may be a different zone than `self.utm_zone`.
         mic_crs = AudibleTransits.NMSIM_bbox_utm(original_study_area)
         # Parse mic location, convert from the `NMSIM` crs to the UTM zone at the centroid of the active space.
-        mic_loc = AudibleTransits.load_miclocation(self.unit, self.site, self.year, crs=mic_crs).to_crs(self.utm_zone)
+        mic_loc = AudibleTransits.load_miclocation(self.unit, self.site, self.year, crs=mic_crs, PROJ_DIR=self.paths["project"]).to_crs(self.utm_zone)
         print("\tMicrophone position has been determined.")
         
         if (visualize):
@@ -126,7 +126,9 @@ class AudibleTransits:
         Loads the `NMSIM` digital elevation model using the project info
         '''
         
-        raster_path = glob.glob(self.paths["project"] + os.sep + r"Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif")[0] # open raster
+        raster_path = glob.glob(os.path.join(self.paths["project"],
+                                   self.unit + self.site,
+                                   r"Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif"))[0] # open raster
         ras = rasterio.open(raster_path)
         print("\tThe Digital Elevation Model (DEM) has been parsed.\n")
         self.DEM = ras
@@ -2565,7 +2567,7 @@ if __name__ == '__main__':
     args = argparse.parse_args()
 
     cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
-    project_dir = f"{cfg.read('project', 'dir')}\{args.unit}{args.site}"
+    project_dir = cfg.read('project', 'dir')
     FAAReleasable_path = f"{cfg.read('project', 'FAA_Releasable_db')}"
     FAAType_corrections = f"{cfg.read('project', 'FAA_type_corrections')}"
 
