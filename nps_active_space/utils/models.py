@@ -100,13 +100,13 @@ class Nvspl(pd.DataFrame):
     """
 
     standard_fields = {
-        'SiteID', 'dbA', 'dbC', 'dbF',
+        'SiteID', 'dbA', 'dbC', 
         'Voltage', 'WindSpeed', 'WindDir', 'TempIns',
         'TempOut', 'Humidity', 'INVID', 'INSID',
-        'GChar1', 'GChar2', 'GChar3', 'AdjustmentsApplied',
+        'GChar1', 'AdjustmentsApplied',
         'CalibrationAdjustment', 'GPSTimeAdjustment',
         'GainAdjustment', 'Status'
-    }
+    } # to ensure compatability with PamGuide-based conversions the set of fields {'GChar2', 'GChar3', 'dbF'} are removed from consideration
 
     octave_regex = re.compile(r"^H[0-9]+$|^H[0-9]+p[0-9]$")
 
