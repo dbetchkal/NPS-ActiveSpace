@@ -178,6 +178,9 @@ def audible_time_delay(points: gpd.GeoDataFrame, time_col: str, target: Point,
     """
     points['distance_to_target'] = points.geometry.apply(lambda geom: target.distance(geom))
     points['audible_delay_sec'] = points['distance_to_target'] / m1
+    # occasionally these retarded times (audible delays) are computed to be very large, larger than `datetime` can handle
+    # so, we need separator between what is large and what is not... retarded times longer than a day? certainly unrealistic!
+    points = points.loc[points['audible_delay_sec'] <= 86400.0, :] 
     points['time_audible'] = points.apply(lambda row: row[time_col] + dt.timedelta(seconds=row.audible_delay_sec), axis=1)
 
     if drop_cols:
