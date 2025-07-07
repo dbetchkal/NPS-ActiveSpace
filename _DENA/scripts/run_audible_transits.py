@@ -28,7 +28,7 @@ import pyproj
 import rasterio
 import rasterio.plot
 from rasterio.windows import Window
-from shapely.geometry import Point, MultiPoint, LineString, MultiLineString, Polygon
+from shapely.geometry import Point, MultiPoint, LineString, MultiLineString, Polygon, box
 from shapely import ops
 
 # other libraries
@@ -77,6 +77,7 @@ class AudibleTransits(ABC):
             - "unit": 4-letter NPS unit code (e.g. Denali = "DENA")
             - "site": site code (e.g. Triple Lakes = "TRLA")
             - "year": study year
+            - "activespace_year" (optional): year of fitted active space, if differs from study year
             - "gain": modeled gain value from fitting the active space
             - "study start": date of format yyyy-mm-dd
             - "study end": date of format yyyy-mm-dd
@@ -92,6 +93,7 @@ class AudibleTransits(ABC):
         self.unit = metadata["unit"]
         self.site = metadata["site"]
         self.year = metadata["year"]
+        self.activespace_year = metadata["activespace_year"] if "activespace_year" in metadata else metadata["year"]
         self.gain = metadata["gain"]
         self.study_start = metadata["study start"]
         self.study_end = metadata["study end"]
@@ -126,7 +128,7 @@ class AudibleTransits(ABC):
 
         # Load in active space and study area.
         active = AudibleTransits.load_activespace(
-            self.paths["project"], self.unit, self.site, self.year, self.gain, crs="epsg:4326")
+            self.paths["project"], self.unit, self.site, self.activespace_year, self.gain, crs="epsg:4326")
         original_study_area = AudibleTransits.load_studyarea(
             self.paths["project"], self.unit, self.site, self.year, crs="epsg:4326")
         print("\tActive space and study area have been parsed.")
@@ -138,7 +140,7 @@ class AudibleTransits(ABC):
         mic_crs = AudibleTransits.NMSIM_bbox_utm(original_study_area)
         # Parse mic location, convert from the `NMSIM` crs to the UTM zone at the centroid of the active space.
         mic_loc = AudibleTransits.load_miclocation(
-            self.paths["project"], self.unit, self.site, self.year, crs=mic_crs).to_crs(self.utm_zone)
+            self.paths["project"], self.unit, self.site, self.activespace_year, crs=mic_crs).to_crs(self.utm_zone)
         print("\tMicrophone position has been determined.")
 
         if (visualize):
@@ -990,7 +992,6 @@ class AudibleTransits(ABC):
         active = self.active.copy()
         mic = self.mic.copy()
         tracklines = tracks.geometry
-        studyA = active.buffer(25000)
         if show_endpoints:
             entry_positions = tracks.entry_position
         if show_endpoints:
@@ -1011,7 +1012,6 @@ class AudibleTransits(ABC):
             if show_mic:
                 mic = mic.to_crs(crs)
             tracklines = tracklines.to_crs(crs)
-            studyA = studyA.to_crs(crs)
             if (show_endpoints):
                 entry_positions = entry_positions.to_crs(crs)
                 exit_positions = exit_positions.to_crs(crs)
@@ -1025,16 +1025,17 @@ class AudibleTransits(ABC):
             ax.set_xlim(minx, maxx)
             ax.set_ylim(miny, maxy)
         elif (show_active):
-            minx, miny, maxx, maxy = studyA.bounds.iloc[0]
-            ax.set_xlim(minx, maxx)
-            ax.set_ylim(miny, maxy)
+            # set extent to bounds with a padding amount relative to the active space size
+            minx, miny, maxx, maxy = active.bounds.iloc[0]
+            w, h = maxx-minx, maxy-miny
+            padded = box(minx, miny, maxx, maxy).buffer(0.1 * max(w,h))
+            pminx, pminy, pmaxx, pmaxy = padded.bounds
+            ax.set_xlim(pminx, pmaxx)
+            ax.set_ylim(pminy, pmaxy)
 
         # Conditionally visualize the active space.
         if (show_active):
             active.boundary.plot(ax=ax, color='grey', zorder=4)
-            aminx, aminy, amaxx, amaxy = active.bounds.iloc[0]
-            ax.set_xlim(max(minx, 2*aminx-amaxx), min(maxx, 2*amaxx-aminx))
-            ax.set_ylim(max(miny, 2*aminy-amaxy), min(maxy, 2*amaxy-aminy))
 
         # Conditionally visualize the microphone position.
         if (show_mic):
@@ -1968,6 +1969,8 @@ class AudibleTransits(ABC):
         TODO: using .config, save to the root of `NMSIM` project directory
         TODO: determine final, formal geospatial format
         '''
+        assert "output" in self.paths, "AudibleTransits class wasn't initialized with an output path, to fix set listener.paths['output'] = path/to/output/folder/"
+
         save_dir = self.paths['output']
         path_prefix = os.path.join(save_dir, f"{self.unit}{self.site}{self.year}_{self.gain}_{self.database_type}")
         self.tracks.to_pickle(path_prefix+"_tracks.pkl")

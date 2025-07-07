@@ -44,7 +44,7 @@ def tracks2events(tracks, start_date, end_date, min_dur=30):
     end_date : string
         The last date of tracks to include, formatted as 'yyyy-mm-dd'
     min_dur : float
-        The minimum duration ____________
+        The minimum event duration to include, in seconds
          
         
     Returns
