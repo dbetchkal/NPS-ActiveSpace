@@ -104,6 +104,76 @@ class AudibleTransits(ABC):
         self.garbage = gpd.GeoDataFrame(
             {'track_id': [], 'n_number': [], 'point_dt': [], 'geometry': []})
 
+    def run_pipeline(self):
+        '''
+        Main function that calculates audible transits, running everything in the correct order.
+
+        Returns
+        -------
+        tracks : `gpd.GeoDataFrame`
+            The final audible transit tracks. This is a copy of this object's "tracks" property.
+        '''
+        print("\n=========  NPS-ActiveSpace Audible Transits module  ==========\n")
+        print("[1] Parsing geospatial data inputs...")
+        self.init_spatial_data()
+        self.load_DEM()
+
+        print("[2] Parsing and pre-processing track data inputs...")
+        self.load_tracks_from_database()
+        AudibleTransits.split_paused_tracks(self.tracks)
+        self.extract_aircraft_info()
+        self.remove_jets()
+        self.convert_tracks_to_utm()
+        self.convert_active_to_utm()
+        self.create_segments()
+
+        self.raw_tracks = self.tracks.copy()
+        self.simplify_active_space()
+
+        print("\tRemoving tracks with data collection issues...")
+        self.tracks, scrambled_tracks = AudibleTransits.remove_scrambled_tracks(
+            self.tracks, self.active, return_scrambled_tracks=True)
+        self.add_to_garbage(scrambled_tracks, 'scrambled')
+
+        self.tracks, low_quality_tracks = AudibleTransits.remove_low_quality_tracks(
+            self.tracks, return_low_quality_tracks=True)
+        self.add_to_garbage(low_quality_tracks, 'low quality')
+
+        AudibleTransits.get_sampling_interval(self.tracks)
+
+        self.interpolate_tracks()
+
+        self.update_track_parameters()
+        self.visualize_tracks(
+            show_DEM=True, title=f"{self.unit}{self.site}{self.year} Nearby Overflights")
+
+        print("[3] Creating audible transits by clipping tracks to the active space...")
+        self.clip_tracks()
+        self.update_track_parameters()
+        self.update_trackQC()
+        self.summarize_data_quality()
+
+        print("[4] Cleaning audible transits...")
+        self.clean_tracks()
+        self.update_trackQC()
+        self.summarize_data_quality()
+
+        print("[5] Detecting takeoffs and landings...")
+        if self.tracks.needs_extrapolation.sum() > 0:
+            self.detect_takeoffs_and_landings()
+            if self.tracks.needs_extrapolation.sum() > 0:
+                self.extrapolate_tracks(return_extrapolated=True)
+
+        self.summarize_data_quality()
+        self.visualize_tracks(show_DEM=True)
+        # identifier = self.unit+args.site + \
+        #         str(args.year)+'_'+str(args.gain)+'_'+args.database_type
+        # plt.savefig(os.path.join(self.paths["output"], f"{identifier}_audible_transits.png"))
+        plt.show()
+
+        return self.tracks.copy()
+    
+
     def init_spatial_data(self, visualize=False):
         '''
         Load all spatial data into this object: the active space, study area, and mic location.
@@ -2815,64 +2885,6 @@ if __name__ == '__main__':
     else:
         raise NotImplementedError(
             'Currently tracks may only be loaded from a SQL database or from raw ADS-B tab-separated value files.')
-
-    print("\n=========  NPS-ActiveSpace Audible Transits module  ==========\n")
-    print("[1] Parsing geospatial data inputs...")
-    listener.init_spatial_data()
-    listener.load_DEM()
-
-    print("[2] Parsing and pre-processing track data inputs...")
-    listener.load_tracks_from_database()
-    AudibleTransits.split_paused_tracks(listener.tracks)
-    listener.extract_aircraft_info()
-    listener.remove_jets()
-    listener.convert_tracks_to_utm()
-    listener.convert_active_to_utm()
-    listener.create_segments()
-
-    raw_tracks = listener.tracks.copy()
-    listener.simplify_active_space()
-
-    print("\tRemoving tracks with data collection issues...")
-    listener.tracks, scrambled_tracks = AudibleTransits.remove_scrambled_tracks(
-        listener.tracks, listener.active, return_scrambled_tracks=True)
-    listener.add_to_garbage(scrambled_tracks, 'scrambled')
-
-    listener.tracks, low_quality_tracks = AudibleTransits.remove_low_quality_tracks(
-        listener.tracks, return_low_quality_tracks=True)
-    listener.add_to_garbage(low_quality_tracks, 'low quality')
-
-    AudibleTransits.get_sampling_interval(listener.tracks)
-
-    listener.interpolate_tracks()
-    interpolated_tracks = listener.tracks.copy()
-
-    listener.update_track_parameters()
-    listener.visualize_tracks(
-        show_DEM=True, title=f"{listener.unit}{listener.site}{listener.year} Nearby Overflights")
-
-    print("[3] Creating audible transits by clipping tracks to the active space...")
-    listener.clip_tracks()
-    listener.update_track_parameters()
-    listener.update_trackQC()
-    listener.summarize_data_quality()
-
-    print("[4] Cleaning audible transits...")
-    listener.clean_tracks()
-    listener.update_trackQC()
-    listener.summarize_data_quality()
-
-    print("[5] Detecting takeoffs and landings...")
-    if listener.tracks.needs_extrapolation.sum() > 0:
-        listener.detect_takeoffs_and_landings()
-        if listener.tracks.needs_extrapolation.sum() > 0:
-            final_tracks, extrapolated_tracks = listener.extrapolate_tracks(
-                return_extrapolated=True)
-
-    listener.summarize_data_quality()
-    listener.visualize_tracks(show_DEM=True)
-    # identifier = listener.unit+args.site + \
-    #         str(args.year)+'_'+str(args.gain)+'_'+args.database_type
-    # plt.savefig(os.path.join(listener.paths["output"], f"{identifier}_audible_transits.png"))
-    plt.show()
+    
+    listener.run_pipeline()
     listener.export_results(export_garbage=bool(int(args.exportgarbage)))
