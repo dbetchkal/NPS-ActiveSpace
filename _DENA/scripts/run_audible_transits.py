@@ -58,6 +58,57 @@ import subprocess
 pd.set_option('future.no_silent_downcasting', True)
 
 
+def init_audible_transits(metadata, paths):
+    '''
+    Main function for initialization. Decides which AudibleTransits subclass to initialize based on the metadata provided.
+
+    Currently tracks may only be loaded from a SQL database or from raw ADS-B tab-separated value files.
+
+    Parameters
+    ----------
+    metadata : dict
+        A dictionary containing site-specific metadata. Should have the following keys:
+        - "unit": 4-letter NPS unit code (e.g. Denali = "DENA")
+        - "site": site code (e.g. Triple Lakes = "TRLA")
+        - "year": study year
+        - "activespace_year" (optional): year of fitted active space, if differs from study year
+        - "gain": modeled gain value from fitting the active space
+        - "study start": date of format yyyy-mm-dd
+        - "study end": date of format yyyy-mm-dd
+        - "database type": type of database. Can be one of "ADSB", "GPS", "AIS". Note that AIS functionality is not yet implemented.
+    paths: dict
+        A dictionary containing paths to the project directory and data files. Should have the following keys:
+        - "project": directory containing subfolders for each site, each named [unit][site] (e.g. DENATRLA/)
+        - "output": directory to store output files
+        - "FAA": path to MASTER.txt file provided by the FAA
+        - "aircraft corrections": path to FAA_AircraftCorrections.txt file provided by the FAA
+        - "ADSB" (optional): directory containing ADSB files in the tab-separated-values (.TSV) format. Required if the database type is "ADSB"
+
+    Returns
+    -------
+    listener : `AudibleTransits` object
+        A reference to the initialized AudibleTransits object
+    
+    Raises
+    ------
+    NotImplementedError if "AIS" is entered as the database type
+    ValueError if invalid database type is entered
+    '''
+
+    assert "database type" in metadata, "Metadata must contain a 'database type' field"
+
+    if metadata["database type"] == "ADSB":
+        listener = AudibleTransitsADSB(metadata, paths)
+    elif metadata["database type"] == "GPS":
+       listener = AudibleTransitsGPS(metadata, paths)
+    elif metadata["database type"] == "AIS":
+        raise NotImplementedError("AIS functionality has not been implemented.")
+    else:
+        raise ValueError(f"Invalid metadata['database type'] value: {metadata['database type']}. Valid options: 'ADSB', 'GPS', 'AIS'.")
+
+    return listener
+
+
 class AudibleTransits(ABC):
     """
     A geoprocessing class to construct the spatiotemporal intersections of a set of tracks with an active space.
@@ -73,22 +124,9 @@ class AudibleTransits(ABC):
         Parameters
         ----------
         metadata : dict
-            A dictionary containing site-specific metadata. Should have the following keys:
-            - "unit": 4-letter NPS unit code (e.g. Denali = "DENA")
-            - "site": site code (e.g. Triple Lakes = "TRLA")
-            - "year": study year
-            - "activespace_year" (optional): year of fitted active space, if differs from study year
-            - "gain": modeled gain value from fitting the active space
-            - "study start": date of format yyyy-mm-dd
-            - "study end": date of format yyyy-mm-dd
-            - "database type": type of database, e.g. "ADSB" or "GPS"
-        paths: dict
-            A dictionary containing paths to the project directory and data files. Should have the following keys:
-            - "project": directory containing subfolders for each site, each named [unit][site] (e.g. DENATRLA/)
-            - "output": directory to store output files
-            - "ADSB": directory containing ADSB files in the .TSV format
-            - "FAA": path to MASTER.txt file provided by the FAA
-            - "aircraft corrections": path to FAA_AircraftCorrections.txt file provided by the FAA
+            See init_audible_transits() for more details.
+        paths : dict
+            See init_audible_transits() for more details.
         '''
         self.unit = metadata["unit"]
         self.site = metadata["site"]
@@ -2843,7 +2881,7 @@ if __name__ == '__main__':
                           help="YYYY-MM-DD begin date for position record. E.g. 2018-01-01")
     argparse.add_argument('-tf', '--endtracks', required=True,
                           help="YYYY-MM-DD end date for position record. E.g. 2019-06-01")
-    argparse.add_argument('-t', '--track-source', default='Database', choices=["Database", "ADSB", "AIS"],
+    argparse.add_argument('-t', '--database-type', default="GPS", choices=["GPS", "ADSB", "AIS"],
                           help="Enter 'Database', 'ADSB', or 'AIS")
     argparse.add_argument('-o', '--output', default="",
                           help="Directory to store output files. Defaults to [project directory]/[unit][site]/Output_Data")
@@ -2863,28 +2901,17 @@ if __name__ == '__main__':
                 "year": args.year,
                 "gain": args.gain,
                 "study start": args.begintracks,
-                "study end": args.endtracks}
+                "study end": args.endtracks,
+                "database type": args.database_type}
+
     paths = {"project": project_dir,
              "output": args.output or os.path.join(project_dir, args.unit+args.site, "Output_Data"),
              "FAA": FAAReleasable_path,
              "aircraft corrections": FAAType_corrections}
-
-    if args.track_source == 'ADSB':
-        metadata["database type"] = "ADSB"
-        paths["ADSB"] = f"{cfg.read('data', 'adsb')}"
-        listener = AudibleTransitsADSB(metadata, paths)
-
-    elif args.track_source == 'Database':
-        metadata["database type"] = "GPS"  # TODO rename to 'Database'
-        listener = AudibleTransitsGPS(metadata, paths)
-
-    elif args.track_source == "AIS":
-        raise NotImplementedError(
-            'AIS functionality has not been implemented.')
-
-    else:
-        raise NotImplementedError(
-            'Currently tracks may only be loaded from a SQL database or from raw ADS-B tab-separated value files.')
     
+    if args.database_type == 'ADSB':
+        paths["ADSB"] = f"{cfg.read('data', 'adsb')}"
+
+    listener = init_audible_transits(metadata, paths)    
     listener.run_pipeline()
     listener.export_results(export_garbage=bool(int(args.exportgarbage)))

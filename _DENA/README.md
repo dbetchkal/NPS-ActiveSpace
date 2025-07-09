@@ -76,7 +76,7 @@ This script is used to launch the ground truthing application to annotate the au
 | `-u`, `--unit`         | **required.**<br/>The 4 letter NPS unit code. *Ex*: Denali = DENA                                                                                          |
 | `-s`, `--site`         | **required.**<br/>The 4 letter site code. *Ex*: Cathedral = CATH                                                                                           |
 | `-y`, `--year`         | **required.**<br/>The deployment year, YYYY. *Ex*: 2018                                                                                                    |
-| `-t`, `--track-source` | ***default Database -> {Database, ADSB, AIS}***<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
+| `-t`, `--database-type` | ***default GPS -> {GPS, ADSB, AIS}***<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
 
 Example executions:
 
