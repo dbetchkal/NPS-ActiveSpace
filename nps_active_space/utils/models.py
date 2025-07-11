@@ -715,8 +715,12 @@ class Annotations(gpd.GeoDataFrame):
             # Sometimes the annotation file is read in with the valid and audible columns as booleans and other times
             #  as objects depending on what values are stored.
             try:
-                data.valid.replace({'1': True, '0': False}, inplace=True)
-                data.audible.replace({'1': True, '0': False}, inplace=True)
+                data["valid"] = data["valid"].astype('int')
+                data["audible"] = data["audible"].astype('int')
+                data.valid.replace({1: True, 0: False}, inplace=True)
+                data.audible.replace({1: True, 0: False}, inplace=True)
+                # data.valid.replace({'1': True, '0': False}, inplace=True)
+                # data.audible.replace({'1': True, '0': False}, inplace=True)
             except TypeError:
                 pass
 
