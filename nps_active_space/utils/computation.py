@@ -103,7 +103,7 @@ def climb_angle(v: Iterable) -> np.ndarray:
     return degrees
 
 
-def interpolate_spline(points: 'Tracks', ds: int = 1) -> gpd.GeoDataFrame:
+def interpolate_spline(points: 'Tracks', ds: int = 1, s: float = None) -> gpd.GeoDataFrame:
     """
     Interpolate points with a cubic spline between flight points, if possible.
     See https://docs.scipy.org/doc/scipy/reference/tutorial/interpolate.html#spline-interpolation for docs
@@ -115,6 +115,9 @@ def interpolate_spline(points: 'Tracks', ds: int = 1) -> gpd.GeoDataFrame:
     ds : int, default 1
         The second interval in which to calculate the spline for.
         E.g. ds = 1 is "calculate a spline point at every 1 second delta"
+    s : float, optional, default None
+        The amount of smoothing to apply. Larger `s` means more smoothing while smaller values of `s`
+        indicate less smoothing.
 
     Returns
     -------
@@ -136,7 +139,7 @@ def interpolate_spline(points: 'Tracks', ds: int = 1) -> gpd.GeoDataFrame:
     flight_times = (points.point_dt - starttime).dt.total_seconds().values  # Seconds after initial point
 
     coords = [points.geometry.x, points.geometry.y, points.z] if 'z' in points else [points.geometry.x, points.geometry.y]
-    tck, u = interpolate.splprep(x=coords, u=flight_times, k=k)
+    tck, u = interpolate.splprep(x=coords, u=flight_times, k=k, s=s)
 
     # Parametric interpolation on the time interval provided.
     duration = (endtime - starttime).total_seconds()

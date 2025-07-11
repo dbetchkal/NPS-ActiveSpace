@@ -8,52 +8,37 @@ sys.path.append(repo_dir)
 sys.path.append(config_dir)
 sys.path.append(script_dir)
 
-from nps_active_space.utils.models import Tracks, Adsb
-from nps_active_space.utils.computation import coords_to_utm, interpolate_spline
+from nps_active_space.utils.models import Tracks
+from nps_active_space.utils.computation import coords_to_utm, NMSIM_bbox_utm, interpolate_spline
 from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks
 from _DENA import DENA_DIR
 # we'll use the configuration file (.config)
 import _DENA.resource.config as cfg
 import warnings
 from tqdm import tqdm
-from time import mktime, sleep
-import time
-import fiona
 import geopandas as gpd
 import geopy as geopy
-from geopy.distance import geodesic
-from osgeo import gdal
 from osgeo.gdalconst import GA_ReadOnly
-import pyproj
 import rasterio
 import rasterio.plot
-from rasterio.windows import Window
-from shapely.geometry import Point, MultiPoint, LineString, MultiLineString, Polygon, box
-from shapely import ops
+from shapely.geometry import Point, MultiPoint, LineString, Polygon, box
 
 # other libraries
 from argparse import ArgumentParser
 from abc import ABC, abstractmethod
 import datetime as dt
 import glob
-from itertools import islice
-import ipykernel
 import json
 import math
-import matplotlib as mpl
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
-from matplotlib.pyplot import cm
-from matplotlib.tri import Triangulation
-from matplotlib.widgets import RangeSlider, Button, Slider, RadioButtons
 import numpy as np
 import pandas as pd
 import pickle
 import re
-from scipy import interpolate, stats
+from scipy import interpolate
 from scipy.ndimage import median_filter
 import sqlalchemy
-import subprocess
 import copy
 
 pd.set_option('future.no_silent_downcasting', True)
@@ -237,10 +222,10 @@ class AudibleTransits(ABC):
         print("\tActive space and study area have been parsed.")
 
         # Calculate the UTM zone from the active space centroid.
-        self.utm_zone = AudibleTransits.coords_to_utm(
+        self.utm_zone = coords_to_utm(
             lat=active.centroid.y.iloc[0], lon=active.centroid.x.iloc[0])
         # Calculate mic crs (`NMSIM` uses western-most bound of the study area); notably this may be a different zone than `self.utm_zone`.
-        mic_crs = AudibleTransits.NMSIM_bbox_utm(original_study_area)
+        mic_crs = NMSIM_bbox_utm(original_study_area)
         # Parse mic location, convert from the `NMSIM` crs to the UTM zone at the centroid of the active space.
         mic_loc = AudibleTransits.load_miclocation(
             self.paths["project"], self.unit, self.site, self.activespace_year, crs=mic_crs).to_crs(self.utm_zone)
@@ -591,7 +576,7 @@ class AudibleTransits(ABC):
     def interpolate_tracks(self, tracks='self'):
         '''
         Interpolates raw tracks to 1-second time intervals, mainly using cubic splines. This method uses the `scipy.interpolate` library. 
-        See function `interpolate_spline2()` for more details.
+        See imported function `interpolate_spline()` for more details.
 
         Parameters
         ----------
@@ -665,7 +650,7 @@ class AudibleTransits(ABC):
             track_pts["point_dt"] = timestamps
 
             # Interpolate spline given this new gdf with rows of track points and timestamps, then extract coordinates.
-            track_spline = AudibleTransits.interpolate_spline2(track_pts, s=0)
+            track_spline = interpolate_spline(track_pts, s=0)
             spline_points = [(x, y, z) for x, y, z in zip(
                 track_spline.geometry.x, track_spline.geometry.y, track_spline.geometry.z)]
 
@@ -1291,60 +1276,6 @@ class AudibleTransits(ABC):
 
         return mic_location
 
-    @staticmethod
-    def coords_to_utm(lat: float, lon: float) -> str:
-        """
-        Takes the latitude and longitude of a point and outputs the EPSG code corresponding to the UTM zone of the point.
-
-        Parameters
-        ----------
-        lat : float
-            Latitude of a point in decimal degrees in a geographic coordinate system.
-        lon : float
-            Longitude of a point in decimal degrees in a geographic coordinate system.
-
-        Returns
-        -------
-        utm_proj : str
-            UTM zone projection name (e.g.  'epsg:26905' for UTM 5N)
-
-        Notes
-        -----
-        Remember: x=longitude, y=latitude
-        """
-        # 6 degrees per zone; add 180 because zone 1 starts at 180 W.
-        utm_zone = int((lon + 180) // 6 + 1)
-
-        # 269 = northern hemisphere, 327 = southern hemisphere
-        utm_proj = 'epsg:269{:02d}'.format(
-            utm_zone) if lat > 0 else 'epsg:327{:02d}'.format(utm_zone)
-        return utm_proj
-
-    @staticmethod
-    def NMSIM_bbox_utm(study_area: gpd.GeoDataFrame) -> str:
-        """
-        NMSIM references an entire project to the westernmost extent of the elevation (or landcover) file.
-        Given that, return the UTM Zone the project will eventually use. NMSIM uses NAD83 as its geographic
-        coordinate system, so the study area will be projected into NAD83 before calculating the UTM zone.
-
-        Parameters
-        ----------
-        study_area : `gpd.GeoDataFrame`
-            A study area (Polygon) to find the UTM zone of the westernmost extent for.
-
-        Returns
-        -------
-        UTM zone projection name (e.g.  'epsg:26905' for UTM 5N) that aligns with the westernmost extent of a study area.
-        """
-        if study_area.crs.to_epsg() != 4269:
-            study_area = study_area.to_crs(epsg='4269')
-        # (minx, miny, maxx, maxy)
-        study_area_bbox = study_area.geometry.iloc[0].bounds
-        lat = study_area_bbox[3]  # maxy
-        lon = study_area_bbox[0]  # minx
-
-        return AudibleTransits.coords_to_utm(lat, lon)
-
     # ========================================== DATA QC + DETECTION ===================================================
     @staticmethod
     def needs_extrapolation(tracks, active_ea, buffer=10, inplace=True):
@@ -1857,56 +1788,6 @@ class AudibleTransits(ABC):
         return glued_tracks
 
     @staticmethod
-    def interpolate_spline2(points: 'Tracks', s: int = 0, ds: int = 1) -> gpd.GeoDataFrame:
-        """
-        Interpolate points with a cubic spline between flight points, if possible.
-        See https://docs.scipy.org/doc/scipy/reference/tutorial/interpolate.html#spline-interpolation for docs
-
-        Parameters
-        ----------
-        points : Tracks
-            A dataframe containing known track points in a path. A minimum of 2 points is required.
-        ds : int, default 1
-            The second interval in which to calculate the spline for.
-            E.g. ds = 1 is "calculate a spline point at every 1 second delta"
-
-        Returns
-        -------
-        `gpd.GeoDataFrame` of all points in the interpolated spline.
-        Columns: point_dt, geometry
-
-        Raises
-        ------
-        AssertionError if there is fewer than 1 Track point.
-        """
-        # Calculate the order of polynomial to fit to the spline. The maximum is a cubic spline. If there are fewer than
-        #  3 points, a cubic spline cannot be fit and lower order must be chosen.
-        assert points.shape[0] > 1, "A minimum of 2 points is required for calculate a spline."
-        k = min(points.shape[0] - 1, 3)
-
-        points.sort_values(by='point_dt', ascending=True, inplace=True)
-        starttime = points.point_dt.iat[0]
-        endtime = points.point_dt.iat[-1]
-        # Seconds after initial point
-        flight_times = (points.point_dt - starttime).dt.total_seconds().values
-
-        coords = [points.geometry.x, points.geometry.y, points.z] if 'z' in points else [
-            points.geometry.x, points.geometry.y]
-        (tck, u), fp, ier, msg = interpolate.splprep(
-            x=coords, u=flight_times, k=k, s=s, full_output=1)
-
-        # Parametric interpolation on the time interval provided.
-        duration = (endtime - starttime).total_seconds()
-        tnew = np.arange(0, duration + ds, ds)
-        spl_out = interpolate.splev(tnew, tck)
-        track_spline = gpd.GeoDataFrame({'point_dt': [starttime + dt.timedelta(seconds=offset) for offset in tnew]},
-                                        geometry=[Point(xyz) for xyz in zip(
-                                            spl_out[0], spl_out[1], spl_out[2])],
-                                        crs=points.crs)
-
-        return track_spline
-
-    @staticmethod
     def calculate_boundary_times(timestamps, initial_index, final_index, unclipped_coords, clipped_coords):
         '''
         Quick function to estimate the times when a clipped track reaches the boundary. Since the tracks are interpolated to 1-second resolution, 
@@ -2080,12 +1961,11 @@ class AudibleTransits(ABC):
         if output_dir is None:
             print("No output directory provided, using default location")
             identifier = f"{self.unit}{self.site}{self.year}_{self.gain}_{self.database_type}_{self.study_start}_{self.study_end}"
-            output_dir = os.path.join(self.paths["project"], self.unit+self.site, "Output_Data", "AudibleTransits", identifier)
+            output_dir = os.path.join(self.paths["project"], self.unit+self.site, "Output_Data", "AUDIBLE_TRANSITS", identifier)
         if not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
 
         self.to_pickle(os.path.join(output_dir, "AudibleTransits_object.pkl"))
-        self.tracks.to_pickle(os.path.join(output_dir, "tracks.pkl"))
         self.visualize_tracks(savepath=os.path.join(output_dir, "transits_plot.png"), show_DEM=True)
         if export_garbage:
             self.export_garbage_summary(output_dir)
@@ -2551,7 +2431,6 @@ class AudibleTransitsADSB(AudibleTransits):
             'ignore', message=".*before calling to_datetime.*")
         # Loading tracks from ADSB
         ADSB_DIR = self.paths["ADSB"]
-        # loaded_track_pts_raw = Adsb(ADSB_DIR)
         self.studyA = self.active.copy()
         loaded_track_pts_raw = query_adsb(ADSB_DIR, self.study_start, self.study_end,
                                           mask=self.studyA, mask_buffer_distance=buffer, exclude_early_ADSB=True)
