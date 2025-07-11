@@ -54,6 +54,7 @@ from scipy import interpolate, stats
 from scipy.ndimage import median_filter
 import sqlalchemy
 import subprocess
+import copy
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -206,7 +207,6 @@ class AudibleTransits(ABC):
 
         return self.tracks.copy()
     
-
     def init_spatial_data(self, visualize=False):
         '''
         Load all spatial data into this object: the active space, study area, and mic location.
@@ -2070,7 +2070,7 @@ class AudibleTransits(ABC):
 
     def export_results(self, output_dir=None, export_garbage=False):
         '''
-        Save 
+        Save output to a directory.
 
         TODO: more specific and meaningful file names
         TODO: using .config, save to the root of `NMSIM` project directory
@@ -2078,21 +2078,55 @@ class AudibleTransits(ABC):
         '''
 
         if output_dir is None:
-            output_dir = os.path.join(self.paths["project"], self.unit+self.site, "Output_Data", "AudibleTransits")
             print("No output directory provided, using default location")
+            identifier = f"{self.unit}{self.site}{self.year}_{self.gain}_{self.database_type}_{self.study_start}_{self.study_end}"
+            output_dir = os.path.join(self.paths["project"], self.unit+self.site, "Output_Data", "AudibleTransits", identifier)
         if not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
 
-        path_prefix = os.path.join(output_dir, f"{self.unit}{self.site}{self.year}_{self.gain}_{self.database_type}")
-        self.tracks.to_pickle(path_prefix+"_tracks.pkl")
-        self.visualize_tracks(savepath=path_prefix+"_tracks.png", show_DEM=True)
-        self.active.to_pickle(path_prefix+"_active.pkl")
-        self.mic.to_pickle(path_prefix+"_mic.pkl")
+        self.to_pickle(os.path.join(output_dir, "AudibleTransits_object.pkl"))
+        self.tracks.to_pickle(os.path.join(output_dir, "tracks.pkl"))
+        self.visualize_tracks(savepath=os.path.join(output_dir, "transits_plot.png"), show_DEM=True)
         if export_garbage:
-            self.garbage.to_pickle(path_prefix+"_garbage.pkl")
             self.export_garbage_summary(output_dir)
 
-        print(f"Saved results to '{output_dir}'")
+        print(f"Saved results to '{os.path.abspath(output_dir)}'")
+    
+    def to_pickle(self, path):
+        """Saves this object to a pickle file.
+
+        Note that the associated DEM won't be saved since it is not serializable (and often large). However, the path to the DEM will be saved and the DEM will be reloaded when using AudibleTransits.from_pickle() to load the file
+
+        Parameters
+        ----------
+        path : `str`
+            The path to the .pkl file
+        """
+        shallow_copy = copy.copy(self)
+        shallow_copy.DEM = None
+        with open(path, "wb") as file:
+            pickle.dump(shallow_copy, file)
+    
+    @staticmethod
+    def from_pickle(path):
+        """Reconstructs an AudibleTransits object from a pickle file.
+
+        Note that the DEM must be in the same place as it originally was, since the DEM will need to be loaded. IMPORTANT: the corresponding class (e.g. AudibleTransitsADSB, AudibleTransitsGPS) must be imported before running this.
+        
+        Parameters
+        ----------
+        path : `str`
+            The path to the .pkl file
+        """
+        try:
+            with open(path, "rb") as file:
+                obj = pickle.load(file)
+        except AttributeError as e:
+            print("Failed to load from pickle file. Make sure you have imported the class you are trying to load (e.g. AudibleTransitsADSB)")
+            print(f"Error message: {e}")
+            return
+        obj.load_DEM()
+        return obj
 
     def export_garbage_summary(self, path):
 
@@ -2123,9 +2157,7 @@ class AudibleTransits(ABC):
                 fig.suptitle(f"{num_garbs} {reason} tracks")
                 figs.append(fig)
 
-        identifier = self.unit+self.site + \
-            str(self.year)+'_'+str(self.gain)+'_'+self.database_type
-        with PdfPages(os.path.join(path, identifier+'view_garbage.pdf')) as pdf:
+        with PdfPages(os.path.join(path, 'view_garbage.pdf')) as pdf:
             for fig in figs:
                 pdf.savefig(fig, bbox_inches='tight')
 
