@@ -79,7 +79,6 @@ def init_audible_transits(metadata, paths):
     paths: dict
         A dictionary containing paths to the project directory and data files. Should have the following keys:
         - "project": directory containing subfolders for each site, each named [unit][site] (e.g. DENATRLA/)
-        - "output": directory to store output files
         - "FAA": path to MASTER.txt file provided by the FAA
         - "aircraft corrections": path to FAA_AircraftCorrections.txt file provided by the FAA
         - "ADSB" (optional): directory containing ADSB files in the tab-separated-values (.TSV) format. Required if the database type is "ADSB"
@@ -204,10 +203,6 @@ class AudibleTransits(ABC):
 
         self.summarize_data_quality()
         self.visualize_tracks(show_DEM=True)
-        # identifier = self.unit+args.site + \
-        #         str(args.year)+'_'+str(args.gain)+'_'+args.database_type
-        # plt.savefig(os.path.join(self.paths["output"], f"{identifier}_audible_transits.png"))
-        plt.show()
 
         return self.tracks.copy()
     
@@ -1054,7 +1049,7 @@ class AudibleTransits(ABC):
         else:
             return new_tracks
 
-    def visualize_tracks(self, tracks_to_view='self', show_DEM=False, crs='self', show_active=True, show_mic=True, show_endpoints=False, title='default', alpha='auto', fig='none', ax='none'):
+    def visualize_tracks(self, tracks_to_view='self', show_DEM=False, crs='self', show_active=True, show_mic=True, show_endpoints=False, title='default', alpha='auto', fig='none', ax='none', savepath=None):
         '''
         A method for visualizing tracks of any type, with or without the active space, microphone location, track endpoints, and DEM.
         Also includes options to pass a title, fig, and ax.
@@ -1080,6 +1075,8 @@ class AudibleTransits(ABC):
             Title of the resulting plot. Default is "{self.unit}{self.site} Flight Tracks".
         fig, ax 
             Allows a user to pass more customization of the plot, as well as use subplots. Defaults to 'None'.
+        savepath : str
+            If provided, saves the plot at this path instead of displaying it. Defaults to 'None'.
 
         Returns
         -------
@@ -1093,7 +1090,7 @@ class AudibleTransits(ABC):
 
         # If no figure and axis are passed, generate the figure here.
         if ax == 'none':
-            fig, ax = plt.subplots(1, 1, figsize=(6, 6))
+            fig, ax = plt.subplots(1, 1, figsize=(8, 8))
 
         # Turn geometry columns into separate `gpd.GeoSeries`.
         tracks = tracks_to_view.copy()
@@ -1169,8 +1166,10 @@ class AudibleTransits(ABC):
 
         ax.set_title(title)
 
-        if("output" in self.paths):
-            fig.savefig(os.path.join(self.paths["output"], f"{title}.png"))
+        if savepath is not None:
+            plt.savefig(savepath)
+        else:
+            plt.show()
 
     # ========================================== INITIALIZATION UTILITIES ===================================================
     @staticmethod
@@ -1282,7 +1281,7 @@ class AudibleTransits(ABC):
         raw_text = open(mic_location_path).read()
 
         coords_line = raw_text.splitlines()[2]
-        coords_str = re.split('\s+', coords_line)[1:-1]
+        coords_str = re.split(r'\s+', coords_line)[1:-1]
         x_, y_, z_agl_ = [float(i) for i in coords_str[:3]]
         mic_location = gpd.GeoDataFrame(
             data={'mic_height': [z_agl_]}, geometry=gpd.points_from_xy([x_], [y_]))
@@ -2069,7 +2068,7 @@ class AudibleTransits(ABC):
     def remove_jets(self):
         pass
 
-    def export_results(self, export_garbage=False):
+    def export_results(self, output_dir=None, export_garbage=False):
         '''
         Save 
 
@@ -2077,19 +2076,23 @@ class AudibleTransits(ABC):
         TODO: using .config, save to the root of `NMSIM` project directory
         TODO: determine final, formal geospatial format
         '''
-        assert "output" in self.paths, "AudibleTransits class wasn't initialized with an output path, to fix set listener.paths['output'] = path/to/output/folder/"
 
-        save_dir = self.paths['output']
-        path_prefix = os.path.join(save_dir, f"{self.unit}{self.site}{self.year}_{self.gain}_{self.database_type}")
+        if output_dir is None:
+            output_dir = os.path.join(self.paths["project"], self.unit+self.site, "Output_Data", "AudibleTransits")
+            print("No output directory provided, using default location")
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+
+        path_prefix = os.path.join(output_dir, f"{self.unit}{self.site}{self.year}_{self.gain}_{self.database_type}")
         self.tracks.to_pickle(path_prefix+"_tracks.pkl")
+        self.visualize_tracks(savepath=path_prefix+"_tracks.png", show_DEM=True)
         self.active.to_pickle(path_prefix+"_active.pkl")
         self.mic.to_pickle(path_prefix+"_mic.pkl")
         if export_garbage:
             self.garbage.to_pickle(path_prefix+"_garbage.pkl")
-            self.export_garbage_summary(save_dir)
+            self.export_garbage_summary(output_dir)
 
-        # A terminal message for the process.
-        print("Saved results! Process complete.")
+        print(f"Saved results to '{output_dir}'")
 
     def export_garbage_summary(self, path):
 
@@ -2905,7 +2908,6 @@ if __name__ == '__main__':
                 "database type": args.database_type}
 
     paths = {"project": project_dir,
-             "output": args.output or os.path.join(project_dir, args.unit+args.site, "Output_Data"),
              "FAA": FAAReleasable_path,
              "aircraft corrections": FAAType_corrections}
     
@@ -2914,4 +2916,6 @@ if __name__ == '__main__':
 
     listener = init_audible_transits(metadata, paths)    
     listener.run_pipeline()
-    listener.export_results(export_garbage=bool(int(args.exportgarbage)))
+
+    output_dir = args.output or None
+    listener.export_results(output_dir=output_dir, export_garbage=bool(int(args.exportgarbage)))
