@@ -1952,9 +1952,7 @@ class AudibleTransits(ABC):
     def export_results(self, output_dir=None, export_garbage=False):
         '''
         Save output to a directory.
-
-        TODO: more specific and meaningful file names
-        TODO: using .config, save to the root of `NMSIM` project directory
+        
         TODO: determine final, formal geospatial format
         '''
 
@@ -2002,9 +2000,8 @@ class AudibleTransits(ABC):
             with open(path, "rb") as file:
                 obj = pickle.load(file)
         except AttributeError as e:
-            print("Failed to load from pickle file. Make sure you have imported the class you are trying to load (e.g. AudibleTransitsADSB)")
-            print(f"Error message: {e}")
-            return
+            warnings.warn("Failed to load from pickle file. Make sure you have imported the class you are trying to load (e.g. AudibleTransitsADSB)")
+            raise AttributeError(e)
         obj.load_DEM()
         return obj
 
