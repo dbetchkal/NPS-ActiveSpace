@@ -511,7 +511,7 @@ class Adsb(gpd.GeoDataFrame):
                 df.drop(df[df["valid_ALTITUDE"] == "False"].index, inplace = True)
 
                 # Ensure remaining field values except TIME are in proper numeric format
-                df.replace('-', np.NaN, inplace=True)
+                df.replace('-', np.nan, inplace=True)
                 df.dropna(how="any", axis=0, inplace=True)
                 df["ICAO_address"] = df["ICAO_address"].astype(str)
                 df["lat"] = df["lat"].astype(int)
