@@ -29,6 +29,8 @@ from nps_active_space.utils import (
     project_raster
 )
 
+class PolygonCreationError(Exception):
+    pass
 
 class ActiveSpaceGenerator:
     """
@@ -525,15 +527,28 @@ class ActiveSpaceGenerator:
         for i, contour_path in enumerate(cs.collections[level_ind].get_paths()):
             x = contour_path.vertices[:, 0]
             y = contour_path.vertices[:, 1]
-            new_poly = make_valid(Polygon([(i[0], i[1]) for i in zip(x, y)]))
 
-            # Don't bother with polygons that are smaller than .5 km^2.
-            if new_poly.area <= 50000:
+            # Check if there are at least 3 vertices, the minimum sufficient to describe a polygon
+            if len(x) < 3 or len(y) < 3:
                 continue
-            elif active_space_poly is None:
-                active_space_poly = new_poly
-            else:
-                active_space_poly = active_space_poly.symmetric_difference(new_poly)
+
+            try:
+                new_poly = make_valid(Polygon([(i[0], i[1]) for i in zip(x, y)]))
+
+                # Don't bother with polygons that are smaller than .5 km^2.
+                if new_poly.area <= 50000:
+                    continue
+                elif active_space_poly is None:
+                    active_space_poly = new_poly
+                else:
+                    active_space_poly = active_space_poly.symmetric_difference(new_poly)
+
+            except ValueError as e:
+                raise PolygonCreationError(f"Failed to create polygon from contour path {i}: {e}")
+
+        # Check if any valid polygons were created
+        if active_space_poly is None:
+            raise PolygonCreationError("No valid active space polygons were created.") 
 
         active_space_polys_gdf = gpd.GeoDataFrame(data={'geometry': [active_space_poly]}, geometry='geometry', crs=crs)
 
