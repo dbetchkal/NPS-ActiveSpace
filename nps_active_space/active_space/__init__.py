@@ -129,6 +129,17 @@ class ActiveSpaceGenerator:
             study_area_m = study_area_m.buffer(buffer*1000)
             study_area = study_area_m.to_crs(study_area.crs)
 
+        # sometimes ArcGIS Pro will sneak in an immutable 'FID' column
+        # thankfully if it exists, a viable solution is just to drop the column
+        if 'FID' in study_area.columns:
+            study_area = study_area.drop(columns=['FID'])
+        
+        # frequently the columns in the `study_area` `gpd.GeoDataFrame` are also immutable
+        # to fix this we can convert them to the `object` type which allows us to write the study area
+        # to the disk temporarily as we need to here...
+        for col in study_area.columns:
+            study_area[col] = study_area[col].astype(object)
+
         # we avoid the deprecated `pd.Int64Index` and an associated AttributeError
         # by simply setting the `index` parameter to False...
         study_area.to_file(study_area_filename, index=False) 
