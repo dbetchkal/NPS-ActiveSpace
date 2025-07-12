@@ -315,7 +315,7 @@ class _TqdmStream:
     write = classmethod(write)
 
 
-def get_logger(name: str, level: str = 'INFO') -> logging.Logger:
+def get_logger(name: str, verbose: bool = False, logfile: str = None) -> logging.Logger:
     """
     General purpose function for creating a console logger.
 
@@ -323,8 +323,11 @@ def get_logger(name: str, level: str = 'INFO') -> logging.Logger:
     ----------
     name : str
         Logger name
-    level : str, default INFO
-        Logger message severity
+    verbose : bool, default False
+        If verbose is True, all messages will be printed to the console and saved in a log file.
+        If verbose is False, only high-level messages will be printed to the console; everything is still saved to a log file.
+    logfile: str, default None
+        Path to a file to save the log in. If None, the log will not be saved to a file.
 
     Returns
     -------
@@ -332,12 +335,21 @@ def get_logger(name: str, level: str = 'INFO') -> logging.Logger:
         A python logger object
     """
     logger = logging.getLogger(name)
-    logger.setLevel(level)
-    handler = logging.StreamHandler(stream=_TqdmStream)
+    logger.setLevel(logging.DEBUG if verbose else logging.INFO)
     formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+
+    console_handler = logging.StreamHandler(stream=_TqdmStream)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    if logfile is not None:
+        file_handler = logging.FileHandler(logfile)
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        
     return logger
 
 
