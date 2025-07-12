@@ -97,7 +97,7 @@ class Microphone:
         **kwargs
             Any parameters that GeoDataFrame.plot() accepts
         """
-        gdf = gpd.GeoDataFrame(geometry=[Point(self.x, self.y)])
+        gdf = gpd.GeoDataFrame(geometry=[Point(self.x, self.y)], crs=self.crs)
         gdf.plot(**kwargs)
 
 

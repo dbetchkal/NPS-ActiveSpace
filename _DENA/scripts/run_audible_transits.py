@@ -240,7 +240,7 @@ class AudibleTransits(ABC):
                 ax=ax, markersize=10, marker='x', color='r')
             plt.show()
 
-        self.active = active.copy()
+        self.active = active
         self.mic = mic
 
         return active, mic
