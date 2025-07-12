@@ -52,7 +52,7 @@ if __name__ == '__main__':
     project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
 
     # Load the microphone deployment site metadata and the study area shapefile.
-    microphone = get_deployment(args.unit, args.site, args.year, cfg.read('data', 'site_metadata'))
+    microphone = get_deployment(cfg.read('project', 'dir'), args.unit, args.site, args.year)
     study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])  # In NAD83, epsg:4269
 
     # Retrieve the days for which at least some NVSPL data exist.

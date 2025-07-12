@@ -10,7 +10,7 @@ sys.path.append(script_dir)
 
 from nps_active_space.utils.models import Tracks
 from nps_active_space.utils.computation import coords_to_utm, NMSIM_bbox_utm, interpolate_spline
-from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks
+from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM
 from _DENA import DENA_DIR
 # we'll use the configuration file (.config)
 import _DENA.resource.config as cfg
@@ -139,7 +139,6 @@ class AudibleTransits(ABC):
         print("\n=========  NPS-ActiveSpace Audible Transits module  ==========\n")
         print("[1] Parsing geospatial data inputs...")
         self.init_spatial_data()
-        self.load_DEM()
 
         print("[2] Parsing and pre-processing track data inputs...")
         self.load_tracks_from_database()
@@ -231,6 +230,10 @@ class AudibleTransits(ABC):
             self.paths["project"], self.unit, self.site, self.activespace_year, crs=mic_crs).to_crs(self.utm_zone)
         print("\tMicrophone position has been determined.")
 
+        # Load DEM
+        self.DEM = load_DEM(self.paths["project"], self.unit, self.site)
+        print("\tThe Digital Elevation Model (DEM) has been parsed.\n")
+
         if (visualize):
             # Plot each in the standard lon/lat geographic crs.
             fig, ax = plt.subplots(1, 1, figsize=(7, 7))
@@ -243,18 +246,6 @@ class AudibleTransits(ABC):
         self.mic = mic_loc.copy()
 
         return active, mic_loc
-
-    def load_DEM(self):
-        '''
-        Loads the `NMSIM` digital elevation model using the project info
-        '''
-
-        raster_path = glob.glob(os.path.join(self.paths["project"],
-                                             self.unit + self.site,
-                                             r"Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif"))[0]  # open raster
-        ras = rasterio.open(raster_path)
-        print("\tThe Digital Elevation Model (DEM) has been parsed.\n")
-        self.DEM = ras
 
     @abstractmethod
     def load_tracks_from_database(self, buffer=25000):
@@ -1952,7 +1943,7 @@ class AudibleTransits(ABC):
     def export_results(self, output_dir=None, export_garbage=False):
         '''
         Save output to a directory.
-        
+
         TODO: determine final, formal geospatial format
         '''
 
@@ -2002,7 +1993,7 @@ class AudibleTransits(ABC):
         except AttributeError as e:
             warnings.warn("Failed to load from pickle file. Make sure you have imported the class you are trying to load (e.g. AudibleTransitsADSB)")
             raise AttributeError(e)
-        obj.load_DEM()
+        obj.DEM = load_DEM(obj.paths["project"], obj.unit, obj.site)
         return obj
 
     def export_garbage_summary(self, path):

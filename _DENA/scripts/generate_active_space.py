@@ -163,7 +163,7 @@ if __name__ == '__main__':
     # --------------- DATA SELECTION --------------- #
 
     # Load the microphone deployment site metadata and the study area shapefile.
-    mic_ = get_deployment(args.unit, args.site, args.year, cfg.read('data', 'site_metadata'), elevation=False)
+    mic_ = get_deployment(cfg.read('project', 'dir'), args.unit, args.site, args.year, elevation=False)
     study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])
 
     # Load NVSPL data or the mennitt raster depending on the user input.
