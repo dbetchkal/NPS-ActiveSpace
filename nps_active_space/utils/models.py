@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Union
 
 import geopandas as gpd
+from shapely.geometry import Point
 import numpy as np
 import pandas as pd
 pd.options.mode.copy_on_write = True
@@ -87,6 +88,17 @@ class Microphone:
         self.crs = crs
         if not inplace:
             return self
+    
+    def plot(self, **kwargs):
+        """Plot this microphone's location using geopandas
+        
+        Parameters
+        ----------
+        **kwargs
+            Any parameters that GeoDataFrame.plot() accepts
+        """
+        gdf = gpd.GeoDataFrame(geometry=[Point(self.x, self.y)])
+        gdf.plot(**kwargs)
 
 
 class Nvspl(pd.DataFrame):

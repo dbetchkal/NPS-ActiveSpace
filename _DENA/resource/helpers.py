@@ -4,7 +4,7 @@ import os
 from typing import List, Optional, TYPE_CHECKING, Union
 
 import geopandas as gpd
-import pandas as pd
+import numpy as np
 from tqdm import tqdm
 import re
 import rasterio
@@ -19,15 +19,62 @@ if TYPE_CHECKING:
 
 
 __all__ = [
+    'load_activespace',
     'load_DEM',
     'get_elevation',
     'load_study_area',
     'get_deployment',
-    'get_logger',
-    'get_omni_sources',
+    'query_tracks',
     'query_adsb',
-    'query_tracks'
+    'get_logger',
+    'get_omni_sources'
 ]
+
+def load_activespace(project_dir, unit, site, year, gain, third_octave=True, crs=None):
+    """
+    Load in the active space for a given unit, site, year, and gain
+
+    Parameters
+    ----------
+    project_dir: str
+        Path to the project directory (contains site subfolders named e.g. DENATRLA/)
+    unit : str
+        Four letter park service unit code E.g. 'DENA'
+    site : str
+        Deployment site character code. E.g. 'TRLA', '009'
+    year : int
+        Deployment year. YYYY
+    gain : float
+        The optimal gain, or scaling factor, of the active space, determined during ground truthing
+    third_octave : boolean
+        Default is True, indicates whether the gain is calculated broadband or using third-octave band data
+    crs : string
+        Optional argument to provide a coordinate reference system to convert the active space to (e.g.  'epsg:26905'). Defaults to None
+
+    Returns
+    -------
+    active_space : `gpd.GeoDataFrame`
+        A dataframe containing the geometry of the active space. Can be a single polygon or a multipolygon.
+    """
+
+    if gain < 0:
+        sign = "-"
+    else:
+        sign = "+"
+
+    if np.abs(gain) < 10:
+        gain_string = "0" + str(np.abs(int(10*gain)))
+    else:
+        gain_string = str(np.abs(int(10*gain)))
+    path = os.path.join(project_dir, unit + site, unit + site + str(year) +
+                        '_O_' + sign + gain_string + '.geojson')
+    active_space = gpd.read_file(path)
+
+    if crs is not None:
+        active_space = active_space.to_crs(crs)
+
+    return active_space
+
 
 def load_DEM(project_dir: str, unit: str, site: str):
     """Loads the `NMSIM` digital elevation model using the project info

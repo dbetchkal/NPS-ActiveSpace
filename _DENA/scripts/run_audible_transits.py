@@ -1,3 +1,32 @@
+import copy
+import sqlalchemy
+from scipy.ndimage import median_filter
+from scipy import interpolate
+import re
+import pickle
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+import math
+import json
+import glob
+import datetime as dt
+from abc import ABC, abstractmethod
+from argparse import ArgumentParser
+from shapely.geometry import Point, MultiPoint, LineString, Polygon, box
+import rasterio.plot
+import rasterio
+from osgeo.gdalconst import GA_ReadOnly
+import geopy as geopy
+import geopandas as gpd
+from tqdm import tqdm
+import warnings
+import _DENA.resource.config as cfg
+from _DENA import DENA_DIR
+from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM, load_activespace
+from nps_active_space.utils.computation import coords_to_utm, NMSIM_bbox_utm, interpolate_spline
+from nps_active_space.utils.models import Tracks
 import sys
 import os
 repo_dir = os.path.dirname(os.path.dirname(
@@ -8,38 +37,9 @@ sys.path.append(repo_dir)
 sys.path.append(config_dir)
 sys.path.append(script_dir)
 
-from nps_active_space.utils.models import Tracks
-from nps_active_space.utils.computation import coords_to_utm, NMSIM_bbox_utm, interpolate_spline
-from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM
-from _DENA import DENA_DIR
 # we'll use the configuration file (.config)
-import _DENA.resource.config as cfg
-import warnings
-from tqdm import tqdm
-import geopandas as gpd
-import geopy as geopy
-from osgeo.gdalconst import GA_ReadOnly
-import rasterio
-import rasterio.plot
-from shapely.geometry import Point, MultiPoint, LineString, Polygon, box
 
 # other libraries
-from argparse import ArgumentParser
-from abc import ABC, abstractmethod
-import datetime as dt
-import glob
-import json
-import math
-from matplotlib.backends.backend_pdf import PdfPages
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import pickle
-import re
-from scipy import interpolate
-from scipy.ndimage import median_filter
-import sqlalchemy
-import copy
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -73,7 +73,7 @@ def init_audible_transits(metadata, paths):
     -------
     listener : `AudibleTransits` object
         A reference to the initialized AudibleTransits object
-    
+
     Raises
     ------
     NotImplementedError if "AIS" is entered as the database type
@@ -85,11 +85,13 @@ def init_audible_transits(metadata, paths):
     if metadata["database type"] == "ADSB":
         listener = AudibleTransitsADSB(metadata, paths)
     elif metadata["database type"] == "GPS":
-       listener = AudibleTransitsGPS(metadata, paths)
+        listener = AudibleTransitsGPS(metadata, paths)
     elif metadata["database type"] == "AIS":
-        raise NotImplementedError("AIS functionality has not been implemented.")
+        raise NotImplementedError(
+            "AIS functionality has not been implemented.")
     else:
-        raise ValueError(f"Invalid metadata['database type'] value: {metadata['database type']}. Valid options: 'ADSB', 'GPS', 'AIS'.")
+        raise ValueError(
+            f"Invalid metadata['database type'] value: {metadata['database type']}. Valid options: 'ADSB', 'GPS', 'AIS'.")
 
     return listener
 
@@ -190,7 +192,7 @@ class AudibleTransits(ABC):
         self.visualize_tracks(show_DEM=True)
 
         return self.tracks.copy()
-    
+
     def init_spatial_data(self, visualize=False):
         '''
         Load all spatial data into this object: the active space, study area, and mic location.
@@ -204,9 +206,8 @@ class AudibleTransits(ABC):
         -------
         active_space : `gpd.GeoDataFrame`
             A dataframe containing all geometries of the active space. Can be a single polygon or a multipolygon.
-        mic_loc : `gpd.GeoDataFrame`
-            A dataframe containing the mic's point in the xy plane, as well as the mic height (z above ground level) in its own column. 
-            Should be in the equal area UTM zone.
+        mic : `Microphone`
+            A Microphone object containing the mic's location in WGS84 as well as its CRS.
         '''
 
         # We filter an irrelevant, repetitious geoprocessing warning raised by `geopandas`.
@@ -214,20 +215,17 @@ class AudibleTransits(ABC):
             'ignore', message=".*Results from 'centroid' are likely incorrect.*")
 
         # Load in active space and study area.
-        active = AudibleTransits.load_activespace(
+        active = load_activespace(
             self.paths["project"], self.unit, self.site, self.activespace_year, self.gain, crs="epsg:4326")
-        original_study_area = AudibleTransits.load_studyarea(
-            self.paths["project"], self.unit, self.site, self.year, crs="epsg:4326")
-        print("\tActive space and study area have been parsed.")
+        print("\tActive space has been parsed.")
 
         # Calculate the UTM zone from the active space centroid.
         self.utm_zone = coords_to_utm(
             lat=active.centroid.y.iloc[0], lon=active.centroid.x.iloc[0])
-        # Calculate mic crs (`NMSIM` uses western-most bound of the study area); notably this may be a different zone than `self.utm_zone`.
-        mic_crs = NMSIM_bbox_utm(original_study_area)
-        # Parse mic location, convert from the `NMSIM` crs to the UTM zone at the centroid of the active space.
-        mic_loc = AudibleTransits.load_miclocation(
-            self.paths["project"], self.unit, self.site, self.activespace_year, crs=mic_crs).to_crs(self.utm_zone)
+
+        # Get microphone object for this deployment
+        mic = get_deployment(
+            self.paths["project"], self.unit, self.site, self.activespace_year)
         print("\tMicrophone position has been determined.")
 
         # Load DEM
@@ -238,14 +236,14 @@ class AudibleTransits(ABC):
             # Plot each in the standard lon/lat geographic crs.
             fig, ax = plt.subplots(1, 1, figsize=(7, 7))
             active.boundary.plot(ax=ax, color="black", zorder=1)
-            mic_loc.to_crs(active.crs).plot(
+            mic.to_crs(active.crs).plot(
                 ax=ax, markersize=10, marker='x', color='r')
             plt.show()
 
         self.active = active.copy()
-        self.mic = mic_loc.copy()
+        self.mic = mic
 
-        return active, mic_loc
+        return active, mic
 
     @abstractmethod
     def load_tracks_from_database(self, buffer=25000):
@@ -408,7 +406,8 @@ class AudibleTransits(ABC):
         if active_ea_simple.geometry.iloc[0].geom_type == 'MultiPolygon':
             polygons = list(active_ea_simple.geometry.iloc[0].geoms)
             active_ea_simple = gpd.GeoSeries(polygons[np.argmax(
-                [poly.area for poly in polygons])], crs=self.active.crs)  # select largest polygon
+                # select largest polygon
+                [poly.area for poly in polygons])], crs=self.active.crs)
             print("\t\tLargest active space polygon has been selected.")
 
         if len(active_ea_simple.interiors[0]) > 0:
@@ -555,7 +554,7 @@ class AudibleTransits(ABC):
         num_tracks = len(tracks)
         print("\tQuality control assessment:")
         print(
-            f"\t\tNeed Extrapolation: {tracks.needs_extrapolation.sum()}  ....  {round(100*tracks.needs_extrapolation.sum()/num_tracks,2)} %")
+            f"\t\tNeed Extrapolation: {tracks.needs_extrapolation.sum()}  ....  {round(100*tracks.needs_extrapolation.sum()/num_tracks, 2)} %")
         print(
             f"\t\tNeed Glue: {tracks.needs_glue.sum()}  ....  {round(100*tracks.needs_glue.sum()/num_tracks, 2)}%")
         print(
@@ -1071,7 +1070,7 @@ class AudibleTransits(ABC):
         # Turn geometry columns into separate `gpd.GeoSeries`.
         tracks = tracks_to_view.copy()
         active = self.active.copy()
-        mic = self.mic.copy()
+        mic = self.mic
         tracklines = tracks.geometry
         if show_endpoints:
             entry_positions = tracks.entry_position
@@ -1109,7 +1108,7 @@ class AudibleTransits(ABC):
             # set extent to bounds with a padding amount relative to the active space size
             minx, miny, maxx, maxy = active.bounds.iloc[0]
             w, h = maxx-minx, maxy-miny
-            padded = box(minx, miny, maxx, maxy).buffer(0.1 * max(w,h))
+            padded = box(minx, miny, maxx, maxy).buffer(0.1 * max(w, h))
             pminx, pminy, pmaxx, pmaxy = padded.bounds
             ax.set_xlim(pminx, pmaxx)
             ax.set_ylim(pminy, pmaxy)
@@ -1146,126 +1145,6 @@ class AudibleTransits(ABC):
             plt.savefig(savepath)
         else:
             plt.show()
-
-    # ========================================== INITIALIZATION UTILITIES ===================================================
-    @staticmethod
-    def load_activespace(PROJ_DIR, u, s, y, gain, third_octave=True, crs=None):
-        '''
-        Load in the active space for a given unit, site, year, and gain
-
-        Parameters
-        ----------
-        PROJ_DIR : string
-            This is the directory containing subfolders for each site. This function will find the right folder given the unit, site, year, and gain
-        u : string
-            Unit that the active space resides in (ex: 'DENA')
-        s : string
-            The active space's site name (ex: 'TRLA')
-        y : int, 4 digits
-            The year that the active space was calculated in (ex: 2019)
-        gain : float
-            The optimal gain, or scaling factor, of the active space, determined during ground truthing
-        third_octave : boolean
-            Default is True, indicates whether the gain is calculated broadband or using third-octave band data
-        crs : string
-            Optional argument to provide a coordinate reference system to convert the active space to (e.g.  'epsg:26905'). Defaults to None
-
-        Returns
-        -------
-        active_space : `gpd.GeoDataFrame`
-            A dataframe containing the geometry of the active space. Can be a single polygon or a multipolygon.
-        '''
-
-        if gain < 0:
-            sign = "-"
-        else:
-            sign = "+"
-
-        if np.abs(gain) < 10:
-            gain_string = "0" + str(np.abs(int(10*gain)))
-        else:
-            gain_string = str(np.abs(int(10*gain)))
-        path = os.path.join(PROJ_DIR, u + s, u + s + str(y) +
-                            '_O_' + sign + gain_string + '.geojson')
-        active_space = gpd.read_file(path)
-
-        if crs is not None:
-            active_space = active_space.to_crs(crs)
-
-        return active_space
-
-    @staticmethod
-    def load_studyarea(PROJ_DIR, u, s, y, crs=None):
-        '''
-        Load in the study area that contains the active space for a given unit, site, and year. 
-        At present this function is overridden by `query_tracks()`, which is set to provide a study area = active space buffered by 25km.
-
-        Parameters
-        ----------
-        PROJ_DIR : string
-            This is the directory containing subfolders for each site. This function will find the right folder given the unit, site, year, and gain
-        u : string
-            Unit that the active space resides in (ex: 'DENA')
-        s : string
-            The active space's site name (ex: 'TRLA')
-        y : int, 4 digits
-            The year that the active space was calculated in (ex: 2019)
-        crs : string
-            Optional argument to provide a coordinate reference system to convert the study area to (e.g.  'epsg:26905'). Defaults to None
-
-        Returns
-        -------
-        study_area : `gpd.GeoDataFrame`
-            A dataframe containing the geometry of the study area. A single polygon.
-        '''
-
-        study_area_path = glob.glob(os.path.join(
-            PROJ_DIR, u + s, u + s + '*study*area*.shp'))[0]
-        study_area = gpd.read_file(study_area_path)
-
-        if crs is not None:
-            study_area = study_area.to_crs(crs)
-
-        return study_area
-
-    @staticmethod
-    def load_miclocation(PROJ_DIR, u, s, y, crs=None):
-        '''
-        Load in the mic location for the active space at a given unit, site, and year. 
-
-        Parameters
-        ----------
-        PROJ_DIR : string
-            This is the directory containing subfolders for each site. This function will find the right folder given the unit, site, year, and gain
-        u : string
-            Unit that the active space resides in (ex: 'DENA')
-        s : string
-            The active space's site name (ex: 'TRLA')
-        y : int, 4 digits
-            The year that the active space was calculated in (ex: 2019)
-        crs : string
-            Optional argument to provide the coordinate reference system that the mic location is in (e.g.  'epsg:26905'). Defaults to None
-
-        Returns
-        -------
-        mic_location : `gpd.GeoDataFrame`
-            A dataframe containing a point in the xy plane, as well as the mic height (z above ground level) in its own column
-        '''
-
-        mic_location_path = os.path.join(
-            PROJ_DIR, u+s, 'Input_Data', '05_SITES', u+s + str(y) + '.sit')
-        raw_text = open(mic_location_path).read()
-
-        coords_line = raw_text.splitlines()[2]
-        coords_str = re.split(r'\s+', coords_line)[1:-1]
-        x_, y_, z_agl_ = [float(i) for i in coords_str[:3]]
-        mic_location = gpd.GeoDataFrame(
-            data={'mic_height': [z_agl_]}, geometry=gpd.points_from_xy([x_], [y_]))
-
-        if crs is not None:
-            mic_location = mic_location.set_crs(crs)
-
-        return mic_location
 
     # ========================================== DATA QC + DETECTION ===================================================
     @staticmethod
@@ -1750,9 +1629,10 @@ class AudibleTransits(ABC):
 
             # Replace the row of the first track with our new glued track
             row_update = {'track_id': track_id, 'interp_point_dt': interp_point_dt, 'interp_geometry': interp_geometry, 'entry_time': entry_time, 'exit_time': exit_time, 'entry_position': entry_position, 'exit_position': exit_position,
-                                             'transit_duration': transit_duration, 'transit_distance': transit_distance, 'num_points': num_points, 'sampling_interval': sampling_interval, 'n_number': n_number, 'aircraft_type': aircraft_type}
+                          'transit_duration': transit_duration, 'transit_distance': transit_distance, 'num_points': num_points, 'sampling_interval': sampling_interval, 'n_number': n_number, 'aircraft_type': aircraft_type}
             # we didn't specify all the columns in row_update, so only replace columns we specify
-            glued_tracks.loc[indices[0], row_update.keys()] = row_update.values()
+            glued_tracks.loc[indices[0],
+                             row_update.keys()] = row_update.values()
 
         # Now, we need to get rid of all the other rows of unglued tracks now that they are fully accounted for in the new glued track
         drop_list = np.zeros(len(glued_tracks))
@@ -1950,17 +1830,19 @@ class AudibleTransits(ABC):
         if output_dir is None:
             print("No output directory provided, using default location")
             identifier = f"{self.unit}{self.site}{self.year}_{self.gain}_{self.database_type}_{self.study_start}_{self.study_end}"
-            output_dir = os.path.join(self.paths["project"], self.unit+self.site, "Output_Data", "AUDIBLE_TRANSITS", identifier)
+            output_dir = os.path.join(
+                self.paths["project"], self.unit+self.site, "Output_Data", "AUDIBLE_TRANSITS", identifier)
         if not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
 
         self.to_pickle(os.path.join(output_dir, "AudibleTransits_object.pkl"))
-        self.visualize_tracks(savepath=os.path.join(output_dir, "transits_plot.png"), show_DEM=True)
+        self.visualize_tracks(savepath=os.path.join(
+            output_dir, "transits_plot.png"), show_DEM=True)
         if export_garbage:
             self.export_garbage_summary(output_dir)
 
         print(f"Saved results to '{os.path.abspath(output_dir)}'")
-    
+
     def to_pickle(self, path):
         """Saves this object to a pickle file.
 
@@ -1975,13 +1857,13 @@ class AudibleTransits(ABC):
         shallow_copy.DEM = None
         with open(path, "wb") as file:
             pickle.dump(shallow_copy, file)
-    
+
     @staticmethod
     def from_pickle(path):
         """Reconstructs an AudibleTransits object from a pickle file.
 
         Note that the DEM must be in the same place as it originally was, since the DEM will need to be loaded. IMPORTANT: the corresponding class (e.g. AudibleTransitsADSB, AudibleTransitsGPS) must be imported before running this.
-        
+
         Parameters
         ----------
         path : `str`
@@ -1991,7 +1873,8 @@ class AudibleTransits(ABC):
             with open(path, "rb") as file:
                 obj = pickle.load(file)
         except AttributeError as e:
-            warnings.warn("Failed to load from pickle file. Make sure you have imported the class you are trying to load (e.g. AudibleTransitsADSB)")
+            warnings.warn(
+                "Failed to load from pickle file. Make sure you have imported the class you are trying to load (e.g. AudibleTransitsADSB)")
             raise AttributeError(e)
         obj.DEM = load_DEM(obj.paths["project"], obj.unit, obj.site)
         return obj
@@ -2690,7 +2573,8 @@ class AudibleTransitsADSB(AudibleTransits):
         for idx, group in tracks.groupby('ICAO_address'):
             icao = group.ICAO_address.iloc[0]
             if icao in aircraft_lookup['MODE S CODE HEX'].to_list():
-                row = aircraft_lookup[aircraft_lookup['MODE S CODE HEX'] == icao].iloc[0]
+                row = aircraft_lookup[aircraft_lookup['MODE S CODE HEX']
+                                      == icao].iloc[0]
                 n_number = row.at['N-NUMBER']
                 aircraft_type = row.at['TYPE AIRCRAFT']
             else:
@@ -2778,7 +2662,8 @@ if __name__ == '__main__':
     argparse.add_argument('-y', '--year', type=int, required=True,
                           help="Four digit year. E.g. 2018")
     argparse.add_argument('-g', '--gain', type=float, required=True,
-                          help="Floating-point optimal gain with sign. E.g. -20.5")  # TODO make it so the user has to pick an existing gain
+                          # TODO make it so the user has to pick an existing gain
+                          help="Floating-point optimal gain with sign. E.g. -20.5")
     argparse.add_argument('-t0', '--begintracks', required=True,
                           help="YYYY-MM-DD begin date for position record. E.g. 2018-01-01")
     argparse.add_argument('-tf', '--endtracks', required=True,
@@ -2809,12 +2694,13 @@ if __name__ == '__main__':
     paths = {"project": project_dir,
              "FAA": FAAReleasable_path,
              "aircraft corrections": FAAType_corrections}
-    
+
     if args.database_type == 'ADSB':
         paths["ADSB"] = f"{cfg.read('data', 'adsb')}"
 
-    listener = init_audible_transits(metadata, paths)    
+    listener = init_audible_transits(metadata, paths)
     listener.run_pipeline()
 
     output_dir = args.output or None
-    listener.export_results(output_dir=output_dir, export_garbage=bool(int(args.exportgarbage)))
+    listener.export_results(output_dir=output_dir,
+                            export_garbage=bool(int(args.exportgarbage)))
