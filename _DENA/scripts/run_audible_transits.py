@@ -192,6 +192,7 @@ class AudibleTransits(ABC):
         self.summarize_data_quality()
         self.visualize_tracks(show_DEM=True)
 
+        print("")  # visual buffer
         return self.tracks.copy()
 
     def init_spatial_data(self, visualize=False):
@@ -916,7 +917,7 @@ class AudibleTransits(ABC):
             old_times = track.interp_point_dt
 
             # If the beginning of a track, extrapolation is required.
-            if (track.starts_inside & ~track.takeoff):
+            if (track.starts_inside and not track.takeoff):
                 points = np.asarray(old_geometry.coords)
                 # Calculate slope between first two points
                 t0 = old_times[0]
@@ -963,7 +964,7 @@ class AudibleTransits(ABC):
             old_times = track.interp_point_dt
 
             # If the end of a track, needs extrapolation.
-            if (track.ends_inside & ~track.landing):
+            if (track.ends_inside and not track.landing):
                 points = np.asarray(old_geometry.coords)
                 # calculate slope between last two points
                 t0 = old_times[-2]
