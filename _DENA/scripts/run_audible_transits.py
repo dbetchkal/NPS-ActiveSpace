@@ -35,6 +35,11 @@ from nps_active_space.utils.models import Tracks
 
 pd.set_option('future.no_silent_downcasting', True)
 
+# declaring the logger in the global scope instead of a class attribute because static methods need access to it
+# and refactoring the static methods into member variables is a bit of a headache
+# will re-initialize the logger each time run_pipeline() is called, to update verbose settings, filename, etc.
+# logger = get_logger("AUDIBLE-TRANSITS")
+
 
 def init_audible_transits(metadata, paths):
     '''
@@ -131,14 +136,14 @@ class AudibleTransits(ABC):
         tracks : `gpd.GeoDataFrame`
             The final audible transit tracks. This is a copy of this object's "tracks" property.
         '''
+        global logger
+        logger = get_logger("AUDIBLE-TRANSITS", verbose)
 
-        self.logger = get_logger("AUDIBLE-TRANSITS", verbose, logfile=R"C:\Users\akosinski\OneDrive - DOI\Documents\test.log")
-
-        self.logger.info("\n=========  NPS-ActiveSpace Audible Transits module  ==========\n")
-        self.logger.info("[1] Parsing geospatial data inputs...")
+        logger.info("\n=========  NPS-ActiveSpace Audible Transits module  ==========\n")
+        logger.info("[1] Parsing geospatial data inputs...")
         self.init_spatial_data()
 
-        self.logger.info("[2] Parsing and pre-processing track data inputs...")
+        logger.info("[2] Parsing and pre-processing track data inputs...")
         self.load_tracks_from_database()
         self.split_paused_tracks()
         self.extract_aircraft_info()
@@ -150,7 +155,7 @@ class AudibleTransits(ABC):
         self.raw_tracks = self.tracks.copy()
         self.simplify_active_space()
 
-        self.logger.debug("\tRemoving tracks with data collection issues...")
+        logger.debug("\tRemoving tracks with data collection issues...")
         self.tracks, scrambled_tracks = AudibleTransits.remove_scrambled_tracks(
             self.tracks, self.active, return_scrambled_tracks=True)
         self.add_to_garbage(scrambled_tracks, 'scrambled')
@@ -167,18 +172,18 @@ class AudibleTransits(ABC):
         self.visualize_tracks(
             show_DEM=True, title=f"{self.unit}{self.site}{self.year} Nearby Overflights")
 
-        self.logger.info("[3] Creating audible transits by clipping tracks to the active space...")
+        logger.info("[3] Creating audible transits by clipping tracks to the active space...")
         self.clip_tracks()
         self.update_track_parameters()
         self.update_trackQC()
         self.summarize_data_quality()
 
-        self.logger.info("[4] Cleaning audible transits...")
+        logger.info("[4] Cleaning audible transits...")
         self.clean_tracks()
         self.update_trackQC()
         self.summarize_data_quality()
 
-        self.logger.info("[5] Detecting takeoffs and landings...")
+        logger.info("[5] Detecting takeoffs and landings...")
         if self.tracks.needs_extrapolation.sum() > 0:
             self.detect_takeoffs_and_landings()
             if self.tracks.needs_extrapolation.sum() > 0:
@@ -213,7 +218,7 @@ class AudibleTransits(ABC):
         # Load in active space and study area.
         active = load_activespace(
             self.paths["project"], self.unit, self.site, self.activespace_year, self.gain, crs="epsg:4326")
-        self.logger.debug("\tActive space has been parsed.")
+        logger.debug("\tActive space has been parsed.")
 
         # Calculate the UTM zone from the active space centroid.
         self.utm_zone = coords_to_utm(
@@ -222,11 +227,11 @@ class AudibleTransits(ABC):
         # Get microphone object for this deployment
         mic = get_deployment(
             self.paths["project"], self.unit, self.site, self.activespace_year)
-        self.logger.debug("\tMicrophone position has been determined.")
+        logger.debug("\tMicrophone position has been determined.")
 
         # Load DEM
         self.DEM = load_DEM(self.paths["project"], self.unit, self.site)
-        self.logger.debug("\tThe Digital Elevation Model (DEM) has been parsed.\n")
+        logger.debug("\tThe Digital Elevation Model (DEM) has been parsed.\n")
 
         if (visualize):
             # Plot each in the standard lon/lat geographic crs.
@@ -336,7 +341,7 @@ class AudibleTransits(ABC):
         # Edited to track_id to fit Dini's version
         grouped_track_pts = tracks.groupby('track_id')
 
-        self.logger.debug("\tSegmenting raw transportation into tracks...")
+        logger.debug("\tSegmenting raw transportation into tracks...")
         z_adj_count = 0
         track_list = []
         # Loop through each flight (track points grouped by flight ID)
@@ -368,8 +373,8 @@ class AudibleTransits(ABC):
 
         track_lines = gpd.GeoDataFrame(track_list, crs=self.utm_zone)
         self.tracks = track_lines.copy()
-        self.logger.debug("\t\tSegmentation complete.")
-        self.logger.debug(
+        logger.debug("\t\tSegmentation complete.")
+        logger.debug(
             f"\t\tRemoved {removed_count} outlier points, adjusted {z_adj_count} z-coordinates.")
         return track_lines
 
@@ -390,7 +395,7 @@ class AudibleTransits(ABC):
             The area tolerance for removing interior rings, in percent (%). Default is to preserve rings >5% the size of the largest active space polygon.
         '''
 
-        self.logger.debug("\tSimplifying active space prior to computing intersections...")
+        logger.debug("\tSimplifying active space prior to computing intersections...")
 
         # Simplify active space boundary perimeter within a certain tolerance.
         # The tolerance is a somewhat arbitrary parameter, but this step helps prevent overly-fragmented audible transits.
@@ -404,14 +409,14 @@ class AudibleTransits(ABC):
             active_ea_simple = gpd.GeoSeries(polygons[np.argmax(
                 # select largest polygon
                 [poly.area for poly in polygons])], crs=self.active.crs)
-            self.logger.debug("\t\tLargest active space polygon has been selected.")
+            logger.debug("\t\tLargest active space polygon has been selected.")
 
         if len(active_ea_simple.interiors[0]) > 0:
             new_interiors = [i for i in active_ea_simple.interiors[0] if Polygon(
                 i).area/active_ea_simple.area[0] >= interior_area_thresh]
             active_ea_simple = gpd.GeoSeries(
                 Polygon(active_ea_simple.exterior[0], new_interiors), crs=self.active.crs)
-            self.logger.debug("\t\tSmall interior rings have been removed.")
+            logger.debug("\t\tSmall interior rings have been removed.")
 
         # An optional plot to review any active space simplifications.
         if (visualize):
@@ -493,10 +498,10 @@ class AudibleTransits(ABC):
             assert tracks == 'self'
             tracks = self.tracks
 
-        self.logger.debug("\tUpdating parameters...")
+        logger.debug("\tUpdating parameters...")
 
         if 'interp_geometry' not in tracks:
-            self.logger.debug("Error: No interpolated geometry found (column = 'interp_geometry'). Cannot update track parameters.")
+            logger.debug("Error: No interpolated geometry found (column = 'interp_geometry'). Cannot update track parameters.")
             return 0
 
         # Initialize lists to store each entry/exit postion and time, as well as the total event duration for each track.
@@ -510,7 +515,7 @@ class AudibleTransits(ABC):
         for spline in tracks['interp_geometry']:
             entry_pos.append(Point(spline.coords[0]))
             exit_pos.append(Point(spline.coords[-1]))
-        self.logger.debug("\t\tEntry/exit positions extracted.")
+        logger.debug("\t\tEntry/exit positions extracted.")
 
         # Extract the initial and final times (and duration) from each track's timestamp list.
         for timelist in tracks['interp_point_dt']:
@@ -518,7 +523,7 @@ class AudibleTransits(ABC):
             exit_times.append(timelist[-1])
             transit_durations.append(
                 (timelist[-1] - timelist[0]) / pd.Timedelta(seconds=1))
-        self.logger.debug("\t\tEntry/exit times extracted.")
+        logger.debug("\t\tEntry/exit times extracted.")
 
         # Add entry and exit times to clipped_tracks `gpd.GeoDataFrame`.
         tracks["entry_time"] = entry_times
@@ -533,31 +538,31 @@ class AudibleTransits(ABC):
         # Calculate and add transit duration, distance, and average speed to clipped_tracks `gpd.Geodataframe`.
 
         tracks["transit_duration"] = transit_durations
-        self.logger.debug("\t\tDurations have been calculated.")
+        logger.debug("\t\tDurations have been calculated.")
         tracks["transit_distance"] = tracks.length
-        self.logger.debug("\t\tDistances have been calculated")
+        logger.debug("\t\tDistances have been calculated")
         tracks["avg_speed"] = tracks.transit_distance / tracks.transit_duration
-        self.logger.debug("\t\tAverage speeds have been calculated.\n")
+        logger.debug("\t\tAverage speeds have been calculated.\n")
 
     def summarize_data_quality(self, tracks='self'):
         '''
-        A helper function to self.logger.debug data quality summaries to the console.
+        A helper function to logger.debug data quality summaries to the console.
         '''
         if type(tracks) is str:
             assert tracks == 'self'
             tracks = self.tracks
 
         num_tracks = len(tracks)
-        self.logger.debug("\tQuality control assessment:")
-        self.logger.debug(
+        logger.debug("\tQuality control assessment:")
+        logger.debug(
             f"\t\tNeed Extrapolation: {tracks.needs_extrapolation.sum()}  ....  {round(100*tracks.needs_extrapolation.sum()/num_tracks, 2)} %")
-        self.logger.debug(
+        logger.debug(
             f"\t\tNeed Glue: {tracks.needs_glue.sum()}  ....  {round(100*tracks.needs_glue.sum()/num_tracks, 2)}%")
-        self.logger.debug(
+        logger.debug(
             f"\t\tShort Tracks: {tracks.short_distance.sum()}  ....  {round(100*tracks.short_distance.sum()/num_tracks, 2)}%")
-        self.logger.debug(
+        logger.debug(
             f"\t\tErroneous Average Flight Speed: {tracks.speed_out_of_range.sum()}  ....  {round(100*tracks.speed_out_of_range.sum()/num_tracks, 2)}%")
-        self.logger.debug(f"\t\t[Out of {num_tracks} total tracks]\n")
+        logger.debug(f"\t\t[Out of {num_tracks} total tracks]\n")
 
     def interpolate_tracks(self, tracks='self'):
         '''
@@ -586,10 +591,10 @@ class AudibleTransits(ABC):
         else:
             self_flag = False
 
-        self.logger.debug("\tInterpolating tracks, may take a few minutes:")
+        logger.debug("\tInterpolating tracks, may take a few minutes:")
 
         if 'geometry_pts' not in tracks:
-            self.logger.debug(
+            logger.debug(
                 "Error: Cannot perform interpolation. Tracks missing column 'geometry_pts'")
             return 0
 
@@ -622,9 +627,8 @@ class AudibleTransits(ABC):
             # Check for weird case where timestamps don't line up with the number of rows...
             if len(track_pts) != len(timestamps):
                 track_pts["point_dt"] = np.zeros(len(track_pts))
-                self.logger.debug("timestamps: ", len(timestamps),
-                      ",  track_pts: ", len(track_pts))
-                self.logger.debug("Numer of timestamps doesn't line up with number of rows")
+                logger.debug(f"timestamps: {len(timestamps)},  track_pts: {len(track_pts)}")
+                logger.debug("Numer of timestamps doesn't line up with number of rows")
                 continue
 
             track_id_list.append(track_id)  # add track ID to list
@@ -659,7 +663,7 @@ class AudibleTransits(ABC):
         interp_tracks['sampling_interval'] = sampling_interval_list
         interp_tracks.set_geometry('interp_geometry', inplace=True)
 
-        self.logger.debug("\t\tInterpolation complete!\n")
+        logger.debug("\t\tInterpolation complete!\n")
 
         if (self_flag):
             self.tracks = interp_tracks.copy()
@@ -697,7 +701,7 @@ class AudibleTransits(ABC):
             self_flag = False
 
         if 'interp_geometry' not in tracks:
-            self.logger.debug("Error: No interpolated geometry found (column = 'interp_geometry'). Cannot clip tracks to active space.")
+            logger.debug("Error: No interpolated geometry found (column = 'interp_geometry'). Cannot clip tracks to active space.")
             return 0
 
         # Clip tracks to the input active space.
@@ -711,7 +715,7 @@ class AudibleTransits(ABC):
             'interp_geometry', ignore_index=True)
 
         # Because we just exploded the `MultiLineString` tracks, we must likewise explode the timestamps to match...
-        self.logger.debug("\tAdjusting timestamps to match clipped tracks...")
+        logger.debug("\tAdjusting timestamps to match clipped tracks...")
         prev_id = np.nan
         real_timestamps = []
         for idx, clipped_track in clipped_tracks.iterrows():
@@ -759,7 +763,7 @@ class AudibleTransits(ABC):
                 this_time = np.insert(this_time, 0, start_time)
                 this_time = np.append(this_time, end_time)
                 if found_match == False:
-                    self.logger.debug('uh oh')
+                    logger.debug('uh oh')
             else:
                 # An unusual case: both coordinates are clipped endpoints--they do not exist in the interpolation,
                 #   so finding the corresponding time is difficult.
@@ -787,7 +791,7 @@ class AudibleTransits(ABC):
 
         clipped_tracks['interp_point_dt'] = real_timestamps
 
-        self.logger.debug("\tTracks clipped into audible transits.")
+        logger.debug("\tTracks clipped into audible transits.")
 
         if (self_flag):
             self.tracks = clipped_tracks.copy()
@@ -824,22 +828,22 @@ class AudibleTransits(ABC):
 
         cleaned_tracks = tracks.copy(
         ).loc[tracks.interp_geometry.geom_type != "Point"]
-        self.logger.debug("\tTransits consisting of a single point have been removed.")
+        logger.debug("\tTransits consisting of a single point have been removed.")
 
         cleaned_tracks = AudibleTransits.glue_tracks(
             cleaned_tracks, self.active)
-        self.logger.debug("\tTransits erroneously segmented at self-intersection points have been glued back together.")
+        logger.debug("\tTransits erroneously segmented at self-intersection points have been glued back together.")
 
         quick_tracks = cleaned_tracks.loc[cleaned_tracks.transit_duration < 10]
         self.add_to_garbage(tracks=quick_tracks, reason='short duration')
         cleaned_tracks = cleaned_tracks.loc[cleaned_tracks.transit_duration >= 10]
-        self.logger.debug("\tTransits < 10s in duration have been removed.")
+        logger.debug("\tTransits < 10s in duration have been removed.")
 
         short_tracks = cleaned_tracks.loc[cleaned_tracks.short_distance]
         self.add_to_garbage(tracks=short_tracks, reason='short distance',
                             other_explanation='track distance less than 500 meters')
         cleaned_tracks = cleaned_tracks.loc[cleaned_tracks.short_distance == False]
-        self.logger.debug("\tTransits < 500m in distance have been removed.")
+        logger.debug("\tTransits < 500m in distance have been removed.")
 
         self.add_to_garbage(
             tracks=cleaned_tracks.loc[cleaned_tracks.avg_speed == 0], reason='zero speed')
@@ -849,8 +853,8 @@ class AudibleTransits(ABC):
             cleaned_tracks.avg_speed != np.inf)]
         cleaned_tracks = cleaned_tracks.loc[cleaned_tracks.interp_geometry.within(
             self.active.geometry.iloc[0].buffer(100))]
-        self.logger.debug("\tTransits with average speed = 0 or infinity have been removed.")
-        self.logger.debug("\tQuality control completed!")
+        logger.debug("\tTransits with average speed = 0 or infinity have been removed.")
+        logger.debug("\tQuality control completed!")
 
         if (self_flag):
             self.tracks = cleaned_tracks.copy()
@@ -891,10 +895,10 @@ class AudibleTransits(ABC):
         else:
             self_flag = False
 
-        self.logger.debug("------------ Extrapolating tracks -----------")
+        logger.debug("------------ Extrapolating tracks -----------")
 
         if 'needs_extrapolation' not in tracks:
-            self.logger.debug(
+            logger.debug(
                 "Error: Cannot perform extrapolation. 'tracks' missing column 'needs_extrapolation'")
             return 0
 
@@ -904,7 +908,7 @@ class AudibleTransits(ABC):
         new_times = []  # list of list of timestamps for each extrapolated track
         new_geometry = []  # list of LineStrings (one per track)
         takeoffs = []  # keep track of takeoffs and landings
-        self.logger.debug("Extending track entries:")
+        logger.debug("Extending track entries:")
         for idx, track in tqdm(needs_extrapolation_df.iterrows(), unit=' tracks'):
 
             # For each track, pull out geometry and timestamps
@@ -952,7 +956,7 @@ class AudibleTransits(ABC):
         new_times = []
         new_geometry = []
         landings = []
-        self.logger.debug("Extending track exits:")
+        logger.debug("Extending track exits:")
         for idx, track in tqdm(extrapolated_tracks.iterrows(), unit=' tracks'):
 
             old_geometry = track.interp_geometry
@@ -1010,7 +1014,7 @@ class AudibleTransits(ABC):
         unextrapolated_tracks = tracks[~(tracks.needs_extrapolation)]
         new_tracks = pd.concat((unextrapolated_tracks, extrapolated_cleaned))
 
-        self.logger.debug("\tExtrapolation has been completed.")
+        logger.debug("\tExtrapolation has been completed.")
 
         if (self_flag):
             self.tracks = new_tracks.copy()
@@ -1348,7 +1352,7 @@ class AudibleTransits(ABC):
             The length of time required to consider a track to be "paused".
         '''
 
-        self.logger.debug("\tIdentifying periods where the source's position did not change...")
+        logger.debug("\tIdentifying periods where the source's position did not change...")
         counter = 0
         grouped_track_pts = self.tracks.groupby('track_id')
 
@@ -1362,7 +1366,7 @@ class AudibleTransits(ABC):
                     self.tracks.loc[track.iloc[i:].index,
                                   'track_id'] = f"{track.track_id.iloc[0]}_{count+1}"
 
-        self.logger.debug(
+        logger.debug(
             f"\t\tSplit {counter} tracks that paused for more than {threshold_s} seconds into multiple track IDs.")
 
     @staticmethod
@@ -1445,7 +1449,7 @@ class AudibleTransits(ABC):
                 plt.show()
                 plt.pause(.1)
 
-        self.logger.debug(
+        logger.debug(
             f"\t\tRemoved {len(scrambled_tracks)} scrambled tracks (highly erratic data, likely logging errors)")
 
         if (return_scrambled_tracks):
@@ -1488,7 +1492,7 @@ class AudibleTransits(ABC):
         cleaner_tracks = raw_tracks[~(raw_tracks.bad_track)]
         end_len = len(cleaner_tracks)
 
-        self.logger.debug(
+        logger.debug(
             f"\t\tRemoved {start_len - end_len} low quality tracks (only 2 points & very slow & short)")
 
         if (return_low_quality_tracks):
@@ -1648,7 +1652,7 @@ class AudibleTransits(ABC):
         glue_check = AudibleTransits.needs_glue(
             glued_tracks, active_ea, inplace=False)
         if (glue_check.needs_glue.sum() != 0):
-            self.logger.debug("something aint right")
+            logger.debug("something aint right")
 
         return glued_tracks
 
@@ -1748,7 +1752,7 @@ class AudibleTransits(ABC):
         Nothing, just adds columns to the tracks GDF
         '''
 
-        self.logger.debug("\tExtracting track heights above mean sea level (MSL)")
+        logger.debug("\tExtracting track heights above mean sea level (MSL)")
         # Extract z coordinates from tracks -- height above Mean Sea Level
         MSL_list = []
         for id, track in tracks.iterrows():
@@ -1758,7 +1762,7 @@ class AudibleTransits(ABC):
 
         tracks['MSL'] = MSL_list
 
-        self.logger.debug("\tQuerying elevation at each track point...")
+        logger.debug("\tQuerying elevation at each track point...")
         # The raster is in a geographic CRS, so let's instead convert our tracks' CRS (much simpler)
         tracks_deg = tracks.to_crs(DEM_raster.crs)
         # Loop through each track and extract each individual point. We can use these coordinates to access their respective raster cells from the DEM
@@ -1776,7 +1780,7 @@ class AudibleTransits(ABC):
         # Create 'ground_level' column for computing altitudes above ground level (AGL)
         tracks['ground_level'] = GL_list
 
-        self.logger.debug("\tCalculating heights above ground level (AGL) for each track...")
+        logger.debug("\tCalculating heights above ground level (AGL) for each track...")
         # Calculate altitude above ground level (MSL - ground level)
         tracks['AGL'] = tracks.MSL - tracks.ground_level
 
@@ -2005,7 +2009,7 @@ class AudibleTransitsGPS(AudibleTransits):
         assert self.active is not None, "Active space hasn't been loaded yet."
 
         engine = self.init_engine()
-        self.logger.debug("\tDatabase engine initialized.")
+        logger.debug("\tDatabase engine initialized.")
         self.studyA = self.active.copy()
 
         # query the SQL database
@@ -2018,14 +2022,14 @@ class AudibleTransitsGPS(AudibleTransits):
         tracks.drop(columns=['ak_hourtime'])
         tracks.geometry = gpd.points_from_xy(
             tracks.geometry.x, tracks.geometry.y, tracks.z)
-        self.logger.debug("\tTracks have been parsed.")
-        self.logger.debug("\tFiltering duplicate records...")
+        logger.debug("\tTracks have been parsed.")
+        logger.debug("\tFiltering duplicate records...")
         original_length = len(tracks)
         tracks.drop_duplicates(subset=['track_id', 'point_dt'], inplace=True)
         time_duplicates = original_length - len(tracks)
         tracks.drop_duplicates(subset=['track_id', 'geometry'], inplace=True)
         position_duplicates = original_length - time_duplicates - len(tracks)
-        self.logger.debug(
+        logger.debug(
             f"\t\tRemoved {time_duplicates} points with repeated times and {position_duplicates} points with repeated positions.")
 
         self.tracks = tracks.copy()
@@ -2177,13 +2181,13 @@ class AudibleTransitsGPS(AudibleTransits):
                 updated_needs_extrapolation.append(True)
             sinuosity_list.append(sinuosity)
 
-        self.logger.debug(f"\tEliminated {tracks.needs_extrapolation.sum() - sum(updated_needs_extrapolation)} potential takeoffs/landings from the list of transits to be extrapolated.")
-        self.logger.debug("\tPotential takeoffs identified: ", sum(takeoffs))
-        self.logger.debug("\tPotential landings identified: ", sum(landings))
-        self.logger.debug("\tLow AGL takeoffs/landings: ", ht)
-        self.logger.debug("\tHigh res takeoffs/landings: ", hires)
-        self.logger.debug("\tSinuosity>=1.1 takeoffs/landings: ", sinu)
-        self.logger.debug("\tPhysics-based takeoffs/landings", phys)
+        logger.debug(f"\tEliminated {tracks.needs_extrapolation.sum() - sum(updated_needs_extrapolation)} potential takeoffs/landings from the list of transits to be extrapolated.")
+        logger.debug(f"\tPotential takeoffs identified: {sum(takeoffs)}")
+        logger.debug(f"\tPotential landings identified: {sum(landings)}")
+        logger.debug(f"\tLow AGL takeoffs/landings: {ht}")
+        logger.debug(f"\tHigh res takeoffs/landings: {hires}")
+        logger.debug(f"\tSinuosity>=1.1 takeoffs/landings: {sinu}")
+        logger.debug(f"\tPhysics-based takeoffs/landings {phys}")
 
         tracks['takeoff'] = takeoffs
         tracks['landing'] = landings
@@ -2196,7 +2200,7 @@ class AudibleTransitsGPS(AudibleTransits):
 
     def extract_aircraft_info(self, FAA='load'):
 
-        self.logger.info("\tIdentifying aircraft within the FAA releasable database...")
+        logger.info("\tIdentifying aircraft within the FAA releasable database...")
         tracks = self.tracks
         FAA_path = self.paths["FAA"]
         aircraft_corrections_path = self.paths["aircraft corrections"]
@@ -2212,11 +2216,11 @@ class AudibleTransitsGPS(AudibleTransits):
             aircraft_lookup = AudibleTransitsGPS.create_aircraft_lookup(
                 tracks, FAA_path, aircraft_corrections_path)
             self.aircraft_lookup = aircraft_lookup.copy()
-            self.logger.debug('\t\tAircraft look up complete.')
+            logger.debug('\t\tAircraft look up complete.')
         else:
             aircraft_lookup = FAA.copy()
             self.aircraft_lookup = aircraft_lookup.copy()
-            self.logger.debug("\t\tLoaded aircraft lookup table directly.")
+            logger.debug("\t\tLoaded aircraft lookup table directly.")
 
         # Use the aircraft lookup table to identify each flight's N-number and aircraft type (jet, fixed-wing, or helicopter)
         for idx, group in tracks.groupby('n_number'):
@@ -2327,7 +2331,7 @@ class AudibleTransitsADSB(AudibleTransits):
         position_duplicates = original_length - \
             time_duplicates - len(loaded_track_pts)
 
-        self.logger.debug(
+        logger.debug(
             f"\t\tRemoved {time_duplicates} points with repeated times and {position_duplicates} points with repeated positions.")
 
         # Only include points within the date range specified in the initialization
@@ -2360,7 +2364,7 @@ class AudibleTransitsADSB(AudibleTransits):
         # Edited to track_id to fit Dini's version
         grouped_track_pts = tracks.groupby('track_id')
 
-        self.logger.debug("\tSegmenting raw transportation into tracks...")
+        logger.debug("\tSegmenting raw transportation into tracks...")
         z_adj_count = 0
         track_list = []
         # Loop through each flight (track points grouped by flight ID)
@@ -2390,8 +2394,8 @@ class AudibleTransitsADSB(AudibleTransits):
                 track_list.append({'track_id': track_id, 'geometry': LineString(points), 'point_dt': times, 'geometry_pts': MultiPoint(
                     points), 'z': altitudes, 'n_number': n_number, 'aircraft_type': aircraft_type})
 
-        self.logger.debug("\t\tSegmentation complete.")
-        self.logger.debug(
+        logger.debug("\t\tSegmentation complete.")
+        logger.debug(
             f"\t\tRemoved {removed_count} outlier points, adjusted {z_adj_count} z-coordinates.")
 
         track_lines = gpd.GeoDataFrame(track_list, crs=self.utm_zone)
@@ -2522,13 +2526,13 @@ class AudibleTransitsADSB(AudibleTransits):
                 updated_needs_extrapolation.append(True)
             sinuosity_list.append(sinuosity)
 
-        self.logger.debug(tracks.needs_extrapolation.sum() - sum(updated_needs_extrapolation),
-              " flights downgraded from needs_extrapolation due to takeoffs/landings")
-        self.logger.debug("Possible takeoffs identified: ", sum(takeoffs))
-        self.logger.debug("Possible landings identified: ", sum(landings))
-        self.logger.debug("Low AGL takeoffs/landings: ", ht)
-        self.logger.debug("Sinuosity>=1.1 takeoffs/landings: ", sinu)
-        self.logger.debug("Slow speeds takeoffs/landings: ", slow)
+        logger.debug(f"{tracks.needs_extrapolation.sum() - sum(updated_needs_extrapolation)}"
+                     " flights downgraded from needs_extrapolation due to takeoffs/landings")
+        logger.debug(f"Possible takeoffs identified: {sum(takeoffs)}")
+        logger.debug(f"Possible landings identified: {sum(landings)}")
+        logger.debug(f"Low AGL takeoffs/landings: {ht}")
+        logger.debug(f"Sinuosity>=1.1 takeoffs/landings: {sinu}")
+        logger.debug(f"Slow speeds takeoffs/landings: {slow}")
 
         # Add/update columns related to takeoff/landing paramters and booleans
         tracks['takeoff'] = takeoffs
@@ -2542,7 +2546,7 @@ class AudibleTransitsADSB(AudibleTransits):
 
     def extract_aircraft_info(self, FAA='load'):
 
-        self.logger.info("\tIdentifying aircraft within the FAA releasable database...")
+        logger.info("\tIdentifying aircraft within the FAA releasable database...")
         FAA_path = self.paths["FAA"]
         aircraft_corrections_path = self.paths["aircraft corrections"]
         tracks = self.tracks
@@ -2557,11 +2561,11 @@ class AudibleTransitsADSB(AudibleTransits):
             aircraft_lookup = AudibleTransitsADSB.create_aircraft_lookup(
                 tracks, FAA_path, aircraft_corrections_path)
             self.aircraft_lookup = aircraft_lookup.copy()
-            self.logger.debug('\t\tAircraft look up complete.')
+            logger.debug('\t\tAircraft look up complete.')
         else:
             aircraft_lookup = FAA.copy()
             self.aircraft_lookup = aircraft_lookup.copy()
-            self.logger.debug("\t\tLoaded aircraft lookup table directly.")
+            logger.debug("\t\tLoaded aircraft lookup table directly.")
 
         # Use the aircraft lookup table to identify each flight's N-number and aircraft type (jet, fixed-wing, or helicopter)
         for idx, group in tracks.groupby('ICAO_address'):
@@ -2637,7 +2641,7 @@ class AudibleTransitsADSB(AudibleTransits):
         jets = tracks[tracks.aircraft_type == 'Jet']
         tracks.drop(tracks[tracks.aircraft_type == 'Jet'].index, inplace=True)
 
-        self.logger.debug(f'\tRemoved {len(jets)} jets from overflight list.')
+        logger.debug(f'\tRemoved {len(jets)} jets from overflight list.')
 
         if (return_jets):
             return jets

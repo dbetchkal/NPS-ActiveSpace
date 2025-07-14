@@ -318,7 +318,7 @@ class _TqdmStream:
 
 def get_logger(name: str, verbose: bool = False, logfile: str = None) -> logging.Logger:
     """
-    General purpose function for creating a console logger.
+    General purpose function for creating a logger.
 
     Parameters
     ----------
