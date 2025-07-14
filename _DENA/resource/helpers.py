@@ -1,7 +1,10 @@
+import shutil
 import glob
 import logging
 import os
 from typing import List, Optional, TYPE_CHECKING, Union
+import json
+import pandas as pd
 
 import geopandas as gpd
 import numpy as np
@@ -27,7 +30,8 @@ __all__ = [
     'query_tracks',
     'query_adsb',
     'get_logger',
-    'get_omni_sources'
+    'get_omni_sources',
+    'create_aircraft_lookup'
 ]
 
 
@@ -316,7 +320,24 @@ class _TqdmStream:
     write = classmethod(write)
 
 
-def get_logger(name: str, verbose: bool = False, logfile: str = None) -> logging.Logger:
+class _BufferedHandler(logging.Handler):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.logs = []
+
+    def emit(self, record):
+        log_entry = self.format(record)
+        self.logs.append(log_entry)
+
+    def save(self, filename):
+        with open(filename, 'w') as f:
+            f.write('\n'.join(self.logs))
+
+    def clear(self):
+        self.logs.clear()
+
+
+def get_logger(name: str, verbose: bool = False, logfile: str = None, make_log_buffer=False) -> logging.Logger:
     """
     General purpose function for creating a logger.
 
@@ -342,19 +363,31 @@ def get_logger(name: str, verbose: bool = False, logfile: str = None) -> logging
     if logger.hasHandlers():
         logger.handlers.clear()
 
+    # Handler to print to the console
     console_handler = logging.StreamHandler(stream=_TqdmStream)
     console_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
     console_handler.setFormatter(logging.Formatter("%(message)s"))
     logger.addHandler(console_handler)
 
+    # Handler to save to a file during logging
     if logfile is not None:
         file_handler = logging.FileHandler(logfile)
         # always print everything to the log file
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(logging.Formatter(
-            fmt='%(asctime)s - %(name)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
+            fmt='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
         logger.addHandler(file_handler)
 
+    # Handler to just remember logs, for future saving
+    if make_log_buffer:
+        buffer_handler = _BufferedHandler()
+        buffer_handler.setLevel(logging.DEBUG)
+        buffer_handler.setFormatter(logging.Formatter(
+            fmt='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
+        logger.addHandler(buffer_handler)
+
+    if make_log_buffer:
+        return logger, buffer_handler
     return logger
 
 
@@ -398,3 +431,64 @@ def get_omni_sources(lower: float, upper: float) -> List[str]:
             omni_sources.append(f"{omni_source_dir}\\O_+{i:03}.src")
 
     return omni_sources
+
+
+def create_aircraft_lookup(FAA_path, aircraft_corrections_path=None, n_numbers=None, hex_codes=None):
+        '''
+        Use a pre-downloaded copy of the U.S. Federal Aviation Administration's releasable aircraft database
+        (https://www.faa.gov/licenses_certificates/aircraft_certification/aircraft_registry/releasable_aircraft_download)
+        to glean various properties associated with a set of aircraft tracks.
+
+        Parameters
+        ----------
+        FAA_path: str
+            Path to the MASTER.txt file downloaded from the FAA
+        aircraft_corrections_path: str, default None
+            Path to a corrections text file for fixing errors with aircraft type in the FAA database. Formatted as a JSON object where keys are N-numbers and values are the correct aircraft type (e.g. "Fixed-wing")
+        n_numbers: array_like of str, default None
+            If provided, only return a lookup table containing these N-numbers. Do not set if hex_codes is provided
+        hex_codes: array_like of str, default None
+            If provided, only return a lookup table containing these Mode S Hex Codes. Do not set if n_numbers is provided
+        '''
+
+        # load large FAA database file with a progress bar
+        dfs = []
+        with tqdm(total=288128, desc="Loading FAA Database") as pbar:
+            for chunk in pd.read_csv(FAA_path, sep=",", dtype={"TYPE AIRCRAFT": str}, chunksize=1000):
+                dfs.append(chunk)
+                pbar.update(len(chunk))
+        FAA = pd.concat(dfs, ignore_index=True)
+
+        # codifed type to human-readable type
+        Type_Map = {"4": "Fixed-wing", "5": "Jet", "6": "Helicopter"}
+        Color_Map = {0: "gray", 1: "red", 2: "skyblue"}
+
+        FAA['N-NUMBER'] = FAA['N-NUMBER'].astype('str').str.strip()
+        FAA['MODE S CODE HEX'] = FAA['MODE S CODE HEX'].astype('str').str.strip()
+
+        # Find all aircrafts in the FAA database that are in the current dataset
+        if n_numbers is not None:
+            row_mask = FAA['N-NUMBER'].isin(n_numbers)
+        elif hex_codes is not None:
+            row_mask = FAA['MODE S CODE HEX'].isin(hex_codes)
+        else:
+            # use everything
+            row_mask = np.ones(len(FAA), dtype=bool)
+        
+        lookup = FAA.loc[row_mask, ['N-NUMBER', 'TYPE AIRCRAFT', "NAME", "MODE S CODE HEX"]]
+        lookup['TYPE AIRCRAFT'] = lookup['TYPE AIRCRAFT'].apply(
+            lambda l: Type_Map[str(l)] if str(l) in Type_Map else l)
+
+        # If inaccurate aircraft types have been found for certain N-numbers, create dictionary from file that contains the corrections.
+        if aircraft_corrections_path != None:
+            # Open aircraft corrections from specified path, reconstruct as a dictionary using json.loads
+            with open(aircraft_corrections_path) as f:
+                raw_aircraft_corrections = f.read()
+            aircraft_corrections = json.loads(raw_aircraft_corrections)
+
+            # Correct the aircraft lookup table.
+            for n_number in aircraft_corrections:
+                lookup.loc[lookup['N-NUMBER'] == n_number,
+                                    'TYPE AIRCRAFT'] = aircraft_corrections[n_number]
+
+        return lookup

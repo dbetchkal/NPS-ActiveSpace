@@ -29,7 +29,7 @@ from tqdm import tqdm
 import warnings
 import _DENA.resource.config as cfg
 from _DENA import DENA_DIR
-from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM, load_activespace
+from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM, load_activespace, create_aircraft_lookup
 from nps_active_space.utils.computation import coords_to_utm, interpolate_spline
 from nps_active_space.utils.models import Tracks
 
@@ -38,7 +38,7 @@ pd.set_option('future.no_silent_downcasting', True)
 # declaring the logger in the global scope instead of a class attribute because static methods need access to it
 # and refactoring the static methods into member variables is a bit of a headache
 # will re-initialize the logger each time run_pipeline() is called, to update verbose settings, filename, etc.
-# logger = get_logger("AUDIBLE-TRANSITS")
+logger, log_buffer = get_logger("AUDIBLE-TRANSITS", make_log_buffer=True)
 
 
 def init_audible_transits(metadata, paths):
@@ -136,8 +136,8 @@ class AudibleTransits(ABC):
         tracks : `gpd.GeoDataFrame`
             The final audible transit tracks. This is a copy of this object's "tracks" property.
         '''
-        global logger
-        logger = get_logger("AUDIBLE-TRANSITS", verbose)
+        global logger, log_buffer
+        logger, log_buffer = get_logger("AUDIBLE-TRANSITS", verbose, make_log_buffer=True)
 
         logger.info("\n=========  NPS-ActiveSpace Audible Transits module  ==========\n")
         logger.info("[1] Parsing geospatial data inputs...")
@@ -1808,10 +1808,6 @@ class AudibleTransits(ABC):
         tracks['sampling_interval'] = sampling_interval
 
     @abstractmethod
-    def create_aircraft_lookup(self):
-        pass
-
-    @abstractmethod
     def extract_aircraft_info(self):
         pass
 
@@ -1839,6 +1835,8 @@ class AudibleTransits(ABC):
             output_dir, "transits_plot.png"), show_DEM=True)
         if export_garbage:
             self.export_garbage_summary(output_dir)
+        
+        log_buffer.save(os.path.join(output_dir, "log.log"))
 
         print(f"Saved results to '{os.path.abspath(output_dir)}'")
 
@@ -2212,10 +2210,9 @@ class AudibleTransitsGPS(AudibleTransits):
 
         if type(FAA) is str:
             assert FAA == 'load'
-
             # Create aircraft lookup table using FAA database
-            aircraft_lookup = AudibleTransitsGPS.create_aircraft_lookup(
-                tracks, FAA_path, aircraft_corrections_path)
+            aircraft_lookup = create_aircraft_lookup(FAA_path, aircraft_corrections_path,
+                                                     n_numbers=tracks['n_number'].unique())
             self.aircraft_lookup = aircraft_lookup.copy()
             logger.debug('\t\tAircraft look up complete.')
         else:
@@ -2235,42 +2232,6 @@ class AudibleTransitsGPS(AudibleTransits):
             tracks.loc[group.index, 'aircraft_type'] = aircraft_type
 
         tracks.fillna('Unknown', inplace=True)
-
-    @staticmethod
-    def create_aircraft_lookup(tracks, FAA_path, aircraft_corrections_path=None):
-        # Requires N-number
-        FAA = pd.read_csv(FAA_path, sep=",", dtype={"TYPE AIRCRAFT": str})
-        # codifed type to human-readable type
-        Type_Map = {4: "Fixed-wing", 5: "Jet", 6: "Helicopter"}
-        aircraft_list = []
-
-        for aircraft in tracks.n_number.unique():
-            # enter an n_number (or list of n_numbers)
-            n_numbers = np.array([aircraft])
-
-            FAA['N-NUMBER'] = FAA['N-NUMBER'].astype('str').str.strip()
-            FAA_lookup = FAA.loc[FAA['N-NUMBER'].isin(
-                n_numbers), ['N-NUMBER', 'TYPE AIRCRAFT', "NAME", "MODE S CODE HEX"]]
-            FAA_lookup['TYPE AIRCRAFT'] = FAA_lookup['TYPE AIRCRAFT'].apply(
-                lambda l: Type_Map[int(l)])
-            aircraft_list.append(FAA_lookup)
-
-        # Combine each single-row dataframe together into one lookup table
-        aircraft_lookup = pd.concat(aircraft_list)
-
-        # If inaccurate aircraft types have been found for certain N-numbers, create dictionary from file that contains the corrections
-        if aircraft_corrections_path != None:
-            # Open aircraft corrections from specified path, reconstruct as a dictionary using json.loads
-            with open(aircraft_corrections_path) as f:
-                raw_aircraft_corrections = f.read()
-            aircraft_corrections = json.loads(raw_aircraft_corrections)
-
-            # Correct the aircraft lookup table
-            for n_number in aircraft_corrections:
-                aircraft_lookup.loc[aircraft_lookup['N-NUMBER'] == n_number,
-                                    'TYPE AIRCRAFT'] = aircraft_corrections[n_number]
-
-        return aircraft_lookup
 
     def init_engine(self):
         '''
@@ -2559,8 +2520,8 @@ class AudibleTransitsADSB(AudibleTransits):
             assert FAA == 'load'
 
             # Access the FAA database and identify all aircrafts on the current record, create aircraft lookup table
-            aircraft_lookup = AudibleTransitsADSB.create_aircraft_lookup(
-                tracks, FAA_path, aircraft_corrections_path)
+            aircraft_lookup = create_aircraft_lookup(FAA_path, aircraft_corrections_path,
+                                                     hex_codes=tracks['ICAO_address'])
             self.aircraft_lookup = aircraft_lookup.copy()
             logger.debug('\t\tAircraft look up complete.')
         else:
@@ -2589,50 +2550,6 @@ class AudibleTransitsADSB(AudibleTransits):
         tracks.drop(columns=['ICAO_address'], inplace=True)
         return aircraft_lookup
 
-    @staticmethod
-    def create_aircraft_lookup(tracks, FAA_path, aircraft_corrections_path=None):
-        '''
-        Use a pre-downloaded copy of the U.S. Federal Aviation Administration's releasable aircraft database
-        (https://www.faa.gov/licenses_certificates/aircraft_certification/aircraft_registry/releasable_aircraft_download)
-        to glean various properties associated with a set of aircraft tracks.
-        '''
-
-        # Requires ICAO address
-        FAA = pd.read_csv(FAA_path, sep=",", dtype={"TYPE AIRCRAFT": str})
-        # codifed type to human-readable type
-        Type_Map = {4: "Fixed-wing", 5: "Jet", 6: "Helicopter"}
-        Color_Map = {0: "gray", 1: "red", 2: "skyblue"}
-        aircraft_list = []
-
-        # Find all aircrafts in the FAA database that are in the current ADS-B dataset
-        for aircraft in tracks.ICAO_address.unique():
-            # enter a HexID (or list of HexIDs)
-            HexIDs = np.array([aircraft])
-
-            FAA['MODE S CODE HEX'] = FAA['MODE S CODE HEX'].astype(
-                'str').str.strip()
-            FAA_lookup = FAA.loc[FAA['MODE S CODE HEX'].isin(
-                HexIDs), ['N-NUMBER', 'TYPE AIRCRAFT', "NAME", "MODE S CODE HEX"]]
-            FAA_lookup['TYPE AIRCRAFT'] = FAA_lookup['TYPE AIRCRAFT'].apply(
-                lambda l: Type_Map[int(l)])
-            aircraft_list.append(FAA_lookup)
-
-        # Combine each single-row dataframe together into one lookup table
-        aircraft_lookup = pd.concat(aircraft_list)
-
-        # If inaccurate aircraft types have been found for certain N-numbers, create dictionary from file that contains the corrections.
-        if aircraft_corrections_path != None:
-            # Open aircraft corrections from specified path, reconstruct as a dictionary using json.loads
-            with open(aircraft_corrections_path) as f:
-                raw_aircraft_corrections = f.read()
-            aircraft_corrections = json.loads(raw_aircraft_corrections)
-
-            # Correct the aircraft lookup table.
-            for n_number in aircraft_corrections:
-                aircraft_lookup.loc[aircraft_lookup['N-NUMBER'] == n_number,
-                                    'TYPE AIRCRAFT'] = aircraft_corrections[n_number]
-
-        return aircraft_lookup
 
     def remove_jets(self, tracks='self', return_jets=False):
 
