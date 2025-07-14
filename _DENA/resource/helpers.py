@@ -30,6 +30,7 @@ __all__ = [
     'get_omni_sources'
 ]
 
+
 def load_activespace(project_dir, unit, site, year, gain, third_octave=True, crs=None):
     """
     Load in the active space for a given unit, site, year, and gain
@@ -162,7 +163,7 @@ def get_deployment(project_dir: str, unit: str, site: str, year: int, elevation:
     elevation : bool, default True
         If True, the microphone z value will be set to its elevation. If False, the microphone z value will be
         set to the microphone's height from the ground.
-    
+
     Returns
     -------
     mic : Microphone
@@ -182,14 +183,14 @@ def get_deployment(project_dir: str, unit: str, site: str, year: int, elevation:
     mic_crs = NMSIM_bbox_utm(study_area)
     proj = Transformer.from_crs(mic_crs, "epsg:4326", always_xy=True)
     lon, lat = proj.transform(x, y)
-    
+
     # calculate elevation from the DEM if necessary
     if elevation:
         DEM = load_DEM(project_dir, unit, site)
         z = z_agl + get_elevation(DEM, lon, lat)
     else:
         z = z_agl
-        
+
     mic = Microphone(
         name=f"{unit}{site}{year}",
         lat=lat,
@@ -335,21 +336,25 @@ def get_logger(name: str, verbose: bool = False, logfile: str = None) -> logging
         A python logger object
     """
     logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG if verbose else logging.INFO)
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logger.setLevel(logging.DEBUG)  # let the handlers do the filtering
+
+    # Clear existing handlers from previous loggers with the same name
+    if logger.hasHandlers():
+        logger.handlers.clear()
 
     console_handler = logging.StreamHandler(stream=_TqdmStream)
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(formatter)
+    console_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
+    console_handler.setFormatter(logging.Formatter("%(message)s"))
     logger.addHandler(console_handler)
 
     if logfile is not None:
         file_handler = logging.FileHandler(logfile)
-        file_handler.setLevel(logging.INFO)
-        file_handler.setFormatter(formatter)
+        # always print everything to the log file
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(logging.Formatter(
+            fmt='%(asctime)s - %(name)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
         logger.addHandler(file_handler)
-        
+
     return logger
 
 
