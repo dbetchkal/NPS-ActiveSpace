@@ -1,8 +1,16 @@
+from types import GeneratorType
+import concurrent.futures
+from tzwhere import tzwhere
+from tqdm import tqdm
+from pyproj import Transformer
 import datetime as dt
 import glob
 import pytz
 import re
 import os
+import csv
+import json
+from warnings import warn
 from dataclasses import dataclass, field
 from typing import List, Optional, Union
 
@@ -11,11 +19,6 @@ from shapely.geometry import Point
 import numpy as np
 import pandas as pd
 pd.options.mode.copy_on_write = True
-from pyproj import Transformer
-from tqdm import tqdm
-from tzwhere import tzwhere
-import concurrent.futures
-from types import GeneratorType
 
 __all__ = [
     'Adsb',
@@ -88,10 +91,10 @@ class Microphone:
         self.crs = crs
         if not inplace:
             return self
-    
+
     def plot(self, **kwargs):
         """Plot this microphone's location using geopandas
-        
+
         Parameters
         ----------
         **kwargs
@@ -126,22 +129,22 @@ class Nvspl(pd.DataFrame):
         data = self._read(filepaths_or_data)
         super().__init__(data=data)
 
-
-    def parseNvspl(self, nvsplFileEntry, state= (None, None, 1)):
+    def parseNvspl(self, nvsplFileEntry, state=(None, None, 1)):
 
         timestamps, columns, index_index = state
 
         df = pd.read_csv(str(nvsplFileEntry),
-                        engine= 'c',
-                        parse_dates= True,
-                        index_col= index_index,
-                        usecols= columns
-                        )
+                         engine='c',
+                         parse_dates=True,
+                         index_col=index_index,
+                         usecols=columns
+                         )
 
         # Make column names slightly nicer
         df.index.name = "date"
-        renamedColumns = { column: column.replace('H', '').replace('p', '.') for column in df.columns if re.match(r"H\d+p?\d*", column) is not None }
-        df.rename(columns= renamedColumns, inplace= True)
+        renamedColumns = {column: column.replace('H', '').replace(
+            'p', '.') for column in df.columns if re.match(r"H\d+p?\d*", column) is not None}
+        df.rename(columns=renamedColumns, inplace=True)
 
         # Coerce numeric columns to floats, in case of "-Infinity" values
         try:
@@ -150,11 +153,12 @@ class Nvspl(pd.DataFrame):
                 '125', '160', '200', '250', '315', '400', '500', '630', '800', '1000',
                 '1250', '1600', '2000', '2500', '3150', '4000', '5000', '6300', '8000',
                 '10000', '12500', '16000', '20000', 'dbA', 'dbC', 'dbF',
-                'Voltage','WindSpeed', 'WindDir', 'TempIns', 'TempOut', 'Humidity'
+                'Voltage', 'WindSpeed', 'WindDir', 'TempIns', 'TempOut', 'Humidity'
             ]
             presentNumericCols = df.columns.intersection(numericCols)
             if len(presentNumericCols) > 0:
-                df[presentNumericCols].astype('float32', copy= False, errors= 'ignore')
+                df[presentNumericCols].astype(
+                    'float32', copy=False, errors='ignore')
 
         except KeyError:
             pass
@@ -184,23 +188,28 @@ class Nvspl(pd.DataFrame):
         else:
 
             if str(type(filepaths_or_data)) == "<class 'iyore.Subset'>":
-                filepaths_or_data = [str(entry) for entry in list(iter(filepaths_or_data))]
-            
+                filepaths_or_data = [str(entry)
+                                     for entry in list(iter(filepaths_or_data))]
+
             if isinstance(filepaths_or_data, str):
-                assert os.path.isdir(filepaths_or_data), f"{filepaths_or_data} does not exist."
+                assert os.path.isdir(
+                    filepaths_or_data), f"{filepaths_or_data} does not exist."
                 filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.txt")
 
             else:
                 for file in filepaths_or_data:
                     assert os.path.isfile(file), f"{file} does not exist."
-                    assert file.endswith('.txt'), f"Only .txt NVSPL files accepted."
+                    assert file.endswith(
+                        '.txt'), f"Only .txt NVSPL files accepted."
 
             with concurrent.futures.ThreadPoolExecutor() as pool:
-                parts = list(tqdm(pool.map(self.parseNvspl, filepaths_or_data), total=len(filepaths_or_data), unit="NVSPL files"))
+                parts = list(tqdm(pool.map(self.parseNvspl, filepaths_or_data), total=len(
+                    filepaths_or_data), unit="NVSPL files"))
 
             data = pd.concat(parts)
 
-        octave_columns = {c: c.replace('H', '').replace('p', '.') for c in filter(self.octave_regex.match, data.columns)}
+        octave_columns = {c: c.replace('H', '').replace(
+            'p', '.') for c in filter(self.octave_regex.match, data.columns)}
         data.rename(columns=octave_columns, inplace=True)
 
         # we deliberately sort the DatetimeIndex to ensure it is monotonic
@@ -224,18 +233,20 @@ class Nvspl(pd.DataFrame):
         """
         # Verify that all NVSPL standard columns exist.
         missing_standard_cols = self.standard_fields - set(columns)
-        assert missing_standard_cols == set(), f"Missing the following standard NVSPL columns: {missing_standard_cols}"
+        assert missing_standard_cols == set(
+        ), f"Missing the following standard NVSPL columns: {missing_standard_cols}"
 
         # Verify all non-standard columns are octave columns. Use verifyNonStandardOctave=False to allow extra columns
         if verifyNonStandardOctave:
-            only_standard_cols = all(re.match(self.octave_regex, col) for col in (set(columns) - self.standard_fields))
+            only_standard_cols = all(re.match(self.octave_regex, col)
+                                     for col in (set(columns) - self.standard_fields))
             assert only_standard_cols is True, "NVSPL data contains unexpected NVSPL columns."
 
 
 class Ais(gpd.GeoDataFrame):
     """
     A geopandas GeoDataFrame wrapper class to ensure consistent AIS data.
-    
+
     Parameters
     ----------
     filepaths_or_data : List, str, or gpd.GeoDataFrame
@@ -247,31 +258,33 @@ class Ais(gpd.GeoDataFrame):
         data = self._read(filepaths_or_data)
         super().__init__(data=data)
 
-    def parseAis(self, aisFileEntry, state= (None, None, 1)):
+    def parseAis(self, aisFileEntry, state=(None, None, 1)):
 
         timestamps, columns, index_index = state
-  
+
         df = pd.read_csv(str(aisFileEntry),
                          engine='c',
                          usecols=columns,
                          low_memory=False
-                        ) # read the .csv
-         
-        if 'mmsi' in df.columns: # Then this is the more modern version of AIS file...
+                         )  # read the .csv
+
+        if 'mmsi' in df.columns:  # Then this is the more modern version of AIS file...
 
             # We must rename the headers to match
-            df.columns = ['Base station time stamp', 'MMSI', 'callsign', 'IMO', 'Ship name', 
-                        'Navigational status (text)', 'Latitude', 'Longitude', 'Course over ground',
-                        'Speed over ground', 'Destination', 'eta', 'Type of ship (text)', 'Draught',
-                        'length', 'width']
-            
+            df.columns = ['Base station time stamp', 'MMSI', 'callsign', 'IMO', 'Ship name',
+                          'Navigational status (text)', 'Latitude', 'Longitude', 'Course over ground',
+                          'Speed over ground', 'Destination', 'eta', 'Type of ship (text)', 'Draught',
+                          'length', 'width']
+
             # We drop the fields that don't exist in the legacy files
-            df.drop(['callsign', 'eta', 'length', 'width'], axis=1, inplace=True, errors="ignore")
-        
+            df.drop(['callsign', 'eta', 'length', 'width'],
+                    axis=1, inplace=True, errors="ignore")
+
         # if there are 1090 MHz jet ADS-B points mixed into this dataset
         # this is a convenient way to make sure they are removed
-        df = df.loc[df["MMSI"] >= 100000000, :].copy() # we strictly require a 9-digit MMSI code
-        
+        # we strictly require a 9-digit MMSI code
+        df = df.loc[df["MMSI"] >= 100000000, :].copy()
+
         # tidy up all the header field names
         mask = df.iloc[:, 0].isin(['Base station time stamp'])
         df = df[~mask]
@@ -285,24 +298,24 @@ class Ais(gpd.GeoDataFrame):
 
         # Standardize key field names and remove extra columns collected by the AIS logger
         if 'Base station time stamp' in df.columns:
-            df = df.rename(columns={'Base station time stamp':"TIME"})
+            df = df.rename(columns={'Base station time stamp': "TIME"})
 
         df.drop(['IMO', 'Ship name', 'Type of ship (text)', 'Size A',
                 'Size B', 'Size C', 'Size D', 'Draught', 'Destination', 'Heading',
-                'Navigational status (text)', 'Country (AIS)', 'Target class (text)',
-                'Data source type (text)', 'Data source region'], axis=1, inplace=True, errors="ignore")
+                 'Navigational status (text)', 'Country (AIS)', 'Target class (text)',
+                 'Data source type (text)', 'Data source region'], axis=1, inplace=True, errors="ignore")
 
         if 'Course over ground' in df.columns:
-            df = df.rename(columns={'Course over ground':"heading"})
+            df = df.rename(columns={'Course over ground': "heading"})
 
         if 'Latitude' in df.columns:
-            df = df.rename(columns={'Latitude':"lat"})
+            df = df.rename(columns={'Latitude': "lat"})
 
         if 'Longitude' in df.columns:
-            df = df.rename(columns={'Longitude':"lon"})
+            df = df.rename(columns={'Longitude': "lon"})
 
         if 'Speed over ground' in df.columns:
-            df = df.rename(columns={'Speed over ground':"velocity"})
+            df = df.rename(columns={'Speed over ground': "velocity"})
 
         # Delete duplicate records
         df.drop_duplicates(inplace=True)
@@ -310,68 +323,76 @@ class Ais(gpd.GeoDataFrame):
 
         # it is possible that upon removing ADS-B no points remain,
         # in which case we're done... we return an empty `pd.DataFrame` with formatted field names
-        if(len(df) == 0):
+        if (len(df) == 0):
             return df
-        
+
         else:
             # For now, we assume the vessel's z-position is "at sea level"
             # a slower, but more accurate z-position would be derived
             # using the NOAA CO-OPS Data Retrieval API
             # https://api.tidesandcurrents.noaa.gov/api/prod/
-            df["altitude"] = 0.0 # meters
+            df["altitude"] = 0.0  # meters
 
             # The MXAK has released data with many different time formats
             # we can safely assume that a single fine has a consistent time format over all rows
             # our best approach is to check the first row against the known patterns:
             test = df["TIME"].iloc[0]
             time_pattern = test.split(" ")
-            
-            # Files exist with the following patterns:
-            MXAK_timestamp_patterns = {1:"%d %b %Y %H:%M:%S UTC",
-                                       2:"%Y-%m-%d %H:%M:%S UTC",
-                                       3:"%m-%d-%Y %H:%M:%S UTC",
-                                       4:"%Y-%m-%d %H:%M:%S AKST",
-                                       5:"%Y-%m-%d %H:%M:%S AKDT",
-                                       6:"%Y-%m-%d %H:%M:%S"}   
-            
-            # Begin conditional timestamp formatting...
-            if((len(time_pattern) == 5)&(time_pattern[-1] == "UTC")):
-                df["TIME"] = pd.to_datetime(df["TIME"], format=MXAK_timestamp_patterns[1])
 
-            elif((len(time_pattern) == 3)&(time_pattern[-1] == "UTC")):
+            # Files exist with the following patterns:
+            MXAK_timestamp_patterns = {1: "%d %b %Y %H:%M:%S UTC",
+                                       2: "%Y-%m-%d %H:%M:%S UTC",
+                                       3: "%m-%d-%Y %H:%M:%S UTC",
+                                       4: "%Y-%m-%d %H:%M:%S AKST",
+                                       5: "%Y-%m-%d %H:%M:%S AKDT",
+                                       6: "%Y-%m-%d %H:%M:%S"}
+
+            # Begin conditional timestamp formatting...
+            if ((len(time_pattern) == 5) & (time_pattern[-1] == "UTC")):
+                df["TIME"] = pd.to_datetime(
+                    df["TIME"], format=MXAK_timestamp_patterns[1])
+
+            elif ((len(time_pattern) == 3) & (time_pattern[-1] == "UTC")):
                 try:
-                    df["TIME"] = pd.to_datetime(df["TIME"], format=MXAK_timestamp_patterns[2])
+                    df["TIME"] = pd.to_datetime(
+                        df["TIME"], format=MXAK_timestamp_patterns[2])
 
                 except ValueError:
-                    df["TIME"] = pd.to_datetime(df["TIME"], format=MXAK_timestamp_patterns[3])
+                    df["TIME"] = pd.to_datetime(
+                        df["TIME"], format=MXAK_timestamp_patterns[3])
 
-            elif((len(time_pattern) == 3)&(time_pattern[-1] == "AKST")):
+            elif ((len(time_pattern) == 3) & (time_pattern[-1] == "AKST")):
                 try:
-                    df["TIME"] = pd.to_datetime(df["TIME"], format=MXAK_timestamp_patterns[4]) + dt.timedelta(hours=9)
+                    df["TIME"] = pd.to_datetime(
+                        df["TIME"], format=MXAK_timestamp_patterns[4]) + dt.timedelta(hours=9)
                 except ValueError:
                     # we must handle the day in November where we change from AKST to AKDT
                     df.loc[df["TIME"].str[-4:] == "AKST", "TIME"] = pd.to_datetime(df["TIME"].loc[df["TIME"].str[-4:] == "AKST"],
                                                                                    format=MXAK_timestamp_patterns[4]) + dt.timedelta(hours=9)
                     df.loc[df["TIME"].str[-4:] == "AKDT", "TIME"] = pd.to_datetime(df["TIME"].loc[df["TIME"].str[-4:] == "AKDT"],
                                                                                    format=MXAK_timestamp_patterns[5]) + dt.timedelta(hours=8)
-                    df["TIME"] = pd.to_datetime(df["TIME"]) # apparently we still need to nudge these into datetime format?
-                    
-            elif((len(time_pattern) == 3)&(time_pattern[-1] == "AKDT")):
+                    # apparently we still need to nudge these into datetime format?
+                    df["TIME"] = pd.to_datetime(df["TIME"])
+
+            elif ((len(time_pattern) == 3) & (time_pattern[-1] == "AKDT")):
                 try:
-                    df["TIME"] = pd.to_datetime(df["TIME"], format=MXAK_timestamp_patterns[5]) + dt.timedelta(hours=8)
-                except ValueError: 
+                    df["TIME"] = pd.to_datetime(
+                        df["TIME"], format=MXAK_timestamp_patterns[5]) + dt.timedelta(hours=8)
+                except ValueError:
                     # we must handle the day in March where we change from AKDT to AKST
                     df.loc[df["TIME"].str[-4:] == "AKST", "TIME"] = pd.to_datetime(df["TIME"].loc[df["TIME"].str[-4:] == "AKST"],
                                                                                    format=MXAK_timestamp_patterns[4]) + dt.timedelta(hours=9)
                     df.loc[df["TIME"].str[-4:] == "AKDT", "TIME"] = pd.to_datetime(df["TIME"].loc[df["TIME"].str[-4:] == "AKDT"],
                                                                                    format=MXAK_timestamp_patterns[5]) + dt.timedelta(hours=8)
                     df["TIME"] = pd.to_datetime(df["TIME"])
-                    
-            elif((len(time_pattern) == 2)):
-                df["TIME"] = pd.to_datetime(df["TIME"], format=MXAK_timestamp_patterns[6])
+
+            elif ((len(time_pattern) == 2)):
+                df["TIME"] = pd.to_datetime(
+                    df["TIME"], format=MXAK_timestamp_patterns[6])
 
             else:
-                raise ValueError("The file's timestamp format is not recognized!")
+                raise ValueError(
+                    "The file's timestamp format is not recognized!")
 
             df["TIME"].dt.tz_localize(tz="UTC")
             df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
@@ -379,18 +400,21 @@ class Ais(gpd.GeoDataFrame):
             # Sort records by MMSI and TIME then reset dataframe index
             df.sort_values(["MMSI", "TIME"], inplace=True, ignore_index=True)
 
-            # Calculate time difference between sequential waypoints for each watercraft            
+            # Calculate time difference between sequential waypoints for each watercraft
             df["TIME"] = pd.to_datetime(arg=df["TIME"], errors="coerce")
-            df["dur_secs"] = df.groupby("MMSI")["TIME"].diff().dt.total_seconds()
+            df["dur_secs"] = df.groupby(
+                "MMSI")["TIME"].diff().dt.total_seconds()
             df["dur_secs"] = df["dur_secs"].fillna(0)
 
             # Drop any identical waypoints in a single input file based on MMSI, time, lat, and lon
-            df.drop_duplicates(subset=['MMSI', 'TIME', 'lat', 'lon'], keep = 'last')
+            df.drop_duplicates(
+                subset=['MMSI', 'TIME', 'lat', 'lon'], keep='last')
 
             # Use threshold waypoint duration value to identify separate flights by a vessel then sum the number of "true" conditions to assign unique ID's
-            df['diff_event'] = df['dur_secs'] >= 1200 # ( = 20 minutes)
+            df['diff_event'] = df['dur_secs'] >= 1200  # ( = 20 minutes)
             df['cumsum'] = df.groupby('MMSI')['diff_event'].cumsum()
-            df['event_id'] = df['MMSI'].astype('str') + "_" + df['cumsum'].astype(str) + "_" + df['DATE'].astype(str)
+            df['event_id'] = df['MMSI'].astype(
+                'str') + "_" + df['cumsum'].astype(str) + "_" + df['DATE'].astype(str)
 
             # Let us only consider events with more than 2 AIS points
             df = df[df.groupby("event_id").event_id.transform(len) > 2]
@@ -415,16 +439,19 @@ class Ais(gpd.GeoDataFrame):
 
         else:
             if isinstance(filepaths_or_data, str):
-                assert os.path.isdir(filepaths_or_data), f"{filepaths_or_data} does not exist."
+                assert os.path.isdir(
+                    filepaths_or_data), f"{filepaths_or_data} does not exist."
                 filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.csv")
 
             else:
                 for file in filepaths_or_data:
                     assert os.path.isfile(file), f"{file} does not exist."
-                    assert file.endswith('.csv'), f"Only .csv AIS files accepted."
+                    assert file.endswith(
+                        '.csv'), f"Only .csv AIS files accepted."
 
             with concurrent.futures.ThreadPoolExecutor() as pool:
-                parts = list(tqdm(pool.map(self.parseAis, filepaths_or_data), total=len(filepaths_or_data), unit="AIS files"))
+                parts = list(tqdm(pool.map(self.parseAis, filepaths_or_data), total=len(
+                    filepaths_or_data), unit="AIS files"))
 
             data = pd.concat(parts)
             data = gpd.GeoDataFrame(
@@ -434,7 +461,8 @@ class Ais(gpd.GeoDataFrame):
             )
 
         return data
-        
+
+
 class Adsb(gpd.GeoDataFrame):
     """
     A geopandas GeoDataFrame wrapper class to ensure consistent ADS-B data.
@@ -447,7 +475,7 @@ class Adsb(gpd.GeoDataFrame):
 
     def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
         data = self._read(filepaths_or_data)
-        data.drop_duplicates(subset=['TIME'], inplace=True, keep = 'last')
+        data.drop_duplicates(subset=['TIME'], inplace=True, keep='last')
         super().__init__(data=data)
 
     def _read(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
@@ -468,13 +496,15 @@ class Adsb(gpd.GeoDataFrame):
 
         else:
             if isinstance(filepaths_or_data, str):
-                assert os.path.isdir(filepaths_or_data), f"{filepaths_or_data} does not exist."
+                assert os.path.isdir(
+                    filepaths_or_data), f"{filepaths_or_data} does not exist."
                 filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.TSV")
 
             else:
                 for file in filepaths_or_data:
                     assert os.path.isfile(file), f"{file} does not exist."
-                    assert (file.endswith('.txt')|file.endswith('.TSV')), f"Only .TSV ADS-B files accepted."
+                    assert (file.endswith('.txt') | file.endswith(
+                        '.TSV')), f"Only .TSV ADS-B files accepted."
 
             data = pd.DataFrame()
             for file in tqdm(filepaths_or_data, desc='Loading ADS-B files', unit='files', colour='green'):
@@ -492,11 +522,11 @@ class Adsb(gpd.GeoDataFrame):
 
                 # Standardize key field names and remove extra columns collected by the ADS-B df logger
                 if "timestamp" in df.columns:
-                    df = df.rename(columns={"timestamp":"TIME"})
+                    df = df.rename(columns={"timestamp": "TIME"})
                 if "valid_flags" in df.columns:
-                    df = df.rename(columns={"valid_flags":"validFlags"})
+                    df = df.rename(columns={"valid_flags": "validFlags"})
                 df.drop(["squawk", "altitude_type", "alt_type", "altType", "callsign",
-                    "emitter_type", "emitterType"], axis=1, inplace=True, errors="ignore")
+                         "emitter_type", "emitterType"], axis=1, inplace=True, errors="ignore")
 
                 # Delete duplicate and NA records
                 df.drop_duplicates(inplace=True)
@@ -504,23 +534,29 @@ class Adsb(gpd.GeoDataFrame):
 
                 # Unpack validFLags and convert the 2-byte flag field into a list of Boolean values
                 flags_names = ["valid_BARO", "valid_VERTICAL_VELOCITY", "SIMULATED_REPORT", "valid_IDENT",
-                            "valid_CALLSIGN", "valid_VELOCITY", "valid_HEADING", "valid_ALTITUDE", "valid_LATLON"]
-                flags = df["validFlags"].apply(lambda t: list(bin(int(t, 16))[2:].zfill(9)[-9:]))
-                flags_df = pd.DataFrame(list(flags), columns=flags_names).replace({'0': False, '1': True}).infer_objects(copy=False)
-                df = pd.concat([df.drop("validFlags", axis=1), flags_df], axis=1)
+                               "valid_CALLSIGN", "valid_VELOCITY", "valid_HEADING", "valid_ALTITUDE", "valid_LATLON"]
+                flags = df["validFlags"].apply(
+                    lambda t: list(bin(int(t, 16))[2:].zfill(9)[-9:]))
+                flags_df = pd.DataFrame(list(flags), columns=flags_names).replace(
+                    {'0': False, '1': True}).infer_objects(copy=False)
+                df = pd.concat(
+                    [df.drop("validFlags", axis=1), flags_df], axis=1)
 
                 # Keep only those records with valid latlon and altitude values based on validFlags
                 df.dropna(how="any", axis=0, inplace=True)
                 if df["valid_LATLON"].sum() == len(df.index):
                     invalidLatLon = 0
                 else:
-                    invalidLatLon = round(100 - df["valid_LATLON"].sum() / len(df.index) * 100, 2)
+                    invalidLatLon = round(
+                        100 - df["valid_LATLON"].sum() / len(df.index) * 100, 2)
                 if df["valid_ALTITUDE"].sum() == len(df.index):
                     invalidAltitude = 0
                 else:
-                    invalidAltitude = round(100 - df["valid_ALTITUDE"].sum() / len(df.index) * 100, 2)
-                df.drop(df[df["valid_LATLON"] == "False"].index, inplace = True)
-                df.drop(df[df["valid_ALTITUDE"] == "False"].index, inplace = True)
+                    invalidAltitude = round(
+                        100 - df["valid_ALTITUDE"].sum() / len(df.index) * 100, 2)
+                df.drop(df[df["valid_LATLON"] == "False"].index, inplace=True)
+                df.drop(df[df["valid_ALTITUDE"] ==
+                        "False"].index, inplace=True)
 
                 # Ensure remaining field values except TIME are in proper numeric format
                 df.replace('-', np.nan, inplace=True)
@@ -535,7 +571,7 @@ class Adsb(gpd.GeoDataFrame):
                 df["tslc"] = df["tslc"].astype(int)
 
                 # Convert Unix timestamp to datetime objects in UTC and re-scale selected variable values
-                df["TIME"] = pd.to_datetime(df["TIME"], unit = "s")
+                df["TIME"] = pd.to_datetime(df["TIME"], unit="s")
                 df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
                 df["lat"] = df["lat"] / 1e7
                 df["lon"] = df["lon"] / 1e7
@@ -545,34 +581,44 @@ class Adsb(gpd.GeoDataFrame):
                 df["ver_velocity"] = df["ver_velocity"] / 1e2
 
                 # Keep only those records with TSLC values of 1 or 2 seconds
-                invalidTslc = len(df.query("tslc >= 3 or tslc == 0")) / df.shape[0] * 100
-                df.drop(df[df["tslc"] >= 3].index, inplace = True)
-                df.drop(df[df["tslc"] == 0].index, inplace = True)
+                invalidTslc = len(
+                    df.query("tslc >= 3 or tslc == 0")) / df.shape[0] * 100
+                df.drop(df[df["tslc"] >= 3].index, inplace=True)
+                df.drop(df[df["tslc"] == 0].index, inplace=True)
 
                 # Keep only those records with realistic altitudes
                 # 10000 meters = 32808 feet; this should encompass most flights
                 # NOTE: some jet aircraft may be eliminated by this process
-                df = df.loc[(df["altitude"] > 0)&(df["altitude"] <= 10000), :] 
+                df = df.loc[(df["altitude"] > 0) & (
+                    df["altitude"] <= 10000), :]
 
                 # Sort records by ICAO Address and TIME then reset dfframe index
-                df.sort_values(["ICAO_address", "TIME"], inplace=True, ignore_index=True)
+                df.sort_values(["ICAO_address", "TIME"],
+                               inplace=True, ignore_index=True)
 
                 # Calculate time difference between sequential waypoints for each aircraft
-                df["dur_secs"] = df.groupby("ICAO_address")["TIME"].diff().dt.total_seconds()
+                df["dur_secs"] = df.groupby("ICAO_address")[
+                    "TIME"].diff().dt.total_seconds()
                 df["dur_secs"] = df["dur_secs"].fillna(0)
 
                 # Count then delete any identical waypoints in a single input file based on ICAO_address, time, lat, and lon
-                duplicateWaypoints = 100 - (len(df.drop_duplicates(subset=['ICAO_address', 'TIME', 'lat', 'lon'])) / len(df) * 100)
-                df.drop_duplicates(subset=['ICAO_address', 'TIME', 'lat', 'lon'], keep = 'last')
+                duplicateWaypoints = 100 - \
+                    (len(df.drop_duplicates(
+                        subset=['ICAO_address', 'TIME', 'lat', 'lon'])) / len(df) * 100)
+                df.drop_duplicates(
+                    subset=['ICAO_address', 'TIME', 'lat', 'lon'], keep='last')
 
                 # Use threshold waypoint duration value to identify separate flights by an aircraft then sum the number of "true" conditions to assign unique ID's
                 df['diff_flight'] = df['dur_secs'] >= 900
-                df['cumsum'] = df.groupby('ICAO_address')['diff_flight'].cumsum()
-                df['flight_id'] = df['ICAO_address'] + "_" + df['cumsum'].astype(str) + "_" + df['DATE']
+                df['cumsum'] = df.groupby('ICAO_address')[
+                    'diff_flight'].cumsum()
+                df['flight_id'] = df['ICAO_address'] + "_" + \
+                    df['cumsum'].astype(str) + "_" + df['DATE']
 
                 # Remove records where there is only one recorded waypoint for an aircraft and fields that are no longer needed
                 df = df[df.groupby("flight_id").flight_id.transform(len) > 1]
-                df = df.drop(columns = ['tslc', 'dur_secs', 'diff_flight', 'cumsum', 'valid_BARO', 'valid_VERTICAL_VELOCITY', 'SIMULATED_REPORT', 'valid_IDENT', 'valid_CALLSIGN', 'valid_VELOCITY', 'valid_HEADING', 'valid_ALTITUDE', 'valid_LATLON', 'DATE'])
+                df = df.drop(columns=['tslc', 'dur_secs', 'diff_flight', 'cumsum', 'valid_BARO', 'valid_VERTICAL_VELOCITY', 'SIMULATED_REPORT',
+                             'valid_IDENT', 'valid_CALLSIGN', 'valid_VELOCITY', 'valid_HEADING', 'valid_ALTITUDE', 'valid_LATLON', 'DATE'])
 
                 data = pd.concat([data, df], ignore_index=True)
 
@@ -618,22 +664,25 @@ class EarlyAdsb(gpd.GeoDataFrame):
 
         else:
             if isinstance(filepaths_or_data, str):
-                assert os.path.isdir(filepaths_or_data), f"{filepaths_or_data} does not exist."
+                assert os.path.isdir(
+                    filepaths_or_data), f"{filepaths_or_data} does not exist."
                 filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.TSV")
 
             else:
                 for file in filepaths_or_data:
                     assert os.path.isfile(file), f"{file} does not exist."
-                    assert (file.endswith('.txt')), f"Only .txt ADS-B files accepted."
+                    assert (file.endswith('.txt')
+                            ), f"Only .txt ADS-B files accepted."
 
             data = pd.DataFrame()
             for file in tqdm(filepaths_or_data, desc='Loading ADS-B files', unit='files', colour='green'):
                 df = pd.read_csv(file, sep="\t")
 
                 df.columns = ["ICAO_address", "TIME", "lat", "lon", "altitude"]
-                df["TIME"] = df["TIME"].apply(lambda t: dt.datetime.strptime(t, "%Y/%m/%d %H:%M:%S.%f").replace(microsecond=0))
+                df["TIME"] = df["TIME"].apply(lambda t: dt.datetime.strptime(
+                    t, "%Y/%m/%d %H:%M:%S.%f").replace(microsecond=0))
                 df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
-                
+
                 # unlike later loggers, EarlyAdsb was collected in feet MSL
                 # we need to convert altitude from feet to meters!
                 df["altitude"] = 0.3048*df["altitude"]
@@ -641,20 +690,25 @@ class EarlyAdsb(gpd.GeoDataFrame):
                 # Keep only those records with realistic altitudes
                 # 10000 meters = 32808 feet; this should encompass most flights
                 # NOTE: some jet aircraft may be eliminated by this process
-                df = df.loc[(df["altitude"] > 0)&(df["altitude"] <= 10000), :] 
+                df = df.loc[(df["altitude"] > 0) & (
+                    df["altitude"] <= 10000), :]
 
                 # Sort records by ICAO Address and TIME then reset dataframe index
-                df.sort_values(["ICAO_address", "TIME"], inplace=True, ignore_index=True)
+                df.sort_values(["ICAO_address", "TIME"],
+                               inplace=True, ignore_index=True)
 
                 # Calculate time difference between sequential waypoints for each aircraft
-                df["dur_secs"] = df.groupby("ICAO_address")["TIME"].diff().dt.total_seconds()
+                df["dur_secs"] = df.groupby("ICAO_address")[
+                    "TIME"].diff().dt.total_seconds()
                 df["dur_secs"] = df["dur_secs"].fillna(0)
 
                 # Use threshold waypoint duration value to identify separate flights by an aircraft
                 # then sum the number of "true" conditions to assign unique ID's
                 df['diff_flight'] = df['dur_secs'] >= 900
-                df['cumsum'] = df.groupby('ICAO_address')['diff_flight'].cumsum()
-                df['flight_id'] = df['ICAO_address'] + "_" + df['cumsum'].astype(str) + "_" + df['DATE']
+                df['cumsum'] = df.groupby('ICAO_address')[
+                    'diff_flight'].cumsum()
+                df['flight_id'] = df['ICAO_address'] + "_" + \
+                    df['cumsum'].astype(str) + "_" + df['DATE']
 
                 # Remove records where there is only one recorded waypoint for an aircraft
                 df = df[df.groupby("flight_id").flight_id.transform(len) > 1]
@@ -668,6 +722,168 @@ class EarlyAdsb(gpd.GeoDataFrame):
             )
 
         return data
+
+
+class FAAReleasable():
+    """Use a pre-downloaded copy of the U.S. Federal Aviation Administration's releasable aircraft database
+    (https://www.faa.gov/licenses_certificates/aircraft_certification/aircraft_registry/releasable_aircraft_download)
+    to glean various properties associated with a set of aircraft tracks.
+    """
+
+    def __init__(self, FAA_path, aircraft_corrections_path=None, n_numbers=None, icao_addresses=None):
+        """Load FAA data into a DataFrame for a subset of aircraft (or all aircraft).
+        The first time this is run, creates an index that lives in the same directory as the FAA path to speed up future database reading.
+
+        After initializing, use the .data attribute to access the loaded dataframe.
+
+        Parameters
+        ----------
+        FAA_path: str
+            Path to the MASTER.txt file downloaded from the FAA
+        aircraft_corrections_path: str, default None
+            Path to a corrections text file for fixing errors with aircraft type in the FAA database. Formatted as a JSON object where keys are N-numbers and values are the correct aircraft type (e.g. "Fixed-wing")
+        n_numbers: array_like of str, default None
+            If provided, only load data for these N-numbers.
+        icao_addresses: array_like of str, default None
+            If provided, only load data for these ICAO 24-bit addresses.
+        """
+
+        self.FAA_path = FAA_path
+        self.aircraft_corrections_path = aircraft_corrections_path
+        self.n_numbers = n_numbers
+        self.icao_addresses = icao_addresses
+
+        self.index_path = os.path.join(
+            os.path.dirname(FAA_path), "MASTER_index.json")
+
+        # If we only want some of the data and we have an index, use it. Otherwise load all data
+        index_loaded = self._load_index()
+        if index_loaded and (n_numbers is not None or icao_addresses is not None):
+            self._read_using_index()
+        else:
+            self._read_and_build_index()
+        
+        self._apply_corrections()
+
+
+    def _get_database_metadata(self):
+        """Get metadata used to check if the database was updated."""
+        return {
+            "database_last_modified": os.path.getmtime(self.FAA_path),
+            "database_size": os.path.getsize(self.FAA_path)
+        }
+
+    def _load_index(self):
+        """Attempt to load the index from disk.
+
+        Returns
+        -------
+        success: bool
+            True if an index exists, is up to date, and has been loaded successfully into self.index. False otherwise.
+        """
+        if not os.path.exists(self.index_path):
+            return False
+        with open(self.index_path, "r") as f:
+            index = json.load(f)
+
+        # check that metadata matches
+        if "metadata" not in index:
+            return False
+        current_metadata = self._get_database_metadata()
+        for k, v in current_metadata.items():
+            if k not in index["metadata"] or index["metadata"][k] != v:
+                return False
+
+        # no need to keep metadata in the index, might be confusing?
+        del index["metadata"]
+        self.index = index
+        return True
+
+    def _estimate_line_count(self, filename, sample_size=1024 * 1024):
+        """Use a 1MB sample to estimate the number of lines in a large file"""
+        file_size = os.path.getsize(filename)
+        with open(filename, 'rb') as f:
+            sample = f.read(sample_size)
+        newlines = sample.count(b'\n')
+        if not newlines:
+            return 0
+        if file_size < sample_size:
+            return newlines
+        return int((file_size / sample_size) * newlines)
+
+    def _read_and_build_index(self):
+        """Read data, building an index along the way. Assigns data to self.data, and saves the index to a file."""
+        self.index = {
+            "n_number": {},
+            "icao": {}
+        }
+        n_lines = self._estimate_line_count(self.FAA_path)
+        pbar = tqdm(total=n_lines-1, desc="Loading all FAA Data")
+
+        with open(self.FAA_path, 'r', encoding='utf-8-sig') as f:
+            header_line = f.readline()
+            rows = []
+            while True:
+                offset = f.tell()
+                line = f.readline()
+                if not line:
+                    break
+                row = next(csv.DictReader([header_line, line]))
+                row = {k: v.strip() if v is not None else v for k,
+                       v in row.items()}  # remove extra whitespace
+                rows.append(row)
+                self.index["n_number"][row["N-NUMBER"]] = offset
+                self.index["icao"][row["MODE S CODE HEX"]] = offset
+                pbar.update(1)
+
+        self.data = pd.DataFrame(rows).convert_dtypes()
+
+        # save index to file
+        to_save = self.index.copy()
+        to_save["metadata"] = self._get_database_metadata()
+        with open(self.index_path, "w") as f:
+            json.dump(to_save, f)
+        print(
+            f"Saved FAA database index to {os.path.abspath(self.index_path)}")
+        
+        # TODO filter data
+        
+
+    def _read_using_index(self):
+        assert self.index is not None and "n_number" in self.index and "icao" in self.index, \
+        f"Something is wrong with the FAA index, please delete {os.path.abspath(self.index_path)} and try again"
+
+        # load file offsets from the index
+        offsets = []
+        if self.n_numbers is not None:
+            for n in self.n_numbers:
+                if str(n) not in self.index["n_number"]:
+                    warn(f"N-number {n} not found in the FAA database, skipping")
+                else:
+                    offsets.append(self.index["n_number"][str(n)])
+        if self.icao_addresses is not None:
+            for code in self.icao_addresses:
+                if str(code) not in self.index["icao"]:
+                    warn(f"ICAO Address {code} not found in the FAA database, skipping")
+                else:
+                    offsets.append(self.index["icao"][str(code)])
+
+        offsets.sort()  # probably improves disk access speed
+
+        with open(self.FAA_path, mode="r", encoding="utf-8-sig") as f:
+            header_line = f.readline()
+            rows = []
+            for offset in offsets:
+                f.seek(offset)
+                row = next(csv.DictReader([header_line, f.readline()]))
+                row = {k: v.strip() if v is not None else v for k,
+                       v in row.items()}  # remove extra whitespace
+                rows.append(row)
+
+        self.data = pd.DataFrame(rows).convert_dtypes()
+
+    def _apply_corrections(self):
+        pass
 
 
 class Tracks(gpd.GeoDataFrame):
@@ -695,6 +911,7 @@ class Tracks(gpd.GeoDataFrame):
     in this post https://stackoverflow.com/questions/72987452/geopands-to-crs-dropping-z-values. Therefore, z values must
     be kept in a separate standard column until this bug has been resolved.
     """
+
     def __init__(self, data: gpd.GeoDataFrame, id_col: str, datetime_col: str, z_col: Optional[str] = None):
         col_renames = {id_col: 'track_id', datetime_col: 'point_dt'}
         if z_col:
@@ -703,7 +920,8 @@ class Tracks(gpd.GeoDataFrame):
         if 'geometry' not in data:
             data.rename_geometry('geometry', inplace=True)
         data['track_id'] = data.track_id.astype(str)
-        data.sort_values(by=['track_id', 'point_dt'], ascending=True, inplace=True)
+        data.sort_values(by=['track_id', 'point_dt'],
+                         ascending=True, inplace=True)
         super().__init__(data=data)
 
 
@@ -719,10 +937,12 @@ class Annotations(gpd.GeoDataFrame):
     only_valid : bool, default False
         If True and an annotation filename was passed, only valid records will be loaded.
     """
+
     def __init__(self, filename: Optional[str] = None, only_valid: bool = False):
 
         if filename:
-            data = gpd.read_file(filename).astype({'start_dt': 'datetime64[ns]', 'end_dt': 'datetime64[ns]'})
+            data = gpd.read_file(filename).astype(
+                {'start_dt': 'datetime64[ns]', 'end_dt': 'datetime64[ns]'})
 
             # Sometimes the annotation file is read in with the valid and audible columns as booleans and other times
             #  as objects depending on what values are stored.
