@@ -2267,7 +2267,8 @@ class AudibleTransitsADSB(AudibleTransits):
     def load_tracks_from_database(self, buffer=25000):
 
         assert self.active is not None, "Active space hasn't been loaded yet."
-
+        
+        logger.debug("Loading ADS-B data")
         warnings.filterwarnings(
             'ignore', message=".*before calling to_datetime.*")
         # Loading tracks from ADSB
@@ -2288,6 +2289,10 @@ class AudibleTransitsADSB(AudibleTransits):
         # Create 3D points using the 2D points and altitidue above MSL
         loaded_track_pts.geometry = gpd.points_from_xy(
             loaded_track_pts.geometry.x, loaded_track_pts.geometry.y, loaded_track_pts.z)
+
+        logger.debug("\tTracks have been parsed.")
+        
+        logger.debug("\tFiltering duplicate records...")
 
         # For calculating how many duplicated tracks are removed
         original_length = len(loaded_track_pts)
