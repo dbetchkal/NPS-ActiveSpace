@@ -857,8 +857,9 @@ class FAAReleasable():
             json.dump(to_save, f)
         print(
             f"Saved FAA database index to {os.path.abspath(self.index_path)}")
-
+   
         # filter data
+        self._check_aircraft_filter()
         if self.n_numbers is not None or self.icao_addresses is not None:
             selection = np.zeros(len(self.data), dtype=bool)
             if self.n_numbers is not None:
@@ -870,23 +871,17 @@ class FAAReleasable():
     def _read_using_index(self):
         assert self.index is not None and "n_number" in self.index and "icao" in self.index, \
             f"Something is wrong with the FAA index, please delete {os.path.abspath(self.index_path)} and try again"
+        
+        self._check_aircraft_filter()
 
         # load file offsets from the index
         offsets = []
         if self.n_numbers is not None:
             for n in self.n_numbers:
-                if str(n) in self.index["n_number"]:
-                    offsets.append(self.index["n_number"][str(n)])
-                elif self.warnings:
-                    warn(
-                        f"N-number {n} not found in the FAA database, skipping")
+                offsets.append(self.index["n_number"][str(n)])
         if self.icao_addresses is not None:
             for code in self.icao_addresses:
-                if str(code) in self.index["icao"]:
-                    offsets.append(self.index["icao"][str(code)])
-                elif self.warnings:
-                    warn(
-                        f"ICAO Address {code} not found in the FAA database, skipping")
+                offsets.append(self.index["icao"][str(code)])
 
         offsets.sort()  # probably improves disk access speed
 
@@ -901,6 +896,30 @@ class FAAReleasable():
                 rows.append(row)
 
         self.data = pd.DataFrame(rows).convert_dtypes()
+    
+    def _check_aircraft_filter(self):
+        """Checks that self.n_numbers and self.icao_addresses are actually in the FAA database. If not, warns the user and removes that value."""
+
+        if self.n_numbers is not None:
+            found_n_numbers = []
+            for n in self.n_numbers:
+                if str(n) in self.index["n_number"]:
+                    found_n_numbers.append(n)
+                elif self.warnings:
+                    warn(
+                        f"N-number {n} not found in the FAA database, skipping")
+            self.n_numbers = found_n_numbers
+
+        if self.icao_addresses is not None:
+            found_codes = []
+            for code in self.icao_addresses:
+                if str(code) in self.index["icao"]:
+                    found_codes.append(code)
+                elif self.warnings:
+                    warn(
+                        f"ICAO Address {code} not found in the FAA database, skipping")
+            self.icao_addresses = found_codes
+
 
     def _apply_corrections(self):
         if self.aircraft_corrections_path is None:
