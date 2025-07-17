@@ -35,10 +35,19 @@ from nps_active_space.utils.models import Tracks
 
 pd.set_option('future.no_silent_downcasting', True)
 
-# declaring the logger in the global scope instead of a class attribute because static methods need access to it
+# We are declaring the logger in the global scope instead of a class attribute because static methods need access to it
 # and refactoring the static methods into member variables is a bit of a headache
 # will re-initialize the logger each time run_pipeline() is called, to update verbose settings, filename, etc.
 logger, log_buffer = get_logger("AUDIBLE-TRANSITS", make_log_buffer=True)
+
+# Same thing for verbose_tqdm bars; don't want to show all of them if the user runs the pipeline with verbose=False
+# We make a verbose_tqdm utility for keeping the code in this file clean
+hide_progress_bars = False
+def verbose_tqdm(iterable, *args, **kwargs):
+    if hide_progress_bars:
+        return iterable
+    else:
+        return tqdm(iterable, *args, **kwargs)
 
 
 def init_audible_transits(metadata, paths):
@@ -136,8 +145,9 @@ class AudibleTransits(ABC):
         tracks : `gpd.GeoDataFrame`
             The final audible transit tracks. This is a copy of this object's "tracks" property.
         '''
-        global logger, log_buffer
+        global logger, log_buffer, hide_progress_bars
         logger, log_buffer = get_logger("AUDIBLE-TRANSITS", verbose, make_log_buffer=True)
+        hide_progress_bars = not verbose
 
         logger.info("\n=========  NPS-ActiveSpace Audible Transits module  ==========\n")
         logger.info("[1] Parsing geospatial data inputs...")
@@ -346,7 +356,7 @@ class AudibleTransits(ABC):
         z_adj_count = 0
         track_list = []
         # Loop through each flight (track points grouped by flight ID)
-        for track_id, group in tqdm(grouped_track_pts, unit='tracks'):
+        for track_id, group in verbose_tqdm(grouped_track_pts, unit='tracks'):
             if len(group) >= 2:
                 group = group.sort_values('point_dt')
                 n_number = group.n_number.iloc[0]
@@ -620,7 +630,7 @@ class AudibleTransits(ABC):
         # ...at the end, we'll take all these lists and combine them into a `gpd.GeoDataFrame`.
 
         # Loop through each flight ID and interpolate the track.
-        for track_id, track_pts in tqdm(sorted_tracks_pts.groupby(level=0), unit=" splines"):
+        for track_id, track_pts in verbose_tqdm(sorted_tracks_pts.groupby(level=0), unit=" splines"):
             # Currently, each track point has the entire list of timestamps in its respective row
             #   we want to assign each timestamp to its respective track point. Store full list in 'timestamps'.
             timestamps = track_pts.point_dt.iloc[0]
@@ -910,7 +920,7 @@ class AudibleTransits(ABC):
         new_geometry = []  # list of LineStrings (one per track)
         takeoffs = []  # keep track of takeoffs and landings
         logger.debug("Extending track entries:")
-        for idx, track in tqdm(needs_extrapolation_df.iterrows(), unit=' tracks'):
+        for idx, track in verbose_tqdm(needs_extrapolation_df.iterrows(), unit=' tracks'):
 
             # For each track, pull out geometry and timestamps
             old_geometry = track.interp_geometry
@@ -958,7 +968,7 @@ class AudibleTransits(ABC):
         new_geometry = []
         landings = []
         logger.debug("Extending track exits:")
-        for idx, track in tqdm(extrapolated_tracks.iterrows(), unit=' tracks'):
+        for idx, track in verbose_tqdm(extrapolated_tracks.iterrows(), unit=' tracks'):
 
             old_geometry = track.interp_geometry
             old_times = track.interp_point_dt
@@ -1546,7 +1556,7 @@ class AudibleTransits(ABC):
         # track counter for iteration ('index' below is specific to the pandas object and may not be sequential/consecutive)
         i = 0
         # Loop through each track up until the final one (there will be no track to glue the final track to)
-        for index, track in tqdm(tracks[:-1].iterrows(), unit=' checked for needing glue'):
+        for index, track in verbose_tqdm(tracks[:-1].iterrows(), unit=' checked for needing glue'):
             current_track = tracks.iloc[i]
             next_track = tracks.iloc[i+1]
             # If current and next track meet all of the above criteria, they will need to be glued
@@ -1578,7 +1588,7 @@ class AudibleTransits(ABC):
         glued_tracks = tracks.copy()  # avoid changing the original?
         # Loop through the groups of tracks that have been marked for gluing together
         # (each iteration should only include track indices that we want to combine all together)
-        for glue_bound in tqdm(glue_idx, unit=' glued sets'):
+        for glue_bound in verbose_tqdm(glue_idx, unit=' glued sets'):
             indices = np.arange(glue_bound[0], glue_bound[1]+1)
             first_track = tracks.iloc[indices[0]]  # first track in glue group
             last_track = tracks.iloc[indices[-1]]  # last track in glue group
@@ -1768,7 +1778,7 @@ class AudibleTransits(ABC):
         tracks_deg = tracks.to_crs(DEM_raster.crs)
         # Loop through each track and extract each individual point. We can use these coordinates to access their respective raster cells from the DEM
         GL_list = []
-        for id, track in tqdm(tracks_deg.iterrows(), unit=' tracks'):
+        for id, track in verbose_tqdm(tracks_deg.iterrows(), unit=' tracks'):
             # Get track coordinates
             coords = np.asarray(track.interp_geometry.coords).T
             # Convert tracks into x,y pairs
@@ -1888,7 +1898,7 @@ class AudibleTransits(ABC):
                 for page_num in range(math.ceil(num_garbs/30)):
                     fig, ax = plt.subplots(6, 5, figsize=(
                         10, 10), sharex=True, sharey=True)
-                    for i in tqdm(range(30), unit='plots'):
+                    for i in verbose_tqdm(range(30), unit='plots'):
                         idx = page_num*30+i
                         if idx < num_garbs:
                             garbage_track = garb_tracks[idx:idx+1]
@@ -2330,7 +2340,7 @@ class AudibleTransitsADSB(AudibleTransits):
         z_adj_count = 0
         track_list = []
         # Loop through each flight (track points grouped by flight ID)
-        for track_id, group in tqdm(grouped_track_pts, unit='tracks'):
+        for track_id, group in verbose_tqdm(grouped_track_pts, unit='tracks'):
             if len(group) >= 2:
                 group = group.sort_values('point_dt')
                 n_number = group.n_number.iloc[0]
@@ -2590,6 +2600,8 @@ if __name__ == '__main__':
                           help="Directory to store output files. Defaults to [project directory]/[unit][site]/Output_Data")
     argparse.add_argument('-garb', '--exportgarbage', default='0', choices=['1', '0'],
                           help="Enter '1' to export garbage tracks, 0 is default")
+    argparse.add_argument('-v', '--verbose', action="store_true",
+                          help="Print additional details to the console.")
 
     args = argparse.parse_args()
 
@@ -2614,7 +2626,7 @@ if __name__ == '__main__':
         paths["ADSB"] = f"{cfg.read('data', 'adsb')}"
 
     listener = init_audible_transits(metadata, paths)
-    listener.run_pipeline()
+    listener.run_pipeline(verbose=args.verbose)
     output_dir = args.output or None
     listener.export_results(output_dir=output_dir,
                             export_garbage=bool(int(args.exportgarbage)))

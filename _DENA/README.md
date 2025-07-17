@@ -167,7 +167,8 @@ This script is used to estimate the geographic intersection of a set of tracks w
 | `-tf`, `--endtracks` | **required.**<br/>Date to stop parsing the position record, YYYY-MM-DD. *Ex.*:  2018-06-05 |
 | `-t`, `--track-source` | ***default Database -> {Database, ADSB, AIS}***<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
 | `-o`, `--output`         | **default ""**<br/>Output directory. Directory to store output files. Defaults to [project directory]/[unit][site]/Output_Data |
-| `-garb`, `--exportgarbage` | **default 0 -> {0, 1}***<br/>Whether to export garbage tracks (1) or not (0).  *Ex.*:  1 |
+| `-garb`, `--exportgarbage` | **default 0 -> {0, 1}**<br/>Whether to export garbage tracks (1) or not (0).  *Ex.*:  1 |
+| `-v`, `--verbose` | <br/>If provided, prints additional details to the console during processing steps.
 
 Example executions:
 
