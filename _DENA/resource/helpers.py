@@ -31,8 +31,7 @@ __all__ = [
     'query_adsb',
     'get_logger',
     'get_omni_sources',
-    'estimate_line_count',
-    'create_aircraft_lookup'
+    'estimate_line_count'
 ]
 
 
@@ -443,65 +442,3 @@ def estimate_line_count(filename, sample_size=1024 * 1024):
     if not newlines:
         return 0
     return int((file_size / sample_size) * newlines)
-
-
-def create_aircraft_lookup(FAA_path, aircraft_corrections_path=None, n_numbers=None, hex_codes=None):
-        """
-        Use a pre-downloaded copy of the U.S. Federal Aviation Administration's releasable aircraft database
-        (https://www.faa.gov/licenses_certificates/aircraft_certification/aircraft_registry/releasable_aircraft_download)
-        to glean various properties associated with a set of aircraft tracks.
-
-        Parameters
-        ----------
-        FAA_path: str
-            Path to the MASTER.txt file downloaded from the FAA
-        aircraft_corrections_path: str, default None
-            Path to a corrections text file for fixing errors with aircraft type in the FAA database. Formatted as a JSON object where keys are N-numbers and values are the correct aircraft type (e.g. "Fixed-wing")
-        n_numbers: array_like of str, default None
-            If provided, only return a lookup table containing these N-numbers. Do not set if hex_codes is provided
-        hex_codes: array_like of str, default None
-            If provided, only return a lookup table containing these Mode S Hex Codes. Do not set if n_numbers is provided
-        """
-
-        # load large FAA database file with a progress bar
-        dfs = []
-        n_lines = estimate_line_count(FAA_path)
-        with tqdm(total=n_lines, desc="Loading FAA Database") as pbar:
-            for chunk in pd.read_csv(FAA_path, sep=",", dtype={"TYPE AIRCRAFT": str}, chunksize=1000):
-                dfs.append(chunk)
-                pbar.update(len(chunk))
-        FAA = pd.concat(dfs, ignore_index=True)
-
-        # codifed type to human-readable type
-        Type_Map = {"4": "Fixed-wing", "5": "Jet", "6": "Helicopter"}
-        Color_Map = {0: "gray", 1: "red", 2: "skyblue"}
-
-        FAA['N-NUMBER'] = FAA['N-NUMBER'].astype('str').str.strip()
-        FAA['MODE S CODE HEX'] = FAA['MODE S CODE HEX'].astype('str').str.strip()
-
-        # Find all aircrafts in the FAA database that are in the current dataset
-        if n_numbers is not None:
-            row_mask = FAA['N-NUMBER'].isin(n_numbers)
-        elif hex_codes is not None:
-            row_mask = FAA['MODE S CODE HEX'].isin(hex_codes)
-        else:
-            # use everything
-            row_mask = np.ones(len(FAA), dtype=bool)
-        
-        lookup = FAA.loc[row_mask, ['N-NUMBER', 'TYPE AIRCRAFT', "NAME", "MODE S CODE HEX"]]
-        lookup['TYPE AIRCRAFT'] = lookup['TYPE AIRCRAFT'].apply(
-            lambda l: Type_Map[str(l)] if str(l) in Type_Map else l)
-
-        # If inaccurate aircraft types have been found for certain N-numbers, create dictionary from file that contains the corrections.
-        if aircraft_corrections_path != None:
-            # Open aircraft corrections from specified path, reconstruct as a dictionary using json.loads
-            with open(aircraft_corrections_path) as f:
-                raw_aircraft_corrections = f.read()
-            aircraft_corrections = json.loads(raw_aircraft_corrections)
-
-            # Correct the aircraft lookup table.
-            for n_number in aircraft_corrections:
-                lookup.loc[lookup['N-NUMBER'] == n_number,
-                                    'TYPE AIRCRAFT'] = aircraft_corrections[n_number]
-
-        return lookup

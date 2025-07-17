@@ -29,9 +29,9 @@ from tqdm import tqdm
 import warnings
 import _DENA.resource.config as cfg
 from _DENA import DENA_DIR
-from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM, load_activespace, create_aircraft_lookup
+from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM, load_activespace
 from nps_active_space.utils.computation import coords_to_utm, interpolate_spline
-from nps_active_space.utils.models import Tracks
+from nps_active_space.utils.models import Tracks, FAAReleasable
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -2221,8 +2221,10 @@ class AudibleTransitsGPS(AudibleTransits):
         if type(FAA) is str:
             assert FAA == 'load'
             # Create aircraft lookup table using FAA database
-            aircraft_lookup = create_aircraft_lookup(FAA_path, aircraft_corrections_path,
-                                                     n_numbers=tracks['n_number'].unique())
+            aircraft_lookup = FAAReleasable(FAA_path,
+                                            aircraft_corrections_path,
+                                            n_numbers=tracks['n_number'].unique(),
+                                            warnings=False).data
             self.aircraft_lookup = aircraft_lookup.copy()
             logger.debug('\t\tAircraft look up complete.')
         else:
@@ -2535,8 +2537,10 @@ class AudibleTransitsADSB(AudibleTransits):
             assert FAA == 'load'
 
             # Access the FAA database and identify all aircrafts on the current record, create aircraft lookup table
-            aircraft_lookup = create_aircraft_lookup(FAA_path, aircraft_corrections_path,
-                                                     hex_codes=tracks['ICAO_address'])
+            aircraft_lookup = FAAReleasable(FAA_path,
+                                            aircraft_corrections_path,
+                                            icao_addresses=tracks['ICAO_address'].unique(),
+                                            warnings=False).data
             self.aircraft_lookup = aircraft_lookup.copy()
             logger.debug('\t\tAircraft look up complete.')
         else:
