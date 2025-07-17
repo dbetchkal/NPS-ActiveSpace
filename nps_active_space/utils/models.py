@@ -730,9 +730,9 @@ class FAAReleasable():
     to glean various properties associated with a set of aircraft tracks.
     """
 
-    def __init__(self, FAA_path, aircraft_corrections_path=None, n_numbers=None, icao_addresses=None):
+    def __init__(self, FAA_path, aircraft_corrections_path=None, n_numbers=None, icao_addresses=None, warnings=True):
         """Load FAA data into a DataFrame for a subset of aircraft (or all aircraft).
-        The first time this is run, creates an index that lives in the same directory as the FAA path to speed up future database reading.
+        The first time this is run, creates an index file that lives in the same directory as the FAA path to speed up future database reading.
 
         After initializing, use the .data attribute to access the loaded dataframe.
 
@@ -746,12 +746,19 @@ class FAAReleasable():
             If provided, only load data for these N-numbers.
         icao_addresses: array_like of str, default None
             If provided, only load data for these ICAO 24-bit addresses.
+        warnings: bool, default True
+            If True, warns the user if aircraft are not found in the FAA database.
+
+        Notes
+        -----
+        [1] If both `n_numbers` and `icao_addresses` are passed, this class will load aircraft with a N-Number or a matching ICAO address. If a provided N-number and ICAO address refer to the same aircraft, the loaded dataframe will have duplicate rows.
         """
 
         self.FAA_path = FAA_path
         self.aircraft_corrections_path = aircraft_corrections_path
         self.n_numbers = n_numbers
         self.icao_addresses = icao_addresses
+        self.warnings = warnings
 
         self.index_path = os.path.join(
             os.path.dirname(FAA_path), "MASTER_index.json")
@@ -762,9 +769,13 @@ class FAAReleasable():
             self._read_using_index()
         else:
             self._read_and_build_index()
-        
-        self._apply_corrections()
 
+        # Convert aircraft type to human-readable format
+        Type_Map = {"4": "Fixed-wing", "5": "Jet", "6": "Helicopter"}
+        self.data['TYPE AIRCRAFT'] = self.data['TYPE AIRCRAFT'].apply(
+            lambda l: Type_Map[str(l)] if str(l) in Type_Map else l)
+
+        self._apply_corrections()
 
     def _get_database_metadata(self):
         """Get metadata used to check if the database was updated."""
@@ -835,6 +846,7 @@ class FAAReleasable():
                 self.index["n_number"][row["N-NUMBER"]] = offset
                 self.index["icao"][row["MODE S CODE HEX"]] = offset
                 pbar.update(1)
+        pbar.close()
 
         self.data = pd.DataFrame(rows).convert_dtypes()
 
@@ -845,28 +857,36 @@ class FAAReleasable():
             json.dump(to_save, f)
         print(
             f"Saved FAA database index to {os.path.abspath(self.index_path)}")
-        
-        # TODO filter data
-        
+
+        # filter data
+        if self.n_numbers is not None or self.icao_addresses is not None:
+            selection = np.zeros(len(self.data), dtype=bool)
+            if self.n_numbers is not None:
+                selection = selection | self.data['N-NUMBER'].isin(self.n_numbers)
+            if self.icao_addresses is not None:
+                selection = selection | self.data['MODE S CODE HEX'].isin(self.icao_addresses)
+            self.data = self.data[selection]
 
     def _read_using_index(self):
         assert self.index is not None and "n_number" in self.index and "icao" in self.index, \
-        f"Something is wrong with the FAA index, please delete {os.path.abspath(self.index_path)} and try again"
+            f"Something is wrong with the FAA index, please delete {os.path.abspath(self.index_path)} and try again"
 
         # load file offsets from the index
         offsets = []
         if self.n_numbers is not None:
             for n in self.n_numbers:
-                if str(n) not in self.index["n_number"]:
-                    warn(f"N-number {n} not found in the FAA database, skipping")
-                else:
+                if str(n) in self.index["n_number"]:
                     offsets.append(self.index["n_number"][str(n)])
+                elif self.warnings:
+                    warn(
+                        f"N-number {n} not found in the FAA database, skipping")
         if self.icao_addresses is not None:
             for code in self.icao_addresses:
-                if str(code) not in self.index["icao"]:
-                    warn(f"ICAO Address {code} not found in the FAA database, skipping")
-                else:
+                if str(code) in self.index["icao"]:
                     offsets.append(self.index["icao"][str(code)])
+                elif self.warnings:
+                    warn(
+                        f"ICAO Address {code} not found in the FAA database, skipping")
 
         offsets.sort()  # probably improves disk access speed
 
@@ -883,7 +903,18 @@ class FAAReleasable():
         self.data = pd.DataFrame(rows).convert_dtypes()
 
     def _apply_corrections(self):
-        pass
+        if self.aircraft_corrections_path is None:
+            return
+
+        # Open aircraft corrections from specified path
+        with open(self.aircraft_corrections_path) as f:
+            aircraft_corrections = json.load(f)
+
+        # Correct the aircraft lookup table.
+        for n_number in aircraft_corrections:
+            affected_rows = self.data['N-NUMBER'] == n_number
+            correct_type = aircraft_corrections[n_number]
+            self.data.loc[affected_rows, 'TYPE AIRCRAFT'] = correct_type
 
 
 class Tracks(gpd.GeoDataFrame):
