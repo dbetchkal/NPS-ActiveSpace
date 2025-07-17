@@ -31,6 +31,7 @@ __all__ = [
     'query_adsb',
     'get_logger',
     'get_omni_sources',
+    'estimate_line_count',
     'create_aircraft_lookup'
 ]
 
@@ -433,8 +434,19 @@ def get_omni_sources(lower: float, upper: float) -> List[str]:
     return omni_sources
 
 
+def estimate_line_count(filename, sample_size=1024 * 1024):
+    """Use a 1MB sample to estimate the number of lines in a large file"""
+    file_size = os.path.getsize(filename)
+    with open(filename, 'rb') as f:
+        sample = f.read(sample_size)
+    newlines = sample.count(b'\n')
+    if not newlines:
+        return 0
+    return int((file_size / sample_size) * newlines)
+
+
 def create_aircraft_lookup(FAA_path, aircraft_corrections_path=None, n_numbers=None, hex_codes=None):
-        '''
+        """
         Use a pre-downloaded copy of the U.S. Federal Aviation Administration's releasable aircraft database
         (https://www.faa.gov/licenses_certificates/aircraft_certification/aircraft_registry/releasable_aircraft_download)
         to glean various properties associated with a set of aircraft tracks.
@@ -449,11 +461,12 @@ def create_aircraft_lookup(FAA_path, aircraft_corrections_path=None, n_numbers=N
             If provided, only return a lookup table containing these N-numbers. Do not set if hex_codes is provided
         hex_codes: array_like of str, default None
             If provided, only return a lookup table containing these Mode S Hex Codes. Do not set if n_numbers is provided
-        '''
+        """
 
         # load large FAA database file with a progress bar
         dfs = []
-        with tqdm(total=288128, desc="Loading FAA Database") as pbar:
+        n_lines = estimate_line_count(FAA_path)
+        with tqdm(total=n_lines, desc="Loading FAA Database") as pbar:
             for chunk in pd.read_csv(FAA_path, sep=",", dtype={"TYPE AIRCRAFT": str}, chunksize=1000):
                 dfs.append(chunk)
                 pbar.update(len(chunk))
