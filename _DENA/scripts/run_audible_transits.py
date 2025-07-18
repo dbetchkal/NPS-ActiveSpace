@@ -72,7 +72,7 @@ def init_audible_transits(metadata, paths):
         A dictionary containing paths to the project directory and data files. Should have the following keys:
         - "project": directory containing subfolders for each site, each named [unit][site] (e.g. DENATRLA/)
         - "FAA": path to MASTER.txt file provided by the FAA
-        - "aircraft corrections": path to FAA_AircraftCorrections.txt file provided by the FAA
+        - "aircraft corrections": path to FAA_AircraftCorrections.json file provided by the FAA
         - "ADSB" (optional): directory containing ADSB files in the tab-separated-values (.TSV) format. Required if the database type is "ADSB"
 
     Returns
