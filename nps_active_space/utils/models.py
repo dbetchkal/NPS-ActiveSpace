@@ -777,13 +777,6 @@ class FAAReleasable():
 
         self._apply_corrections()
 
-    def _get_database_metadata(self):
-        """Get metadata used to check if the database was updated."""
-        return {
-            "database_last_modified": os.path.getmtime(self.FAA_path),
-            "database_size": os.path.getsize(self.FAA_path)
-        }
-
     def _load_index(self):
         """Attempt to load the index from disk.
 
@@ -797,16 +790,13 @@ class FAAReleasable():
         with open(self.index_path, "r") as f:
             index = json.load(f)
 
-        # check that metadata matches
-        if "metadata" not in index:
+        # check that database hasn't changed
+        if "database_last_modified" not in index:
             return False
-        current_metadata = self._get_database_metadata()
-        for k, v in current_metadata.items():
-            if k not in index["metadata"] or index["metadata"][k] != v:
-                return False
-
-        # no need to keep metadata in the index, might be confusing?
-        del index["metadata"]
+        if index["database_last_modified"] != os.path.getmtime(self.FAA_path):
+            return False
+        del index["database_last_modified"] # no need to keep metadata in the index, might be confusing?
+        
         self.index = index
         return True
 
@@ -852,7 +842,7 @@ class FAAReleasable():
 
         # save index to file
         to_save = self.index.copy()
-        to_save["metadata"] = self._get_database_metadata()
+        to_save["database_last_modified"] = os.path.getmtime(self.FAA_path)
         with open(self.index_path, "w") as f:
             json.dump(to_save, f)
         print(
