@@ -481,6 +481,7 @@ class Adsb(gpd.GeoDataFrame):
     """
 
     lat_lon_grid_resolution = 0.01
+    index_file_name = "index.json"
 
     def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
         if isinstance(filepaths_or_data, gpd.GeoDataFrame):
@@ -534,22 +535,25 @@ class Adsb(gpd.GeoDataFrame):
         for dir in dirs:
             # attempt to load that directory's index file (which may or may not exist)
             index = self._load_index(dir)
-
             if index is None:
-                # read entire files and create a new index
                 index = {}
-                for filepath in dirs[dir]:
+
+            index_updated = False
+            for filepath in dirs[dir]:
+                if True:  # TODO add check for if file not in index, once index contains list of files w/ their date modified
+                    # read entire files and create a new index
                     df = self._read_tsv_and_update_index(filepath, index)
-                    df = self._process_raw_dataframe(df)
-                    data = pd.concat([data, df], ignore_index=True)
-                    pbar.update(1)
-                self._save_index(dir, index)
-            
-            else:
-                # use the index to speed up file reading
-                for filepath in dirs[dir]:
+                    index_updated = True
+                else:
+                    # use the index to speed up file reading
                     # TODO
                     df = self._read_tsv_ranges()
+                df = self._process_raw_dataframe(df)
+                data = pd.concat([data, df], ignore_index=True)
+                pbar.update(1)
+            
+            if index_updated:
+                self._save_index(dir, index)
         
         pbar.close()
 
@@ -567,9 +571,17 @@ class Adsb(gpd.GeoDataFrame):
         
         Parameters
         ----------
-        TODO
         """
-        pass
+        index_path = os.path.join(directory, self.index_file_name)
+        if not os.path.exists(index_path):
+            return None
+        
+        # placeholder
+        with open(index_path, "r") as f:
+            index = json.read(f)
+        
+        return index
+        
 
     def _save_index(self, directory, index):
         """Updates/creates an ADSB index file in a directory containing ADSB TSV files.
@@ -583,6 +595,10 @@ class Adsb(gpd.GeoDataFrame):
             Note that this can be partial information, not all TSV files must be represented.
             The index dict will be merged with existing index data in the index file if it exists.
         """
+        # placeholder
+        index_path = os.path.join(directory, self.index_file_name)
+        with open(index_path, "w") as f:
+            json.dump(index, f)
     
     def _add_range_to_index(self, index, grid_cell, filepath, start, end):
         """Utility function for inserting items into an index, useful for not duplicating code."""
