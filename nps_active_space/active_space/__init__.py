@@ -420,12 +420,12 @@ class ActiveSpaceGenerator:
 
         # append all contour points to a new xy file
         xyz = np.array([])
-        for contour_level in cs.collections:  # iterate through each contour interval
-            for contour_path in contour_level.get_paths():  # for each interval, iterate through each path
-                x = contour_path.vertices[:, 0]
-                y = contour_path.vertices[:, 1]
-                z = [altitude] * len(x)
-                xyz = np.array([x, y, z]).T if len(xyz) == 0 else np.append(xyz, np.array([x, y, z]).T, axis=0)
+        for l_, level in enumerate(levels): # iterate through the path at each level
+            contour_path = cs.get_paths()[l_]  
+            x = contour_path.vertices[:, 0]
+            y = contour_path.vertices[:, 1]
+            z = [altitude] * len(x)
+            xyz = np.array([x, y, z]).T if len(xyz) == 0 else np.append(xyz, np.array([x, y, z]).T, axis=0)
 
         # if we have more contour points than NMSim can handle, down-sample randomly
         if xyz.shape[0] > max_pts:
@@ -509,22 +509,14 @@ class ActiveSpaceGenerator:
         level_ind = np.where(cs.levels == 0.5)[0][0]
         plt.close('all')  # close triangulation figure
 
-        # iterate through all contour paths in the line collection at level_ind
-        active_space_poly = None
-        for i, contour_path in enumerate(cs.collections[level_ind].get_paths()):
-            x = contour_path.vertices[:, 0]
-            y = contour_path.vertices[:, 1]
-            new_poly = make_valid(Polygon([(i[0], i[1]) for i in zip(x, y)]))
+        # iterate through all contour paths in the `TriContourSet` at level_ind
+        # https://matplotlib.org/stable/api/tri_api.html#matplotlib.tri.TriContourSet
+        contour_path = cs.get_paths()[level_ind] # in recent versions of `matplotlib` there is 1:1 correspondence `cs.levels` : `Path`
+        polygons = [Polygon(P) for P in contour_path.to_polygons()] # convert to `shapely.Polygon`
 
-            # Don't bother with polygons that are smaller than .5 km^2.
-            if new_poly.area <= 50000:
-                continue
-            elif active_space_poly is None:
-                active_space_poly = new_poly
-            else:
-                active_space_poly = active_space_poly.symmetric_difference(new_poly)
+        active_space_poly = [make_valid(poly) if not poly.is_valid else poly for poly in polygons] # ensure valid geometries
 
-        active_space_polys_gdf = gpd.GeoDataFrame(data={'geometry': [active_space_poly]}, geometry='geometry', crs=crs)
+        active_space_polys_gdf = gpd.GeoDataFrame(data={'geometry': active_space_poly}, geometry='geometry', crs=crs)
 
         return active_space_polys_gdf
 
@@ -600,6 +592,7 @@ class ActiveSpaceGenerator:
         # Run triangulation n_counter times to refine the edges of the active space.
         for k in range(n_contour):
             source_pts = self._contour_active_space(tested_space, altitude_m)
+            # TO DO there contour results when `source_pts` is None; these must be handled
             new_audibility_pts = self._run_nmsim(
                 f"{mic.name}_contour{k + 1}",
                 source_pts,
