@@ -1,3 +1,4 @@
+import math
 from types import GeneratorType
 import concurrent.futures
 from tzwhere import tzwhere
@@ -13,12 +14,14 @@ import json
 from warnings import warn
 from dataclasses import dataclass, field
 from typing import List, Optional, Union
+from decimal import Decimal, ROUND_DOWN
 
 import geopandas as gpd
 from shapely.geometry import Point
 import numpy as np
 import pandas as pd
 pd.options.mode.copy_on_write = True
+pd.set_option('future.no_silent_downcasting', True)
 
 __all__ = [
     'Adsb',
@@ -477,6 +480,8 @@ class Adsb(gpd.GeoDataFrame):
         AssertionError if directory path or file path does not exists or is of the wrong format.
     """
 
+    lat_lon_grid_resolution = 0.01
+
     def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
         if isinstance(filepaths_or_data, gpd.GeoDataFrame):
             data = filepaths_or_data.to_crs("epsg:4326")
@@ -579,10 +584,59 @@ class Adsb(gpd.GeoDataFrame):
             The index dict will be merged with existing index data in the index file if it exists.
         """
     
+    def _add_range_to_index(self, index, grid_cell, filepath, start, end):
+        """Utility function for inserting items into an index, useful for not duplicating code."""
+        fileID = os.path.splitext(os.path.basename(filepath))[0]
+        if not grid_cell in index:
+            index[grid_cell] = {}
+        if not fileID in index[grid_cell]:
+            index[grid_cell][fileID] = []
+        index[grid_cell][fileID].append((start, end-start))
+
     def _read_tsv_and_update_index(self, filepath, index):
         """Reads a TSV file and updates the index."""
-        df = pd.read_csv(filepath, sep="\t")
-        return df
+
+        with open(filepath, "r", encoding="utf-8-sig") as f:
+            header_line = f.readline()
+            fieldnames = next(csv.reader([header_line], delimiter="\t"))
+            rows = []
+            prev_grid_cell = None
+            start_offset = None
+            while True:
+                offset = f.tell()
+                line = f.readline()
+                if not line:
+                    break
+                row = next(csv.DictReader([line], fieldnames, delimiter="\t"))
+                # check for a logging blip causing two rows to get collapsed, resulting in extra values in a row
+                if None in row:
+                    continue
+                # check for extra header inserted by the logger
+                if row["timestamp"] == "timestamp":
+                    continue
+                rows.append(row)
+                
+                # if grid cell changed, write the previous grid cell's line position range to the index
+                lat, lon = int(row["lat"]) / 1e7, int(row["lon"]) / 1e7
+                grid_cell = self._get_grid_cell(lat, lon)
+                if prev_grid_cell is None:
+                    start_offset = offset
+                elif prev_grid_cell != grid_cell:
+                    self._add_range_to_index(index, grid_cell, filepath, start_offset, offset)
+                    start_offset = offset
+                prev_grid_cell = grid_cell
+            
+            if offset != start_offset:
+                self._add_range_to_index(index, grid_cell, filepath, start_offset, offset)
+
+        return pd.DataFrame(rows).convert_dtypes()
+    
+    def _get_grid_cell(self, lat, lon):
+        """Determine grid cell for a certain coordinate using Decimal library to avoid annoying floating point precision problems"""
+        res = Decimal(str(self.lat_lon_grid_resolution))
+        lat = (Decimal(str(lat)) / res).quantize(Decimal("1")) * res
+        lon = (Decimal(str(lon)) / res).quantize(Decimal("1")) * res
+        return f"{lat},{lon}"
 
     def _read_tsv_ranges(self, filepath, ranges):
         """Reads sections of a TSV file specified by the `ranges` parameter."""
@@ -651,7 +705,7 @@ class Adsb(gpd.GeoDataFrame):
         df["tslc"] = df["tslc"].astype(int)
 
         # Convert Unix timestamp to datetime objects in UTC and re-scale selected variable values
-        df["TIME"] = pd.to_datetime(df["TIME"], unit="s")
+        df["TIME"] = pd.to_datetime(df["TIME"].astype(int), unit="s")
         df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
         df["lat"] = df["lat"] / 1e7
         df["lon"] = df["lon"] / 1e7
