@@ -481,7 +481,7 @@ class Adsb(gpd.GeoDataFrame):
     """
 
     lat_lon_grid_resolution = 0.01
-    index_file_name = "index.json"
+    index_file_name = "index.txt"
 
     def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
         if isinstance(filepaths_or_data, gpd.GeoDataFrame):
@@ -534,7 +534,7 @@ class Adsb(gpd.GeoDataFrame):
         pbar = tqdm(total=len(filepaths), desc='Loading ADS-B files', unit='files', colour='green')
         for dir in dirs:
             # attempt to load that directory's index file (which may or may not exist)
-            index = self._load_index(dir)
+            index, ranges = self._load_index(dir, filepaths=dirs[dir])
             if index is None:
                 index = {}
 
@@ -565,22 +565,41 @@ class Adsb(gpd.GeoDataFrame):
 
         return data
     
-    def _load_index(self, directory, region=None):
+    def _load_index(self, directory, filepaths, region=None):
         """Given a directory containing ADSB TSV files and their associated index file,
         attempts to load the parts of the index that correspond to the spatial region of interest.
         
         Parameters
         ----------
+        TODO
+
+        Returns
+        -------
+        index: dict
+            A dictionary describing where to find the .TSV lines relevant to each spatial grid cell
+        ranges: dict
+            A dictionary describing for each file, which byte ranges are relevant to the spatial query
         """
+
+        for filepath in filepaths:
+            assert os.path.dirname(filepath) == directory, "Files must all be from the provided directory when loading an index"
+
         index_path = os.path.join(directory, self.index_file_name)
         if not os.path.exists(index_path):
-            return None
+            return None, None
         
-        # placeholder
-        with open(index_path, "r") as f:
-            index = json.read(f)
+        # read index header to see which files are indexed and to learn which grid cells are present
+
+        # check if any files were modified since they were last indexed
+        # if so, will need to remove them from the index (flag that we need to read the whole index to do this)
+
+        # use the spatial region to determine which grid cells need to be read
+
+        # read the necessary grid cells
+
+        # figure out for each file, which 
         
-        return index
+        return None, None
         
 
     def _save_index(self, directory, index):
@@ -595,19 +614,51 @@ class Adsb(gpd.GeoDataFrame):
             Note that this can be partial information, not all TSV files must be represented.
             The index dict will be merged with existing index data in the index file if it exists.
         """
-        # placeholder
         index_path = os.path.join(directory, self.index_file_name)
-        with open(index_path, "w") as f:
-            json.dump(index, f)
+        with open(index_path, "w", encoding="utf-8") as f:
+        
+            # write header that describes which files are present in the index and when they were last modified
+            files_present = set()
+            for grid_cell in index:
+                for file in index[grid_cell]:
+                    files_present.add(file)
+            mtime_header = {}
+            for file in files_present:
+                full_path = os.path.join(directory, file)
+                mtime = os.path.getmtime(full_path)
+                mtime_header[file] = mtime
+            f.write("last modified\n")
+            json.dump(mtime_header, f)
+            f.write("\n")
+
+            # prepare lines of the index for writing
+            index_lines = []
+            byte_offsets = {}
+            current_byte_offset = 0
+            for grid_cell in index:
+                line = json.dumps({grid_cell: index[grid_cell]}) + "\n"
+                index_lines.append(line)
+                byte_offsets[grid_cell] = current_byte_offset
+                current_byte_offset += len(line.encode("utf-8"))
+
+            # write header describing which grid cells are present and their byte location in the index file
+            f.write("grid cell byte offsets in this file\n")
+            json.dump(byte_offsets, f)
+            f.write("\n")
+
+            # write the index
+            f.write("index\n")
+            f.writelines(index_lines)
+
     
     def _add_range_to_index(self, index, grid_cell, filepath, start, end):
-        """Utility function for inserting items into an index, useful for not duplicating code."""
-        fileID = os.path.splitext(os.path.basename(filepath))[0]
+        """Utility function for inserting items into an index."""
+        file = os.path.basename(filepath)
         if not grid_cell in index:
             index[grid_cell] = {}
-        if not fileID in index[grid_cell]:
-            index[grid_cell][fileID] = []
-        index[grid_cell][fileID].append((start, end-start))
+        if not file in index[grid_cell]:
+            index[grid_cell][file] = []
+        index[grid_cell][file].append((start, end-start))
 
     def _read_tsv_and_update_index(self, filepath, index):
         """Reads a TSV file and updates the index."""
