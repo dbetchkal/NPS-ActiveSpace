@@ -474,7 +474,7 @@ class Adsb(gpd.GeoDataFrame):
     ----------
     filepaths_or_data : List, str, or gpd.GeoDataFrame
         A directory containing ADS-B TSV files, a list of ADS-B TSV files, or an existing gpd.GeoDataFrame of ADS-B data.
-    
+
     Raises
         ------
         AssertionError if directory path or file path does not exists or is of the wrong format.
@@ -504,7 +504,7 @@ class Adsb(gpd.GeoDataFrame):
             # read files
             data = self._read(filepaths)
 
-        data.drop_duplicates(subset=['TIME'], inplace=True, keep='last')
+        # data.drop_duplicates(subset=['TIME'], inplace=True, keep='last')
         super().__init__(data=data)
 
     def _read(self, filepaths: List[str]):
@@ -515,7 +515,7 @@ class Adsb(gpd.GeoDataFrame):
         ----------
         filepaths_or_data : List[str]
             A list of ADS-B files.
-        
+
         Returns
         -------
         data: gpd.GeoDataFrame
@@ -529,34 +529,35 @@ class Adsb(gpd.GeoDataFrame):
             if dir not in dirs:
                 dirs[dir] = []
             dirs[dir].append(path)
-        
-        data = pd.DataFrame()
-        pbar = tqdm(total=len(filepaths), desc='Loading ADS-B files', unit='files', colour='green')
+
+        dataframes = []
+        pbar = tqdm(total=len(filepaths), desc='Loading ADS-B files',
+                    unit='files', colour='green')
         for dir in dirs:
             # attempt to load that directory's index file (which may or may not exist)
-            index, ranges = self._load_index(dir, filepaths=dirs[dir])
-            if index is None:
-                index = {}
+            index, ranges = self._load_index(dir)
 
             index_updated = False
             for filepath in dirs[dir]:
-                if True:  # TODO add check for if file not in index, once index contains list of files w/ their date modified
-                    # read entire files and create a new index
+                basename = os.path.basename(filepath)
+                if basename in ranges:
+                    # use the index to speed up file reading
+                    df = self._read_tsv_ranges(filepath, ranges[basename])
+                else:
+                    # up-to-date index data doesn't exist, so read entire file and update the index
                     df = self._read_tsv_and_update_index(filepath, index)
                     index_updated = True
-                else:
-                    # use the index to speed up file reading
-                    # TODO
-                    df = self._read_tsv_ranges()
+                
                 df = self._process_raw_dataframe(df)
-                data = pd.concat([data, df], ignore_index=True)
+                dataframes.append(df)
                 pbar.update(1)
-            
+
             if index_updated:
                 self._save_index(dir, index)
-        
+
         pbar.close()
 
+        data = pd.concat(dataframes, ignore_index=True)
         data = gpd.GeoDataFrame(
             data,
             geometry=gpd.points_from_xy(data["lon"], data["lat"]),
@@ -564,47 +565,88 @@ class Adsb(gpd.GeoDataFrame):
         )
 
         return data
-    
-    def _load_index(self, directory, filepaths, region=None):
+
+    def _load_index(self, directory, region=None):
         """Given a directory containing ADSB TSV files and their associated index file,
         attempts to load the parts of the index that correspond to the spatial region of interest.
-        
+
         Parameters
         ----------
-        TODO
+        directory: str
+            The directory containing .TSV ADSB files and their associated index file (which may or may not exist).
+        region: TODO, default None
+            A polygon representing the spatial region of interest. All ADSB points inside this region will be loaded,
+            and some points outside of the region may also be loaded.
 
         Returns
         -------
         index: dict
-            A dictionary describing where to find the .TSV lines relevant to each spatial grid cell
+            A dictionary describing where to find the ADSB entries that occur in each spatial grid cell.
+            If no index file exists, this will be an empty dictionary.
         ranges: dict
-            A dictionary describing for each file, which byte ranges are relevant to the spatial query
+            A dictionary describing for each file, which byte ranges are relevant to the spatial query.
+            Only files that have been previously indexed and haven't been changed since then will be included.
         """
 
-        for filepath in filepaths:
-            assert os.path.dirname(filepath) == directory, "Files must all be from the provided directory when loading an index"
+        index, ranges = {}, {}
 
         index_path = os.path.join(directory, self.index_file_name)
         if not os.path.exists(index_path):
-            return None, None
-        
-        # read index header to see which files are indexed and to learn which grid cells are present
+            return index, ranges
 
-        # check if any files were modified since they were last indexed
-        # if so, will need to remove them from the index (flag that we need to read the whole index to do this)
+        with open(index_path, "r", encoding="utf-8") as f:
+            # read index headers to see which files are indexed and to learn which grid cells are present
+            f.readline()  # comment line
+            file_mtimes = json.loads(f.readline())
+            f.readline()  # comment line
+            grid_cell_byte_offsets = json.loads(f.readline())
+            f.readline()  # comment line
+            index_start = f.tell()
 
-        # use the spatial region to determine which grid cells need to be read
+            # check if any files were modified since they were last indexed
+            # if so, will need to remove them from the index
+            out_of_date = []
+            for file in file_mtimes:
+                full_path = os.path.join(directory, file)
+                up_to_date = os.path.exists(full_path) and os.path.getmtime(
+                    full_path) == file_mtimes[file]
+                if not up_to_date:
+                    out_of_date.append(file)
 
-        # read the necessary grid cells
+            # if there are out of date files, we need to read everything so we can remove the out of date stuff
+            if len(out_of_date) > 0:
+                cells_to_read = grid_cell_byte_offsets.keys()
+            else:
+                # use the spatial region to determine which grid cells need to be read
+                # TODO
+                cells_to_read = grid_cell_byte_offsets.keys()
 
-        # figure out for each file, which 
-        
-        return None, None
-        
+            # read the necessary grid cells
+            for grid_cell in cells_to_read:
+                offset = grid_cell_byte_offsets[grid_cell]
+                f.seek(index_start + offset)
+                index = index | json.loads(f.readline())
+
+            # delete out of date index records
+            # TODO
+            # if we do this, probably need to re-save the index?
+
+            # for each file, determine which ranges should be read
+            # TODO restrict using spatial region, even if we read the whole index for out-of-date file purposes
+            for grid_cell in index:
+                for file in index[grid_cell]:
+                    if file not in ranges:
+                        ranges[file] = []
+                    ranges[file] += index[grid_cell][file]
+            # sort ranges by start offset, probably helps a bit with file-reading speed
+            for file in ranges:
+                ranges[file].sort(key=lambda x: x[0])
+
+        return index, ranges
 
     def _save_index(self, directory, index):
         """Updates/creates an ADSB index file in a directory containing ADSB TSV files.
-        
+
         Parameters
         ----------
         directory: str
@@ -615,8 +657,10 @@ class Adsb(gpd.GeoDataFrame):
             The index dict will be merged with existing index data in the index file if it exists.
         """
         index_path = os.path.join(directory, self.index_file_name)
-        with open(index_path, "w", encoding="utf-8") as f:
-        
+        with open(index_path, "w", encoding="utf-8", newline="\n") as f:
+            # note that we need newline="\n" so that windows carriage returns aren't added,
+            # which would otherwise mess with computing byte offsets
+
             # write header that describes which files are present in the index and when they were last modified
             files_present = set()
             for grid_cell in index:
@@ -641,7 +685,7 @@ class Adsb(gpd.GeoDataFrame):
                 byte_offsets[grid_cell] = current_byte_offset
                 current_byte_offset += len(line.encode("utf-8"))
 
-            # write header describing which grid cells are present and their byte location in the index file
+            # write header describing which grid cells are present and their byte offset in the index file
             f.write("grid cell byte offsets in this file\n")
             json.dump(byte_offsets, f)
             f.write("\n")
@@ -650,19 +694,19 @@ class Adsb(gpd.GeoDataFrame):
             f.write("index\n")
             f.writelines(index_lines)
 
-    
-    def _add_range_to_index(self, index, grid_cell, filepath, start, end):
+    def _add_range_to_index(self, index, grid_cell, filepath, start, length):
         """Utility function for inserting items into an index."""
         file = os.path.basename(filepath)
         if not grid_cell in index:
             index[grid_cell] = {}
         if not file in index[grid_cell]:
             index[grid_cell][file] = []
-        index[grid_cell][file].append((start, end-start))
+        index[grid_cell][file].append((start, length))
 
     def _read_tsv_and_update_index(self, filepath, index):
         """Reads a TSV file and updates the index."""
 
+        tqdm.write(f"Reading full file {filepath}")
         with open(filepath, "r", encoding="utf-8-sig") as f:
             header_line = f.readline()
             fieldnames = next(csv.reader([header_line], delimiter="\t"))
@@ -676,28 +720,55 @@ class Adsb(gpd.GeoDataFrame):
                     break
                 row = next(csv.DictReader([line], fieldnames, delimiter="\t"))
                 # check for a logging blip causing two rows to get collapsed, resulting in extra values in a row
-                if None in row:
-                    continue
-                # check for extra header inserted by the logger
-                if row["timestamp"] == "timestamp":
+                # these extra values get collected into a list referenced by the key None
+                # also check for extra header inserted by the logger
+                if (None in row) or (row["timestamp"] == "timestamp"):
+                    # don't include the broken line in the index, end the last range and start a new one
+                    self._add_range_to_index(
+                        index, grid_cell, filepath, start_offset, offset-start_offset)
+                    prev_grid_cell = None
+                    start_offset = None
                     continue
                 rows.append(row)
-                
-                # if grid cell changed, write the previous grid cell's line position range to the index
+
+                # if grid cell changed, write the previous grid cell's byte range to the index
                 lat, lon = int(row["lat"]) / 1e7, int(row["lon"]) / 1e7
                 grid_cell = self._get_grid_cell(lat, lon)
                 if prev_grid_cell is None:
                     start_offset = offset
                 elif prev_grid_cell != grid_cell:
-                    self._add_range_to_index(index, grid_cell, filepath, start_offset, offset)
+                    self._add_range_to_index(
+                        index, grid_cell, filepath, start_offset, offset-start_offset)
                     start_offset = offset
                 prev_grid_cell = grid_cell
-            
-            if offset != start_offset:
-                self._add_range_to_index(index, grid_cell, filepath, start_offset, offset)
+
+            # add the final range
+            self._add_range_to_index(
+                index, grid_cell, filepath, start_offset, offset-start_offset)
 
         return pd.DataFrame(rows).convert_dtypes()
-    
+
+
+    def _read_tsv_ranges(self, filepath, ranges):
+        """Reads sections of a TSV file specified by the `ranges` parameter."""
+        tqdm.write(f"Reading only parts of file {filepath}")
+
+        with open(filepath, "r", encoding="utf-8-sig") as f:
+            header_line = f.readline()
+            fieldnames = next(csv.reader([header_line], delimiter="\t"))
+            lines = []
+            for (start, length) in ranges:
+                f.seek(start)
+                while f.tell() < start + length:
+                    line = f.readline()
+                    if not line:
+                        break
+                    lines.append(line)
+        
+        rows = csv.DictReader(lines, fieldnames, delimiter="\t")
+        return pd.DataFrame(rows).convert_dtypes()
+
+
     def _get_grid_cell(self, lat, lon):
         """Determine grid cell for a certain coordinate using Decimal library to avoid annoying floating point precision problems"""
         res = Decimal(str(self.lat_lon_grid_resolution))
@@ -705,9 +776,6 @@ class Adsb(gpd.GeoDataFrame):
         lon = (Decimal(str(lon)) / res).quantize(Decimal("1")) * res
         return f"{lat},{lon}"
 
-    def _read_tsv_ranges(self, filepath, ranges):
-        """Reads sections of a TSV file specified by the `ranges` parameter."""
-    
     def _process_raw_dataframe(self, df):
         """Processes a raw dataframe read from the TSV file, and does some data cleaning."""
 
@@ -727,7 +795,7 @@ class Adsb(gpd.GeoDataFrame):
         if "valid_flags" in df.columns:
             df = df.rename(columns={"valid_flags": "validFlags"})
         df.drop(["squawk", "altitude_type", "alt_type", "altType", "callsign",
-                    "emitter_type", "emitterType"], axis=1, inplace=True, errors="ignore")
+                 "emitter_type", "emitterType"], axis=1, inplace=True, errors="ignore")
 
         # Delete duplicate and NA records
         df.drop_duplicates(inplace=True)
@@ -735,7 +803,7 @@ class Adsb(gpd.GeoDataFrame):
 
         # Unpack validFLags and convert the 2-byte flag field into a list of Boolean values
         flags_names = ["valid_BARO", "valid_VERTICAL_VELOCITY", "SIMULATED_REPORT", "valid_IDENT",
-                        "valid_CALLSIGN", "valid_VELOCITY", "valid_HEADING", "valid_ALTITUDE", "valid_LATLON"]
+                       "valid_CALLSIGN", "valid_VELOCITY", "valid_HEADING", "valid_ALTITUDE", "valid_LATLON"]
         flags = df["validFlags"].apply(
             lambda t: list(bin(int(t, 16))[2:].zfill(9)[-9:]))
         flags_df = pd.DataFrame(list(flags), columns=flags_names).replace(
@@ -795,7 +863,7 @@ class Adsb(gpd.GeoDataFrame):
 
         # Sort records by ICAO Address and TIME then reset dfframe index
         df.sort_values(["ICAO_address", "TIME"],
-                        inplace=True, ignore_index=True)
+                       inplace=True, ignore_index=True)
 
         # Calculate time difference between sequential waypoints for each aircraft
         df["dur_secs"] = df.groupby("ICAO_address")[
@@ -819,8 +887,8 @@ class Adsb(gpd.GeoDataFrame):
         # Remove records where there is only one recorded waypoint for an aircraft and fields that are no longer needed
         df = df[df.groupby("flight_id").flight_id.transform(len) > 1]
         df = df.drop(columns=['tslc', 'dur_secs', 'diff_flight', 'cumsum', 'valid_BARO', 'valid_VERTICAL_VELOCITY', 'SIMULATED_REPORT',
-                        'valid_IDENT', 'valid_CALLSIGN', 'valid_VELOCITY', 'valid_HEADING', 'valid_ALTITUDE', 'valid_LATLON', 'DATE'])
-        
+                              'valid_IDENT', 'valid_CALLSIGN', 'valid_VELOCITY', 'valid_HEADING', 'valid_ALTITUDE', 'valid_LATLON', 'DATE'])
+
         return df
 
 
@@ -988,8 +1056,9 @@ class FAAReleasable():
             return False
         if index["database_last_modified"] != os.path.getmtime(self.FAA_path):
             return False
-        del index["database_last_modified"] # no need to keep metadata in the index, might be confusing?
-        
+        # no need to keep metadata in the index, might be confusing?
+        del index["database_last_modified"]
+
         self.index = index
         return True
 
@@ -1040,21 +1109,23 @@ class FAAReleasable():
             json.dump(to_save, f)
         print(
             f"Saved FAA database index to {os.path.abspath(self.index_path)}")
-   
+
         # filter data
         self._check_aircraft_filter()
         if self.n_numbers is not None or self.icao_addresses is not None:
             selection = np.zeros(len(self.data), dtype=bool)
             if self.n_numbers is not None:
-                selection = selection | self.data['N-NUMBER'].isin(self.n_numbers)
+                selection = selection | self.data['N-NUMBER'].isin(
+                    self.n_numbers)
             if self.icao_addresses is not None:
-                selection = selection | self.data['MODE S CODE HEX'].isin(self.icao_addresses)
+                selection = selection | self.data['MODE S CODE HEX'].isin(
+                    self.icao_addresses)
             self.data = self.data[selection]
 
     def _read_using_index(self):
         assert self.index is not None and "n_number" in self.index and "icao" in self.index, \
             f"Something is wrong with the FAA index, please delete {os.path.abspath(self.index_path)} and try again"
-        
+
         self._check_aircraft_filter()
 
         # load file offsets from the index
@@ -1079,7 +1150,7 @@ class FAAReleasable():
                 rows.append(row)
 
         self.data = pd.DataFrame(rows).convert_dtypes()
-    
+
     def _check_aircraft_filter(self):
         """Checks that self.n_numbers and self.icao_addresses are actually in the FAA database. If not, warns the user and removes that value."""
 
@@ -1102,7 +1173,6 @@ class FAAReleasable():
                     warn(
                         f"ICAO Address {code} not found in the FAA database, skipping")
             self.icao_addresses = found_codes
-
 
     def _apply_corrections(self):
         if self.aircraft_corrections_path is None:
