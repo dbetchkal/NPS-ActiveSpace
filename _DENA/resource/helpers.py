@@ -286,15 +286,6 @@ def query_adsb(adsb_path: str,  start_date: str, end_date: str,
         An ADSB or EarlyADSB object of flight track points.
     """
 
-    # ADSB file formats changed after 2019.
-    if (int(start_date[:4]) <= 2019) & (exclude_early_ADSB == False):
-        adsb_files = glob.glob(os.path.join(adsb_path, "*.txt"))
-        adsb = EarlyAdsb(adsb_files)
-    else:
-        adsb_files = glob.glob(os.path.join(adsb_path, "*.TSV"))
-        adsb = Adsb(adsb_files)
-    adsb = adsb.loc[(adsb["TIME"] > start_date) & (adsb["TIME"] < end_date)]
-
     if mask is not None:
         if not mask.crs.to_epsg() == 4326:  # If mask is not already in WGS84, project it.
             mask = mask.to_crs(epsg='4326')
@@ -302,10 +293,19 @@ def query_adsb(adsb_path: str,  start_date: str, end_date: str,
             ak_albers_mask = mask.to_crs(epsg=3338)
             mask.geometry = ak_albers_mask.buffer(
                 mask_buffer_distance).to_crs(epsg=4326)
-        print(adsb.crs)
-        adsb.set_crs(epsg='4326', inplace=True)
-        adsb = gpd.clip(adsb, mask)
 
+    # ADSB file formats changed after 2019.
+    if (int(start_date[:4]) <= 2019) & (exclude_early_ADSB == False):
+        adsb_files = glob.glob(os.path.join(adsb_path, "*.txt"))
+        adsb = EarlyAdsb(adsb_files)
+        adsb.set_crs(epsg='4326', inplace=True)
+        if mask is not None:
+            adsb = gpd.clip(adsb, mask)
+    else:
+        adsb_files = glob.glob(os.path.join(adsb_path, "*.TSV"))
+        adsb = Adsb(adsb_files, mask)
+    
+    adsb = adsb.loc[(adsb["TIME"] > start_date) & (adsb["TIME"] < end_date)]
     adsb = adsb.loc[~(adsb.geometry.is_empty)]
     return adsb
 

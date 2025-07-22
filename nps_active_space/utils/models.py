@@ -476,8 +476,7 @@ class Adsb(gpd.GeoDataFrame):
         A directory containing ADS-B TSV files, a list of ADS-B TSV files, or an existing gpd.GeoDataFrame of ADS-B data.
     region : gpd.GeoDataFrame, default None
         A geodataframe containing the spatial region of interest. The associated geometry should be a polygon or multipolygon.
-        All ADSB points inside this region will be loaded, and some points outside of the region may also be loaded.
-        If None, all ADS-B data will be loaded.
+        ADS-B points inside this region will be loaded, and points outside will not. If None, all ADS-B data will be loaded.
 
     Raises
     ------
@@ -513,7 +512,6 @@ class Adsb(gpd.GeoDataFrame):
             # read files
             data = self._read(filepaths, region)
 
-        # data.drop_duplicates(subset=['TIME'], inplace=True, keep='last')
         super().__init__(data=data)
 
     def _read(self, filepaths: List[str], region: gpd.GeoDataFrame = None):
@@ -533,7 +531,7 @@ class Adsb(gpd.GeoDataFrame):
             A GeoDataFrame containing the ADSB data.
         """
 
-        # sort files by directory, since we maintain a separate index file for each directory
+        # organize files by directory, since we maintain a separate index file for each directory
         dirs = {}
         for path in filepaths:
             dir = os.path.dirname(path)
@@ -575,6 +573,13 @@ class Adsb(gpd.GeoDataFrame):
             crs="epsg:4326"
         )
 
+        # restrict points to the spatial region if provided
+        if region is not None:
+            data = gpd.sjoin(data, region, predicate="within", how="inner")
+
+        # remove duplicates
+        data.drop_duplicates(subset=['TIME', 'ICAO_address'], inplace=True, keep='last')
+
         return data
 
     def _load_index(self, directory: str, region: gpd.GeoDataFrame = None):
@@ -584,7 +589,7 @@ class Adsb(gpd.GeoDataFrame):
         Parameters
         ----------
         directory: str
-            The directory containing .TSV ADSB files and their associated index file (which may or may not exist).
+            The directory containing .TSV ADSB files and their associated index file, if it exists.
         region: gpd.GeoDataFrame, default None
             A polygon representing the spatial region of interest. All ADSB points inside this region will be loaded,
             and some points outside of the region may also be loaded.
@@ -593,10 +598,11 @@ class Adsb(gpd.GeoDataFrame):
         -------
         index: dict
             A dictionary describing where to find the ADSB entries that occur in each spatial grid cell.
-            If no index file exists, this will be an empty dictionary.
+            If no index file exists or the index is invalid, this will be an empty dictionary.
         ranges: dict
             A dictionary describing for each file, which byte ranges are relevant to the spatial query.
             Only files that have been previously indexed and haven't been changed since then will be included.
+            If no index file exists or the index is invalid, this will be an empty dictionary.
         """
 
         index_path = os.path.join(directory, self.index_file_name)
