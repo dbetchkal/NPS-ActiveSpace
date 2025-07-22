@@ -1,4 +1,3 @@
-import math
 from types import GeneratorType
 import concurrent.futures
 from tzwhere import tzwhere
@@ -11,13 +10,14 @@ import re
 import os
 import csv
 import json
+import matplotlib.pyplot as plt
 from warnings import warn
 from dataclasses import dataclass, field
 from typing import List, Optional, Union
 from decimal import Decimal, ROUND_DOWN
 
 import geopandas as gpd
-from shapely.geometry import Point
+from shapely.geometry import Point, box
 import numpy as np
 import pandas as pd
 pd.options.mode.copy_on_write = True
@@ -474,16 +474,25 @@ class Adsb(gpd.GeoDataFrame):
     ----------
     filepaths_or_data : List, str, or gpd.GeoDataFrame
         A directory containing ADS-B TSV files, a list of ADS-B TSV files, or an existing gpd.GeoDataFrame of ADS-B data.
+    region : gpd.GeoDataFrame, default None
+        A geodataframe containing the spatial region of interest. The associated geometry should be a polygon or multipolygon.
+        All ADSB points inside this region will be loaded, and some points outside of the region may also be loaded.
+        If None, all ADS-B data will be loaded.
 
     Raises
-        ------
-        AssertionError if directory path or file path does not exists or is of the wrong format.
+    ------
+    AssertionError if directory path or file path does not exists or is of the wrong format, or if region is of the wrong type.
     """
 
     lat_lon_grid_resolution = 0.01
     index_file_name = "index.txt"
 
-    def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
+    def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame], region: gpd.GeoDataFrame = None):
+        if region is not None:
+            assert isinstance(region, gpd.GeoDataFrame), "Region is not a GeoDataFrame"
+            assert region.geometry.geom_type.isin(["Polygon", "MultiPolygon"]).all(), "Region geometry must be Polygon or MultiPolygon"
+            region = region.to_crs("epsg:4326")
+
         if isinstance(filepaths_or_data, gpd.GeoDataFrame):
             data = filepaths_or_data.to_crs("epsg:4326")
 
@@ -502,12 +511,12 @@ class Adsb(gpd.GeoDataFrame):
                     filepaths.append(file)
 
             # read files
-            data = self._read(filepaths)
+            data = self._read(filepaths, region)
 
         # data.drop_duplicates(subset=['TIME'], inplace=True, keep='last')
         super().__init__(data=data)
 
-    def _read(self, filepaths: List[str]):
+    def _read(self, filepaths: List[str], region: gpd.GeoDataFrame = None):
         """
         Read in ADS-B points as formatted by NPS data loggers.
 
@@ -515,6 +524,8 @@ class Adsb(gpd.GeoDataFrame):
         ----------
         filepaths_or_data : List[str]
             A list of ADS-B files.
+        region : gpd.GeoDataFrame
+            The spatial region of interest
 
         Returns
         -------
@@ -535,7 +546,7 @@ class Adsb(gpd.GeoDataFrame):
                     unit='files', colour='green')
         for dir in dirs:
             # attempt to load that directory's index file (which may or may not exist)
-            index, ranges = self._load_index(dir)
+            index, ranges = self._load_index(dir, region)
 
             index_updated = False
             for filepath in dirs[dir]:
@@ -566,7 +577,7 @@ class Adsb(gpd.GeoDataFrame):
 
         return data
 
-    def _load_index(self, directory, region=None):
+    def _load_index(self, directory: str, region: gpd.GeoDataFrame = None):
         """Given a directory containing ADSB TSV files and their associated index file,
         attempts to load the parts of the index that correspond to the spatial region of interest.
 
@@ -574,7 +585,7 @@ class Adsb(gpd.GeoDataFrame):
         ----------
         directory: str
             The directory containing .TSV ADSB files and their associated index file (which may or may not exist).
-        region: TODO, default None
+        region: gpd.GeoDataFrame, default None
             A polygon representing the spatial region of interest. All ADSB points inside this region will be loaded,
             and some points outside of the region may also be loaded.
 
@@ -595,7 +606,8 @@ class Adsb(gpd.GeoDataFrame):
             return index, ranges
 
         with open(index_path, "r", encoding="utf-8") as f:
-            # read index headers to see which files are indexed and to learn which grid cells are present
+            # read index headers to learn what files are indexed and when they were last modified,
+            # and what grid cells are present and where they are found in the index file
             f.readline()  # comment line
             file_mtimes = json.loads(f.readline())
             f.readline()  # comment line
@@ -613,16 +625,23 @@ class Adsb(gpd.GeoDataFrame):
                 if not up_to_date:
                     out_of_date.append(file)
 
+            # figure out which grid cells contain a part of the spatial region
+            if region is not None:
+                region_cells = self._grid_cells_intersecting_region(region)
+            else:
+                region_cells = grid_cell_byte_offsets.keys() # all cells
+
             # if there are out of date files, we need to read everything so we can remove the out of date stuff
             if len(out_of_date) > 0:
                 cells_to_read = grid_cell_byte_offsets.keys()
             else:
                 # use the spatial region to determine which grid cells need to be read
-                # TODO
-                cells_to_read = grid_cell_byte_offsets.keys()
+                cells_to_read = region_cells
 
             # read the necessary grid cells
             for grid_cell in cells_to_read:
+                if grid_cell not in grid_cell_byte_offsets:
+                    continue
                 offset = grid_cell_byte_offsets[grid_cell]
                 f.seek(index_start + offset)
                 index = index | json.loads(f.readline())
@@ -644,7 +663,7 @@ class Adsb(gpd.GeoDataFrame):
 
         return index, ranges
 
-    def _save_index(self, directory, index):
+    def _save_index(self, directory: str, index: dict):
         """Updates/creates an ADSB index file in a directory containing ADSB TSV files.
 
         Parameters
@@ -748,10 +767,8 @@ class Adsb(gpd.GeoDataFrame):
 
         return pd.DataFrame(rows).convert_dtypes()
 
-
     def _read_tsv_ranges(self, filepath, ranges):
         """Reads sections of a TSV file specified by the `ranges` parameter."""
-        tqdm.write(f"Reading only parts of file {filepath}")
 
         with open(filepath, "r", encoding="utf-8-sig") as f:
             header_line = f.readline()
@@ -772,9 +789,51 @@ class Adsb(gpd.GeoDataFrame):
     def _get_grid_cell(self, lat, lon):
         """Determine grid cell for a certain coordinate using Decimal library to avoid annoying floating point precision problems"""
         res = Decimal(str(self.lat_lon_grid_resolution))
-        lat = (Decimal(str(lat)) / res).quantize(Decimal("1")) * res
-        lon = (Decimal(str(lon)) / res).quantize(Decimal("1")) * res
+        lat = (Decimal(str(lat)) / res).quantize(0, ROUND_DOWN) * res
+        lon = (Decimal(str(lon)) / res).quantize(0, ROUND_DOWN) * res
         return f"{lat},{lon}"
+    
+    def _grid_cells_intersecting_region(self, region: gpd.GeoDataFrame):
+        """Determine which grid cells intersect a spatial region."""
+
+        intersecting_cells = []
+        polys = []
+        res = self.lat_lon_grid_resolution
+
+        # simplify geometry to make computation tractable
+        # also combine geometry in case multiple polygons were provided
+        geom = region.simplify(0.1 * res).union_all()
+
+        # Get the bounding box of the geometry
+        minx, miny, maxx, maxy = geom.bounds
+        left_cell_x = np.floor(minx / res) * res
+        top_cell_y = np.floor(miny / res) * res
+        
+        # Generate all possible grid cells and test intersection
+        for x in np.arange(left_cell_x, maxx, res):
+            for y in np.arange(top_cell_y, maxy, res):
+                cell = box(x, y, x + res, y + res)
+                if cell.intersects(geom):
+                    # use center point for getting cell name to avoid floating point rounding issues
+                    cell_name = self._get_grid_cell(y + 0.5*res, x + 0.5*res)
+                    intersecting_cells.append(cell_name)
+                    polys.append(cell)
+        
+
+        # grid_gdf = gpd.GeoDataFrame(geometry=polys, crs=region.crs)
+        # fig, ax = plt.subplots(figsize=(10, 10))
+        # region.plot(ax=ax, color='lightblue', edgecolor='blue', label='Original Geometry')
+        # grid_gdf.plot(ax=ax, facecolor='none', edgecolor='red', linewidth=1, label='Grid Cells')
+        # plt.show()
+
+        # fig, ax = plt.subplots(figsize=(10, 10))
+        # region.simplify(0.1*res).plot(ax=ax, color='lightblue', edgecolor='blue', label='Original Geometry')
+        # grid_gdf.plot(ax=ax, facecolor='none', edgecolor='red', linewidth=1, label='Grid Cells')
+        # plt.show()
+        
+        return intersecting_cells
+
+
 
     def _process_raw_dataframe(self, df):
         """Processes a raw dataframe read from the TSV file, and does some data cleaning."""
