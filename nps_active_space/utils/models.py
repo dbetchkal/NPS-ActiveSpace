@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from warnings import warn
 from dataclasses import dataclass, field
 from typing import List, Optional, Union
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal, ROUND_FLOOR
 
 import geopandas as gpd
 from shapely.geometry import Point, box
@@ -731,7 +731,7 @@ class Adsb(gpd.GeoDataFrame):
             fieldnames = next(csv.reader([header_line], delimiter="\t"))
             rows = []
             prev_grid_cell = None
-            start_offset = None
+            start_offset = f.tell()
             while True:
                 offset = f.tell()
                 line = f.readline()
@@ -743,21 +743,20 @@ class Adsb(gpd.GeoDataFrame):
                 # also check for extra header inserted by the logger
                 if (None in row) or (row["timestamp"] == "timestamp"):
                     # don't include the broken line in the index, end the last range and start a new one
-                    self._add_range_to_index(
-                        index, grid_cell, filepath, start_offset, offset-start_offset)
+                    if prev_grid_cell is not None:
+                        self._add_range_to_index(
+                            index, prev_grid_cell, filepath, start_offset, offset-start_offset)
                     prev_grid_cell = None
-                    start_offset = None
+                    start_offset = f.tell()
                     continue
                 rows.append(row)
 
                 # if grid cell changed, write the previous grid cell's byte range to the index
                 lat, lon = int(row["lat"]) / 1e7, int(row["lon"]) / 1e7
                 grid_cell = self._get_grid_cell(lat, lon)
-                if prev_grid_cell is None:
-                    start_offset = offset
-                elif prev_grid_cell != grid_cell:
+                if prev_grid_cell is not None and prev_grid_cell != grid_cell:
                     self._add_range_to_index(
-                        index, grid_cell, filepath, start_offset, offset-start_offset)
+                        index, prev_grid_cell, filepath, start_offset, offset-start_offset)
                     start_offset = offset
                 prev_grid_cell = grid_cell
 
@@ -789,11 +788,11 @@ class Adsb(gpd.GeoDataFrame):
     def _get_grid_cell(self, lat, lon):
         """Determine grid cell for a certain coordinate using Decimal library to avoid annoying floating point precision problems"""
         res = Decimal(str(self.lat_lon_grid_resolution))
-        lat = (Decimal(str(lat)) / res).quantize(0, ROUND_DOWN) * res
-        lon = (Decimal(str(lon)) / res).quantize(0, ROUND_DOWN) * res
+        lat = (Decimal(str(lat)) / res).quantize(0, ROUND_FLOOR) * res
+        lon = (Decimal(str(lon)) / res).quantize(0, ROUND_FLOOR) * res
         return f"{lat},{lon}"
     
-    def _grid_cells_intersecting_region(self, region: gpd.GeoDataFrame):
+    def _grid_cells_intersecting_region(self, region: gpd.GeoDataFrame, ax=None):
         """Determine which grid cells intersect a spatial region."""
 
         intersecting_cells = []
@@ -819,12 +818,11 @@ class Adsb(gpd.GeoDataFrame):
                     intersecting_cells.append(cell_name)
                     polys.append(cell)
         
-
-        # grid_gdf = gpd.GeoDataFrame(geometry=polys, crs=region.crs)
-        # fig, ax = plt.subplots(figsize=(10, 10))
-        # region.plot(ax=ax, color='lightblue', edgecolor='blue', label='Original Geometry')
-        # grid_gdf.plot(ax=ax, facecolor='none', edgecolor='red', linewidth=1, label='Grid Cells')
-        # plt.show()
+        if ax is not None:
+            grid_gdf = gpd.GeoDataFrame(geometry=polys, crs=region.crs)
+            print(grid_gdf)
+            region.plot(ax=ax, color='lightblue', edgecolor='blue', label='Original Geometry')
+            grid_gdf.plot(ax=ax, facecolor='none', edgecolor='red', linewidth=1, label='Grid Cells')
 
         # fig, ax = plt.subplots(figsize=(10, 10))
         # region.simplify(0.1*res).plot(ax=ax, color='lightblue', edgecolor='blue', label='Original Geometry')
