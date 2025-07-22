@@ -558,7 +558,7 @@ class Adsb(gpd.GeoDataFrame):
                     # up-to-date index data doesn't exist, so read entire file and update the index
                     df = self._read_tsv_and_update_index(filepath, index)
                     index_updated = True
-                
+                                
                 df = self._process_raw_dataframe(df)
                 dataframes.append(df)
                 pbar.update(1)
@@ -599,24 +599,27 @@ class Adsb(gpd.GeoDataFrame):
             Only files that have been previously indexed and haven't been changed since then will be included.
         """
 
-        index, ranges = {}, {}
-
         index_path = os.path.join(directory, self.index_file_name)
         if not os.path.exists(index_path):
-            return index, ranges
+            return {}, {}
 
         with open(index_path, "r", encoding="utf-8") as f:
-            # read index headers to learn what files are indexed and when they were last modified,
-            # and what grid cells are present and where they are found in the index file
-            f.readline()  # comment line
-            file_mtimes = json.loads(f.readline())
-            f.readline()  # comment line
-            grid_cell_byte_offsets = json.loads(f.readline())
-            f.readline()  # comment line
+            # read index headers
+            f.readline()
+            grid_res = float(f.readline())  # grid resolution of the index
+            f.readline()  # for human use only
+            file_mtimes = json.loads(f.readline())  # what files are present and when they were last modified (mtime)
+            f.readline()  # for human use only
+            grid_cell_byte_offsets = json.loads(f.readline())  # what grid cells are present and their byte offset in the index file
+            f.readline()  # for human use only
             index_start = f.tell()
 
+            # make sure we are using the same grid resolution, if not, index is invalid and should be replaced
+            if grid_res != self.lat_lon_grid_resolution:
+                return {}, {}
+
             # check if any files were modified since they were last indexed
-            # if so, will need to remove them from the index
+            # if so, will need to remove them from the index later
             out_of_date = []
             for file in file_mtimes:
                 full_path = os.path.join(directory, file)
@@ -631,14 +634,15 @@ class Adsb(gpd.GeoDataFrame):
             else:
                 region_cells = grid_cell_byte_offsets.keys() # all cells
 
+            # determine which grid cells to read from the index file
             # if there are out of date files, we need to read everything so we can remove the out of date stuff
             if len(out_of_date) > 0:
-                cells_to_read = grid_cell_byte_offsets.keys()
+                cells_to_read = grid_cell_byte_offsets.keys()  # all cells
             else:
-                # use the spatial region to determine which grid cells need to be read
                 cells_to_read = region_cells
 
             # read the necessary grid cells
+            index = {}
             for grid_cell in cells_to_read:
                 if grid_cell not in grid_cell_byte_offsets:
                     continue
@@ -646,13 +650,20 @@ class Adsb(gpd.GeoDataFrame):
                 f.seek(index_start + offset)
                 index = index | json.loads(f.readline())
 
-            # delete out of date index records
-            # TODO
-            # if we do this, probably need to re-save the index?
-
+            # delete out of date index records and re-save the index
+            if len(out_of_date) > 0:
+                for file in out_of_date:
+                    for grid_cell in index:
+                        if file in index[grid_cell]:
+                            del index[grid_cell][file]
+                self._save_index(directory, index)
+            
             # for each file, determine which ranges should be read
-            # TODO restrict using spatial region, even if we read the whole index for out-of-date file purposes
-            for grid_cell in index:
+            # we may have read more cells into the index than needed, so iterate over region cells specifically for determining this
+            ranges = {}
+            for grid_cell in region_cells:
+                if grid_cell not in index:
+                    continue
                 for file in index[grid_cell]:
                     if file not in ranges:
                         ranges[file] = []
@@ -679,6 +690,10 @@ class Adsb(gpd.GeoDataFrame):
         with open(index_path, "w", encoding="utf-8", newline="\n") as f:
             # note that we need newline="\n" so that windows carriage returns aren't added,
             # which would otherwise mess with computing byte offsets
+
+            # write header recording the grid resolution
+            f.write("grid resolution\n")
+            f.write(f"{self.lat_lon_grid_resolution}\n")
 
             # write header that describes which files are present in the index and when they were last modified
             files_present = set()
@@ -792,7 +807,7 @@ class Adsb(gpd.GeoDataFrame):
         lon = (Decimal(str(lon)) / res).quantize(0, ROUND_FLOOR) * res
         return f"{lat},{lon}"
     
-    def _grid_cells_intersecting_region(self, region: gpd.GeoDataFrame, ax=None):
+    def _grid_cells_intersecting_region(self, region: gpd.GeoDataFrame, visualize=False):
         """Determine which grid cells intersect a spatial region."""
 
         intersecting_cells = []
@@ -818,16 +833,12 @@ class Adsb(gpd.GeoDataFrame):
                     intersecting_cells.append(cell_name)
                     polys.append(cell)
         
-        if ax is not None:
+        if visualize:
+            fig, ax = plt.subplots(figsize=(8,8))
             grid_gdf = gpd.GeoDataFrame(geometry=polys, crs=region.crs)
-            print(grid_gdf)
             region.plot(ax=ax, color='lightblue', edgecolor='blue', label='Original Geometry')
             grid_gdf.plot(ax=ax, facecolor='none', edgecolor='red', linewidth=1, label='Grid Cells')
-
-        # fig, ax = plt.subplots(figsize=(10, 10))
-        # region.simplify(0.1*res).plot(ax=ax, color='lightblue', edgecolor='blue', label='Original Geometry')
-        # grid_gdf.plot(ax=ax, facecolor='none', edgecolor='red', linewidth=1, label='Grid Cells')
-        # plt.show()
+            plt.show()
         
         return intersecting_cells
 
