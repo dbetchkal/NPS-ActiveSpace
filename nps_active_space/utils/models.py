@@ -483,7 +483,8 @@ class Adsb(gpd.GeoDataFrame):
     ------
     AssertionError if directory path or file path does not exists or is of the wrong format, or if region is of the wrong type.
     """
-
+    # a grid resolution of 0.01 deg has been empirically determined to be the right order of magnitude
+    # for a good tradeoff between index loading time and file loading time
     lat_lon_grid_resolution = 0.01
     index_file_name = "index.txt"
 
@@ -535,6 +536,7 @@ class Adsb(gpd.GeoDataFrame):
         t_file_load = 0
         t_process = 0
         t_final = 0
+        t_index = 0
 
         # organize files by directory, since we maintain a separate index file for each directory
         dirs = {}
@@ -549,7 +551,9 @@ class Adsb(gpd.GeoDataFrame):
                     unit='files', colour='green')
         for dir in dirs:
             # attempt to load that directory's index file (which may or may not exist)
+            t0 = time.perf_counter()
             index, ranges = self._load_index(dir, region)
+            t_index += time.perf_counter() - t0
 
             index_updated = False
             for filepath in dirs[dir]:
@@ -606,6 +610,7 @@ class Adsb(gpd.GeoDataFrame):
 
         t_final = (time.perf_counter() - t0)
 
+        print(f"time loading index: {t_index:.3f} s")
         print(f"time loading files: {t_file_load:.3f} s")
         print(f"time processing: {t_process:.3f} s")
         print(f"time finishing up: {t_final:.3f} s")
