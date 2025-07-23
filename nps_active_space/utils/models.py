@@ -533,11 +533,6 @@ class Adsb(gpd.GeoDataFrame):
             A GeoDataFrame containing the ADSB data.
         """
 
-        t_file_load = 0
-        t_process = 0
-        t_final = 0
-        t_index = 0
-
         # organize files by directory, since we maintain a separate index file for each directory
         dirs = {}
         for path in filepaths:
@@ -547,61 +542,42 @@ class Adsb(gpd.GeoDataFrame):
             dirs[dir].append(path)
 
         dataframes = []
-        pbar = tqdm(total=len(filepaths), desc='Loading ADS-B files',
-                    unit='files', colour='green')
         for dir in dirs:
+            print(f"Loading ADSB files in {dir}")
+            dir_files = dirs[dir]
+
             # attempt to load that directory's index file (which may or may not exist)
-            t0 = time.perf_counter()
             index, ranges = self._load_index(dir, region)
-            t_index += time.perf_counter() - t0
 
+            # for `ranges` and `region`, will pass the same object to all threads
+            # this is okay because the threads are only reading these objects, not writing
+            ranges_copy = [ranges for _ in range(len(dir_files))]
+            region_copy = [region for _ in range(len(dir_files))]
+            
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                results = list(tqdm(
+                    pool.map(self._read_file, dir_files, ranges_copy, region_copy),
+                    total=len(dir_files), unit="files"))
+
+            # process results from all the threads
             index_updated = False
-            for filepath in dirs[dir]:
-                basename = os.path.basename(filepath)
-                t0 = time.perf_counter()
-                if basename in ranges:
-                    # use the index to speed up file reading
-                    df = self._read_tsv_ranges(filepath, ranges[basename])
-                else:
-                    # up-to-date index data doesn't exist, so read entire file and update the index
-                    df = self._read_tsv_and_update_index(filepath, index)
+            for (df, index_update) in results:
+                if df is not None:
+                    dataframes.append(df)
+                if index_update is not None:
+                    # merge this index update with the rest of the index
+                    for grid_cell in index_update:
+                        if grid_cell not in index:
+                            index[grid_cell] = {}
+                        files = list(index_update[grid_cell].keys())
+                        assert len(files) == 1, "Somehow the index update from one file contains multiple files??"
+                        file = files[0]
+                        # can overwrite index[grid_cell][file] if it exists b/c we should know everything about that file
+                        index[grid_cell][file] = index_update[grid_cell][file]
                     index_updated = True
-                
-                t_file_load += (time.perf_counter() - t0)
-
-                t0 = time.perf_counter()
-
-                if len(df) > 0:
-                    # clip to spatial region before doing data processing
-                    # this way the data processing (which is slow) has a lot less to do
-                    if region is not None:
-                        # make a temporary geodataframe to figure out which rows are within the region
-                        lat = df["lat"].astype(int) / 1e7
-                        lon = df["lon"].astype(int) / 1e7
-                        gdf = gpd.GeoDataFrame(
-                            geometry=gpd.points_from_xy(lon, lat),
-                            crs="epsg:4326"
-                        )
-                        mask = gdf.within(region.union_all())
-                        df = df[mask]
-                        # Resetting the index is crucial for small spatial regions so that excess data doesn't get dropped.
-                        # No idea why though
-                        df.reset_index(drop=True, inplace=True)
-
-                    df = self._process_raw_dataframe(df)
-                    if df is not None:
-                        dataframes.append(df)
-
-                t_process += (time.perf_counter() - t0)
-
-                pbar.update(1)
 
             if index_updated:
                 self._save_index(dir, index)
-
-        pbar.close()
-
-        t0 = time.perf_counter()
 
         if len(dataframes) == 0:
             data = gpd.GeoDataFrame(geometry=[])
@@ -613,14 +589,42 @@ class Adsb(gpd.GeoDataFrame):
                 geometry=gpd.points_from_xy(data["lon"], data["lat"]),
                 crs="epsg:4326")
 
-        t_final = (time.perf_counter() - t0)
-
-        print(f"time loading index: {t_index:.3f} s")
-        print(f"time loading files: {t_file_load:.3f} s")
-        print(f"time processing: {t_process:.3f} s")
-        print(f"time finishing up: {t_final:.3f} s")
-
         return data
+
+    def _read_file(self, filepath: str, ranges: dict, region: gpd.GeoDataFrame = None):
+        """Read a single ADSB .TSV file. Uses file byte ranges from the index to go faster if provided.
+        If no ranges are provided, indexes the file while loading it and returns that part of the index."""
+
+        index_part = None
+        basename = os.path.basename(filepath)
+        if basename in ranges:
+            # use the index to speed up file reading
+            df = self._read_tsv_ranges(filepath, ranges[basename])
+        else:
+            # up-to-date index data doesn't exist, so read entire file and update the index
+            index_part = {}
+            df = self._read_tsv_and_update_index(filepath, index_part)
+        
+        if len(df) > 0:
+            # clip to spatial region before doing data processing
+            # this way the data processing (which is slow) has a lot less to do
+            if region is not None:
+                # make a temporary geodataframe to figure out which rows are within the region
+                lat = df["lat"].astype(int) / 1e7
+                lon = df["lon"].astype(int) / 1e7
+                gdf = gpd.GeoDataFrame(
+                    geometry=gpd.points_from_xy(lon, lat),
+                    crs="epsg:4326"
+                )
+                mask = gdf.within(region.union_all())
+                df = df[mask]
+                # Resetting the index is crucial for small spatial regions so that excess data doesn't get dropped.
+                # No idea why though
+                df.reset_index(drop=True, inplace=True)
+
+            df = self._process_raw_dataframe(df)
+            
+        return df, index_part
 
     def _load_index(self, directory: str, region: gpd.GeoDataFrame = None):
         """Given a directory containing ADSB TSV files and their associated index file,
@@ -695,14 +699,6 @@ class Adsb(gpd.GeoDataFrame):
                 offset = grid_cell_byte_offsets[grid_cell]
                 f.seek(index_start + offset)
                 index = index | json.loads(f.readline())
-
-            # delete out of date index records and re-save the index
-            if len(out_of_date) > 0:
-                for file in out_of_date:
-                    for grid_cell in index:
-                        if file in index[grid_cell]:
-                            del index[grid_cell][file]
-                self._save_index(directory, index)
             
             # for each file, determine which ranges should be read
             # we may have read more cells into the index than needed, so iterate over region cells specifically for determining this
@@ -719,6 +715,16 @@ class Adsb(gpd.GeoDataFrame):
             # sort ranges by start offset, probably helps a bit with file-reading speed
             for file in ranges:
                 ranges[file].sort(key=lambda x: x[0])
+            
+            # delete out of date index records and re-save the index
+            if len(out_of_date) > 0:
+                for file in out_of_date:
+                    for grid_cell in index:
+                        if file in index[grid_cell]:
+                            del index[grid_cell][file]
+                    # also remove it from ranges, its range isn't valid anymore
+                    del ranges[file]
+                self._save_index(directory, index)
 
         return index, ranges
 
