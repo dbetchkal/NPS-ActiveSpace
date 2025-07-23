@@ -485,7 +485,7 @@ class Adsb(gpd.GeoDataFrame):
     """
     # a grid resolution of 0.01 deg has been empirically determined to be the right order of magnitude
     # for a good tradeoff between index loading time and file loading time
-    lat_lon_grid_resolution = 0.01
+    lat_lon_grid_resolution = 0.1
     index_file_name = "index.txt"
 
     def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame], region: gpd.GeoDataFrame = None):
@@ -593,38 +593,50 @@ class Adsb(gpd.GeoDataFrame):
 
     def _read_file(self, filepath: str, ranges: dict, region: gpd.GeoDataFrame = None):
         """Read a single ADSB .TSV file. Uses file byte ranges from the index to go faster if provided.
-        If no ranges are provided, indexes the file while loading it and returns that part of the index."""
+        If no ranges are provided, indexes the file while loading it and returns that part of the index.
+        
+        Returns
+        -------
+        tuple of (df, index_update)
+            df: pd.DataFrame or None
+                The read contents of the ADSB file. If nothing was read of adequate quality that matches the region, is None.
+            index_update: dict
+                If needed, a spatial index for this file. Will be combined with the index from other files to build an overall spatial index.
+                If this file was previously indexed, is None.
+        """
 
-        index_part = None
+        index_update = None
         basename = os.path.basename(filepath)
         if basename in ranges:
             # use the index to speed up file reading
             df = self._read_tsv_ranges(filepath, ranges[basename])
         else:
             # up-to-date index data doesn't exist, so read entire file and update the index
-            index_part = {}
-            df = self._read_tsv_and_update_index(filepath, index_part)
+            index_update = {}
+            df = self._read_tsv_and_update_index(filepath, index_update)
         
-        if len(df) > 0:
-            # clip to spatial region before doing data processing
-            # this way the data processing (which is slow) has a lot less to do
-            if region is not None:
-                # make a temporary geodataframe to figure out which rows are within the region
-                lat = df["lat"].astype(int) / 1e7
-                lon = df["lon"].astype(int) / 1e7
-                gdf = gpd.GeoDataFrame(
-                    geometry=gpd.points_from_xy(lon, lat),
-                    crs="epsg:4326"
-                )
-                mask = gdf.within(region.union_all())
-                df = df[mask]
-                # Resetting the index is crucial for small spatial regions so that excess data doesn't get dropped.
-                # No idea why though
-                df.reset_index(drop=True, inplace=True)
+        if len(df) == 0:
+            return None, index_update
+        
+        # clip to spatial region before doing data processing
+        # this way the data processing (which is slow) has a lot less to do
+        if region is not None:
+            # make a temporary geodataframe to figure out which rows are within the region
+            lat = df["lat"].astype(int) / 1e7
+            lon = df["lon"].astype(int) / 1e7
+            gdf = gpd.GeoDataFrame(
+                geometry=gpd.points_from_xy(lon, lat),
+                crs="epsg:4326"
+            )
+            mask = gdf.within(region.union_all())
+            df = df[mask]
+            # Resetting the index is crucial for small spatial regions so that excess data doesn't get dropped.
+            # No idea why though
+            df.reset_index(drop=True, inplace=True)
 
-            df = self._process_raw_dataframe(df)
+        df = self._process_raw_dataframe(df)
             
-        return df, index_part
+        return df, index_update
 
     def _load_index(self, directory: str, region: gpd.GeoDataFrame = None):
         """Given a directory containing ADSB TSV files and their associated index file,
