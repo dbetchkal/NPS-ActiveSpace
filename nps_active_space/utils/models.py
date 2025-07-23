@@ -1,3 +1,4 @@
+import time
 from types import GeneratorType
 import concurrent.futures
 from tzwhere import tzwhere
@@ -531,6 +532,10 @@ class Adsb(gpd.GeoDataFrame):
             A GeoDataFrame containing the ADSB data.
         """
 
+        t_file_load = 0
+        t_process = 0
+        t_final = 0
+
         # organize files by directory, since we maintain a separate index file for each directory
         dirs = {}
         for path in filepaths:
@@ -549,6 +554,7 @@ class Adsb(gpd.GeoDataFrame):
             index_updated = False
             for filepath in dirs[dir]:
                 basename = os.path.basename(filepath)
+                t0 = time.perf_counter()
                 if basename in ranges:
                     # use the index to speed up file reading
                     df = self._read_tsv_ranges(filepath, ranges[basename])
@@ -556,9 +562,30 @@ class Adsb(gpd.GeoDataFrame):
                     # up-to-date index data doesn't exist, so read entire file and update the index
                     df = self._read_tsv_and_update_index(filepath, index)
                     index_updated = True
-                                
-                df = self._process_raw_dataframe(df)
-                dataframes.append(df)
+
+                t_file_load += (time.perf_counter() - t0)
+
+                t0 = time.perf_counter()
+
+                df["lat"] = df["lat"].astype(int) / 1e7
+                df["lon"] = df["lon"].astype(int) / 1e7
+
+                gdf = gpd.GeoDataFrame(
+                    data=df,
+                    geometry=gpd.points_from_xy(df["lon"], df["lat"]),
+                    crs="epsg:4326"
+                )
+                gdf = gpd.sjoin(gdf, region, predicate="within", how="inner")
+                # Resetting the index is crucial for small regions so that excess data doesn't get dropped,
+                # when entire file is loaded. No idea why though
+                gdf.reset_index(drop=True, inplace=True)
+
+                gdf = self._process_raw_dataframe(gdf)
+                if gdf is not None:
+                    dataframes.append(gdf)
+
+                t_process += (time.perf_counter() - t0)
+
                 pbar.update(1)
 
             if index_updated:
@@ -566,19 +593,16 @@ class Adsb(gpd.GeoDataFrame):
 
         pbar.close()
 
+        t0 = time.perf_counter()
+
         data = pd.concat(dataframes, ignore_index=True)
-        data = gpd.GeoDataFrame(
-            data,
-            geometry=gpd.points_from_xy(data["lon"], data["lat"]),
-            crs="epsg:4326"
-        )
-
-        # restrict points to the spatial region if provided
-        if region is not None:
-            data = gpd.sjoin(data, region, predicate="within", how="inner")
-
-        # remove duplicates
         data.drop_duplicates(subset=['TIME', 'ICAO_address'], inplace=True, keep='last')
+
+        t_final = (time.perf_counter() - t0)
+
+        print(f"time loading files: {t_file_load:.3f} s")
+        print(f"time processing: {t_process:.3f} s")
+        print(f"time finishing up: {t_final:.3f} s")
 
         return data
 
@@ -698,7 +722,7 @@ class Adsb(gpd.GeoDataFrame):
             # which would otherwise mess with computing byte offsets
 
             # write header recording the grid resolution
-            f.write("grid resolution\n")
+            f.write("grid resolution (degrees)\n")
             f.write(f"{self.lat_lon_grid_resolution}\n")
 
             # write header that describes which files are present in the index and when they were last modified
@@ -805,7 +829,6 @@ class Adsb(gpd.GeoDataFrame):
         rows = csv.DictReader(lines, fieldnames, delimiter="\t")
         return pd.DataFrame(rows).convert_dtypes()
 
-
     def _get_grid_cell(self, lat, lon):
         """Determine grid cell for a certain coordinate using Decimal library to avoid annoying floating point precision problems"""
         res = Decimal(str(self.lat_lon_grid_resolution))
@@ -848,19 +871,31 @@ class Adsb(gpd.GeoDataFrame):
         
         return intersecting_cells
 
-
-
     def _process_raw_dataframe(self, df):
-        """Processes a raw dataframe read from the TSV file, and does some data cleaning."""
+        """Processes a raw dataframe read from the TSV file, and does some data cleaning.
 
+        Parameters
+        ----------
+        df: pd.DataFrame
+            The dataframe read from an ADSB TSV file.
+        
+        Returns
+        -------
+        df: pd.DataFrame or None
+            The cleaned dataframe, or None if the cleaning removed all dataframe rows
+        """
+
+        # remove extra header rows inserted by the ADSB logger
         mask = df.iloc[:, 0].isin(["TIME", "timestamp"])
         df = df[~mask]
+        if len(df) == 0:
+            return None
+
+        # verify a time header exists
         header_list = ["TIME", "timestamp"]
         import_header = df.axes[1]
         result = any(elem in import_header for elem in header_list)
-        if result:
-            pass
-        else:
+        if not result:
             raise KeyError
 
         # Standardize key field names and remove extra columns collected by the ADS-B df logger
@@ -874,6 +909,8 @@ class Adsb(gpd.GeoDataFrame):
         # Delete duplicate and NA records
         df.drop_duplicates(inplace=True)
         df.dropna(how="any", axis=0, inplace=True)
+        if len(df) == 0:
+            return None
 
         # Unpack validFLags and convert the 2-byte flag field into a list of Boolean values
         flags_names = ["valid_BARO", "valid_VERTICAL_VELOCITY", "SIMULATED_REPORT", "valid_IDENT",
@@ -887,26 +924,27 @@ class Adsb(gpd.GeoDataFrame):
 
         # Keep only those records with valid latlon and altitude values based on validFlags
         df.dropna(how="any", axis=0, inplace=True)
-        if df["valid_LATLON"].sum() == len(df.index):
-            invalidLatLon = 0
-        else:
-            invalidLatLon = round(
-                100 - df["valid_LATLON"].sum() / len(df.index) * 100, 2)
-        if df["valid_ALTITUDE"].sum() == len(df.index):
-            invalidAltitude = 0
-        else:
-            invalidAltitude = round(
-                100 - df["valid_ALTITUDE"].sum() / len(df.index) * 100, 2)
+        # if df["valid_LATLON"].sum() == len(df.index):
+        #     invalidLatLon = 0
+        # else:
+        #     invalidLatLon = round(
+        #         100 - df["valid_LATLON"].sum() / len(df.index) * 100, 2)
+        # if df["valid_ALTITUDE"].sum() == len(df.index):
+        #     invalidAltitude = 0
+        # else:
+        #     invalidAltitude = round(
+        #         100 - df["valid_ALTITUDE"].sum() / len(df.index) * 100, 2)
         df.drop(df[df["valid_LATLON"] == "False"].index, inplace=True)
         df.drop(df[df["valid_ALTITUDE"] ==
                 "False"].index, inplace=True)
-
+        if len(df) == 0:
+            return None
+        
         # Ensure remaining field values except TIME are in proper numeric format
         df.replace('-', np.nan, inplace=True)
-        df.dropna(how="any", axis=0, inplace=True)
         df["ICAO_address"] = df["ICAO_address"].astype(str)
-        df["lat"] = df["lat"].astype(int)
-        df["lon"] = df["lon"].astype(int)
+        # df["lat"] = df["lat"].astype(int)
+        # df["lon"] = df["lon"].astype(int)
         df["altitude"] = df["altitude"].astype(int)
         df["heading"] = df["heading"].astype(int)
         df["hor_velocity"] = df["hor_velocity"].astype(int)
@@ -916,24 +954,28 @@ class Adsb(gpd.GeoDataFrame):
         # Convert Unix timestamp to datetime objects in UTC and re-scale selected variable values
         df["TIME"] = pd.to_datetime(df["TIME"].astype(int), unit="s")
         df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
-        df["lat"] = df["lat"] / 1e7
-        df["lon"] = df["lon"] / 1e7
+        # df["lat"] = df["lat"] / 1e7
+        # df["lon"] = df["lon"] / 1e7
         df["altitude"] = df["altitude"] / 1e3
         df["heading"] = df["heading"] / 1e2
         df["hor_velocity"] = df["hor_velocity"] / 1e2
         df["ver_velocity"] = df["ver_velocity"] / 1e2
 
         # Keep only those records with TSLC values of 1 or 2 seconds
-        invalidTslc = len(
-            df.query("tslc >= 3 or tslc == 0")) / df.shape[0] * 100
+        # invalidTslc = len(
+        #     df.query("tslc >= 3 or tslc == 0")) / df.shape[0] * 100
         df.drop(df[df["tslc"] >= 3].index, inplace=True)
         df.drop(df[df["tslc"] == 0].index, inplace=True)
+        if len(df) == 0:
+            return None
 
         # Keep only those records with realistic altitudes
         # 10000 meters = 32808 feet; this should encompass most flights
         # NOTE: some jet aircraft may be eliminated by this process
         df = df.loc[(df["altitude"] > 0) & (
             df["altitude"] <= 10000), :]
+        if len(df) == 0:
+            return None
 
         # Sort records by ICAO Address and TIME then reset dfframe index
         df.sort_values(["ICAO_address", "TIME"],
@@ -945,9 +987,9 @@ class Adsb(gpd.GeoDataFrame):
         df["dur_secs"] = df["dur_secs"].fillna(0)
 
         # Count then delete any identical waypoints in a single input file based on ICAO_address, time, lat, and lon
-        duplicateWaypoints = 100 - \
-            (len(df.drop_duplicates(
-                subset=['ICAO_address', 'TIME', 'lat', 'lon'])) / len(df) * 100)
+        # duplicateWaypoints = 100 - \
+        #     (len(df.drop_duplicates(
+        #         subset=['ICAO_address', 'TIME', 'lat', 'lon'])) / len(df) * 100)
         df.drop_duplicates(
             subset=['ICAO_address', 'TIME', 'lat', 'lon'], keep='last')
 
