@@ -287,22 +287,25 @@ def query_adsb(adsb_path: str,  start_date: str, end_date: str,
     """
 
     if mask is not None:
-        if not mask.crs.to_epsg() == 4326:  # If mask is not already in WGS84, project it.
-            mask = mask.to_crs(epsg='4326')
+        # if not mask.crs.to_epsg() == 4326:  # If mask is not already in WGS84, project it.
+        #     mask = mask.to_crs(epsg='4326')
         if mask_buffer_distance:
             ak_albers_mask = mask.to_crs(epsg=3338)
             mask.geometry = ak_albers_mask.buffer(
                 mask_buffer_distance).to_crs(epsg=4326)
+        mask = mask.to_crs("epsg:4326")
 
     # ADSB file formats changed after 2019.
     if (int(start_date[:4]) <= 2019) & (exclude_early_ADSB == False):
         adsb_files = glob.glob(os.path.join(adsb_path, "*.txt"))
+        assert len(adsb_files) > 0, f"No ADSB files found in {adsb_path}"
         adsb = EarlyAdsb(adsb_files)
         adsb.set_crs(epsg='4326', inplace=True)
         if mask is not None:
             adsb = gpd.clip(adsb, mask)
     else:
         adsb_files = glob.glob(os.path.join(adsb_path, "*.TSV"))
+        assert len(adsb_files) > 0, f"No ADSB files found in {adsb_path}"
         adsb = Adsb(adsb_files, mask)
     
     adsb = adsb.loc[(adsb["TIME"] > start_date) & (adsb["TIME"] < end_date)]

@@ -493,7 +493,7 @@ class Adsb(gpd.GeoDataFrame):
             assert isinstance(region, gpd.GeoDataFrame), "Region is not a GeoDataFrame"
             assert region.geometry.geom_type.isin(["Polygon", "MultiPolygon"]).all(), "Region geometry must be Polygon or MultiPolygon"
             region = region.to_crs("epsg:4326")
-
+        
         if isinstance(filepaths_or_data, gpd.GeoDataFrame):
             data = filepaths_or_data.to_crs("epsg:4326")
 
@@ -572,24 +572,25 @@ class Adsb(gpd.GeoDataFrame):
                 t0 = time.perf_counter()
 
                 if len(df) > 0:
-                    # convert to geodataframe and clip to spatial region before doing data processing
+                    # clip to spatial region before doing data processing
                     # this way the data processing (which is slow) has a lot less to do
-                    df["lat"] = df["lat"].astype(int) / 1e7
-                    df["lon"] = df["lon"].astype(int) / 1e7
-                    gdf = gpd.GeoDataFrame(
-                        data=df,
-                        geometry=gpd.points_from_xy(df["lon"], df["lat"]),
-                        crs="epsg:4326"
-                    )
                     if region is not None:
-                        gdf = gpd.sjoin(gdf, region, predicate="within", how="inner")
-                    # Resetting the index is crucial for small spatial regions so that excess data doesn't get dropped.
-                    # No idea why though
-                    gdf.reset_index(drop=True, inplace=True)
+                        # make a temporary geodataframe to figure out which rows are within the region
+                        lat = df["lat"].astype(int) / 1e7
+                        lon = df["lon"].astype(int) / 1e7
+                        gdf = gpd.GeoDataFrame(
+                            geometry=gpd.points_from_xy(lon, lat),
+                            crs="epsg:4326"
+                        )
+                        mask = gdf.within(region.union_all())
+                        df = df[mask]
+                        # Resetting the index is crucial for small spatial regions so that excess data doesn't get dropped.
+                        # No idea why though
+                        df.reset_index(drop=True, inplace=True)
 
-                    gdf = self._process_raw_dataframe(gdf)
-                    if gdf is not None:
-                        dataframes.append(gdf)
+                    df = self._process_raw_dataframe(df)
+                    if df is not None:
+                        dataframes.append(df)
 
                 t_process += (time.perf_counter() - t0)
 
@@ -607,6 +608,10 @@ class Adsb(gpd.GeoDataFrame):
         else:
             data = pd.concat(dataframes, ignore_index=True)
             data.drop_duplicates(subset=['TIME', 'ICAO_address'], inplace=True, keep='last')
+            data = gpd.GeoDataFrame(
+                data=data,
+                geometry=gpd.points_from_xy(data["lon"], data["lat"]),
+                crs="epsg:4326")
 
         t_final = (time.perf_counter() - t0)
 
@@ -956,8 +961,8 @@ class Adsb(gpd.GeoDataFrame):
         # Ensure remaining field values except TIME are in proper numeric format
         df.replace('-', np.nan, inplace=True)
         df["ICAO_address"] = df["ICAO_address"].astype(str)
-        # df["lat"] = df["lat"].astype(int)
-        # df["lon"] = df["lon"].astype(int)
+        df["lat"] = df["lat"].astype(int)
+        df["lon"] = df["lon"].astype(int)
         df["altitude"] = df["altitude"].astype(int)
         df["heading"] = df["heading"].astype(int)
         df["hor_velocity"] = df["hor_velocity"].astype(int)
@@ -967,8 +972,8 @@ class Adsb(gpd.GeoDataFrame):
         # Convert Unix timestamp to datetime objects in UTC and re-scale selected variable values
         df["TIME"] = pd.to_datetime(df["TIME"].astype(int), unit="s")
         df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
-        # df["lat"] = df["lat"] / 1e7
-        # df["lon"] = df["lon"] / 1e7
+        df["lat"] = df["lat"] / 1e7
+        df["lon"] = df["lon"] / 1e7
         df["altitude"] = df["altitude"] / 1e3
         df["heading"] = df["heading"] / 1e2
         df["hor_velocity"] = df["hor_velocity"] / 1e2
