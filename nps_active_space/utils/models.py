@@ -562,27 +562,30 @@ class Adsb(gpd.GeoDataFrame):
                     # up-to-date index data doesn't exist, so read entire file and update the index
                     df = self._read_tsv_and_update_index(filepath, index)
                     index_updated = True
-
+                
                 t_file_load += (time.perf_counter() - t0)
 
                 t0 = time.perf_counter()
 
-                df["lat"] = df["lat"].astype(int) / 1e7
-                df["lon"] = df["lon"].astype(int) / 1e7
+                if len(df) > 0:
+                    # convert to geodataframe and clip to spatial region before doing data processing
+                    # this way the data processing (which is slow) has a lot less to do
+                    df["lat"] = df["lat"].astype(int) / 1e7
+                    df["lon"] = df["lon"].astype(int) / 1e7
+                    gdf = gpd.GeoDataFrame(
+                        data=df,
+                        geometry=gpd.points_from_xy(df["lon"], df["lat"]),
+                        crs="epsg:4326"
+                    )
+                    if region is not None:
+                        gdf = gpd.sjoin(gdf, region, predicate="within", how="inner")
+                    # Resetting the index is crucial for small spatial regions so that excess data doesn't get dropped.
+                    # No idea why though
+                    gdf.reset_index(drop=True, inplace=True)
 
-                gdf = gpd.GeoDataFrame(
-                    data=df,
-                    geometry=gpd.points_from_xy(df["lon"], df["lat"]),
-                    crs="epsg:4326"
-                )
-                gdf = gpd.sjoin(gdf, region, predicate="within", how="inner")
-                # Resetting the index is crucial for small regions so that excess data doesn't get dropped,
-                # when entire file is loaded. No idea why though
-                gdf.reset_index(drop=True, inplace=True)
-
-                gdf = self._process_raw_dataframe(gdf)
-                if gdf is not None:
-                    dataframes.append(gdf)
+                    gdf = self._process_raw_dataframe(gdf)
+                    if gdf is not None:
+                        dataframes.append(gdf)
 
                 t_process += (time.perf_counter() - t0)
 
@@ -595,8 +598,11 @@ class Adsb(gpd.GeoDataFrame):
 
         t0 = time.perf_counter()
 
-        data = pd.concat(dataframes, ignore_index=True)
-        data.drop_duplicates(subset=['TIME', 'ICAO_address'], inplace=True, keep='last')
+        if len(dataframes) == 0:
+            data = gpd.GeoDataFrame(geometry=[])
+        else:
+            data = pd.concat(dataframes, ignore_index=True)
+            data.drop_duplicates(subset=['TIME', 'ICAO_address'], inplace=True, keep='last')
 
         t_final = (time.perf_counter() - t0)
 
@@ -691,12 +697,14 @@ class Adsb(gpd.GeoDataFrame):
             # for each file, determine which ranges should be read
             # we may have read more cells into the index than needed, so iterate over region cells specifically for determining this
             ranges = {}
+            # make sure each file gets a range, even if it has no records in the region of interest
+            # to communicate that it was indexed before
+            for file in file_mtimes:
+                ranges[file] = []
             for grid_cell in region_cells:
                 if grid_cell not in index:
                     continue
                 for file in index[grid_cell]:
-                    if file not in ranges:
-                        ranges[file] = []
                     ranges[file] += index[grid_cell][file]
             # sort ranges by start offset, probably helps a bit with file-reading speed
             for file in ranges:
