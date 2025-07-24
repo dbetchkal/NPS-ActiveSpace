@@ -495,7 +495,9 @@ class Adsb(gpd.GeoDataFrame):
         
         if isinstance(filepaths_or_data, gpd.GeoDataFrame):
             data = filepaths_or_data.to_crs("epsg:4326")
-
+        elif isinstance(filepaths_or_data, pd.DataFrame):
+            # this is a weird quirk of subclassing a geodataframe, gets triggered sometimes when you try to print this object
+            data = filepaths_or_data
         else:
             # convert filepath list or directory to just a filepath list
             filepaths = []
@@ -1175,13 +1177,14 @@ class FAAReleasable():
             self._read_using_index()
         else:
             self._read_and_build_index()
+        
+        if not self.data.empty: # could be empty if n_numbers=[]
+            # Convert aircraft type to human-readable format
+            Type_Map = {"4": "Fixed-wing", "5": "Jet", "6": "Helicopter"}
+            self.data['TYPE AIRCRAFT'] = self.data['TYPE AIRCRAFT'].apply(
+                lambda l: Type_Map[str(l)] if str(l) in Type_Map else l)
 
-        # Convert aircraft type to human-readable format
-        Type_Map = {"4": "Fixed-wing", "5": "Jet", "6": "Helicopter"}
-        self.data['TYPE AIRCRAFT'] = self.data['TYPE AIRCRAFT'].apply(
-            lambda l: Type_Map[str(l)] if str(l) in Type_Map else l)
-
-        self._apply_corrections()
+            self._apply_corrections()
 
     def _load_index(self):
         """Attempt to load the index from disk.

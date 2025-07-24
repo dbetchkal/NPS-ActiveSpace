@@ -2273,11 +2273,14 @@ class AudibleTransitsADSB(AudibleTransits):
         logger.debug("Loading ADS-B data")
         warnings.filterwarnings(
             'ignore', message=".*before calling to_datetime.*")
+        
         # Loading tracks from ADSB
         ADSB_DIR = self.paths["ADSB"]
         self.studyA = self.active.copy()
         loaded_track_pts_raw = query_adsb(ADSB_DIR, self.study_start, self.study_end,
                                           mask=self.studyA, mask_buffer_distance=buffer, exclude_early_ADSB=True)
+        assert not loaded_track_pts_raw.empty, "ADSB query returned an empty dataframe"
+
         # Now, lets filter down to the columns we actually want
         loaded_track_pts = loaded_track_pts_raw.copy()
         loaded_track_pts = loaded_track_pts[[
