@@ -483,8 +483,7 @@ class Adsb(gpd.GeoDataFrame):
     ------
     AssertionError if directory path or file path does not exists or is of the wrong format, or if region is of the wrong type.
     """
-    # a grid resolution of 0.01 deg has been empirically determined to be the right order of magnitude
-    # for a good tradeoff between index loading time and file loading time
+    
     lat_lon_grid_resolution = 0.1
     index_file_name = "index.txt"
 
@@ -794,7 +793,7 @@ class Adsb(gpd.GeoDataFrame):
             f.write("index\n")
             f.writelines(index_lines)
 
-    def _add_range_to_index(self, index, grid_cell, filepath, start, length):
+    def _add_range_to_index(self, index: dict, grid_cell: str, filepath: str, start: int, length: int):
         """Utility function for inserting items into an index."""
         file = os.path.basename(filepath)
         if not grid_cell in index:
@@ -803,10 +802,10 @@ class Adsb(gpd.GeoDataFrame):
             index[grid_cell][file] = []
         index[grid_cell][file].append((start, length))
 
-    def _read_tsv_and_update_index(self, filepath, index):
+    def _read_tsv_and_update_index(self, filepath: str, index: dict):
         """Reads a TSV file and updates the index."""
 
-        tqdm.write(f"Reading full file {filepath}")
+        # tqdm.write(f"Reading full file {filepath}")
         with open(filepath, "r", encoding="utf-8-sig") as f:
             header_line = f.readline()
             fieldnames = next(csv.reader([header_line], delimiter="\t"))
@@ -847,7 +846,7 @@ class Adsb(gpd.GeoDataFrame):
 
         return pd.DataFrame(rows).convert_dtypes()
 
-    def _read_tsv_ranges(self, filepath, ranges):
+    def _read_tsv_ranges(self, filepath: str, ranges: dict):
         """Reads sections of a TSV file specified by the `ranges` parameter."""
 
         with open(filepath, "r", encoding="utf-8-sig") as f:
@@ -865,7 +864,7 @@ class Adsb(gpd.GeoDataFrame):
         rows = csv.DictReader(lines, fieldnames, delimiter="\t")
         return pd.DataFrame(rows).convert_dtypes()
 
-    def _get_grid_cell(self, lat, lon):
+    def _get_grid_cell(self, lat: float, lon: float):
         """Determine grid cell for a certain coordinate using Decimal library to avoid annoying floating point precision problems"""
         res = Decimal(str(self.lat_lon_grid_resolution))
         lat = (Decimal(str(lat)) / res).quantize(0, ROUND_FLOOR) * res
@@ -907,7 +906,7 @@ class Adsb(gpd.GeoDataFrame):
         
         return intersecting_cells
 
-    def _process_raw_dataframe(self, df):
+    def _process_raw_dataframe(self, df: pd.DataFrame):
         """Processes a raw dataframe read from the TSV file, and does some data cleaning.
 
         Parameters
@@ -920,8 +919,6 @@ class Adsb(gpd.GeoDataFrame):
         df: pd.DataFrame or None
             The cleaned dataframe, or None if the cleaning removed all dataframe rows
         """
-
-        t0 = time.perf_counter()
 
         # remove extra header rows inserted by the ADSB logger
         mask = df.iloc[:, 0].isin(["TIME", "timestamp"])
@@ -950,8 +947,6 @@ class Adsb(gpd.GeoDataFrame):
         if len(df) == 0:
             return None
         
-        t1 = time.perf_counter()
-
         # Keep only those records with TSLC values of 1 or 2 seconds
         df["tslc"] = df["tslc"].astype(int)
         # invalidTslc = len(
@@ -961,8 +956,6 @@ class Adsb(gpd.GeoDataFrame):
         if len(df) == 0:
             return None
         
-        t2 = time.perf_counter()
-
         # Keep only those records with realistic altitudes
         # 10000 meters = 32808 feet; this should encompass most flights
         # NOTE: some jet aircraft may be eliminated by this process
@@ -971,8 +964,6 @@ class Adsb(gpd.GeoDataFrame):
         if len(df) == 0:
             return None
         
-        t3 = time.perf_counter()
-
         # Unpack validFLags and convert the 2-byte flag field into a list of Boolean values
         flags_names = ["valid_BARO", "valid_VERTICAL_VELOCITY", "SIMULATED_REPORT", "valid_IDENT",
                 "valid_CALLSIGN", "valid_VELOCITY", "valid_HEADING", "valid_ALTITUDE", "valid_LATLON"]
@@ -983,8 +974,6 @@ class Adsb(gpd.GeoDataFrame):
         df = pd.concat(
             [df.drop("validFlags", axis=1), flags_df], axis=1)
         
-        t4 = time.perf_counter()
-
         # Keep only those records with valid latlon and altitude values based on validFlags
         # if df["valid_LATLON"].sum() == len(df.index):
         #     invalidLatLon = 0
@@ -1002,9 +991,7 @@ class Adsb(gpd.GeoDataFrame):
         
         df.replace('-', np.nan, inplace=True)
         df.dropna(how="any", axis=0, inplace=True)
-        
-        t5 = time.perf_counter()
-        
+                
         # Ensure remaining field values except TIME are in proper numeric format
         df["ICAO_address"] = df["ICAO_address"].astype(str)
         df["lat"] = df["lat"].astype(int) / 1e7
@@ -1013,15 +1000,11 @@ class Adsb(gpd.GeoDataFrame):
         df["hor_velocity"] = df["hor_velocity"].astype(int) / 1e2
         df["ver_velocity"] = df["ver_velocity"].astype(int) / 1e2
         
-        t6 = time.perf_counter()
-
         # Convert Unix timestamp to datetime objects in UTC and re-scale selected variable values
         df["TIME"] = pd.to_datetime(df["TIME"].astype(int), unit="s")
         df["DATE"] = df["TIME"].dt.year.astype(str) + \
             df["TIME"].dt.month.astype(str) + \
             df["TIME"].dt.day.astype(str)
-
-        t7 = time.perf_counter()
 
         # Sort records by ICAO Address and TIME then reset dfframe index
         df.sort_values(["ICAO_address", "TIME"],
@@ -1050,10 +1033,6 @@ class Adsb(gpd.GeoDataFrame):
         df = df[df.groupby("flight_id").flight_id.transform(len) > 1]
         df = df.drop(columns=['tslc', 'dur_secs', 'diff_flight', 'cumsum', 'valid_BARO', 'valid_VERTICAL_VELOCITY', 'SIMULATED_REPORT',
                               'valid_IDENT', 'valid_CALLSIGN', 'valid_VELOCITY', 'valid_HEADING', 'valid_ALTITUDE', 'valid_LATLON', 'DATE'])
-
-        t8 = time.perf_counter()
-
-        # tqdm.write(f"{t1-t0:.3f} {t2-t1:.3f} {t3-t2:.3f} {t4-t3:.3f} {t5-t4:.3f} {t6-t5:.3f} {t7-t6:.3f} {t8-t7:.3f} | {t8-t0:.3f} | {len(df)} rows ")
 
         return df
 
