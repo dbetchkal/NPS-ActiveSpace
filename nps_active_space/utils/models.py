@@ -848,8 +848,10 @@ class Adsb(gpd.GeoDataFrame):
 
         return pd.DataFrame(rows).convert_dtypes()
 
-    def _read_tsv_ranges(self, filepath: str, ranges: dict):
+    def _read_tsv_ranges(self, filepath: str, ranges: list):
         """Reads sections of a TSV file specified by the `ranges` parameter."""
+        if len(ranges) == 0:
+            return pd.DataFrame()
 
         with open(filepath, "r", encoding="utf-8-sig") as f:
             header_line = f.readline()
