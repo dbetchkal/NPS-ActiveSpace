@@ -943,12 +943,6 @@ class Adsb(gpd.GeoDataFrame):
         df.drop(["squawk", "altitude_type", "alt_type", "altType", "callsign",
                  "emitter_type", "emitterType"], axis=1, inplace=True, errors="ignore")
         
-        # Delete duplicate and NA records
-        # df.drop_duplicates(inplace=True)  #TODO figure out if we need this
-        # df.dropna(how="any", axis=0, inplace=True)
-        if len(df) == 0:
-            return None
-        
         # Keep only those records with TSLC values of 1 or 2 seconds
         df["tslc"] = df["tslc"].astype(int)
         # invalidTslc = len(
@@ -957,7 +951,7 @@ class Adsb(gpd.GeoDataFrame):
         df = df[~invalid_tslc_mask]
         if len(df) == 0:
             return None
-        
+                
         # Keep only those records with realistic altitudes
         # 10000 meters = 32808 feet; this should encompass most flights
         # NOTE: some jet aircraft may be eliminated by this process
@@ -965,17 +959,17 @@ class Adsb(gpd.GeoDataFrame):
         df = df[(df["altitude"] > 0) & (df["altitude"] <= 10000)]
         if len(df) == 0:
             return None
-        
-        # Unpack validFLags and convert the 2-byte flag field into a list of Boolean values
+                
+        # Unpack validFlags and convert the 2-byte flag field into a list of Boolean values
         flags_names = ["valid_BARO", "valid_VERTICAL_VELOCITY", "SIMULATED_REPORT", "valid_IDENT",
                 "valid_CALLSIGN", "valid_VELOCITY", "valid_HEADING", "valid_ALTITUDE", "valid_LATLON"]
         int_column = df["validFlags"].apply(int, base=16).values[:, None]
         shifts = np.arange(8, -1, -1)
         bits = (int_column >> shifts) & 1
-        flags_df = pd.DataFrame(bits.astype(bool), columns=flags_names)
+        flags_df = pd.DataFrame(bits.astype(bool), index=df.index, columns=flags_names)
         df = pd.concat(
             [df.drop("validFlags", axis=1), flags_df], axis=1)
-        
+                
         # Keep only those records with valid latlon and altitude values based on validFlags
         # if df["valid_LATLON"].sum() == len(df.index):
         #     invalidLatLon = 0
@@ -990,7 +984,7 @@ class Adsb(gpd.GeoDataFrame):
         df = df[(df["valid_LATLON"]) & (df["valid_ALTITUDE"])]
         if len(df) == 0:
             return None
-        
+                
         df.replace('-', np.nan, inplace=True)
         df.dropna(how="any", axis=0, inplace=True)
                 
@@ -1005,9 +999,9 @@ class Adsb(gpd.GeoDataFrame):
         # Convert Unix timestamp to datetime objects in UTC and re-scale selected variable values
         df["TIME"] = pd.to_datetime(df["TIME"].astype(int), unit="s")
         df["DATE"] = df["TIME"].dt.year.astype(str) + \
-            df["TIME"].dt.month.astype(str) + \
-            df["TIME"].dt.day.astype(str)
-
+            df["TIME"].dt.month.astype(str).str.zfill(2) + \
+            df["TIME"].dt.day.astype(str).str.zfill(2)
+        
         # Sort records by ICAO Address and TIME then reset dfframe index
         df.sort_values(["ICAO_address", "TIME"],
                        inplace=True, ignore_index=True)
@@ -1023,7 +1017,7 @@ class Adsb(gpd.GeoDataFrame):
         #         subset=['ICAO_address', 'TIME', 'lat', 'lon'])) / len(df) * 100)
         df.drop_duplicates(
             subset=['ICAO_address', 'TIME', 'lat', 'lon'], inplace=True, keep='last')
-        
+                
         # Use threshold waypoint duration value to identify separate flights by an aircraft then sum the number of "true" conditions to assign unique ID's
         df['diff_flight'] = df['dur_secs'] >= 900
         df['cumsum'] = df.groupby('ICAO_address')[
@@ -1040,6 +1034,7 @@ class Adsb(gpd.GeoDataFrame):
 
 
 class EarlyAdsb(gpd.GeoDataFrame):
+
     """
     A geopandas GeoDataFrame wrapper class to ensure consistent ADS-B data.
 
