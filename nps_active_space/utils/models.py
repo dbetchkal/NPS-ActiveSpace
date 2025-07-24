@@ -822,7 +822,7 @@ class Adsb(gpd.GeoDataFrame):
                 # check for a logging blip causing two rows to get collapsed, resulting in extra values in a row
                 # these extra values get collected into a list referenced by the key None
                 # also check for extra header inserted by the logger
-                if (None in row) or (row["timestamp"] == "timestamp"):
+                if (None in row) or (row[fieldnames[0]] == fieldnames[0]):
                     # don't include the broken line in the index, end the last range and start a new one
                     if prev_grid_cell is not None:
                         self._add_range_to_index(
@@ -921,19 +921,21 @@ class Adsb(gpd.GeoDataFrame):
             The cleaned dataframe, or None if the cleaning removed all dataframe rows
         """
 
+        t0 = time.perf_counter()
+
         # remove extra header rows inserted by the ADSB logger
         mask = df.iloc[:, 0].isin(["TIME", "timestamp"])
         df = df[~mask]
         if len(df) == 0:
             return None
-
+        
         # verify a time header exists
         header_list = ["TIME", "timestamp"]
         import_header = df.axes[1]
         result = any(elem in import_header for elem in header_list)
         if not result:
             raise KeyError
-
+        
         # Standardize key field names and remove extra columns collected by the ADS-B df logger
         if "timestamp" in df.columns:
             df = df.rename(columns={"timestamp": "TIME"})
@@ -941,25 +943,49 @@ class Adsb(gpd.GeoDataFrame):
             df = df.rename(columns={"valid_flags": "validFlags"})
         df.drop(["squawk", "altitude_type", "alt_type", "altType", "callsign",
                  "emitter_type", "emitterType"], axis=1, inplace=True, errors="ignore")
-
+        
         # Delete duplicate and NA records
-        df.drop_duplicates(inplace=True)
-        df.dropna(how="any", axis=0, inplace=True)
+        # df.drop_duplicates(inplace=True)  #TODO figure out if we need this
+        # df.dropna(how="any", axis=0, inplace=True)
         if len(df) == 0:
             return None
+        
+        t1 = time.perf_counter()
+
+        # Keep only those records with TSLC values of 1 or 2 seconds
+        df["tslc"] = df["tslc"].astype(int)
+        # invalidTslc = len(
+        #     df.query("tslc >= 3 or tslc == 0")) / df.shape[0] * 100
+        invalid_tslc_mask = (df["tslc"] >= 3) | (df["tslc"] == 0)
+        df = df[~invalid_tslc_mask]
+        if len(df) == 0:
+            return None
+        
+        t2 = time.perf_counter()
+
+        # Keep only those records with realistic altitudes
+        # 10000 meters = 32808 feet; this should encompass most flights
+        # NOTE: some jet aircraft may be eliminated by this process
+        df["altitude"] = df["altitude"].astype(int) / 1e3
+        df = df[(df["altitude"] > 0) & (df["altitude"] <= 10000)]
+        if len(df) == 0:
+            return None
+        
+        t3 = time.perf_counter()
 
         # Unpack validFLags and convert the 2-byte flag field into a list of Boolean values
         flags_names = ["valid_BARO", "valid_VERTICAL_VELOCITY", "SIMULATED_REPORT", "valid_IDENT",
-                       "valid_CALLSIGN", "valid_VELOCITY", "valid_HEADING", "valid_ALTITUDE", "valid_LATLON"]
-        flags = df["validFlags"].apply(
-            lambda t: list(bin(int(t, 16))[2:].zfill(9)[-9:]))
-        flags_df = pd.DataFrame(list(flags), columns=flags_names).replace(
-            {'0': False, '1': True}).infer_objects(copy=False)
+                "valid_CALLSIGN", "valid_VELOCITY", "valid_HEADING", "valid_ALTITUDE", "valid_LATLON"]
+        int_column = df["validFlags"].apply(int, base=16).values[:, None]
+        shifts = np.arange(8, -1, -1)
+        bits = (int_column >> shifts) & 1
+        flags_df = pd.DataFrame(bits.astype(bool), columns=flags_names)
         df = pd.concat(
             [df.drop("validFlags", axis=1), flags_df], axis=1)
+        
+        t4 = time.perf_counter()
 
         # Keep only those records with valid latlon and altitude values based on validFlags
-        df.dropna(how="any", axis=0, inplace=True)
         # if df["valid_LATLON"].sum() == len(df.index):
         #     invalidLatLon = 0
         # else:
@@ -970,76 +996,64 @@ class Adsb(gpd.GeoDataFrame):
         # else:
         #     invalidAltitude = round(
         #         100 - df["valid_ALTITUDE"].sum() / len(df.index) * 100, 2)
-        df.drop(df[df["valid_LATLON"] == "False"].index, inplace=True)
-        df.drop(df[df["valid_ALTITUDE"] ==
-                "False"].index, inplace=True)
+        df = df[(df["valid_LATLON"]) & (df["valid_ALTITUDE"])]
         if len(df) == 0:
             return None
         
-        # Ensure remaining field values except TIME are in proper numeric format
         df.replace('-', np.nan, inplace=True)
+        df.dropna(how="any", axis=0, inplace=True)
+        
+        t5 = time.perf_counter()
+        
+        # Ensure remaining field values except TIME are in proper numeric format
         df["ICAO_address"] = df["ICAO_address"].astype(str)
-        df["lat"] = df["lat"].astype(int)
-        df["lon"] = df["lon"].astype(int)
-        df["altitude"] = df["altitude"].astype(int)
-        df["heading"] = df["heading"].astype(int)
-        df["hor_velocity"] = df["hor_velocity"].astype(int)
-        df["ver_velocity"] = df["ver_velocity"].astype(int)
-        df["tslc"] = df["tslc"].astype(int)
+        df["lat"] = df["lat"].astype(int) / 1e7
+        df["lon"] = df["lon"].astype(int) / 1e7
+        df["heading"] = df["heading"].astype(int) / 1e2
+        df["hor_velocity"] = df["hor_velocity"].astype(int) / 1e2
+        df["ver_velocity"] = df["ver_velocity"].astype(int) / 1e2
+        
+        t6 = time.perf_counter()
 
         # Convert Unix timestamp to datetime objects in UTC and re-scale selected variable values
         df["TIME"] = pd.to_datetime(df["TIME"].astype(int), unit="s")
-        df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
-        df["lat"] = df["lat"] / 1e7
-        df["lon"] = df["lon"] / 1e7
-        df["altitude"] = df["altitude"] / 1e3
-        df["heading"] = df["heading"] / 1e2
-        df["hor_velocity"] = df["hor_velocity"] / 1e2
-        df["ver_velocity"] = df["ver_velocity"] / 1e2
+        df["DATE"] = df["TIME"].dt.year.astype(str) + \
+            df["TIME"].dt.month.astype(str) + \
+            df["TIME"].dt.day.astype(str)
 
-        # Keep only those records with TSLC values of 1 or 2 seconds
-        # invalidTslc = len(
-        #     df.query("tslc >= 3 or tslc == 0")) / df.shape[0] * 100
-        df.drop(df[df["tslc"] >= 3].index, inplace=True)
-        df.drop(df[df["tslc"] == 0].index, inplace=True)
-        if len(df) == 0:
-            return None
-
-        # Keep only those records with realistic altitudes
-        # 10000 meters = 32808 feet; this should encompass most flights
-        # NOTE: some jet aircraft may be eliminated by this process
-        df = df.loc[(df["altitude"] > 0) & (
-            df["altitude"] <= 10000), :]
-        if len(df) == 0:
-            return None
+        t7 = time.perf_counter()
 
         # Sort records by ICAO Address and TIME then reset dfframe index
         df.sort_values(["ICAO_address", "TIME"],
                        inplace=True, ignore_index=True)
-
+        
         # Calculate time difference between sequential waypoints for each aircraft
         df["dur_secs"] = df.groupby("ICAO_address")[
             "TIME"].diff().dt.total_seconds()
         df["dur_secs"] = df["dur_secs"].fillna(0)
-
+        
         # Count then delete any identical waypoints in a single input file based on ICAO_address, time, lat, and lon
         # duplicateWaypoints = 100 - \
         #     (len(df.drop_duplicates(
         #         subset=['ICAO_address', 'TIME', 'lat', 'lon'])) / len(df) * 100)
         df.drop_duplicates(
-            subset=['ICAO_address', 'TIME', 'lat', 'lon'], keep='last')
-
+            subset=['ICAO_address', 'TIME', 'lat', 'lon'], inplace=True, keep='last')
+        
         # Use threshold waypoint duration value to identify separate flights by an aircraft then sum the number of "true" conditions to assign unique ID's
         df['diff_flight'] = df['dur_secs'] >= 900
         df['cumsum'] = df.groupby('ICAO_address')[
             'diff_flight'].cumsum()
         df['flight_id'] = df['ICAO_address'] + "_" + \
             df['cumsum'].astype(str) + "_" + df['DATE']
-
+        
         # Remove records where there is only one recorded waypoint for an aircraft and fields that are no longer needed
         df = df[df.groupby("flight_id").flight_id.transform(len) > 1]
         df = df.drop(columns=['tslc', 'dur_secs', 'diff_flight', 'cumsum', 'valid_BARO', 'valid_VERTICAL_VELOCITY', 'SIMULATED_REPORT',
                               'valid_IDENT', 'valid_CALLSIGN', 'valid_VELOCITY', 'valid_HEADING', 'valid_ALTITUDE', 'valid_LATLON', 'DATE'])
+
+        t8 = time.perf_counter()
+
+        # tqdm.write(f"{t1-t0:.3f} {t2-t1:.3f} {t3-t2:.3f} {t4-t3:.3f} {t5-t4:.3f} {t6-t5:.3f} {t7-t6:.3f} {t8-t7:.3f} | {t8-t0:.3f} | {len(df)} rows ")
 
         return df
 
