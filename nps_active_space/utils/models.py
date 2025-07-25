@@ -640,7 +640,7 @@ class Adsb(gpd.GeoDataFrame):
             index_update: dict or None
                 If needed, a spatial index for this file. Will be combined with the index from other files to build an overall spatial index.
                 If this file was previously indexed, is None.
-            timestamp_range_update: tuple of (int, int) or None
+            timestamp_range_update: tuple of (float, float) or None
                 Range of unix timestamps present in the file. Is None if the file wasn't being indexed.
         """
 
@@ -659,11 +659,11 @@ class Adsb(gpd.GeoDataFrame):
         if len(df) == 0:
             return None, index_update, timestamp_range_update
         
-        timestamps = df["TIME" if "TIME" in df else "timestamp"].astype(int)
+        timestamps = pd.to_numeric(df["TIME" if "TIME" in df else "timestamp"], errors="coerce")
         if index_update is not None:
             # should update the timestamp range too
             timestamp_range_update = {
-                basename: (int(timestamps.min()), int(timestamps.max()))}  # json doesn't like np.int64
+                basename: (float(timestamps.min()), float(timestamps.max()))}  # json doesn't like numpy types somehow
         
         # clip to datetime range before doing processing
         if start_dt is not None:
