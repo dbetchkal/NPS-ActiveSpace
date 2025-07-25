@@ -744,8 +744,9 @@ class Adsb(gpd.GeoDataFrame):
             out_of_date = []
             for file in file_mtimes:
                 full_path = os.path.join(directory, file)
-                up_to_date = os.path.exists(full_path) and os.path.getmtime(
-                    full_path) == file_mtimes[file]
+                up_to_date = os.path.exists(full_path) and \
+                    os.path.getmtime(full_path) == file_mtimes[file] and \
+                    file in timestamp_ranges
                 if not up_to_date:
                     out_of_date.append(file)
 
@@ -785,11 +786,11 @@ class Adsb(gpd.GeoDataFrame):
 
             for file in ranges:
                 # clear the ranges from files not matching the datetime query
-                assert file in timestamp_ranges, f"{file} missing a timestamp range in the index file"
-                file_dts = pd.to_datetime(timestamp_ranges[file], unit="s")
-                if (start_dt is not None and start_dt > max(file_dts)) or \
-                    (end_dt is not None and end_dt < min(file_dts)):
-                    ranges[file] = []
+                if file in timestamp_ranges:
+                    file_dts = pd.to_datetime(timestamp_ranges[file], unit="s")
+                    if (start_dt is not None and start_dt > max(file_dts)) or \
+                        (end_dt is not None and end_dt < min(file_dts)):
+                        ranges[file] = []
 
                 # sort ranges by start offset, probably helps a bit with file-reading speed
                 ranges[file].sort(key=lambda x: x[0])
@@ -800,11 +801,14 @@ class Adsb(gpd.GeoDataFrame):
                     for grid_cell in index:
                         if file in index[grid_cell]:
                             del index[grid_cell][file]
+                    # also remove it from timestamp ranges
+                    if file in timestamp_ranges:
+                        del timestamp_ranges[file]
                     # also remove it from ranges, its range isn't valid anymore
                     del ranges[file]
-                self._save_index(directory, index)
+                self._save_index(directory, index, timestamp_ranges)
 
-        return index, {}, ranges
+        return index, timestamp_ranges, ranges
 
     def _save_index(self, directory: str, index: dict, timestamp_ranges: dict):
         """Updates/creates an ADSB index file in a directory containing ADSB TSV files.
