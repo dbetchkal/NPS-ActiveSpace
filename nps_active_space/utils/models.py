@@ -949,7 +949,7 @@ class Adsb(gpd.GeoDataFrame):
                 impossible_time = False
                 if not extra_values and not extra_header:
                     timestamp = pd.to_numeric(row["TIME" if "TIME" in row else "timestamp"], errors="coerce")
-                    dt = pd.Timestamp(int(), unit="s")
+                    dt = pd.Timestamp(timestamp, unit="s")
                     impossible_time = pd.isna(dt) or (dt < pd.Timestamp("2019-01-01") or (dt > pd.Timestamp.now()))
                 if extra_values or extra_header or impossible_time:
                     # don't include the broken line in the index, end the last range and start a new one
