@@ -681,6 +681,7 @@ class Adsb(gpd.GeoDataFrame):
                 crs="epsg:4326"
             )
             mask = gdf.within(region.union_all())
+            mask.index = df.index
             df = df[mask]
             # Resetting the index is crucial for small spatial regions so that excess data doesn't get dropped.
             # No idea why though
@@ -898,10 +899,18 @@ class Adsb(gpd.GeoDataFrame):
                 if not line:
                     break
                 row = next(csv.DictReader([line], fieldnames, delimiter="\t"))
-                # check for a logging blip causing two rows to get collapsed, resulting in extra values in a row
-                # these extra values get collected into a list referenced by the key None
-                # also check for extra header inserted by the logger
-                if (None in row) or (row[fieldnames[0]] == fieldnames[0]):
+                # Detect if row is trash
+                # - check for a logging blip causing two rows to get collapsed, resulting in extra values in a row
+                #   these extra values get collected into a list referenced by the key None
+                # - check for extra header inserted by the logger
+                # - check for nonsensical timestamp
+                extra_values = None in row
+                extra_header = row[fieldnames[0]] == fieldnames[0]
+                impossible_time = False
+                if not extra_values and not extra_header:
+                    dt = pd.Timestamp(int(row["TIME" if "TIME" in row else "timestamp"]), unit="s")
+                    impossible_time = (dt < pd.Timestamp("2019-01-01") or (dt > pd.Timestamp.now()))
+                if extra_values or extra_header or impossible_time:
                     # don't include the broken line in the index, end the last range and start a new one
                     if prev_grid_cell is not None:
                         self._add_range_to_index(
