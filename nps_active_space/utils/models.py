@@ -533,6 +533,7 @@ class Adsb(gpd.GeoDataFrame):
                     filepaths.append(file)
 
             # read files
+            assert len(filepaths) > 0, "No .TSV files found to read, check the file path(s)"
             data = self._read(filepaths, region, start_dt, end_dt)
 
         super().__init__(data=data)
@@ -763,15 +764,43 @@ class Adsb(gpd.GeoDataFrame):
                 cells_to_read = grid_cell_byte_offsets.keys()  # all cells
             else:
                 cells_to_read = region_cells
+            
+            # determine which files are relevant to the temporal query
+            # again, if something is out of date, we need to read the whole index
+            files_to_read = []
+            if len(out_of_date) > 0:
+                files_to_read = list(file_mtimes.keys())
+            else:
+                for file in timestamp_ranges:
+                    file_dts = pd.to_datetime(timestamp_ranges[file], unit="s")
+                    no_overlap = (start_dt is not None and start_dt > max(file_dts)) or \
+                        (end_dt is not None and end_dt < min(file_dts))
+                    if not no_overlap:
+                        files_to_read.append(file)
 
             # read the necessary grid cells
             index = {}
             for grid_cell in cells_to_read:
                 if grid_cell not in grid_cell_byte_offsets:
                     continue
-                offset = grid_cell_byte_offsets[grid_cell]
-                f.seek(index_start + offset)
-                index = index | json.loads(f.readline())
+                # go to the position of this grid cell in the file
+                cell_offset = grid_cell_byte_offsets[grid_cell]
+                f.seek(index_start + cell_offset)
+
+                # determine the byte offsets for each file in this grid cell
+                f.readline()  # human-readable grid cell label
+                file_offsets = json.loads(f.readline())
+                file_ranges_start = f.tell()
+
+                # for each file that we want to read, go to its location in this grid cell and read it
+                grid_cell_json = {}
+                for file in file_offsets:
+                    if file not in files_to_read:
+                        continue
+                    f.seek(file_ranges_start + file_offsets[file])
+                    grid_cell_json = grid_cell_json | json.loads(f.readline())
+
+                index = index | {grid_cell: grid_cell_json}
             
             # for each file, determine which ranges should be read
             ranges = {}
@@ -808,7 +837,7 @@ class Adsb(gpd.GeoDataFrame):
                     # also remove it from ranges, its range isn't valid anymore
                     del ranges[file]
                 self._save_index(directory, index, timestamp_ranges)
-
+        
         return index, timestamp_ranges, ranges
 
     def _save_index(self, directory: str, index: dict, timestamp_ranges: dict):
@@ -854,24 +883,35 @@ class Adsb(gpd.GeoDataFrame):
             json.dump(timestamp_ranges, f)
             f.write("\n")
 
-            # prepare lines of the index for writing
-            index_lines = []
-            byte_offsets = {}
-            current_byte_offset = 0
+            # prepare chunks of the index for writing
+            index_chunks = []
+            grid_byte_offsets = {}
+            cur_grid_offset = 0
+
             for grid_cell in index:
-                line = json.dumps({grid_cell: index[grid_cell]}) + "\n"
-                index_lines.append(line)
-                byte_offsets[grid_cell] = current_byte_offset
-                current_byte_offset += len(line.encode("utf-8"))
+                lines = []
+                file_byte_offsets = {}
+                cur_file_offset = 0
+
+                for file in index[grid_cell]:
+                    line = json.dumps({file: index[grid_cell][file]}) + "\n"
+                    lines.append(line)
+                    file_byte_offsets[file] = cur_file_offset
+                    cur_file_offset += len(line.encode("utf-8"))
+
+                chunk = f"{grid_cell}\n{json.dumps(file_byte_offsets)}\n{''.join(lines)}"
+                index_chunks.append(chunk)
+                grid_byte_offsets[grid_cell] = cur_grid_offset
+                cur_grid_offset += len(chunk.encode("utf-8"))
 
             # write header describing which grid cells are present and their byte offset in the index file
             f.write("grid cell byte offsets in this file\n")
-            json.dump(byte_offsets, f)
+            json.dump(grid_byte_offsets, f)
             f.write("\n")
 
             # write the index
             f.write("index\n")
-            f.writelines(index_lines)
+            f.writelines(index_chunks)
 
     def _add_range_to_index(self, index: dict, grid_cell: str, filepath: str, start: int, length: int):
         """Utility function for inserting items into an index."""
