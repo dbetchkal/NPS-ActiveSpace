@@ -1,4 +1,5 @@
 import time
+from datetime import datetime
 from types import GeneratorType
 import concurrent.futures
 from tzwhere import tzwhere
@@ -478,6 +479,18 @@ class Adsb(gpd.GeoDataFrame):
     region : gpd.GeoDataFrame, default None
         A geodataframe containing the spatial region of interest. The associated geometry should be a polygon or multipolygon.
         ADS-B points inside this region will be loaded, and points outside will not. If None, all ADS-B data will be loaded.
+    start_dt : datetime.datetime, default None
+        A datetime object representing the earliest time that should be loaded. Assumed to be UTC unless a timezone-aware
+         datetime is passed.
+    end_dt : datetime.datetime, default None
+        A datetime object representing the latest time that should be loaded. Assumed to be UTC unless a timezone-aware
+         datetime is passed.
+
+    Notes
+    -----
+    [1] If both `start_dt` and `end_dt` are None, all data will be loaded (in the region of interest).
+
+    [2] If `start_dt` is passed but `end_dt` is None, all points after `start_dt` will be returned, and the same for if only `end_dt` is passed.
 
     Raises
     ------
@@ -487,11 +500,18 @@ class Adsb(gpd.GeoDataFrame):
     lat_lon_grid_resolution = 0.1
     index_file_name = "index.txt"
 
-    def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame], region: gpd.GeoDataFrame = None):
+    def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame],
+                 region: gpd.GeoDataFrame = None,
+                 start_dt: datetime = None,
+                 end_dt: datetime = None):
+        
         if region is not None:
             assert isinstance(region, gpd.GeoDataFrame), "Region is not a GeoDataFrame"
             assert region.geometry.geom_type.isin(["Polygon", "MultiPolygon"]).all(), "Region geometry must be Polygon or MultiPolygon"
             region = region.to_crs("epsg:4326")
+        
+        if start_dt is not None and end_dt is not None:
+            assert start_dt < end_dt, "Start time must be earlier than end time"
         
         if isinstance(filepaths_or_data, gpd.GeoDataFrame):
             data = filepaths_or_data.to_crs("epsg:4326")
@@ -513,11 +533,12 @@ class Adsb(gpd.GeoDataFrame):
                     filepaths.append(file)
 
             # read files
-            data = self._read(filepaths, region)
+            data = self._read(filepaths, region, start_dt, end_dt)
 
         super().__init__(data=data)
 
-    def _read(self, filepaths: List[str], region: gpd.GeoDataFrame = None):
+    def _read(self, filepaths: List[str], region: gpd.GeoDataFrame = None,
+              start_dt: datetime = None, end_dt: datetime = None):
         """
         Read in ADS-B points as formatted by NPS data loggers.
 
@@ -525,8 +546,10 @@ class Adsb(gpd.GeoDataFrame):
         ----------
         filepaths_or_data : List[str]
             A list of ADS-B files.
-        region : gpd.GeoDataFrame
+        region : gpd.GeoDataFrame, default None
             The spatial region of interest
+        start_dt : datetime.datetime, default None
+        end_dt : datetime.datetime, default None
 
         Returns
         -------
@@ -548,24 +571,30 @@ class Adsb(gpd.GeoDataFrame):
             dir_files = dirs[dir]
 
             # attempt to load that directory's index file (which may or may not exist)
-            index, ranges = self._load_index(dir, region)
+            index, timestamp_ranges, ranges = self._load_index(dir, region, start_dt, end_dt)
 
             # for `ranges` and `region`, will pass the same object to all threads
             # this is okay because the threads are only reading these objects, not writing
             ranges_copy = [ranges for _ in range(len(dir_files))]
             region_copy = [region for _ in range(len(dir_files))]
+            start_dt_copy = [start_dt for _ in range(len(dir_files))]
+            end_dt_copy = [end_dt for _ in range(len(dir_files))]
             
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 results = list(tqdm(
-                    pool.map(self._read_file, dir_files, ranges_copy, region_copy),
+                    pool.map(self._read_file, dir_files, ranges_copy, region_copy, start_dt_copy, end_dt_copy),
                     total=len(dir_files), unit="files"))
 
             # process results from all the threads
             index_updated = False
-            for (df, index_update) in results:
+            for (df, index_update, timestamp_update) in results:
+
                 if df is not None:
                     dataframes.append(df)
+
                 if index_update is not None:
+                    assert timestamp_update is not None, "Timestamp update should be part of the indexing process, what happened??"
+
                     # merge this index update with the rest of the index
                     for grid_cell in index_update:
                         if grid_cell not in index:
@@ -575,10 +604,14 @@ class Adsb(gpd.GeoDataFrame):
                         file = files[0]
                         # can overwrite index[grid_cell][file] if it exists b/c we should know everything about that file
                         index[grid_cell][file] = index_update[grid_cell][file]
+
+                    # merge timestamp update
+                    timestamp_ranges = timestamp_ranges | timestamp_update
+
                     index_updated = True
 
             if index_updated:
-                self._save_index(dir, index)
+                self._save_index(dir, index, timestamp_ranges)
 
         if len(dataframes) == 0:
             data = gpd.GeoDataFrame(geometry=[])
@@ -592,21 +625,27 @@ class Adsb(gpd.GeoDataFrame):
 
         return data
 
-    def _read_file(self, filepath: str, ranges: dict, region: gpd.GeoDataFrame = None):
+    def _read_file(self, filepath: str, ranges: dict, region: gpd.GeoDataFrame = None,
+                   start_dt: datetime = None, end_dt: datetime = None):
         """Read a single ADSB .TSV file. Uses file byte ranges from the index to go faster if provided.
         If no ranges are provided, indexes the file while loading it and returns that part of the index.
+        Clips to the region and datetime range, if provided.
         
         Returns
         -------
-        tuple of (df, index_update)
+        tuple of (df, index_update, datetime_range)
             df: pd.DataFrame or None
                 The read contents of the ADSB file. If nothing was read of adequate quality that matches the region, is None.
-            index_update: dict
+            index_update: dict or None
                 If needed, a spatial index for this file. Will be combined with the index from other files to build an overall spatial index.
                 If this file was previously indexed, is None.
+            timestamp_range_update: tuple of (int, int) or None
+                Range of unix timestamps present in the file. Is None if the file wasn't being indexed.
         """
 
         index_update = None
+        timestamp_range_update = None
+
         basename = os.path.basename(filepath)
         if basename in ranges:
             # use the index to speed up file reading
@@ -617,7 +656,19 @@ class Adsb(gpd.GeoDataFrame):
             df = self._read_tsv_and_update_index(filepath, index_update)
         
         if len(df) == 0:
-            return None, index_update
+            return None, index_update, timestamp_range_update
+        
+        timestamps = df["TIME" if "TIME" in df else "timestamp"].astype(int)
+        if index_update is not None:
+            # should update the timestamp range too
+            timestamp_range_update = {
+                basename: (int(timestamps.min()), int(timestamps.max()))}  # json doesn't like np.int64
+        
+        # clip to datetime range before doing processing
+        if start_dt is not None:
+            df = df[pd.Series(timestamps >= start_dt.timestamp(), index=df.index)]
+        if end_dt is not None:
+            df = df[pd.Series(timestamps <= end_dt.timestamp(), index=df.index)]
         
         # clip to spatial region before doing data processing
         # this way the data processing (which is slow) has a lot less to do
@@ -637,9 +688,10 @@ class Adsb(gpd.GeoDataFrame):
 
         df = self._process_raw_dataframe(df)
             
-        return df, index_update
+        return df, index_update, timestamp_range_update
 
-    def _load_index(self, directory: str, region: gpd.GeoDataFrame = None):
+    def _load_index(self, directory: str, region: gpd.GeoDataFrame = None,
+                    start_dt: datetime = None, end_dt: datetime = None):
         """Given a directory containing ADSB TSV files and their associated index file,
         attempts to load the parts of the index that correspond to the spatial region of interest.
 
@@ -650,12 +702,16 @@ class Adsb(gpd.GeoDataFrame):
         region: gpd.GeoDataFrame, default None
             A polygon representing the spatial region of interest. All ADSB points inside this region will be loaded,
             and some points outside of the region may also be loaded.
+        start_dt : datetime.datetime, default None
+        end_dt : datetime.datetime, default None
 
         Returns
         -------
         index: dict
             A dictionary describing where to find the ADSB entries that occur in each spatial grid cell.
             If no index file exists or the index is invalid, this will be an empty dictionary.
+        timestamp_ranges: dict
+            A dictionary that lists for each file, a tuple storing the range of unix timestamps that are present.
         ranges: dict
             A dictionary describing for each file, which byte ranges are relevant to the spatial query.
             Only files that have been previously indexed and haven't been changed since then will be included.
@@ -664,7 +720,7 @@ class Adsb(gpd.GeoDataFrame):
 
         index_path = os.path.join(directory, self.index_file_name)
         if not os.path.exists(index_path):
-            return {}, {}
+            return {}, {}, {}
 
         with open(index_path, "r", encoding="utf-8") as f:
             # read index headers
@@ -673,13 +729,15 @@ class Adsb(gpd.GeoDataFrame):
             f.readline()  # for human use only
             file_mtimes = json.loads(f.readline())  # what files are present and when they were last modified (mtime)
             f.readline()  # for human use only
+            timestamp_ranges = json.loads(f.readline())  # what timestamp range each file contains
+            f.readline()  # for human use only
             grid_cell_byte_offsets = json.loads(f.readline())  # what grid cells are present and their byte offset in the index file
             f.readline()  # for human use only
             index_start = f.tell()
 
             # make sure we are using the same grid resolution, if not, index is invalid and should be replaced
             if grid_res != self.lat_lon_grid_resolution:
-                return {}, {}
+                return {}, {}, {}
 
             # check if any files were modified since they were last indexed
             # if so, will need to remove them from the index later
@@ -714,19 +772,26 @@ class Adsb(gpd.GeoDataFrame):
                 index = index | json.loads(f.readline())
             
             # for each file, determine which ranges should be read
-            # we may have read more cells into the index than needed, so iterate over region cells specifically for determining this
             ranges = {}
             # make sure each file gets a range, even if it has no records in the region of interest
             # to communicate that it was indexed before
             for file in file_mtimes:
                 ranges[file] = []
-            for grid_cell in region_cells:
+            for grid_cell in region_cells:  # we may have read more cells into the index than that match the region query, so iterate over just region cells
                 if grid_cell not in index:
                     continue
                 for file in index[grid_cell]:
                     ranges[file] += index[grid_cell][file]
-            # sort ranges by start offset, probably helps a bit with file-reading speed
+
             for file in ranges:
+                # clear the ranges from files not matching the datetime query
+                assert file in timestamp_ranges, f"{file} missing a timestamp range in the index file"
+                file_dts = pd.to_datetime(timestamp_ranges[file], unit="s")
+                if (start_dt is not None and start_dt > max(file_dts)) or \
+                    (end_dt is not None and end_dt < min(file_dts)):
+                    ranges[file] = []
+
+                # sort ranges by start offset, probably helps a bit with file-reading speed
                 ranges[file].sort(key=lambda x: x[0])
             
             # delete out of date index records and re-save the index
@@ -739,9 +804,9 @@ class Adsb(gpd.GeoDataFrame):
                     del ranges[file]
                 self._save_index(directory, index)
 
-        return index, ranges
+        return index, {}, ranges
 
-    def _save_index(self, directory: str, index: dict):
+    def _save_index(self, directory: str, index: dict, timestamp_ranges: dict):
         """Updates/creates an ADSB index file in a directory containing ADSB TSV files.
 
         Parameters
@@ -752,6 +817,9 @@ class Adsb(gpd.GeoDataFrame):
             An index dict containing information about the TSV files in the directory.
             Note that this can be partial information, not all TSV files must be represented.
             The index dict will be merged with existing index data in the index file if it exists.
+        timestamp_ranges: dict
+            A dict listing the timestamp range for each file. Keys are file basenames, values are
+            tuples of integers representing the start/end unix timestamp.
         """
         index_path = os.path.join(directory, self.index_file_name)
         with open(index_path, "w", encoding="utf-8", newline="\n") as f:
@@ -774,6 +842,11 @@ class Adsb(gpd.GeoDataFrame):
                 mtime_header[file] = mtime
             f.write("last modified\n")
             json.dump(mtime_header, f)
+            f.write("\n")
+
+            # write file timestamp range information
+            f.write("file timestamp ranges\n")
+            json.dump(timestamp_ranges, f)
             f.write("\n")
 
             # prepare lines of the index for writing
@@ -808,6 +881,7 @@ class Adsb(gpd.GeoDataFrame):
         """Reads a TSV file and updates the index."""
 
         # tqdm.write(f"Reading full file {filepath}")
+
         with open(filepath, "r", encoding="utf-8-sig") as f:
             header_line = f.readline()
             fieldnames = next(csv.reader([header_line], delimiter="\t"))
