@@ -29,9 +29,9 @@ from tqdm import tqdm
 import warnings
 import _DENA.resource.config as cfg
 from _DENA import DENA_DIR
-from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM, load_activespace, create_aircraft_lookup
+from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM, load_activespace
 from nps_active_space.utils.computation import coords_to_utm, interpolate_spline
-from nps_active_space.utils.models import Tracks
+from nps_active_space.utils.models import Tracks, FAAReleasable
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -72,7 +72,7 @@ def init_audible_transits(metadata, paths):
         A dictionary containing paths to the project directory and data files. Should have the following keys:
         - "project": directory containing subfolders for each site, each named [unit][site] (e.g. DENATRLA/)
         - "FAA": path to MASTER.txt file provided by the FAA
-        - "aircraft corrections": path to FAA_AircraftCorrections.txt file provided by the FAA
+        - "aircraft corrections": path to FAA_AircraftCorrections.json file provided by the FAA
         - "ADSB" (optional): directory containing ADSB files in the tab-separated-values (.TSV) format. Required if the database type is "ADSB"
 
     Returns
@@ -2221,8 +2221,10 @@ class AudibleTransitsGPS(AudibleTransits):
         if type(FAA) is str:
             assert FAA == 'load'
             # Create aircraft lookup table using FAA database
-            aircraft_lookup = create_aircraft_lookup(FAA_path, aircraft_corrections_path,
-                                                     n_numbers=tracks['n_number'].unique())
+            aircraft_lookup = FAAReleasable(FAA_path,
+                                            aircraft_corrections_path,
+                                            n_numbers=tracks['n_number'].unique(),
+                                            warnings=False).data
             self.aircraft_lookup = aircraft_lookup.copy()
             logger.debug('\t\tAircraft look up complete.')
         else:
@@ -2271,11 +2273,14 @@ class AudibleTransitsADSB(AudibleTransits):
         logger.debug("Loading ADS-B data")
         warnings.filterwarnings(
             'ignore', message=".*before calling to_datetime.*")
+        
         # Loading tracks from ADSB
         ADSB_DIR = self.paths["ADSB"]
         self.studyA = self.active.copy()
         loaded_track_pts_raw = query_adsb(ADSB_DIR, self.study_start, self.study_end,
                                           mask=self.studyA, mask_buffer_distance=buffer, exclude_early_ADSB=True)
+        assert not loaded_track_pts_raw.empty, "ADSB query returned an empty dataframe"
+
         # Now, lets filter down to the columns we actually want
         loaded_track_pts = loaded_track_pts_raw.copy()
         loaded_track_pts = loaded_track_pts[[
@@ -2535,8 +2540,10 @@ class AudibleTransitsADSB(AudibleTransits):
             assert FAA == 'load'
 
             # Access the FAA database and identify all aircrafts on the current record, create aircraft lookup table
-            aircraft_lookup = create_aircraft_lookup(FAA_path, aircraft_corrections_path,
-                                                     hex_codes=tracks['ICAO_address'])
+            aircraft_lookup = FAAReleasable(FAA_path,
+                                            aircraft_corrections_path,
+                                            icao_addresses=tracks['ICAO_address'].unique(),
+                                            warnings=False).data
             self.aircraft_lookup = aircraft_lookup.copy()
             logger.debug('\t\tAircraft look up complete.')
         else:
