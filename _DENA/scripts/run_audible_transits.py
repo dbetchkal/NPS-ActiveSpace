@@ -179,8 +179,9 @@ class AudibleTransits(ABC):
         self.interpolate_tracks()
 
         self.update_track_parameters()
-        self.visualize_tracks(
-            show_DEM=True, title=f"{self.unit}{self.site}{self.year} Nearby Overflights")
+        if verbose:
+            self.visualize_tracks(
+                show_DEM=True, title=f"{self.unit}{self.site}{self.year} Nearby Overflights")
 
         logger.info("[3] Creating audible transits by clipping tracks to the active space...")
         self.clip_tracks()
@@ -200,7 +201,8 @@ class AudibleTransits(ABC):
                 self.extrapolate_tracks(return_extrapolated=True)
 
         self.summarize_data_quality()
-        self.visualize_tracks(show_DEM=True)
+        if verbose:
+            self.visualize_tracks(show_DEM=True)
 
         print("")  # visual buffer
         return self.tracks.copy()
@@ -1035,7 +1037,10 @@ class AudibleTransits(ABC):
         else:
             return new_tracks
 
-    def visualize_tracks(self, tracks_to_view='self', show_DEM=False, crs='self', show_active=True, show_mic=True, show_endpoints=False, title='default', alpha='auto', fig='none', ax='none', savepath=None):
+    def visualize_tracks(self, tracks_to_view='self', show_DEM=False, crs='self',
+                        show_active=True, show_mic=True, show_endpoints=False,
+                        title='default', alpha='auto', fig='none', ax='none',
+                        savepath=None, show_plot=True):
         '''
         A method for visualizing tracks of any type, with or without the active space, microphone location, track endpoints, and DEM.
         Also includes options to pass a title, fig, and ax.
@@ -1062,7 +1067,9 @@ class AudibleTransits(ABC):
         fig, ax 
             Allows a user to pass more customization of the plot, as well as use subplots. Defaults to 'None'.
         savepath : str
-            If provided, saves the plot at this path instead of displaying it. Defaults to 'None'.
+            If provided, saves the plot at this path. Defaults to 'None'.
+        show_plot : bool
+            If True, show the plot with plt.show(). Defaults to True.
 
         Returns
         -------
@@ -1154,7 +1161,7 @@ class AudibleTransits(ABC):
 
         if savepath is not None:
             plt.savefig(savepath)
-        else:
+        if show_plot:
             plt.show()
 
     # ========================================== DATA QC + DETECTION ===================================================
@@ -1842,7 +1849,7 @@ class AudibleTransits(ABC):
 
         self.to_pickle(os.path.join(output_dir, "AudibleTransits_object.pkl"))
         self.visualize_tracks(savepath=os.path.join(
-            output_dir, "transits_plot.png"), show_DEM=True)
+            output_dir, "transits_plot.png"), show_DEM=True, show_plot=False)
         if export_garbage:
             self.export_garbage_summary(output_dir)
         
@@ -1902,16 +1909,16 @@ class AudibleTransits(ABC):
                         idx = page_num*30+i
                         if idx < num_garbs:
                             garbage_track = garb_tracks[idx:idx+1]
-                            listener.visualize_tracks(
-                                tracks_to_view=garbage_track, crs='WGS84', fig=fig, ax=np.ravel(ax)[i], title=None)
+                            self.visualize_tracks(
+                                tracks_to_view=garbage_track, crs='WGS84', fig=fig, ax=np.ravel(ax)[i], title=None, show_plot=False)
                             plt.setp(np.ravel(ax)[i].get_xticklabels(
                             ), rotation=45, horizontalalignment='right', fontsize='x-small')
                     fig.suptitle(f"{reason} tracks, Page {page_num + 1}")
                     figs.append(fig)
             else:
                 fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-                listener.visualize_tracks(
-                    tracks_to_view=garb_tracks, crs='WGS84', fig=fig, ax=ax, title=None)
+                self.visualize_tracks(
+                    tracks_to_view=garb_tracks, crs='WGS84', fig=fig, ax=ax, title=None, show_plot=False)
                 fig.suptitle(f"{num_garbs} {reason} tracks")
                 figs.append(fig)
 
@@ -2262,6 +2269,9 @@ class AudibleTransitsGPS(AudibleTransits):
             f'postgresql://{username}:{password}@{host}:{port}/{name}')
 
         return engine
+
+    def remove_jets(self):
+        pass
 
 
 class AudibleTransitsADSB(AudibleTransits):
