@@ -162,7 +162,7 @@ class AudibleTransits(ABC):
         self.convert_active_to_utm()
         self.create_segments()
 
-        self.raw_tracks = self.tracks.copy()
+        # self.raw_tracks = self.tracks.copy()
         self.simplify_active_space()
 
         logger.debug("\tRemoving tracks with data collection issues...")
@@ -2276,7 +2276,7 @@ class AudibleTransitsGPS(AudibleTransits):
 
 class AudibleTransitsADSB(AudibleTransits):
 
-    def load_tracks_from_database(self, buffer=25000):
+    def load_tracks_from_database(self, buffer=1000):
 
         assert self.active is not None, "Active space hasn't been loaded yet."
         

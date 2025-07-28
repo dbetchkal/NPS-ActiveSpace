@@ -8,7 +8,7 @@ from shapely.geometry import Point, LineString
 from tqdm import tqdm
 
 __all__ = [
-    'calculate_special_stats',
+    'calculate_spatial_stats',
     'circular_sliding_avg',
     'compute_audibility_stats',
     'compute_duration_stats',
