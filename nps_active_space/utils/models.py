@@ -1516,6 +1516,25 @@ class Annotations(gpd.GeoDataFrame):
 
     def __init__(self, filename: Optional[str] = None, only_valid: bool = False):
 
+        def convert_to_int(value):
+            """
+            A rigorous function to ensure proper typing of incoming fields. 
+            Converts <'str'> and <'bool'> to <'int'> 
+            """
+            if isinstance(value, bool):
+                return int(value)  # True -> 1, False -> 0
+            elif isinstance(value, int):
+                return value  # Already an integer
+            elif isinstance(value, str):
+                if value.lower() in ['true', '1']:
+                    return 1
+                elif value.lower() in ['false', '0']:
+                    return 0
+                else:
+                    raise ValueError(f"Invalid string value for conversion: {value}")
+            else:
+                raise TypeError(f"Unsupported type: {type(value)}")
+
         if filename:
             data = gpd.read_file(filename).astype(
                 {'start_dt': 'datetime64[ns]', 'end_dt': 'datetime64[ns]'})
@@ -1523,8 +1542,8 @@ class Annotations(gpd.GeoDataFrame):
             # Sometimes the annotation file is read in with the valid and audible columns as booleans and other times
             #  as objects depending on what values are stored.
             try:
-                data["valid"] = data["valid"].astype('int')
-                data["audible"] = data["audible"].astype('int')
+                data["valid"] = data["valid"].apply(convert_to_int)
+                data["audible"] = data["audible"].apply(convert_to_int)
                 data.valid.replace({1: True, 0: False}, inplace=True)
                 data.audible.replace({1: True, 0: False}, inplace=True)
             except TypeError:
