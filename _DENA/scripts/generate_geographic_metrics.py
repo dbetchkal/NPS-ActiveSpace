@@ -6,6 +6,9 @@ from scipy.spatial.distance import directed_hausdorff, cdist
 from scipy.signal import find_peaks
 from shapely.geometry import Point, LineString
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
+import matplotlib.patches as patches
 
 __all__ = [
     'calculate_spatial_stats',
@@ -17,6 +20,7 @@ __all__ = [
     'endpoints_around_active',
     'find_circular_peaks',
     'get_all_stats',
+    'plot_events',
     'identify_stereotypical_tracks',
     'tracks2events' 
 ]
@@ -40,20 +44,20 @@ def tracks2events(tracks, start_date, end_date, min_dur=30):
         A GeoDataFrame containing the fully interpolated, cleaned, clipped, and extrapolated tracks
         resembling those produced by `NPS-ActiveSpace.audible_transits`. Only requires columns 'entry_time' and 'exit_time'
     start_date : string
-        The initial date of tracks to include, formatted as 'yyyy-mm-dd'
+        The initial date of tracks to include, formatted as 'yyyy-mm-dd'. Note that midnight at the beginning of this day should fall within the monitoring period (not before).
     end_date : string
-        The last date of tracks to include, formatted as 'yyyy-mm-dd'
-    min_dur : float
+        The last date of tracks to include, formatted as 'yyyy-mm-dd'. Note that midnight at the beginning of this day should fall within the monitoring period (not after).
+    min_dur : float, default 30
         The minimum event duration to include, in seconds
          
         
     Returns
     -------
-    event_df : GeoDataFrame
-        A GeoDataFrame containing each noise event. Looks like:
+    event_df : pd.DataFrame
+        A DataFrame containing each noise event. Looks like:
             start_time | end_time | duration
-    NFI_df : GeoDataFrame
-        A GeoDataFrame containing each noise-free interval. Looks like:
+    NFI_df : pd.DataFrame
+        A DataFrame containing each noise-free interval. Looks like:
             start_time | end_time | duration
     ''' 
 
@@ -63,6 +67,17 @@ def tracks2events(tracks, start_date, end_date, min_dur=30):
     
     start_date = np.datetime64(start_date)  # conversion to datetime64
     end_date = np.datetime64(end_date)      # conversion to datetime64
+
+    # clip tracks to the time period of interest
+    mask = (tracks["entry_time"] < end_date) & (tracks["exit_time"] > start_date)
+    tracks = tracks.copy()[mask]
+    tracks["entry_time"] = np.maximum(tracks["entry_time"].values, start_date)
+    tracks["exit_time"] = np.minimum(tracks["exit_time"].values, end_date)
+
+    if tracks.empty:
+        event_df = pd.DataFrame(columns=["start_time", "end_time", "duration"])
+        NFI_df = pd.DataFrame(columns=["start_time", "end_time", "duration"])
+        return event_df, NFI_df
     
     tracks.sort_values(by=['entry_time'], inplace=True)
     entry_times = np.asarray(tracks.entry_time) # datetime format
@@ -466,6 +481,54 @@ def calculate_spatial_stats(tracks, active):
     distance_from_inaudibility_stats = tracks.agg({'max_distance_from_inaudibility':['min', 'max', 'mean', 'median'], 'mean_distance_from_inaudibility':['min', 'max', 'mean', 'median']})
     
     return distance_from_inaudibility_stats
+
+
+## ========================================== VISUALIZATION =============================================== ##
+
+def _split_interval_by_hour(start, end):
+    """Yield (segment_start, segment_end) tuples split at each hour boundary."""
+    while start < end:
+        next_hour = (start + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+        segment_end = min(end, next_hour)
+        yield (start, segment_end)
+        start = segment_end
+        
+
+def plot_events(start_times, end_times, title="Noise Events"):
+    plt.figure(figsize=(8, 8))
+    ax = plt.gca()
+
+    earliest_hour = start_times.min().floor("h")
+    latest_hour = end_times.max().ceil("h")
+
+    for start, end in zip(start_times, end_times):
+        for s, e in _split_interval_by_hour(start, end):
+            x_start = (s.minute + s.second / 60)
+            duration = (e - s).total_seconds() / 60
+            y = s.floor('h').timestamp()
+
+            # Plot rectangle
+            ax.add_patch(patches.Rectangle((x_start, y), duration, 0.8 * 3600,
+                                      linewidth=1, edgecolor='black', facecolor='skyblue', alpha=0.5))
+            # # Plot Text
+            # ax.text(x_start, y,
+            #         f"{start.strftime('%H:%M')}-{end.strftime('%H:%M')}",
+            #         ha='left', va='top', fontsize=8)
+
+    # Configure axes
+    hours = pd.date_range(earliest_hour, latest_hour, freq="h")
+    ax.set_xlim(0, 60)
+    ax.set_ylim(latest_hour.timestamp(), earliest_hour.timestamp())  # inverted y axis so time flows down
+    ax.set_yticks(hours.astype(int) // 1e9)
+    yticklabels = hours.map(lambda t: t.strftime("%m-%d  %H:00") if t.hour == 0 else t.strftime("%H:00")).tolist()
+    yticklabels[0] = hours[0].strftime("%m-%d  %H:00")  # make sure the first hour is labeled with the date
+    ax.set_yticklabels(yticklabels)
+    ax.set_xlabel('Minutes within the hour')
+    ax.set_ylabel('Hour')
+    ax.set_title(title)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
 
 ## ========================================== STEREOTYPICAL TRACKS ======================================== ##
 
