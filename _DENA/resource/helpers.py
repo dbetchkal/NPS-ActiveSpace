@@ -306,7 +306,9 @@ def query_adsb(adsb_path: str,  start_date: str, end_date: str,
     else:
         adsb_files = glob.glob(os.path.join(adsb_path, "*.TSV"))
         assert len(adsb_files) > 0, f"No ADSB files found in {adsb_path}"
-        adsb = Adsb(adsb_files, mask)
+        start_dt = pd.Timestamp(start_date)
+        end_dt = pd.Timestamp(end_date)
+        adsb = Adsb(adsb_files, mask, start_dt, end_dt)
     
     adsb = adsb.loc[(adsb["TIME"] > start_date) & (adsb["TIME"] < end_date)]
     adsb = adsb.loc[~(adsb.geometry.is_empty)]
