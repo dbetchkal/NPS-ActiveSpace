@@ -1519,7 +1519,7 @@ class Annotations(gpd.GeoDataFrame):
         def convert_to_int(value):
             """
             A rigorous function to ensure proper typing of incoming fields. 
-            Converts <'str'> and <'bool'> to <'int'> 
+            Converts <'str'> and <'bool'> to <'int'> for better import of various file versions.
             """
             if isinstance(value, bool):
                 return int(value)  # True -> 1, False -> 0
