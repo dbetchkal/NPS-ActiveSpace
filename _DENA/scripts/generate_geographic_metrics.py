@@ -202,7 +202,7 @@ def compute_audibility_stats(event_dataframe, start_date, end_date, months=list(
     daily_audibility_df = pd.DataFrame(index=pd.date_range(start_date, end_date, freq='d'), columns=['time_audible'])
     daily_audibility_df = daily_audibility_df[[date.month in months for date in daily_audibility_df.index]]
     for id, event in event_df.groupby(event_df.start_time.dt.floor('d')):
-        daily_audibility_df['time_audible'].loc[event.start_time.dt.floor('d')] = 100 * event.duration.sum() / (60*60*24)
+        daily_audibility_df.loc[event.start_time.dt.floor('d'), 'time_audible'] = 100 * event.duration.sum() / (60*60*24)
     daily_audibility_df.fillna(0, inplace=True)  # Fill in any days that had no audibile events with 0
     # Generate a stats summary dataframe for daily audibility
     daily_audibility_stats = daily_audibility_df.agg(['min', 'max','mean', 'std', stats.median_abs_deviation, 'sem'])
@@ -215,7 +215,7 @@ def compute_audibility_stats(event_dataframe, start_date, end_date, months=list(
     hourly_audibility_df = pd.DataFrame(index=pd.date_range(start_date, end_date, freq='h'), columns=['time_audible'])
     hourly_audibility_df = hourly_audibility_df[[date.month in months for date in hourly_audibility_df.index]]
     for id, event in event_df.groupby(event_df.start_time.dt.floor('h')):
-        hourly_audibility_df['time_audible'].loc[event.start_time.dt.floor('h')] = 100 * event.duration.sum() / (60*60)
+        hourly_audibility_df.loc[event.start_time.dt.floor('h'), 'time_audible'] = 100 * event.duration.sum() / (60*60)
     hourly_audibility_df.fillna(0, inplace=True) # Fill in any hours that had no audibile events with 0
     # Generate a stats summary dataframe for hourly audibility
     hourly_audibility_stats = hourly_audibility_df.agg(['min', 'max', 'mean', 'std', stats.median_abs_deviation, 'sem'])
@@ -341,7 +341,7 @@ def compute_event_stats(event_dataframe, start_date, end_date, months=list(range
     daily_event_df = pd.DataFrame(index=pd.date_range(start_date, end_date, freq='d'), columns=['event_count'])
     daily_event_df = daily_event_df[[date.month in months for date in daily_event_df.index]]  # Filter by 'months'
     for id, event in event_df.groupby(event_df.start_time.dt.floor('d')):
-        daily_event_df['event_count'].loc[event.start_time.dt.floor('d')] = len(event)  # event count is just length of dataframe group
+        daily_event_df.loc[event.start_time.dt.floor('d'), 'event_count'] = len(event)  # event count is just length of dataframe group
     daily_event_df.fillna(0, inplace=True)    # Fill in any days that had no audibile events with 0
     # Generate a stats summary dataframe for daily event count
     daily_event_stats = daily_event_df.agg(['min', 'max','mean', 'std', stats.median_abs_deviation, 'sem'])
@@ -355,7 +355,7 @@ def compute_event_stats(event_dataframe, start_date, end_date, months=list(range
     hourly_event_df = pd.DataFrame(index=pd.date_range(start_date, end_date, freq='h'), columns=['event_count'])
     hourly_event_df = hourly_event_df[[date.month in months for date in hourly_event_df.index]]  # Filter by 'months'
     for id, event in event_df.groupby(event_df.start_time.dt.floor('h')):
-        hourly_event_df['event_count'].loc[event.start_time.dt.floor('h')] = len(event)  # event count is just length of dataframe group
+        hourly_event_df.loc[event.start_time.dt.floor('h'), 'event_count'] = len(event)  # event count is just length of dataframe group
     hourly_event_df.fillna(0, inplace=True)   # Fill in any hours that had no audibile events with 0
     # Generate a stats summary dataframe for hourly event count
     hourly_event_stats = hourly_event_df.agg(['min', 'max', 'mean', 'std', stats.median_abs_deviation, 'sem'])

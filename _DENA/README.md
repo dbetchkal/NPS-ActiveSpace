@@ -37,23 +37,25 @@ than `dena_production.config`
 Currently, the template config file has the following data:
 
 ```text
-[database:overflights]
-name = Database name. Value required if pulling tracks from the database in run_ground_truthing.py
-username = Database credentials username. Value required if pulling tracks from the database in run_ground_truthing.py
-password = Database credentials password. Value required if pulling tracks from the database in run_ground_truthing.py
-port = Database port. Values required if pulling tracks from the database in run_ground_truthing.py
-host = Database host. Values required if pulling tracks from the database in run_ground_truthing.py
+[database:overflights] - Values required if pulling tracks from the database in run_ground_truthing.py or run_audible_transits.py
+name = Database name.
+username = Database credentials username.
+password = Database credentials password.
+port = Database port.
+host = Database host.
 
 [data]
 site_metadata = Absolute path to the the file containing site metadata. Value required for all run_ground_truthing.py and generate_active_space.py
 nvspl_archive = Absolute path to the directory where all NVSPL sound data is stored. Value required for all run_ground_truthing.py and generate_active_space.py
-adsb = Absolute path to the directory where ADSB track data is stored.  Value required if pulling ADSB tracks in run_ground_truthing.py
+adsb = Absolute path to the directory where ADSB track data is stored.  Value required if pulling ADSB tracks in run_ground_truthing.py or run_audible_transits.py
 dem = Absolute path to the DEM tif file to use for active space generation. Value required for generate_active_space.py and generate_active_space_mesh.py
 mennitt = Absolute path to the mennitt ambience tif. Value required for generate_active_space.py and generate_active_space_mesh.py
 
 [project]
 dir = Absolute path to the directory where all NPS-ActiveSpace files are stored. Required for all scripts.
 nmsim = Absolute path to the NMSIM Nord2000batch.exe file. Value required for generate_active_space.py and generate_active_space_mesh.py
+FAA_Releasable_db = Absolute path to the FAA MASTER.txt database file downloaded from the [FAA website](https://www.faa.gov/licenses_certificates/aircraft_certification/aircraft_registry/releasable_aircraft_download). Required for run_audible_transits.py
+FAA_type_corrections = Absolute path to a json file for correcting aircraft types in the FAA database. Keys are ICAO addresses, values are correct aircraft type. Required for run_audible_transits.py
 ```
 
 ## Directories

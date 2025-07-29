@@ -72,8 +72,9 @@ def init_audible_transits(metadata, paths):
         A dictionary containing paths to the project directory and data files. Should have the following keys:
         - "project": directory containing subfolders for each site, each named [unit][site] (e.g. DENATRLA/)
         - "FAA": path to MASTER.txt file provided by the FAA
-        - "aircraft corrections": path to FAA_AircraftCorrections.json file provided by the FAA
+        - "aircraft corrections" (optional): path to FAA_AircraftCorrections.json file provided by the FAA
         - "ADSB" (optional): directory containing ADSB files in the tab-separated-values (.TSV) format. Required if the database type is "ADSB"
+        - "config" (optional): path to a config file. Required if the database type is "GPS". Also, this will be used to fill in defaults for required paths (e.g. "project") that weren't specified by the user.
 
     Returns
     -------
@@ -132,6 +133,39 @@ class AudibleTransits(ABC):
 
         self.paths = paths
 
+        # if config exists, init it and fill in missing paths
+        if "config" in self.paths:
+            cfg_dir, cfg_file = os.path.split(self.paths["config"])
+            cfg.initialize(cfg_dir, os.path.splitext(cfg_file)[0])
+
+            if not "project" in self.paths:
+                print("Using project dir path from config file")
+                self.paths["project"] = cfg.read("project", "dir")
+            if not "FAA" in self.paths:
+                print("Using FAA path from config file")
+                self.paths["FAA"] = cfg.read("project", "FAA_Releasable_db")
+
+            # optional paths may not be present in the config file (causing an error), can ignore if so
+            if not "aircraft corrections" in self.paths:
+                try:
+                    corrections_file = cfg.read("project", "FAA_type_corrections")
+                    print("Using FAA corrections path from config file")
+                    self.paths["aircraft corrections"] = corrections_file
+                except:
+                    pass
+            if not "ADSB" in self.paths:
+                try:
+                    adsb_dir = cfg.read("data", "adsb")
+                    print("Using ADSB path from config file")
+                    self.paths["ADSB"] = adsb_dir
+                except:
+                    pass
+        
+        if metadata["database type"] == "ADSB":
+            assert "ADSB" in self.paths, "No ADSB directory provided, required for ADSB mode"
+        elif metadata["database type"] == "GPS":
+            assert "config" in self.paths, "No config file provided, GPS database initialization requires a config file"
+
         # Errant tracks will be removed and tabulated for reassurance.
         self.garbage = gpd.GeoDataFrame(
             {'track_id': [], 'n_number': [], 'point_dt': [], 'geometry': []})
@@ -162,7 +196,7 @@ class AudibleTransits(ABC):
         self.convert_active_to_utm()
         self.create_segments()
 
-        # self.raw_tracks = self.tracks.copy()
+        # self.raw_tracks = self.tracks.copy()  # FYI this more than doubles storage space of this object later
         self.simplify_active_space()
 
         logger.debug("\tRemoving tracks with data collection issues...")
@@ -2219,7 +2253,7 @@ class AudibleTransitsGPS(AudibleTransits):
         logger.info("\tIdentifying aircraft within the FAA releasable database...")
         tracks = self.tracks
         FAA_path = self.paths["FAA"]
-        aircraft_corrections_path = self.paths["aircraft corrections"]
+        aircraft_corrections_path = self.paths["aircraft corrections"] if "aircraft corrections" in self.paths else None
 
         # Parse track ID to obtain N-number
         tracks['n_number'] = tracks.track_id.apply(
@@ -2260,14 +2294,9 @@ class AudibleTransitsGPS(AudibleTransits):
         -------
         engine
         '''
-        username = "overflights_admin"
-        password = "0verfl!ghts"
-        host = "165.83.50.64"
-        port = "5432"
-        name = "overflights"
+        d = cfg.read('database:overflights')
         engine = sqlalchemy.create_engine(
-            f'postgresql://{username}:{password}@{host}:{port}/{name}')
-
+            f'postgresql://{d["username"]}:{d["password"]}@{d["host"]}:{d["port"]}/{d["name"]}')
         return engine
 
     def remove_jets(self):
@@ -2617,7 +2646,7 @@ if __name__ == '__main__':
     argparse.add_argument('-tf', '--endtracks', required=True,
                           help="YYYY-MM-DD end date for position record. E.g. 2019-06-01")
     argparse.add_argument('-t', '--database-type', default="GPS", choices=["GPS", "ADSB", "AIS"],
-                          help="Enter 'Database', 'ADSB', or 'AIS")
+                          help="Enter 'GPS', 'ADSB', or 'AIS")
     argparse.add_argument('-o', '--output', default="",
                           help="Directory to store output files. Defaults to [project directory]/[unit][site]/Output_Data")
     argparse.add_argument('-garb', '--exportgarbage', default='0', choices=['1', '0'],
@@ -2627,11 +2656,6 @@ if __name__ == '__main__':
 
     args = argparse.parse_args()
 
-    cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
-    project_dir = cfg.read('project', 'dir')
-    FAAReleasable_path = f"{cfg.read('project', 'FAA_Releasable_db')}"
-    FAAType_corrections = f"{cfg.read('project', 'FAA_type_corrections')}"
-
     metadata = {"unit": args.unit,
                 "site": args.site,
                 "year": args.year,
@@ -2640,12 +2664,7 @@ if __name__ == '__main__':
                 "study end": args.endtracks,
                 "database type": args.database_type}
 
-    paths = {"project": project_dir,
-             "FAA": FAAReleasable_path,
-             "aircraft corrections": FAAType_corrections}
-
-    if args.database_type == 'ADSB':
-        paths["ADSB"] = f"{cfg.read('data', 'adsb')}"
+    paths = {"config": os.path.join(DENA_DIR, "config", args.environment + ".config")}
 
     listener = init_audible_transits(metadata, paths)
     listener.run_pipeline(verbose=args.verbose)
