@@ -480,11 +480,9 @@ class Adsb(gpd.GeoDataFrame):
         A geodataframe containing the spatial region of interest. The associated geometry should be a polygon or multipolygon.
         ADS-B points inside this region will be loaded, and points outside will not. If None, all ADS-B data will be loaded.
     start_dt : datetime.datetime, default None
-        A datetime object representing the earliest time that should be loaded. Assumed to be UTC unless a timezone-aware
-         datetime is passed.
+        A naive datetime object representing the earliest time that should be loaded.
     end_dt : datetime.datetime, default None
-        A datetime object representing the latest time that should be loaded. Assumed to be UTC unless a timezone-aware
-         datetime is passed.
+        A naive datetime object representing the latest time that should be loaded.
 
     Notes
     -----
@@ -1126,7 +1124,7 @@ class Adsb(gpd.GeoDataFrame):
         df["hor_velocity"] = df["hor_velocity"].astype(int) / 1e2
         df["ver_velocity"] = df["ver_velocity"].astype(int) / 1e2
         
-        # Convert Unix timestamp to datetime objects in UTC and re-scale selected variable values
+        # Convert naive Unix timestamp to naive datetime objects and re-scale selected variable values
         df["TIME"] = pd.to_datetime(df["TIME"].astype(int), unit="s")
         df["DATE"] = df["TIME"].dt.year.astype(str) + \
             df["TIME"].dt.month.astype(str).str.zfill(2) + \

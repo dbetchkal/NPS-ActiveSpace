@@ -34,6 +34,7 @@ def clip_events_to_time_period(df, start_col, end_col, start_date, end_date, mon
     df[end_col] = np.minimum(df[end_col].values, end_date)
     return df
 
+
 def tracks2events(tracks, start_date, end_date, min_dur=30):
     '''
     Performs audibility binarization on outputs of the `NPS-ActiveSpace.audible_transits` module. 
@@ -200,7 +201,7 @@ def _time_binned_df(event_df, start_date, end_date, months, freq):
         periods_df.loc[period, prefix+"event_count"] = len(group)  # event count is just length of dataframe group
 
     # group by each time period and calculate time audible
-    # first split events overlapping multiple periods, so that the relevant chunks of each event
+    # first, split events overlapping multiple periods, so that the relevant chunks of each event
     # are assigned to the correct time period
     split = _split_events(event_df, freq)
     period_duration = pd.to_timedelta(1, freq).total_seconds()
