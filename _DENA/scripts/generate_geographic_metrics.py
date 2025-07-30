@@ -11,19 +11,15 @@ from datetime import datetime, timedelta
 import matplotlib.patches as patches
 
 __all__ = [
-    'calculate_spatial_stats',
-    'circular_sliding_avg',
-    'compute_audibility_stats',
-    'compute_duration_stats',
-    'compute_event_stats',
-    'compute_NFI_stats',
-    'endpoints_around_active',
-    'find_circular_peaks',
-    'get_all_stats',
-    'plot_events',
-    'identify_stereotypical_tracks',
+    'clip_events_to_time_period',
     'tracks2events',
-    'general_stats'
+    'get_all_stats',
+    'calculate_spatial_stats',
+    'plot_events',
+    'circular_sliding_avg',
+    'find_circular_peaks',
+    'endpoints_around_active',
+    'identify_stereotypical_tracks'
 ]
 
 ## ========================================== STATISTICS/METRICS ======================================== ##
