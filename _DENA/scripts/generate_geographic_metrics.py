@@ -25,6 +25,30 @@ __all__ = [
 ## ========================================== STATISTICS/METRICS ======================================== ##
 
 def clip_events_to_time_period(df, start_col, end_col, start_date, end_date, months=list(range(1,13))):
+    """Clips events to only fall within a time period and within ceratin months.
+    Events that partially overlap the time period boundaries are shortened to only include the section within the time period.
+    
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame containing events, represented by start time and end time columns.
+    start_col: str
+        The name of the column representing event start times.
+    end_col: str
+        The name of the column representing event end times.
+    start_date: np.datetime64
+        The start datetime for the time period to clip to.
+    end_date: np.datetime64
+        The end datetime for the time period to clip to.
+    months : int or list of ints (between 1 and 12)
+        Months to clip to. Events will only be included if either their start or end time falls within one of these months. Defaults to all months.
+    
+    Returns
+    -------
+    df: pd.DataFrame
+        A copy of the input DataFrame, only containing the events within the time period,
+        with modified start / end times if the event overlapped the time period boundaries.
+    """
     df = df.copy()
     during_time_period = (df[end_col] > start_date) & (df[start_col] < end_date)
     during_correct_months = df[start_col].dt.month.isin(months) | df[end_col].dt.month.isin(months)
@@ -36,7 +60,7 @@ def clip_events_to_time_period(df, start_col, end_col, start_date, end_date, mon
 
 
 def tracks2events(tracks, start_date, end_date, min_dur=30):
-    '''
+    """
     Performs audibility binarization on outputs of the `NPS-ActiveSpace.audible_transits` module. 
     
     This function collapses a set of audible transits spanning a certain time period into 
@@ -69,7 +93,7 @@ def tracks2events(tracks, start_date, end_date, min_dur=30):
             start_time | end_time | duration
     TA : float
         Total fraction of time audible. Ranges from 0 to 1.
-    ''' 
+    """
 
     print("Combining audible transits into a binary event time series.")
     
@@ -188,6 +212,27 @@ def _split_events(df, freq):
 
 
 def _time_binned_df(event_df, start_date, end_date, months, freq):
+    """Calculates time audible and event count for each time chunk (e.g. hourly) in a given time period.
+    
+    Parameters
+    ----------
+    event_df: pd.DataFrame
+        DataFrame containing non-overlapping events, with columns ["start_time", "end_time", "duration" (in sec)]
+    start_date: np.datetime64
+        Start of the time period of interest
+    end_date: np.datetime64
+        End of the time period of interest
+    months: list
+        List of month indices to include, valid indices are 1-12
+    freq: str
+        A character representing a pandas time frequency. E.g. "h"=hourly, "d"=daily, "w"=weekly, "m"=monthly
+    
+    Returns
+    -------
+    binned_df: pd.DataFrame
+        A DataFrame with a datetime index representing each time chunk, and two columns for time audible and event count.
+
+    """
     # determine appropriate human-readable time period prefix
     prefix_map = {"h": "hourly", "d": "daily", "w": "weekly", "m": "monthly"}
     prefix = f"{prefix_map[freq]}_" if freq in prefix_map else ""
@@ -228,6 +273,34 @@ class Quantile:
 
 
 def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13)), quantiles=.5):
+    """Calculates all event statistics, given a set of events and corresponding noise free intervals (NFIs).
+    
+    Parameters
+    ----------
+    event_df: pd.DataFrame
+        A DataFrame containing events, such as those returned by tracks2events(). Looks like:
+            start_time (datetime) | end_time (datetime) | duration (# secs as ints)
+    NFI_df: pd.DataFrame
+        A DataFrame containing noise free intervals, such as those returned by tracks2events(). Looks like:
+            start_time (datetime) | end_time (datetime) | duration (# secs as ints)
+    start_date : string
+        The start date to begin calculating duration stats, formatted as 'yyyy-mm-dd'. Refers to midnight of this date.
+    end_date : string
+        The end date to stop calculating duration stats, formatted as 'yyyy-mm-dd'. Refers to midnight of this date, so no events occuring during this day will be captured.
+    months : int or list of ints (between 1 and 12)
+        Default is the full year, an optional input to specify the months of interest as a list of integers, 1-12. 
+        This is helpful for highly seasonal flight patterns, such as Denali's summer vs winter splits.
+    quantiles : float or list of floats (between 0 and 1)
+        Default is .5 (the median), specifies which quantiles to output. E.g., [.1, .5., .9] will output 10th, 50th, and 90th quantiles
+    
+    Returns
+    -------
+    statistics: pd.DataFrame
+        DataFrame containing computed statistics.
+        Columns represent the values stats are computed for: event_duration, NFI_duration, daily_time_audible, daily_event_count, hourly_time_audible, hourly_event_count
+        Rows represent the statistic: min, max, mean, std, median_abs_deviation, sem, quantiles
+    """
+
     start_date = np.datetime64(start_date)  # Convert to datetime64
     end_date = np.datetime64(end_date)      # Convert to datetime64
 
@@ -325,6 +398,17 @@ def _split_interval_by_hour(start, end):
         
 
 def plot_events(start_times, end_times, title="Events", labels=False):
+    """Plot events on a timeline that wraps around at each hour.
+    
+    Parameters
+    ----------
+    start_times: pd.Series, dtype=datetime
+    end_times: pd.Series, dtype=datetime
+    title: str
+        Plot title, default is "Events"
+    labels: bool
+        Whether to annotate the event start/end times on the plot with text. Default False
+    """
     plt.figure(figsize=(8, 8))
     ax = plt.gca()
 
