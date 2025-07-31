@@ -125,15 +125,18 @@ def tracks2events(tracks, start_date, end_date, min_dur=30):
     event_end_times = exit_times_cp[exit_times_cp - entry_times_cp >= np.timedelta64(min_dur, 's')]
     
     # Account for event-less time at beginning and end of timeframe in question
-    # Note that if timeframe starts/ends with an event, no inaudible time will actually be added
-    # TODO zero-length interval might mess up count statistics?
+    # This is needed for the inaudible_begins and inaudible_ends indices to match up properly so we can subtract to compute durations.
     inaudible_begins = np.insert(event_end_times, 0, start_date)
     inaudible_ends = np.append(event_start_times, end_date)
+    # Filter out zero-duration NFIs caused by the timeframe starting or ending with an event
+    zero_duration = inaudible_begins == inaudible_ends
+    inaudible_begins = inaudible_begins[~zero_duration]
+    inaudible_ends = inaudible_ends[~zero_duration]
 
     # Get durations for events and NFIs
     audible_times = event_end_times - event_start_times        # List of event durations in timedelta64 format
     inaudible_times = inaudible_ends - inaudible_begins            # List of noise-free interval durations in timedelta64 format
-    
+
     # Calculate time audible
     total_audible = sum(audible_times)/np.timedelta64(1,'s')   # Add up all event durations to get total audible time (convert to float in seconds)
     total_time = (end_date - start_date)/np.timedelta64(1,'s')     # Calculate total time of timeframe in seconds 
@@ -189,9 +192,9 @@ def _time_binned_df(event_df, start_date, end_date, months, freq):
     prefix_map = {"h": "hourly", "d": "daily", "w": "weekly", "m": "monthly"}
     prefix = f"{prefix_map[freq]}_" if freq in prefix_map else ""
 
-    # prepare a dataframe to hold values for each time period
+    # prepare a dataframe to hold values for each time period, indexed by the time at the start of that period
     # make sure that the entire time range of interest is represented, so that periods without data are accounted for
-    date_index = pd.date_range(start_date, end_date, freq=freq)
+    date_index = pd.date_range(start_date, end_date, freq=freq, inclusive="left")
     date_index = date_index[date_index.month.isin(months)]
     periods_df = pd.DataFrame(index=date_index, columns=[prefix+"time_audible", prefix+"event_count"])
 
@@ -321,7 +324,7 @@ def _split_interval_by_hour(start, end):
         start = segment_end
         
 
-def plot_events(start_times, end_times, title="Noise Events", labels=False):
+def plot_events(start_times, end_times, title="Events", labels=False):
     plt.figure(figsize=(8, 8))
     ax = plt.gca()
 
