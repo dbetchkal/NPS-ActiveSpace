@@ -6,6 +6,16 @@ from pathlib import Path
 import geopandas as gpd
 from tqdm import tqdm
 
+# for some users relative imports are prohibitive
+# we simplify imports by adding three directories to the path environment variable
+import sys
+repo_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+config_dir = os.path.join(repo_dir, "_DENA")
+script_dir = os.path.join(repo_dir, "nps_active_space")
+sys.path.append(repo_dir)
+sys.path.append(config_dir)
+sys.path.append(script_dir)
+
 import _DENA.resource.config as cfg
 from _DENA import DENA_DIR
 from _DENA.resource.helpers import get_logger, get_omni_sources
