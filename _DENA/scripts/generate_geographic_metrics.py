@@ -275,7 +275,7 @@ class Quantile:
         return series.quantile(self.q)
 
 
-def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13)), quantiles=.5):
+def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13)), quantiles=.5, return_data=False):
     """Calculates all event statistics, given a set of events and corresponding noise free intervals (NFIs).
     
     Parameters
@@ -295,6 +295,8 @@ def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13
         This is helpful for highly seasonal flight patterns, such as Denali's summer vs winter splits.
     quantiles : float or list of floats (between 0 and 1)
         Default is .5 (the median), specifies which quantiles to output. E.g., [.1, .5., .9] will output 10th, 50th, and 90th quantiles
+    return_data : bool
+        Whether to return the data for each metric that the statistics were calculated on. Default False.
     
     Returns
     -------
@@ -302,6 +304,12 @@ def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13
         DataFrame containing computed statistics.
         Columns represent the values stats are computed for: event_duration, NFI_duration, daily_time_audible, daily_event_count, hourly_time_audible, hourly_event_count
         Rows represent the statistic: min, max, mean, std, median_abs_deviation, sem, quantiles
+    
+    Or if return_data is True, returns tuple of (statistics, data)
+        statistics: pd.DataFrame
+            As described above.
+        data: dict
+            A dictionary where keys are metric names, and values are pd.Series representing the data.
     """
 
     start_date = np.datetime64(start_date)  # Convert to datetime64
@@ -342,6 +350,8 @@ def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13
         if col in ["event_duration", "NFI_duration"]:
             statistics[col] = pd.to_timedelta(statistics[col], unit="s")
     
+    if return_data:
+        return pd.DataFrame(statistics), values
     return pd.DataFrame(statistics)
 
 
