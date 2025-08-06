@@ -133,7 +133,9 @@ if __name__ == '__main__':
 
     # Verify that annotation files exist for the unit/site location. If they do exist, load them into memory.
     logger.info("Locating unit/site annotations...")
-    annotation_files = glob.glob(f"{project_dir}/{args.unit}{args.site}*_saved_annotations.geojson")
+    annotation_files = glob.glob(f"{project_dir}/{args.unit}{args.site}{args.year}*saved_annotations*.geojson")
+    print("Found these annotation files:")
+    print(list(map(lambda f: os.path.basename(f), annotation_files)))
     if len(annotation_files) == 0:
         logger.info(f"No track annotations found for {args.unit}{args.site}{args.year}. Exiting...")
         exit(-1)
