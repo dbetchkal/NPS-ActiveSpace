@@ -59,7 +59,7 @@ def clip_events_to_time_period(df, start_col, end_col, start_date, end_date, mon
     return df
 
 
-def tracks2events(tracks, start_date, end_date, min_dur=30):
+def tracks2events(tracks, start_date, end_date, min_dur=10):
     """
     Performs audibility binarization on outputs of the `NPS-ActiveSpace.audible_transits` module. 
     
@@ -145,8 +145,11 @@ def tracks2events(tracks, start_date, end_date, min_dur=30):
         i += 1
 
     # Filter out short events and rename these arrays; they now represent the start and end times of each combined event
-    event_start_times = entry_times_cp[exit_times_cp - entry_times_cp >= np.timedelta64(min_dur, 's')]
-    event_end_times = exit_times_cp[exit_times_cp - entry_times_cp >= np.timedelta64(min_dur, 's')]
+    short_events = exit_times_cp - entry_times_cp >= np.timedelta64(min_dur, 's')
+    event_start_times = entry_times_cp[short_events]
+    event_end_times = exit_times_cp[short_events]
+    if short_events.sum() > 0:
+        print(f"Filtered out {short_events.sum()} events shorter than {min_dur} seconds")
     
     # Account for event-less time at beginning and end of timeframe in question
     # This is needed for the inaudible_begins and inaudible_ends indices to match up properly so we can subtract to compute durations.

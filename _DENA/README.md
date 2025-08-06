@@ -163,7 +163,7 @@ This script is used to estimate the geographic intersection of a set of tracks w
 | `-e`, `--environment`  | **required.**<br/>The configuration environment to use. *Ex*: To use `production.config` pass `-e production`                                              |
 | `-u`, `--unit`         | **required.**<br/>The 4 letter NPS unit code. *Ex*: Denali = DENA                                                                                          |
 | `-s`, `--site`         | **required.**<br/>The 4 letter site code. *Ex*: Cathedral = CATH                                                                                           |
-| `-y`, `--year`         | **required.**<br/>The deployment year, YYYY. *Ex*: 2018                                                                                                    |
+| `-y`, `--year`         | **required.**<br/>Which year's active space to use, YYYY. *Ex*: 2018                                                                                                    |
 | `-g`, `--gain` | **required.**<br/>The signed gain of the optimal active space fit, float. *Ex.*: -20.5 |
 | `-t0`, `--begintracks` | **required.**<br/>Date to begin parsing the position record, YYYY-MM-DD. *Ex.*: 2018-01-01 |
 | `-tf`, `--endtracks` | **required.**<br/>Date to stop parsing the position record, YYYY-MM-DD. *Ex.*:  2018-06-05 |

@@ -62,8 +62,7 @@ def init_audible_transits(metadata, paths):
         A dictionary containing site-specific metadata. Should have the following keys:
         - "unit": 4-letter NPS unit code (e.g. Denali = "DENA")
         - "site": site code (e.g. Triple Lakes = "TRLA")
-        - "year": study year
-        - "activespace_year" (optional): year of fitted active space, if differs from study year
+        - "activespace_year": year of fitted active space, if differs from study year
         - "gain": modeled gain value from fitting the active space
         - "study start": date of format yyyy-mm-dd
         - "study end": date of format yyyy-mm-dd
@@ -124,8 +123,7 @@ class AudibleTransits(ABC):
         '''
         self.unit = metadata["unit"]
         self.site = metadata["site"]
-        self.year = metadata["year"]
-        self.activespace_year = metadata["activespace_year"] if "activespace_year" in metadata else metadata["year"]
+        self.activespace_year = metadata["activespace_year"]
         self.gain = metadata["gain"]
         self.study_start = metadata["study start"]
         self.study_end = metadata["study end"]
@@ -184,6 +182,10 @@ class AudibleTransits(ABC):
         hide_progress_bars = not verbose
 
         logger.info("\n=========  NPS-ActiveSpace Audible Transits module  ==========\n")
+        for x in ["unit", "site", "activespace_year", "gain", "study_start", "study_end", "database_type"]:
+            logger.debug(f"{x}: {getattr(self, x)}")
+        logger.debug("paths: " + json.dumps(self.paths) + "\n")
+
         logger.info("[1] Parsing geospatial data inputs...")
         self.init_spatial_data()
 
@@ -215,7 +217,7 @@ class AudibleTransits(ABC):
         self.update_track_parameters()
         if verbose:
             self.visualize_tracks(
-                show_DEM=True, title=f"{self.unit}{self.site}{self.year} Nearby Overflights")
+                show_DEM=True, title=f"{self.unit}{self.site} Nearby Overflights\n{self.study_start} to {self.study_end}")
 
         logger.info("[3] Creating audible transits by clipping tracks to the active space...")
         self.clip_tracks()
@@ -1189,7 +1191,7 @@ class AudibleTransits(ABC):
                                 color='r', alpha=alpha, ax=ax, zorder=5)
 
         if title == 'default':
-            title = f'{self.unit}{self.site}{self.year} Audible Transits'
+            title = f'{self.unit}{self.site} Audible Transits\n{self.study_start} to {self.study_end}'
 
         ax.set_title(title)
 
@@ -1875,7 +1877,7 @@ class AudibleTransits(ABC):
 
         if output_dir is None:
             print("No output directory provided, using default location")
-            identifier = f"{self.unit}{self.site}{self.year}_{self.gain}_{self.database_type}_{self.study_start}_{self.study_end}"
+            identifier = f"{self.database_type} ({self.study_start}, {self.study_end}) Active Space {self.activespace_year} ({self.gain}dB)"
             output_dir = os.path.join(
                 self.paths["project"], self.unit+self.site, "Output_Data", "AUDIBLE_TRANSITS", identifier)
         if not os.path.exists(output_dir):
@@ -2637,7 +2639,7 @@ if __name__ == '__main__':
     argparse.add_argument('-s', '--site', required=True,
                           help="Four letter site code. E.g. TRLA")
     argparse.add_argument('-y', '--year', type=int, required=True,
-                          help="Four digit year. E.g. 2018")
+                          help="Which year's active space to use. E.g. 2018")
     argparse.add_argument('-g', '--gain', type=float, required=True,
                           # TODO make it so the user has to pick an existing gain
                           help="Floating-point optimal gain with sign. E.g. -20.5")
@@ -2658,7 +2660,7 @@ if __name__ == '__main__':
 
     metadata = {"unit": args.unit,
                 "site": args.site,
-                "year": args.year,
+                "activespace_year": args.year,
                 "gain": args.gain,
                 "study start": args.begintracks,
                 "study end": args.endtracks,
