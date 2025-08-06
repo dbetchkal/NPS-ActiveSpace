@@ -50,7 +50,7 @@ def verbose_tqdm(iterable, *args, **kwargs):
         return tqdm(iterable, *args, **kwargs)
 
 
-def init_audible_transits(metadata, paths):
+def init_audible_transits(metadata, paths, raw_tracks = None):
     '''
     Main function for initialization. Decides which AudibleTransits subclass to initialize based on the metadata provided.
 
@@ -62,7 +62,7 @@ def init_audible_transits(metadata, paths):
         A dictionary containing site-specific metadata. Should have the following keys:
         - "unit": 4-letter NPS unit code (e.g. Denali = "DENA")
         - "site": site code (e.g. Triple Lakes = "TRLA")
-        - "activespace_year": year of fitted active space, if differs from study year
+        - "activespace year": year of fitted active space, if differs from study year
         - "gain": modeled gain value from fitting the active space
         - "study start": date of format yyyy-mm-dd
         - "study end": date of format yyyy-mm-dd
@@ -74,6 +74,10 @@ def init_audible_transits(metadata, paths):
         - "aircraft corrections" (optional): path to FAA_AircraftCorrections.json file provided by the FAA
         - "ADSB" (optional): directory containing ADSB files in the tab-separated-values (.TSV) format. Required if the database type is "ADSB"
         - "config" (optional): path to a config file. Required if the database type is "GPS". Also, this will be used to fill in defaults for required paths (e.g. "project") that weren't specified by the user.
+    raw_tracks: gpd.GeoDataFrame, default None
+        A GeoDataFrame containing raw tracks. If provided, will use this instead of loading tracks from the database.
+        The format of the tracks should be the same as returned from AudibleTransits.load_tracks_from_database().
+        This can help save time if running AudibleTransits on the same set of raw data multiple times (e.g. with different year active spaces)
 
     Returns
     -------
@@ -89,9 +93,9 @@ def init_audible_transits(metadata, paths):
     assert "database type" in metadata, "Metadata must contain a 'database type' field"
 
     if metadata["database type"] == "ADSB":
-        listener = AudibleTransitsADSB(metadata, paths)
+        listener = AudibleTransitsADSB(metadata, paths, raw_tracks)
     elif metadata["database type"] == "GPS":
-        listener = AudibleTransitsGPS(metadata, paths)
+        listener = AudibleTransitsGPS(metadata, paths, raw_tracks)
     elif metadata["database type"] == "AIS":
         raise NotImplementedError(
             "AIS functionality has not been implemented.")
@@ -110,26 +114,30 @@ class AudibleTransits(ABC):
     a source in motion may be heard, we refer to it as an "audible transit" of the active space.
     """
 
-    def __init__(self, metadata, paths):
+    default_object_filename = "AudibleTransits_object.pkl"
+
+    def __init__(self, metadata, paths, raw_tracks = None):
         '''
         Initializes properties of the site and paths to the data.
 
         Parameters
         ----------
-        metadata : dict
-            See init_audible_transits() for more details.
-        paths : dict
-            See init_audible_transits() for more details.
+        See init_audible_transits() in this module for more details.
         '''
         self.unit = metadata["unit"]
         self.site = metadata["site"]
-        self.activespace_year = metadata["activespace_year"]
+        self.activespace_year = metadata["activespace year"]
         self.gain = metadata["gain"]
         self.study_start = metadata["study start"]
         self.study_end = metadata["study end"]
         self.database_type = metadata["database type"]
 
-        self.paths = paths
+        self.paths = paths.copy()
+
+        if raw_tracks is not None:
+            self.tracks = raw_tracks
+        else:
+            self.tracks = None
 
         # if config exists, init it and fill in missing paths
         if "config" in self.paths:
@@ -151,7 +159,7 @@ class AudibleTransits(ABC):
                     self.paths["aircraft corrections"] = corrections_file
                 except:
                     pass
-            if not "ADSB" in self.paths:
+            if not "ADSB" in self.paths and metadata["database type"] == "ADSB":
                 try:
                     adsb_dir = cfg.read("data", "adsb")
                     print("Using ADSB path from config file")
@@ -190,7 +198,10 @@ class AudibleTransits(ABC):
         self.init_spatial_data()
 
         logger.info("[2] Parsing and pre-processing track data inputs...")
-        self.load_tracks_from_database()
+        if self.tracks is None:
+            self.load_tracks_from_database()
+        else:
+            logger.info("Using user-provided raw track data instead of loading from a database.")
         self.split_paused_tracks()
         self.extract_aircraft_info()
         self.remove_jets()
@@ -1867,6 +1878,10 @@ class AudibleTransits(ABC):
     @abstractmethod
     def remove_jets(self):
         pass
+    
+    def default_output_dir(self):
+        identifier = f"{self.database_type} ({self.study_start}, {self.study_end}) Active Space {self.activespace_year} ({self.gain}dB)"
+        return os.path.join(self.paths["project"], self.unit+self.site, "Output_Data", "AUDIBLE_TRANSITS", identifier)
 
     def export_results(self, output_dir=None, export_garbage=False):
         '''
@@ -1877,13 +1892,11 @@ class AudibleTransits(ABC):
 
         if output_dir is None:
             print("No output directory provided, using default location")
-            identifier = f"{self.database_type} ({self.study_start}, {self.study_end}) Active Space {self.activespace_year} ({self.gain}dB)"
-            output_dir = os.path.join(
-                self.paths["project"], self.unit+self.site, "Output_Data", "AUDIBLE_TRANSITS", identifier)
+            output_dir = self.default_output_dir()
         if not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
 
-        self.to_pickle(os.path.join(output_dir, "AudibleTransits_object.pkl"))
+        self.to_pickle(os.path.join(output_dir, self.default_object_filename))
         self.visualize_tracks(savepath=os.path.join(
             output_dir, "transits_plot.png"), show_DEM=True, show_plot=False)
         if export_garbage:
