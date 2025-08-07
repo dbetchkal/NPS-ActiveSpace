@@ -310,6 +310,8 @@ def query_adsb(adsb_path: str,  start_date: str, end_date: str,
         end_dt = pd.Timestamp(end_date)
         adsb = Adsb(adsb_files, mask, start_dt, end_dt)
     
+    assert not adsb.empty, f"No ADSB data loaded for {start_date} to {end_date}, please check the time period and/or region mask"
+    
     adsb = adsb.loc[(adsb["TIME"] > start_date) & (adsb["TIME"] < end_date)]
     adsb = adsb.loc[~(adsb.geometry.is_empty)]
     return adsb
