@@ -9,6 +9,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 import matplotlib.patches as patches
+import warnings
 
 __all__ = [
     'clip_events_to_time_period',
@@ -264,6 +265,20 @@ def _time_binned_df(event_df, start_date, end_date, months, freq):
     return periods_df
 
 
+def _agg_conf_intervals(series: pd.Series, agg_funcs: list):
+    out = {}
+    for f in agg_funcs:
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("error")
+                result = stats.bootstrap((series.values,), lambda x: f(pd.Series(x)),
+                                        confidence_level=0.95, n_resamples=1000, method="BCa")
+            out[f.__name__] = result.confidence_interval
+        except:
+            out[f.__name__] = (pd.NA, pd.NA)
+    return pd.Series(out)
+
+
 # nice trick for aggregating quantiles cleanly, inspired from here:
 # https://skeptric.com/pandas-aggregate-quantile/
 class Quantile:
@@ -275,7 +290,7 @@ class Quantile:
         return series.quantile(self.q)
 
 
-def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13)), quantiles=.5, return_data=False):
+def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13)), quantiles=.5):
     """Calculates all event statistics, given a set of events and corresponding noise free intervals (NFIs).
     
     Parameters
@@ -295,19 +310,19 @@ def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13
         This is helpful for highly seasonal flight patterns, such as Denali's summer vs winter splits.
     quantiles : float or list of floats (between 0 and 1)
         Default is .5 (the median), specifies which quantiles to output. E.g., [.1, .5., .9] will output 10th, 50th, and 90th quantiles
-    return_data : bool
-        Whether to return the data for each metric that the statistics were calculated on. Default False.
     
     Returns
     -------
-    statistics: pd.DataFrame
-        DataFrame containing computed statistics.
-        Columns represent the values stats are computed for: event_duration, NFI_duration, daily_time_audible, daily_event_count, hourly_time_audible, hourly_event_count
-        Rows represent the statistic: min, max, mean, std, median_abs_deviation, sem, quantiles
-    
-    Or if return_data is True, returns tuple of (statistics, data)
+    Tuple of (statistics, confidence_intervals, data)
         statistics: pd.DataFrame
-            As described above.
+            DataFrame containing computed statistics.
+            Columns represent the metrics that statistics are computed for: event_duration, NFI_duration, daily_time_audible, daily_event_count, hourly_time_audible, hourly_event_count
+            Rows represent the statistic: mean, quantiles, min, max, std, median_abs_deviation 
+        confidence_intervals: pd.DataFrame
+            DataFrame containing 95% BCa confidence intervals for the mean and quantiles, computed using bootstrapping.
+            Columns are metric names, rows are statistic names.
+            Entries in the DataFrame are tuples representing the confidence intervals. Note that tuples may contain nan if the statistic
+            distribution was degenerate (always the same value when performing bootstrapping).
         data: dict
             A dictionary where keys are metric names, and values are pd.Series representing the data.
     """
@@ -340,19 +355,21 @@ def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13
             values[col] = binned_df[col]
     
     # prepare the statistics we want
-    agg_stats = ['min', 'max', 'mean', 'std', stats.median_abs_deviation, 'sem'] + [Quantile(q) for q in quantiles]
+    agg_stats = ["mean"] + [Quantile(q) for q in quantiles] + ["min", "max", "std", stats.median_abs_deviation]
+    conf_int_stats = [np.mean] + [Quantile(q) for q in quantiles]
 
     # compute statistics
     statistics = {}
+    conf_intervals = {}
     for col, series in values.items():
         statistics[col] = series.agg(agg_stats)
+        conf_intervals[col] = _agg_conf_intervals(series, conf_int_stats)
         # convert duration fields to timedeltas, more human readable
-        if col in ["event_duration", "NFI_duration"]:
-            statistics[col] = pd.to_timedelta(statistics[col], unit="s")
+        # if col in ["event_duration", "NFI_duration"]:
+        #     statistics[col] = pd.to_timedelta(statistics[col], unit="s")
+        #     conf_intervals[col] = conf_intervals[col].apply(lambda x: tuple(pd.to_timedelta(x, unit="s")))
     
-    if return_data:
-        return pd.DataFrame(statistics), values
-    return pd.DataFrame(statistics)
+    return pd.DataFrame(statistics), pd.DataFrame(conf_intervals), values    
 
 
 def calculate_spatial_stats(tracks, active):
