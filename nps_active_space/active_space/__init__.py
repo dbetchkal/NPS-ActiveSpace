@@ -12,7 +12,7 @@ import matplotlib as mpl
 import numpy as np
 import pandas as pd
 from osgeo import gdal
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point, Polygon, box
 from shapely.validation import make_valid
 from tqdm import tqdm
 
@@ -498,10 +498,18 @@ class ActiveSpaceGenerator:
         -------
         A GeoDataFrame of the active space.
         """
-        fig, ax = plt.subplots()  # need an axis to call tricontour function
-        levels = np.linspace(0, 1, 10, endpoint=False)
+        # augment total space with inaudible points around the boundary, to avoid contour artifacts
+        minx, miny, maxx, maxy = total_space.total_bounds
+        region = gpd.GeoDataFrame({"geometry": [box(minx, miny, maxx, maxy)]}, crs=total_space.crs)
+        region.geometry = region.buffer(100)  # small buffer so that the active space boundary occurs just outside the study area
+        new_points = gpd.GeoDataFrame(geometry=build_src_point_mesh(region), crs=region.crs)
+        new_points = new_points[~new_points.geometry.within(region.unary_union)]
+        new_points["audible"] = 0
+        total_space = pd.concat([total_space, new_points], ignore_index=True)
 
         # create the triangulated irregular network and contour lines
+        fig, ax = plt.subplots()  # need an axis to call tricontour function
+        levels = np.linspace(0, 1, 10, endpoint=False)
         tri = mpl.tri.Triangulation(total_space.geometry.x.tolist(), total_space.geometry.y.tolist())
         cs = ax.tricontour(tri, total_space.audible.tolist(), levels=levels)
 
@@ -589,7 +597,7 @@ class ActiveSpaceGenerator:
             if min(shrinkage) > -0.30:
                 break
 
-        # Run triangulation n_counter times to refine the edges of the active space.
+        # Run triangulation n_contour times to refine the edges of the active space.
         for k in range(n_contour):
             source_pts = self._contour_active_space(tested_space, altitude_m)
             # TO DO there contour results when `source_pts` is None; these must be handled
