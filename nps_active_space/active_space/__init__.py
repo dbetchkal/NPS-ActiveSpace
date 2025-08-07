@@ -643,7 +643,7 @@ class ActiveSpaceGenerator:
         self._site_file = self._create_site_file(projected_mic, self._flt_file)
 
     def generate(self, omni_source: str, altitude_m: int = 3658, mic: Optional[Microphone] = None,
-                 heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1) -> gpd.GeoDataFrame:
+                 heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 2) -> gpd.GeoDataFrame:
         """
         Generate an active space for the study area.
 
