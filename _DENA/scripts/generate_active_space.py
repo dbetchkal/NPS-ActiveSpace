@@ -110,15 +110,15 @@ if __name__ == '__main__':
     argparse.add_argument('-a', '--ambience', default='nvspl', choices=['nvspl', 'mennitt'],
                           help="What type of ambience to use in NMSIM calculations. Choose from ['nvspl', 'mennitt']")
     argparse.add_argument('--headings', nargs='+', type=int, default=[0, 120, 240],
-                          help="Headings of active spaces to dissolve.")
+                          help="Headings of active spaces to dissolve. Accepts one or more values.")
     argparse.add_argument('--omni-min', type=float, default=-20,
                           help="The minimum omni source to run the mesh for.")
     argparse.add_argument('--omni-max', type=float, default=30,
                           help="The maximum omni source to run the mesh for.")
     argparse.add_argument('-l', '--altitude', type=int, required=False,
                           help="Altitude to run NSMIM with in meters.")
-    argparse.add_argument('-b', '--beta', default=1.0, type=float,
-                          help="Beta value to use when calculating fbeta.")
+    argparse.add_argument('-b', '--beta', nargs='+', type=float, default=[1.0, 2.0], 
+                          help="Beta value(s) to use when calculating fbeta. Accepts one or more values.")
     argparse.add_argument('--cleanup', action='store_true',
                           help="Remove intermediary control and batch files.")
     args = argparse.parse_args()
@@ -212,26 +212,34 @@ if __name__ == '__main__':
 
     # --------------- ANALYSIS --------------- #
 
-    # Calculate precision, recall, and fbeta score to determine the most accurate active space.
-    precisions = []
-    recalls = []
-    max_fbeta = 0
-    best_omni = None
-    for omni, res in results:
-        fbeta, precision, recall, n_tot = compute_fbeta(valid_points, res, args.beta)
-        precisions.append(precision)
-        recalls.append(recall)
-        print(f"omni: {omni} --> fbeta: {fbeta:0.3f} precision: {precision:0.3f} recall: {recall:0.3f}")
-        if fbeta > max_fbeta:
-            max_fbeta = fbeta
-            best_omni = omni
-    logger.info(f"The best performing omni source is: {best_omni} (fbeta: {max_fbeta})")
+    for beta_ in args.beta:
 
-    # Create Precision-Recall Plot.
-    fig, ax = plt.subplots()
-    ax.plot(recalls, precisions, ls="", marker="o", ms=2)
-    ax.set_title('Precision-Recall Curve')
-    ax.set_ylabel('Precision')
-    ax.set_xlabel('Recall')
-    plt.savefig(f'{project_dir}/PrecisionRecallPlot_{args.unit}{args.site}{args.year}.png')
-    plt.show()
+        # Calculate precision, recall, and fbeta score to determine the most accurate active space.
+        precisions = []
+        recalls = []
+        max_fbeta = 0
+        best_omni = None
+        best_recall = None
+        best_precision = None
+        for omni, res in results:
+            fbeta, precision, recall, n_tot = compute_fbeta(valid_points, res, beta_)
+            precisions.append(precision)
+            recalls.append(recall)
+            print(f"omni: {omni} --> F-{beta_}: {fbeta:0.3f} precision: {precision:0.3f} recall: {recall:0.3f}")
+            if fbeta > max_fbeta:
+                max_fbeta = fbeta
+                best_omni = omni
+                best_recall = recall
+                best_precision = precision
+        logger.info(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta})")
+
+        # Create Precision-Recall Plot.
+        fig, ax = plt.subplots()
+        ax.plot(recalls, precisions, ls="-", lw=0.2, marker="o", ms=2, color="k")
+        ax.plot(best_recall, best_precision, ls="", marker="o", ms=5, color="None", markeredgecolor="limegreen")
+        ax.set_title(f'Precision-Recall Curve, {beta_:.1f}', loc="left")
+        ax.set_ylabel('Precision')
+        ax.set_xlabel('Recall')
+        plt.savefig(f'{project_dir}/PrecisionRecallPlot_{args.unit}{args.site}{args.year}_{str(beta_).replace(".","p")}.png')
+        plt.show()
+        plt.close()
