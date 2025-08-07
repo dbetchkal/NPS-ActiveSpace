@@ -460,6 +460,8 @@ class ActiveSpaceGenerator:
         new_audibility_pts : gpd.GeoDataFrame
             A GeoDataFrame of points tested during the NMSIM run and their audibility.
         """
+        assert len(source_pts) > 0, "Trying to run NMSIM on zero source points"
+
         trajectory_filename = self._create_trajectory_file(source_pts, crs, job_name, heading)
         batch_file = self._create_instruction_files(flt_file, site_file, trajectory_filename, omni_source)
 
