@@ -602,7 +602,12 @@ class ActiveSpaceGenerator:
         # Run triangulation n_contour times to refine the edges of the active space.
         for k in range(n_contour):
             source_pts = self._contour_active_space(tested_space, altitude_m)
-            # TO DO there contour results when `source_pts` is None; these must be handled
+            # If gain is too big and everything is audible, no contours will exist and no test points will be generated.
+            # In this case, we simply won't refine the edge.
+            # The user shouldn't use this active space anyways because it overflows the study area,
+            # so no need to worry about boundary detail
+            if len(source_pts) == 0:
+                break
             new_audibility_pts = self._run_nmsim(
                 f"{mic.name}_contour{k + 1}",
                 source_pts,
