@@ -13,7 +13,7 @@ import pandas as pd
 from matplotlib.dates import date2num, DateFormatter, num2date
 from matplotlib.gridspec import GridSpec
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.widgets import RangeSlider
+from matplotlib.widgets import RangeSlider, Button
 from PIL import Image, ImageTk
 from shapely.geometry import LineString, Point
 
@@ -99,7 +99,8 @@ class _App(tk.Tk):
         self._saved = True
         self._frame = None
 
-        self.switch_frame(_WelcomeFrame)
+        self.switch_frame(_GroundTruthingFrame)
+        # self.switch_frame(_WelcomeFrame)
 
     def run(self):
         """Run the main application frame."""
@@ -514,9 +515,8 @@ class _GroundTruthingFrame(_AppFrame):
         super().__init__(master)
 
         # Set frame variables to starting values.
-        self.data = iter(self.master.tracks.groupby(by='track_id'))
-        self.slider = None
-        self.i = 0
+        self.data = list(self.master.tracks.groupby(by='track_id'))
+        self.i = -1  # will be incremented by 1 to start at 0, and go up
 
         # Define widgets.
         self.track_label = tk.Label(
@@ -565,56 +565,100 @@ class _GroundTruthingFrame(_AppFrame):
         self.unknown_button.grid(row=1, column=1, sticky='s')
         self.progress_label.grid(row=0, column=1, sticky='ne', padx=10, pady=5)
 
-        self._next()
+        # State that changes for each track being annotated
+        # list of AudibleRange objects for managing the UI of each audible range
+        self.audible_ranges = []
+        self.spectro = None
+        self.splines = None
 
-    def _next(self):
-        """
-        Get the next track ready for plotting.
+        self._better_next()
+    
+    def _load_index(self, i):
+        """Move to the track with index `i`."""
 
-        Notes
-        -----
-        There is a bit of weird recursion logic here. In order to only show one plot at a time, we need to use the
-        next() method instead of for _ in iter() to loop through the track data. But, to go to the next track we
-        need to call self._next() from itself. To eliminate unwanted effects from this necessary recursion, the
-        if/elif/else statements are required.
-        """
-        try:
-            idx, points = next(self.data)
-            self.i += 1
+        self.i = i
+        track_id, points = self.data[i]
 
-            time_pad = dt.timedelta(seconds=5*60)
-            spectro = self.master.nvspl.loc[str(points.point_dt.iat[0] - time_pad):str(points.point_dt.iat[-1] + time_pad), '12.5':'20000']
+        time_pad = dt.timedelta(seconds=5*60)
+        spectro = self.master.nvspl.loc[str(points.point_dt.iat[0] - time_pad):str(points.point_dt.iat[-1] + time_pad), '12.5':'20000']
 
-            # If the track is already annotated, move on.
-            if str(idx) in self.master.annotations._id.values:
-                self._next()
+        self.audible_ranges = []  # TODO load from previous annotation
 
-            # If the track does not have enough points for processing, mark it as invalid and move on.
-            elif points.shape[0] < 3:
-                tk.messagebox.showwarning(
-                    title='Data Warning',
-                    message=f"Track {idx} has fewer than 3 points and therefore cannot be processed. Skipping...",
-                    icon='warning'
-                )
-                self._click(idx, points, valid=False, audible=False, note='Too few points')
+        if points.shape[0] < 3:
+            tk.messagebox.showwarning(
+                title='Data Warning',
+                message=f"Track {track_id} has fewer than 3 points and therefore cannot be processed. Skipping...",
+                icon='warning'
+            )
+            self._store_annotation(track_id, points, valid=False, audible=False, note='Too few points')
+            return
+        
+        if spectro.empty:
+            tk.messagebox.showwarning(
+                title='Data Warning',
+                message=f"Track {track_id} has no accompanying spectrogram. Skipping...",
+                icon='warning'
+            )
+            self._store_annotation(track_id, points, valid=False, audible=False, note='No SPL data')
+            return
+        
+        self._build_plot(track_id, points, spectro)
 
-            # If there is no spectrogram data for the track, mark it as invalid and move on.
-            elif spectro.empty:
-                tk.messagebox.showwarning(
-                    title='Data Warning',
-                    message=f"Track {idx} has no accompanying spectrogram. Skipping...",
-                    icon='warning'
-                )
-                self._click(idx, points, valid=False, audible=False, note='No SPL data')
-
-            # If this is an un-annotated track with 3+ points and corresponding SPL data, display its plot.
-            else:
-                self._build_plot(idx, points, spectro)
-
-        except StopIteration:
+    
+    def _better_next(self):
+        if self.i+1 < len(self.data):
+            self._load_index(self.i + 1)
+        else:
             self.master.switch_frame(_CompletionFrame)
 
-    def _click(self, id_: Any, points: gpd.GeoDataFrame, valid: bool, audible: bool,
+    # def _next(self):
+    #     """
+    #     Get the next track ready for plotting.
+
+    #     Notes
+    #     -----
+    #     There is a bit of weird recursion logic here. In order to only show one plot at a time, we need to use the
+    #     next() method instead of for _ in iter() to loop through the track data. But, to go to the next track we
+    #     need to call self._next() from itself. To eliminate unwanted effects from this necessary recursion, the
+    #     if/elif/else statements are required.
+    #     """
+    #     try:
+    #         idx, points = next(self.data)
+    #         self.i += 1
+
+    #         time_pad = dt.timedelta(seconds=5*60)
+    #         spectro = self.master.nvspl.loc[str(points.point_dt.iat[0] - time_pad):str(points.point_dt.iat[-1] + time_pad), '12.5':'20000']
+
+    #         # If the track is already annotated, move on.
+    #         if str(idx) in self.master.annotations._id.values:
+    #             self._next()
+
+    #         # If the track does not have enough points for processing, mark it as invalid and move on.
+    #         elif points.shape[0] < 3:
+    #             tk.messagebox.showwarning(
+    #                 title='Data Warning',
+    #                 message=f"Track {idx} has fewer than 3 points and therefore cannot be processed. Skipping...",
+    #                 icon='warning'
+    #             )
+    #             self._store_annotation(idx, points, valid=False, audible=False, note='Too few points')
+
+    #         # If there is no spectrogram data for the track, mark it as invalid and move on.
+    #         elif spectro.empty:
+    #             tk.messagebox.showwarning(
+    #                 title='Data Warning',
+    #                 message=f"Track {idx} has no accompanying spectrogram. Skipping...",
+    #                 icon='warning'
+    #             )
+    #             self._store_annotation(idx, points, valid=False, audible=False, note='No SPL data')
+
+    #         # If this is an un-annotated track with 3+ points and corresponding SPL data, display its plot.
+    #         else:
+    #             self._build_plot(idx, points, spectro)
+
+    #     except StopIteration:
+    #         self.master.switch_frame(_CompletionFrame)
+
+    def _store_annotation(self, id_: Any, points: gpd.GeoDataFrame, valid: bool, audible: bool,
                audibility_start: Optional[dt.datetime] = None, audibility_end: Optional[dt.datetime] = None,
                note: Optional[str] = None):
         """
@@ -691,59 +735,59 @@ class _GroundTruthingFrame(_AppFrame):
 
         self.master.add_annotation(lines)
         plt.close()
-        self._next()
+        self._better_next()
 
-    def _build_plot(self, idx: Any, points: 'Tracks', spectrogram: 'Nvspl'):
+    def _build_plot(self, track_id: Any, points: 'Tracks', spectrogram: 'Nvspl'):
         """
         Build the matplotlib GridSpec plot for a track.
 
         Parameters
         ----------
-        idx : Any
+        track_id : Any
             The track id.
         points : Track
             The subset of Track points for the track id.
         spectrogram : Nvspl
             Nvspl data that aligns with the track points times.
         """
-        def _slider_update(val: List):
-            """
-            Update spline highlight and spectrogram lines based on slider values.
+        # def _slider_update(val: List):
+        #     """
+        #     Update spline highlight and spectrogram lines based on slider values.
 
-            Parameters
-            ----------
-            val : List
-                A two item list with the [min, max] values of the range slider.
-            """
-            lower_t = val[0]
-            upper_t = val[1]
+        #     Parameters
+        #     ----------
+        #     val : List
+        #         A two item list with the [min, max] values of the range slider.
+        #     """
+        #     lower_t = val[0]
+        #     upper_t = val[1]
 
-            # Update the vertical lines on the spectrogram
-            lower_limit_line.set_xdata([lower_t, lower_t])
-            upper_limit_line.set_xdata([upper_t, upper_t])
+        #     # Update the vertical lines on the spectrogram
+        #     lower_limit_line.set_xdata([lower_t, lower_t])
+        #     upper_limit_line.set_xdata([upper_t, upper_t])
 
-            # Highlight the section of the track that falls within the date window
-            #
-            # NOTE: .replace(tzinfo) is required to prevent errors from comparing tz-naive again tz-aware datetimes
-            subset = spline.loc[np.all(
-                [spline.time_audible >= num2date(lower_t).replace(tzinfo=None),
-                 spline.time_audible <= num2date(upper_t).replace(tzinfo=None)],
-                axis=0)]
-            highlight.set_data(subset.geometry.x, subset.geometry.y)
+        #     # Highlight the section of the track that falls within the date window
+        #     #
+        #     # NOTE: .replace(tzinfo) is required to prevent errors from comparing tz-naive again tz-aware datetimes
+        #     subset = spline.loc[np.all(
+        #         [spline.time_audible >= num2date(lower_t).replace(tzinfo=None),
+        #          spline.time_audible <= num2date(upper_t).replace(tzinfo=None)],
+        #         axis=0)]
+        #     highlight.set_data(subset.geometry.x, subset.geometry.y)
 
-            self.audible_button.config(
-                state=tk.NORMAL,
-                command=lambda: self._click(
-                    idx,
-                    spline,
-                    valid=True,
-                    audible=True,
-                    audibility_start=num2date(lower_t).replace(tzinfo=None),
-                    audibility_end=num2date(upper_t).replace(tzinfo=None))
-            )
+        #     self.audible_button.config(
+        #         state=tk.NORMAL,
+        #         command=lambda: self._store_annotation(
+        #             track_id,
+        #             spline,
+        #             valid=True,
+        #             audible=True,
+        #             audibility_start=num2date(lower_t).replace(tzinfo=None),
+        #             audibility_end=num2date(upper_t).replace(tzinfo=None))
+        #     )
 
-            # Redraw the figure to ensure it updates
-            fig.canvas.draw_idle()
+        #     # Redraw the figure to ensure it updates
+        #     fig.canvas.draw_idle()
 
         # Interpolate a track spline.
         points.sort_values(by='point_dt', ascending=True, inplace=True)
@@ -764,34 +808,34 @@ class _GroundTruthingFrame(_AppFrame):
         if upper_limit_start <= lower_limit_start:
             tk.messagebox.showwarning(
                 title='Data Warning',
-                message=f"Track {idx} is a double back path causing the limit lines to cross. Skipping...",
+                message=f"Track {track_id} is a double back path causing the limit lines to cross. Skipping...",
                 icon='warning'
             )
-            self._click(idx, spline, valid=False, audible=False, note='Crossed limit lines.')
+            self._store_annotation(track_id, spline, valid=False, audible=False, note='Crossed limit lines.')
 
         else:
             # ************************************ Build Plot ************************************#
 
             fig = plt.figure(figsize=(9, 5), constrained_layout=True)
-            fig.canvas.manager.set_window_title(f"Microphone: {self.master.mic.name}, Track Id: {idx}")
-            spec = GridSpec(ncols=1, nrows=10, figure=fig)
-            ax1 = fig.add_subplot(spec[0:6, 0])
-            ax2 = fig.add_subplot(spec[6:9, 0])
-            ax3 = fig.add_subplot(spec[9, 0])
+            fig.canvas.manager.set_window_title(f"Microphone: {self.master.mic.name}, Track Id: {track_id}")
+            grid = GridSpec(ncols=1, nrows=10, figure=fig)
+            map_ax = fig.add_subplot(grid[0:6, 0])
+            spectro_ax = fig.add_subplot(grid[6:9, 0])
+            new_range_ax = fig.add_subplot(grid[9, 0])
 
             # --------------------------------- Plot Track --------------------------------- #
 
             # Display the study area, track points, spline points, closest point, and microphone
             self.master.study_area.geometry.boundary.plot(
                 label='study area',
-                ax=ax1,
+                ax=map_ax,
                 ls="--",
                 lw=0.5,
                 color="blue"
             )
             spline.plot(
                 label='interpolated spline point',
-                ax=ax1,
+                ax=map_ax,
                 color="grey",
                 zorder=1,
                 markersize=0.5,
@@ -799,19 +843,19 @@ class _GroundTruthingFrame(_AppFrame):
             )
             points.plot(
                 label='track point',
-                ax=ax1,
+                ax=map_ax,
                 color="blue",
                 zorder=1,
                 markersize=2,
             )
             closest_point.plot(
                 label='closest point',
-                ax=ax1,
+                ax=map_ax,
                 color="red",
                 zorder=1,
                 markersize=3,
             )
-            ax1.plot(
+            map_ax.plot(
                 self.master.mic.x,
                 self.master.mic.y,
                 label='microphone',
@@ -822,27 +866,17 @@ class _GroundTruthingFrame(_AppFrame):
                 zorder=10
             )
 
-            highlight, = ax1.plot(
-                spline.geometry.x,
-                spline.geometry.y,
-                lw=8,
-                color='deepskyblue',
-                ls='-',
-                zorder=1,
-                alpha=0.4
-            )
-
             # Glean the spatial extent of the points. This will result in a square map.
             xmin, ymin, xmax, ymax = self.master.study_area.total_bounds
-            ax1.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
-            ax1.set_aspect((xmax - xmin) / (ymax - ymin))
-            ax1.tick_params(axis='both', labelsize=6)
-            ax1.ticklabel_format(style='plain')  # disable scientific notation
-            ax1.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+            map_ax.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
+            map_ax.set_aspect((xmax - xmin) / (ymax - ymin))
+            map_ax.tick_params(axis='both', labelsize=6)
+            map_ax.ticklabel_format(style='plain')  # disable scientific notation
+            map_ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
             # --------------------------------- Plot Spectrogram --------------------------------- #
 
-            ax2.imshow(
+            spectro_ax.imshow(
                 spectrogram.T,
                 origin="lower",
                 aspect=(x_lims[-1] - x_lims[0]) / (8 * 33),
@@ -854,7 +888,7 @@ class _GroundTruthingFrame(_AppFrame):
             )
 
             # add in the time of closest approach in red.
-            ax2.axvline(
+            spectro_ax.axvline(
                 date2num(closest_time),
                 alpha=0.7,
                 color="red",
@@ -863,51 +897,116 @@ class _GroundTruthingFrame(_AppFrame):
                 label='closest track point'
             )
 
-            # Create the moving vertical lines on the histogram with axvline()
-            lower_limit_line = ax2.axvline(
-                lower_limit_start,
-                ls="--",
-                alpha=0.7,
-                color="white",
-                zorder=2,
-                linewidth=1,
-            )
-            upper_limit_line = ax2.axvline(
-                upper_limit_start,
-                ls="--",
-                alpha=0.7,
-                color="white",
-                zorder=2,
-                linewidth=1
-            )
-            ax2.legend(bbox_to_anchor=(0.25, 1.4))
-            ax2.set_yticks(np.arange(spectrogram.shape[1])[::6])
-            ax2.set_yticklabels(spectrogram.columns.astype('float')[::6])
-            ax2.set_ylabel("Freq. (Hz)", labelpad=15)
-            ax2.axhline(8, lw=1.0, color="white", ls=":", alpha=0.4, zorder=200)
-            ax2.xaxis_date()  # tell matplotlib that the numeric axis should be formatted as dates
-            ax2.xaxis.set_major_formatter(DateFormatter("%b-%d\n%H:%M"))  # tidy them!
+            spectro_ax.legend(bbox_to_anchor=(0.25, 1.4))
+            spectro_ax.set_yticks(np.arange(spectrogram.shape[1])[::6])
+            spectro_ax.set_yticklabels(spectrogram.columns.astype('float')[::6])
+            spectro_ax.set_ylabel("Freq. (Hz)", labelpad=15)
+            spectro_ax.axhline(8, lw=1.0, color="white", ls=":", alpha=0.4, zorder=200)
+            spectro_ax.xaxis_date()  # tell matplotlib that the numeric axis should be formatted as dates
+            spectro_ax.xaxis.set_major_formatter(DateFormatter("%b-%d\n%H:%M"))  # tidy them!
 
-            # --------------------------------- Plot Slider --------------------------------- #
+            # --------------------------------- New Slider Button --------------------------------- #
 
-            self.slider = RangeSlider(
-                ax3,
-                label="Audible Window",
-                valmin=x_lims[0],
-                valmax=x_lims[-1],
-                valinit=[lower_limit_start, upper_limit_start]
-            )
+            def new_audible_range():
+                nonlocal grid
+                grid = GridSpec(ncols=1, nrows=grid.nrows+1, figure=fig)
+                slider_ax = fig.add_subplot(grid[grid.nrows-2, 0])
+                label = f"Audible Window {len(self.audible_ranges) + 1}"
+                self.audible_ranges.append(AudibleRange(
+                    label, fig, map_ax, spectro_ax, slider_ax, spline, x_lims, lower_limit_start, upper_limit_start
+                ))
 
-            self.slider.valtext.set_visible(False)  # Turn off range slider value label.
-            self.slider.on_changed(_slider_update)
-            _slider_update([lower_limit_start, upper_limit_start])
+            self.new_slider_button = Button(new_range_ax, "Add Additional Audible Range")
+            self.new_slider_button.on_clicked(lambda x: print("boo!"))
+
+            new_audible_range()
+            # new_audible_range()
+            # fig.tight_layout()
 
             # --------------------------------- Show Plot --------------------------------- #
 
-            self.track_label.config(text=f"Microphone: {self.master.mic.name}\nTrack Id: {idx}")
-            self.progress_label.config(text=f"{self.i}/{self.master.tracks.track_id.nunique()}")
-            self.inaudible_button.config(command=lambda: self._click(idx, spline, valid=True, audible=False), state=tk.NORMAL)
-            self.unknown_button.config(command=lambda: self._click(idx, spline, valid=False, audible=False), state=tk.NORMAL)
+            self.track_label.config(text=f"Microphone: {self.master.mic.name}\nTrack Id: {track_id}")
+            self.progress_label.config(text=f"{self.i+1}/{self.master.tracks.track_id.nunique()}")
+            self.inaudible_button.config(command=lambda: self._store_annotation(track_id, spline, valid=True, audible=False), state=tk.NORMAL)
+            self.unknown_button.config(command=lambda: self._store_annotation(track_id, spline, valid=False, audible=False), state=tk.NORMAL)
 
             canvas = FigureCanvasTkAgg(fig, master=self)
             canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=3)
+    
+
+class AudibleRange():
+    """Class to manage the various UI components of an audible range"""
+    def __init__(self, label, fig, map_ax, spectro_ax, slider_ax, spline, x_lims, lower_limit_start, upper_limit_start):
+        self.fig = fig
+        self.map_ax = map_ax
+        self.spectro_ax = spectro_ax
+        self.slider_ax = slider_ax
+        self.spline = spline
+        self.x_lims = x_lims
+        self.lower_limit_start = lower_limit_start
+        self.upper_limit_start = upper_limit_start
+
+        self.highlight = map_ax.plot(
+            spline.geometry.x,
+            spline.geometry.y,
+            lw=8,
+            color='deepskyblue',
+            ls='-',
+            zorder=1,
+            alpha=0.4
+        )[0]
+        self.lower_limit_line = spectro_ax.axvline(
+            lower_limit_start,
+            ls="--",
+            alpha=0.7,
+            color="white",
+            zorder=2,
+            linewidth=1,
+        )
+        self.upper_limit_line = spectro_ax.axvline(
+            upper_limit_start,
+            ls="--",
+            alpha=0.7,
+            color="white",
+            zorder=2,
+            linewidth=1
+        )
+
+        self.slider = RangeSlider(
+            slider_ax,
+            label=label,
+            valmin=x_lims[0],
+            valmax=x_lims[-1],
+            valinit=[lower_limit_start, upper_limit_start]
+        )
+        self.slider.valtext.set_visible(False)  # Turn off range slider value label.
+        self.slider.on_changed(self._slider_update)
+        self._slider_update([lower_limit_start, upper_limit_start])
+
+    def _slider_update(self, val: List):
+        """
+        Update spline highlight and spectrogram lines based on slider values.
+
+        Parameters
+        ----------
+        val : List
+            A two item list with the [min, max] values of the range slider.
+        """
+        lower_t, upper_t = val
+
+        # Update the vertical lines on the spectrogram
+        self.lower_limit_line.set_xdata([lower_t, lower_t])
+        self.upper_limit_line.set_xdata([upper_t, upper_t])
+
+        # Highlight the section of the track that falls within the date window
+        # NOTE: .replace(tzinfo) is required to prevent errors from comparing tz-naive again tz-aware datetimes
+        subset_mask = np.all([
+            self.spline.time_audible >= num2date(lower_t).replace(tzinfo=None),
+            self.spline.time_audible <= num2date(upper_t).replace(tzinfo=None)
+        ], axis=0)
+        subset = self.spline.loc[subset_mask]
+        self.highlight.set_data(subset.geometry.x, subset.geometry.y)
+
+    def clear_ui_components(self):
+        """Remove all UI components, for use when getting ready to delete this range."""
+        pass
