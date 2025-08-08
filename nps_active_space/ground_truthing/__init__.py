@@ -4,6 +4,7 @@ import traceback
 from abc import ABC
 from tkinter import filedialog, messagebox
 from typing import Any, List, Optional, Type, TYPE_CHECKING
+from functools import partial
 
 import contextily as cx
 import geopandas as gpd
@@ -783,13 +784,17 @@ class _GroundTruthingFrame(_AppFrame):
         fig = plt.figure(figsize=(9, 5), constrained_layout=True)
         fig.canvas.manager.set_window_title(f"Microphone: {self.master.mic.name}, Track Id: {self.track_id}")
 
-        grid = GridSpec(ncols=1, nrows=10+len(self.audible_ranges), figure=fig)
+        height_ratios = [6, 3] + [1 for _ in range(len(self.audible_ranges))] + [1]
+        grid = GridSpec(ncols=2, nrows=3+len(self.audible_ranges), figure=fig,
+                        width_ratios=[10,1], height_ratios=height_ratios)
 
-        map_ax = fig.add_subplot(grid[0:6, 0])
-        spectro_ax = fig.add_subplot(grid[6:9, 0])
+        map_ax = fig.add_subplot(grid[0, 0])
+        spectro_ax = fig.add_subplot(grid[1, 0])
         slider_axes = []
+        rm_range_button_axes = []
         for i in range(len(self.audible_ranges)):
-            slider_axes.append(fig.add_subplot(grid[9+i, 0]))
+            slider_axes.append(fig.add_subplot(grid[2+i, 0]))
+            rm_range_button_axes.append(fig.add_subplot(grid[2+i, 1]))
         new_range_ax = fig.add_subplot(grid[grid.nrows-1, 0])
 
         # --------------------------------- Plot Track --------------------------------- #
@@ -878,10 +883,18 @@ class _GroundTruthingFrame(_AppFrame):
 
         # note - we need to save references to the AudibleRangeUI objects, so the garbage collector doesn't trash them
         self.audible_range_uis = []
+        self.rm_range_buttons = []  # same for storing these references
+
         for i, r in enumerate(self.audible_ranges):
+
             label = f"Audible Window {i + 1}"
             ui = AudibleRangeUI(label, r, fig, map_ax, spectro_ax, slider_axes[i], self.spline, self.x_lims)
             self.audible_range_uis.append(ui)
+
+            rm_button = Button(rm_range_button_axes[i], "Remove")
+            rm_button.on_clicked(partial(self.remove_audible_range, i))  # use functools.partial to bind the current value of i, since i will change in the for loop
+            self.rm_range_buttons.append(rm_button)
+            
 
         # --------------------------------- New Slider Button --------------------------------- #
 
@@ -910,8 +923,11 @@ class _GroundTruthingFrame(_AppFrame):
         ])
         self._build_plot()
     
-    def remove_audible_range(self, i):
-        pass
+    def remove_audible_range(self, i, _):
+        """Remove a certain audible range. See new_audible_range() for why we have to replot the figure."""
+        plt.close()
+        del self.audible_ranges[i]
+        self._build_plot()
     
 
 class AudibleRangeUI():
