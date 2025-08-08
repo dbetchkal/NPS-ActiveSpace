@@ -966,7 +966,7 @@ class _GroundTruthingFrame(_AppFrame):
 
         # --------------------------------- New Slider Button --------------------------------- #
 
-        self.new_slider_button = Button(new_range_ax, "Add Additional Sound Event")
+        self.new_slider_button = Button(new_range_ax, "Add Sound Event")
         self.new_slider_button.on_clicked(self.new_audible_range)
 
         # --------------------------------- Show Plot --------------------------------- #
