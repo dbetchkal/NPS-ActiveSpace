@@ -100,8 +100,7 @@ class _App(tk.Tk):
         self._saved = True
         self._frame = None
 
-        self.switch_frame(_GroundTruthingFrame)
-        # self.switch_frame(_WelcomeFrame)
+        self.switch_frame(_WelcomeFrame)
 
     def run(self):
         """Run the main application frame."""
@@ -310,7 +309,7 @@ class _AnnotationLoadFrame(_AppFrame):
         super().__init__(master)
 
         # Define vars.
-        self.load_annotations = tk.BooleanVar(value=False)
+        self.load_annotations_bool = tk.BooleanVar(value=False)
         self.annotation_filename = tk.StringVar(value='')
 
         # Define widgets.
@@ -353,7 +352,7 @@ class _AnnotationLoadFrame(_AppFrame):
             text='Yes, load annotations from file.',
             font=('Avenir', 10),
             value=True,
-            variable=self.load_annotations,
+            variable=self.load_annotations_bool,
             bg='ivory2',
             command=lambda: self._clear_no()
         )
@@ -362,7 +361,7 @@ class _AnnotationLoadFrame(_AppFrame):
             text='No, do not load prior annotations.',
             font=('Avenir', 10),
             value=False,
-            variable=self.load_annotations,
+            variable=self.load_annotations_bool,
             bg='ivory2',
             command=lambda: self._clear_yes()
         )
@@ -434,7 +433,7 @@ class _AnnotationLoadFrame(_AppFrame):
         """If user wants to load existing annotations, load them before proceeding to the app instructions frame."""
         if self.annotation_filename.get():
 
-            if self.load_annotations.get() is True:
+            if self.load_annotations_bool.get() is True:
                 self.master.load_annotations(self.annotation_filename.get())
 
             self.master.outfile = self.annotation_filename.get()
@@ -538,6 +537,10 @@ class _GroundTruthingFrame(_AppFrame):
         self.i = -1  # will be incremented by 1 to start at 0, and go up
 
         # Define widgets.
+        self.progress_label = tk.Label(
+            self,
+            bg='ivory2'
+        )
         self.track_label = tk.Label(
             self,
             bg='ivory2',
@@ -558,10 +561,6 @@ class _GroundTruthingFrame(_AppFrame):
             fg='black',
             width=10,
             font=('Avenir', 12, 'bold')
-        )
-        self.progress_label = tk.Label(
-            self,
-            bg='ivory2'
         )
 
         # Place widgets.
@@ -634,15 +633,30 @@ class _GroundTruthingFrame(_AppFrame):
             # that called _next()
             return
         
+        # load audible ranges - check for previous annotations
+        # note: audible_ranges is a list of [datetime, datetime], in the SPECTROGRAM's timeline
+        # - i.e. uses the 'time_audible' field, not the 'point_dt' field
+        annots = self.master.annotations[self.master.annotations["_id"] == track_id]
+        if annots.empty:
+            # default range slider
+            audible_ranges = [[num2date(lower_limit_start), num2date(upper_limit_start)]]
+        else:
+            audible_ranges = []
+            for _, a in annots[annots["valid"] & annots["audible"]].iterrows():
+                # note that invalid or fully inaudible annotations will result in no ranges, as desired
+                time_audible_start = spline[spline["point_dt"] == a["start_dt"]].iloc[0]["time_audible"]
+                time_audible_end = spline[spline["point_dt"] == a["end_dt"]].iloc[0]["time_audible"]
+                audible_ranges.append([time_audible_start, time_audible_end])
+        
         # update track-specific member variables
         # these are stored as member variables because _build_plot() might be called again later,
         # and we want it to always have access to these without having to pass them around constantly
         # nice to do this all at once to better keep track of these variables and not have only some of them update if we returned early
         self.track_id = track_id
+        self.track_annotated = not annots.empty
         self.points = points
         self.spectro = spectro
-        self.audible_ranges = [
-            [num2date(lower_limit_start), num2date(upper_limit_start)]]  # list of [datetime, datetime] TODO load from previous annotation
+        self.audible_ranges = audible_ranges
         self.spline = spline
         self.closest_point = closest_point
         self.closest_time = closest_time
@@ -652,8 +666,13 @@ class _GroundTruthingFrame(_AppFrame):
 
         self._build_plot()
 
-    
     def _next(self):
+        if self.i + 1 < len(self.data):
+            self._load_index(self.i + 1)
+        else:
+            self.master.switch_frame(_CompletionFrame)
+
+    def _next_unannotated(self):
         # iterate self.i until we find a track that hasn't been annotated
         while (self.i+1 < len(self.data)):
             self.i += 1
@@ -661,10 +680,8 @@ class _GroundTruthingFrame(_AppFrame):
             if str(track_id) not in self.master.annotations._id.values:
                 self._load_index(self.i)
                 return
-
         # if all are annotated, we're done!
         self.master.switch_frame(_CompletionFrame)
-
 
     def _store_annotation(self, track_id: Any, points: gpd.GeoDataFrame, audible_ranges: Optional[list] = [],
                            valid: bool = True, note: Optional[str] = None):
@@ -686,8 +703,8 @@ class _GroundTruthingFrame(_AppFrame):
             Any note to be added to all points passed for annotation.
         """
         # Deactivate the decision buttons.
-        # self.submit_button.config(state=tk.DISABLED)
-        # self.unknown_button.config(state=tk.DISABLED)
+        self.submit_button.config(state=tk.DISABLED)
+        self.unknown_button.config(state=tk.DISABLED)
 
         # Convert points to WGS84 to avoid geopandas bug mentioned in Track model :(
         if 'z' not in points.columns:
@@ -773,8 +790,8 @@ class _GroundTruthingFrame(_AppFrame):
 
         gdf = gpd.GeoDataFrame(segments, geometry='geometry', crs=points.crs)
         self.master.set_annotation(track_id, gdf)
-        # plt.close()
-        # self._next()
+        plt.close()
+        self._next()
 
     def _build_plot(self):
         """
@@ -904,7 +921,9 @@ class _GroundTruthingFrame(_AppFrame):
 
         # --------------------------------- Show Plot --------------------------------- #
 
-        self.track_label.config(text=f"Microphone: {self.master.mic.name}\nTrack Id: {self.track_id}")
+        self.track_label.config(text=f"Microphone: {self.master.mic.name}\n"
+                                     f"Track Id: {self.track_id}\n"
+                                     f"Annotated: {self.track_annotated}")
         self.progress_label.config(text=f"{self.i+1}/{self.master.tracks.track_id.nunique()}")
         self.submit_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, self.audible_ranges), state=tk.NORMAL)
         self.unknown_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, valid=False), state=tk.NORMAL)

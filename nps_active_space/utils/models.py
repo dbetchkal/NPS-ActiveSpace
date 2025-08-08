@@ -1486,16 +1486,24 @@ class Tracks(gpd.GeoDataFrame):
     be kept in a separate standard column until this bug has been resolved.
     """
 
-    def __init__(self, data: gpd.GeoDataFrame, id_col: str, datetime_col: str, z_col: Optional[str] = None):
-        col_renames = {id_col: 'track_id', datetime_col: 'point_dt'}
-        if z_col:
-            col_renames[z_col] = 'z'
-        data.rename(columns=col_renames, inplace=True)
-        if 'geometry' not in data:
-            data.rename_geometry('geometry', inplace=True)
-        data['track_id'] = data.track_id.astype(str)
-        data.sort_values(by=['track_id', 'point_dt'],
-                         ascending=True, inplace=True)
+    def __init__(self, data: gpd.GeoDataFrame, id_col: str = None, datetime_col: str = None, z_col: Optional[str] = None):
+        # FYI this function needs to be able to handle the case when __init__ gets called with subsets of data,
+        # which occurs as a side effect whenever you boolean index into a Tracks object or try to print it (I think).
+        # This is caused by subclassing GeoDataFrame
+
+        # check if we're using it with original intended init behavior
+        # if not (if only data was passed as a side effect as described above, just call super().__init__())
+        if id_col is not None and datetime_col is not None:
+            col_renames = {id_col: 'track_id', datetime_col: 'point_dt'}
+            if z_col:
+                col_renames[z_col] = 'z'
+            data.rename(columns=col_renames, inplace=True)
+            if 'geometry' not in data:
+                data.rename_geometry('geometry', inplace=True)
+            data['track_id'] = data.track_id.astype(str)
+            data.sort_values(by=['track_id', 'point_dt'],
+                            ascending=True, inplace=True)
+        
         super().__init__(data=data)
 
 
@@ -1513,21 +1521,21 @@ class Annotations(gpd.GeoDataFrame):
     """
 
     def __init__(self, filename: Optional[str] = None, only_valid: bool = False):
-
-        def convert_to_int(value):
+        
+        def convert_to_bool(value):
             """
             A rigorous function to ensure proper typing of incoming fields. 
-            Converts <'str'> and <'bool'> to <'int'> for better import of various file versions.
+            Converts <'str'> and <'int'> to <'bool'> for better import of various file versions.
             """
             if isinstance(value, bool):
-                return int(value)  # True -> 1, False -> 0
+                return value
             elif isinstance(value, int):
-                return value  # Already an integer
+                return bool(value)
             elif isinstance(value, str):
                 if value.lower() in ['true', '1']:
-                    return 1
+                    return True
                 elif value.lower() in ['false', '0']:
-                    return 0
+                    return False
                 else:
                     raise ValueError(f"Invalid string value for conversion: {value}")
             else:
@@ -1539,13 +1547,8 @@ class Annotations(gpd.GeoDataFrame):
 
             # Sometimes the annotation file is read in with the valid and audible columns as booleans and other times
             #  as objects depending on what values are stored.
-            try:
-                data["valid"] = data["valid"].apply(convert_to_int)
-                data["audible"] = data["audible"].apply(convert_to_int)
-                data.valid.replace({1: True, 0: False}, inplace=True)
-                data.audible.replace({1: True, 0: False}, inplace=True)
-            except TypeError:
-                pass
+            data["valid"] = data["valid"].apply(convert_to_bool)
+            data["audible"] = data["audible"].apply(convert_to_bool)
 
             if only_valid:
                 data = data[data.valid == True]
