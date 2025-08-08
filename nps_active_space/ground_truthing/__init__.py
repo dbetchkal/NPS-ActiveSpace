@@ -643,10 +643,17 @@ class _GroundTruthingFrame(_AppFrame):
 
     
     def _next(self):
-        if self.i+1 < len(self.data):
-            self._load_index(self.i + 1)
-        else:
-            self.master.switch_frame(_CompletionFrame)
+        # iterate self.i until we find a track that hasn't been annotated
+        while (self.i+1 < len(self.data)):
+            self.i += 1
+            track_id = self.data[self.i][0]
+            if str(track_id) not in self.master.annotations._id.values:
+                self._load_index(self.i)
+                return
+
+        # if all are annotated, we're done!
+        self.master.switch_frame(_CompletionFrame)
+
 
     def _store_annotation(self, id_: Any, points: gpd.GeoDataFrame, valid: bool, audible: bool,
                audibility_start: Optional[dt.datetime] = None, audibility_end: Optional[dt.datetime] = None,
@@ -726,6 +733,7 @@ class _GroundTruthingFrame(_AppFrame):
         self.master.add_annotation(lines)
         plt.close()
         self._next()
+
 
     def _build_plot(self):
         """
@@ -868,6 +876,7 @@ class _GroundTruthingFrame(_AppFrame):
 
         # --------------------------------- UI for Selecting Audible Ranges --------------------------------- #
 
+        # note - we need to save references to the AudibleRangeUI objects, so the garbage collector doesn't trash them
         self.audible_range_uis = []
         for i, r in enumerate(self.audible_ranges):
             label = f"Audible Window {i + 1}"
