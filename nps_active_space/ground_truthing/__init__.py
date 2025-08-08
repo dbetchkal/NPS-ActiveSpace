@@ -562,6 +562,7 @@ class _GroundTruthingFrame(_AppFrame):
             width=10,
             font=('Avenir', 12, 'bold')
         )
+        self.next_button = tk.Button()
 
         # Place widgets.
         self.grid_columnconfigure(0, weight=5)
@@ -790,7 +791,7 @@ class _GroundTruthingFrame(_AppFrame):
 
         gdf = gpd.GeoDataFrame(segments, geometry='geometry', crs=points.crs)
         self.master.set_annotation(track_id, gdf)
-        plt.close()
+        plt.close("all")
         self._next()
 
     def _build_plot(self):
@@ -936,7 +937,7 @@ class _GroundTruthingFrame(_AppFrame):
         Add a new audible range. Since we can't change the layout of axes after making them,
         we need to clear the current plot and remake it, taking into account the new audible range.
         """
-        plt.close()
+        plt.close("all")
         self.audible_ranges.append([
             num2date(self.lower_limit_start),
             num2date(self.upper_limit_start)
@@ -945,7 +946,7 @@ class _GroundTruthingFrame(_AppFrame):
     
     def remove_audible_range(self, i, _):
         """Remove a certain audible range. See new_audible_range() for why we have to replot the figure."""
-        plt.close()
+        plt.close("all")
         del self.audible_ranges[i]
         self._build_plot()
     
