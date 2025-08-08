@@ -101,9 +101,6 @@ class _App(tk.Tk):
         self._frame = None
 
         self.switch_frame(_WelcomeFrame)
-        
-        # TODO remove
-        self.switch_frame(_GroundTruthingFrame)
 
     def run(self):
         """Run the main application frame."""
@@ -544,6 +541,11 @@ class _GroundTruthingFrame(_AppFrame):
             bg='ivory2',
             font=('Avenir', 10, 'bold')
         )
+        self.time_label = tk.Label(
+            self,
+            bg='ivory2',
+            font=('Avenir', 10)
+        )
         self.submit_button = tk.Button(
             self,
             text='Submit >>',
@@ -584,15 +586,17 @@ class _GroundTruthingFrame(_AppFrame):
         # Place widgets.
         self.grid_columnconfigure(0, weight=5)
         self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=2)
+        self.grid_rowconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
-        self.grid_rowconfigure(2, weight=2)
-        self.track_label.grid(row=0, column=1, pady=20)
-        self.submit_button.grid(row=1, column=1, sticky='n')
-        self.unknown_button.grid(row=1, column=1, sticky='s')
+        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(3, weight=2)
+        self.track_label.grid(row=0, column=1, pady=10)
+        self.time_label.grid(row=1, column=1, pady=10)
+        self.submit_button.grid(row=2, column=1, sticky='n')
+        self.unknown_button.grid(row=2, column=1, sticky='s')
         self.progress_label.grid(row=0, column=1, sticky='ne', padx=10, pady=5)
 
-        self.nav_buttons.grid(row=2, column=1)
+        self.nav_buttons.grid(row=3, column=1)
         self.back_button.pack(side=tk.LEFT, padx=10)
         self.next_button.pack(side=tk.LEFT, padx=10)
 
@@ -763,8 +767,6 @@ class _GroundTruthingFrame(_AppFrame):
 
             # simplify overlapping audible ranges
             audible_ranges = _collapse_audible_ranges(audible_ranges)
-
-            # TODO ask Davyd - should segments share endpoints?
 
             # remove timezone info to avoid errors comparing tz-naive against tz-aware datetimes
             for r in audible_ranges:
@@ -977,7 +979,7 @@ class _GroundTruthingFrame(_AppFrame):
         self.unknown_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, valid=False), state=tk.NORMAL)
 
         canvas = FigureCanvasTkAgg(fig, master=self)
-        canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=3)
+        canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=4)
 
         fig.canvas.mpl_connect("motion_notify_event", self.on_mouse_move)
     
@@ -1002,10 +1004,15 @@ class _GroundTruthingFrame(_AppFrame):
     def on_mouse_move(self, event):
         if event.inaxes == self.spectro_ax or event.inaxes in self.slider_axes:
             dt = num2date(event.xdata).replace(tzinfo=None)
+
+            # update time display
+            self.time_label.config(text=f"Time: {dt.strftime('%H:%M:%S')}")
+
             # get closest spline point to the mouse position
             closest_idx = (self.spline["time_audible"] - dt).abs().idxmin()
             closest_pt = self.spline.loc[closest_idx]
 
+            # if the mouse is close enough to a point, display the marker on the map
             if abs(closest_pt["time_audible"] - dt) > self.typical_t_diff:
                 self.map_mousehover_point.set_visible(False)
             else:
