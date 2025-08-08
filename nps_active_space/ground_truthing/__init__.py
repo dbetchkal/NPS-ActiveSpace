@@ -195,7 +195,7 @@ class _App(tk.Tk):
 
     def _plot(self):
         """Plot all annotated tracks and points."""
-        if self.annotations.empty or self.annotations["valid"].all() == False:
+        if self.annotations.empty or self.annotations["valid"].sum() == 0:
             tk.messagebox.showinfo(
                 title='Plot Tracks',
                 message=f"No valid tracks to plot.",
