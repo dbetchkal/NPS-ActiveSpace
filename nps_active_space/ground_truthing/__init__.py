@@ -129,18 +129,26 @@ class _App(tk.Tk):
         self._frame = new_frame
         self._frame.pack(expand=True, anchor='nw', fill=tk.BOTH)
 
-    def add_annotation(self, annotated_lines: gpd.GeoDataFrame):
+    def set_annotation(self, track_id: str, annotated_lines: gpd.GeoDataFrame):
         """
-        Add new track audibility annotations.
+        Add new audibility annotations for a track, replacing any previous annotations for that track.
 
         Parameters
         ----------
+        track_id: str
+            ID of the track being annotated. Convenient for searching out previous annotations for this track ID and removing them,
+            since they will be overwritten by this new annotation.
         annotated_lines: gpd.GeoDataFrame
             a GeoDataFrame of annotated lines for a track to add to the overall annotations GeoDataFrame.
         """
         if annotated_lines.crs != self.annotations.crs:
             annotated_lines = annotated_lines.to_crs(self.annotations.crs)
-        self.annotations = pd.concat([self.annotations, annotated_lines], ignore_index=True)
+
+        # remove old annotations for this track
+        self.annotations = self.annotations[self.annotations["_id"] != track_id]
+
+        # add new annotation
+        self.annotations = pd.concat([self.annotations, annotated_lines], ignore_index=True).infer_objects()
         self._saved = False
 
     def load_annotations(self, filename: str):
@@ -191,6 +199,12 @@ class _App(tk.Tk):
 
     def _plot(self):
         """Plot all annotated tracks and points."""
+        if self.annotations.empty or self.annotations["valid"].all() == False:
+            tk.messagebox.showinfo(
+                title='Plot Tracks',
+                message=f"No valid tracks to plot.",
+            )
+            return
 
         fig, ax = plt.subplots(1, 1, figsize=(6, 9))
 
@@ -200,22 +214,24 @@ class _App(tk.Tk):
 
         # Plot track audibility.
         valid_segments = self.annotations[self.annotations.valid]
-        valid_segments[valid_segments.audible == True].plot(
-            ax=ax,
-            color='deepskyblue',
-            alpha=0.5,
-            markersize=3,
-            zorder=3,
-            label="Audible segments"
-        )
-        valid_segments[valid_segments.audible == False].plot(
-            ax=ax,
-            color='red',
-            alpha=0.5,
-            markersize=3,
-            zorder=2,
-            label="Inaudible segments"
-        )
+        if valid_segments.audible.any():
+            valid_segments[valid_segments.audible == True].plot(
+                ax=ax,
+                color='deepskyblue',
+                alpha=0.5,
+                markersize=3,
+                zorder=3,
+                label="Audible segments"
+            )
+        if (~valid_segments.audible).any():
+            valid_segments[valid_segments.audible == False].plot(
+                ax=ax,
+                color='red',
+                alpha=0.5,
+                markersize=3,
+                zorder=2,
+                label="Inaudible segments"
+            )
 
         # Plot microphone position.
         ax.plot(
@@ -525,18 +541,10 @@ class _GroundTruthingFrame(_AppFrame):
             bg='ivory2',
             font=('Avenir', 10, 'bold')
         )
-        self.audible_button = tk.Button(
+        self.submit_button = tk.Button(
             self,
-            text='Audible >>',
+            text='Submit >>',
             bg='green',
-            fg='white',
-            width=10,
-            font=('Avenir', 12, 'bold')
-        )
-        self.inaudible_button = tk.Button(
-            self,
-            text='Inaudible >>',
-            bg='red',
             fg='white',
             width=10,
             font=('Avenir', 12, 'bold')
@@ -561,8 +569,7 @@ class _GroundTruthingFrame(_AppFrame):
         self.grid_rowconfigure(1, weight=1)
         self.grid_rowconfigure(2, weight=2)
         self.track_label.grid(row=0, column=1, pady=20)
-        self.audible_button.grid(row=1, column=1, sticky='n')
-        self.inaudible_button.grid(row=1, column=1)
+        self.submit_button.grid(row=1, column=1, sticky='n')
         self.unknown_button.grid(row=1, column=1, sticky='s')
         self.progress_label.grid(row=0, column=1, sticky='ne', padx=10, pady=5)
 
@@ -581,7 +588,7 @@ class _GroundTruthingFrame(_AppFrame):
                 message=f"Track {track_id} has fewer than 3 points and therefore cannot be processed. Skipping...",
                 icon='warning'
             )
-            self._store_annotation(track_id, points, valid=False, audible=False, note='Too few points')
+            self._store_annotation(track_id, points, valid=False, note='Too few points')
             # that called _next()
             return
 
@@ -596,7 +603,7 @@ class _GroundTruthingFrame(_AppFrame):
                 message=f"Track {track_id} has no accompanying spectrogram. Skipping...",
                 icon='warning'
             )
-            self._store_annotation(track_id, points, valid=False, audible=False, note='No SPL data')
+            self._store_annotation(track_id, points, valid=False, note='No SPL data')
             # that called _next()
             return
                 
@@ -621,7 +628,7 @@ class _GroundTruthingFrame(_AppFrame):
                 message=f"Track {track_id} is a double back path causing the limit lines to cross. Skipping...",
                 icon='warning'
             )
-            self._store_annotation(track_id, spline, valid=False, audible=False, note='Crossed limit lines.')
+            self._store_annotation(track_id, spline, valid=False, note='Crossed limit lines.')
             # that called _next()
             return
         
@@ -632,7 +639,8 @@ class _GroundTruthingFrame(_AppFrame):
         self.track_id = track_id
         self.points = points
         self.spectro = spectro
-        self.audible_ranges = []  # list of [datetime, datetime] TODO load from previous annotation
+        self.audible_ranges = [
+            [num2date(lower_limit_start), num2date(upper_limit_start)]]  # list of [datetime, datetime] TODO load from previous annotation
         self.spline = spline
         self.closest_point = closest_point
         self.closest_time = closest_time
@@ -656,34 +664,28 @@ class _GroundTruthingFrame(_AppFrame):
         self.master.switch_frame(_CompletionFrame)
 
 
-    def _store_annotation(self, id_: Any, points: gpd.GeoDataFrame, valid: bool, audible: bool,
-               audibility_start: Optional[dt.datetime] = None, audibility_end: Optional[dt.datetime] = None,
-               note: Optional[str] = None):
+    def _store_annotation(self, track_id: Any, points: gpd.GeoDataFrame, audible_ranges: Optional[list] = [],
+                           valid: bool = True, note: Optional[str] = None):
         """
         Save an annotation depending on what button what audibility button was clicked and clear
         the frame to be able to show the next plot.
 
         Parameters
         ----------
-        id_ : Any
+        track_id : Any
             The track unique identifier.
         points: gpd.GeoDataFrame:
             Track and spline points to annotate.
-        valid : bool
+        valid : bool, default True
             If the track was valid.
-        audible : bool
-            If the track was valid, was it audible.
-        audibility_start : dt.datetime, default None
-            If the track was audible, when does audibility start.
-        audibility_end : dt.datetime, default None
-            If the track was audible, when does audibility end.
+        audible_ranges: list of [datetime, datetime], default []
+            Periods of time when the track was audible. If an empty list, everything was inaudible.        
         note: str, default None
             Any note to be added to all points passed for annotation.
         """
         # Deactivate the decision buttons.
-        self.audible_button.config(state=tk.DISABLED)
-        self.inaudible_button.config(state=tk.DISABLED)
-        self.unknown_button.config(state=tk.DISABLED)
+        # self.submit_button.config(state=tk.DISABLED)
+        # self.unknown_button.config(state=tk.DISABLED)
 
         # Convert points to WGS84 to avoid geopandas bug mentioned in Track model :(
         if 'z' not in points.columns:
@@ -691,94 +693,91 @@ class _GroundTruthingFrame(_AppFrame):
             points = points.to_crs('epsg:4326')
             points['geometry'] = points.apply(lambda row: Point(row.geometry.x, row.geometry.y, row.z), axis=1)
             points.drop('z', axis=1, inplace=True)
+        
 
-        # Unknown and inaudible tracks can be saved as a single line.
-        if valid is False or audible is False:
-            lines = gpd.GeoDataFrame(
-                {
-                    '_id': [id_],
-                    'start_dt': [points.point_dt.iat[0]],
-                    'end_dt': [points.point_dt.iat[-1]],
-                    'valid': [valid],
-                    'audible': [audible],
-                    'note': [note],
-                    'geometry': [points.geometry.iat[0] if points.shape[0] == 1
-                                 else LineString(points.geometry.tolist())]
-                },
-                geometry='geometry',
-                crs=points.crs
-            )
+        segments = []
+
+        # Saving invalid tracks or fully inaudible tracks can be done with one line
+        if valid is False or len(audible_ranges) == 0:
+            segments.append({
+                '_id': track_id,
+                'start_dt': points.point_dt.iat[0],
+                'end_dt': points.point_dt.iat[-1],
+                'valid': valid,
+                'audible': False,
+                'note': note,
+                'geometry': points.geometry.iat[0] if points.shape[0] == 1
+                                else LineString(points.geometry.tolist())
+            })
 
         else:
+            # note that in this conditional block, audible_ranges is not empty
 
-            audible_segment = points[(points.time_audible >= audibility_start) &
-                                     (points.time_audible <= audibility_end)]
+            # TODO collapse overlapping audible ranges
 
-            inaudible_segment_1 = points.loc[points.point_dt < audible_segment.point_dt.iat[0]]
-            inaudible_segment_2 = points.loc[points.point_dt > audible_segment.point_dt.iat[-1]]
+            # TODO ask Davyd - should segments share endpoints?
 
-            line_segments = []
-            for i, segment in enumerate([inaudible_segment_1, audible_segment, inaudible_segment_2]):
-                if segment.shape[0] > 1:
-                    line_segments.append(
-                        {'_id': id_,
-                         'start_dt': segment.point_dt.iat[0],
-                         'end_dt': segment.point_dt.iat[-1],
-                         'valid': True,
-                         'audible': True if i == 1 else False,
-                         'note': note,
-                         'geometry': LineString(segment.geometry.tolist())}
+            # remove timezone info to avoid errors comparing tz-naive against tz-aware datetimes
+            for r in audible_ranges:
+                for i in range(len(r)):
+                    r[i] = r[i].replace(tzinfo=None)
+
+            segments = []
+            
+            # add segment for the inaudible range at the beginning, if it exists
+            first_inaudible_segment = points[points.time_audible < audible_ranges[0][0]]
+            if first_inaudible_segment.shape[0] > 0:
+                segments.append(
+                    {'_id': track_id,
+                    'start_dt': first_inaudible_segment.point_dt.iat[0],
+                    'end_dt': first_inaudible_segment.point_dt.iat[-1],
+                    'valid': True,
+                    'audible': False,
+                    'note': note,
+                    'geometry': LineString(first_inaudible_segment.geometry.tolist())}
+                )
+
+            # add segments for each audible range and the inaudible range following it
+            for i, r in enumerate(audible_ranges):                
+                audible_segment = points[(points.time_audible >= r[0]) & (points.time_audible < r[1])]
+                if audible_segment.shape[0] > 0:
+                    segments.append(
+                        {'_id': track_id,
+                        'start_dt': audible_segment.point_dt.iat[0],
+                        'end_dt': audible_segment.point_dt.iat[-1],
+                        'valid': True,
+                        'audible': True,
+                        'note': note,
+                        'geometry': LineString(audible_segment.geometry.tolist())}
                     )
-            lines = gpd.GeoDataFrame(line_segments, geometry='geometry', crs=points.crs)
 
-        self.master.add_annotation(lines)
-        plt.close()
-        self._next()
+                if i+1 < len(audible_ranges):
+                    next_start = audible_ranges[i+1][0]
+                else:
+                    next_start = points.point_dt.iat[-1]
+                
+                inaudible_segment = points[(points.time_audible >= r[1]) & (points.time_audible < next_start)]
+                if inaudible_segment.shape[0] > 0:
+                    segments.append(
+                        {'_id': track_id,
+                        'start_dt': inaudible_segment.point_dt.iat[0],
+                        'end_dt': inaudible_segment.point_dt.iat[-1],
+                        'valid': True,
+                        'audible': False,
+                        'note': note,
+                        'geometry': LineString(inaudible_segment.geometry.tolist())}
+                    )
+
+        gdf = gpd.GeoDataFrame(segments, geometry='geometry', crs=points.crs)
+        self.master.set_annotation(track_id, gdf)
+        # plt.close()
+        # self._next()
 
 
     def _build_plot(self):
         """
         Build the matplotlib GridSpec plot for a track, using class state set by _load_index().
         """
-        # def _slider_update(val: List):
-        #     """
-        #     Update spline highlight and spectrogram lines based on slider values.
-
-        #     Parameters
-        #     ----------
-        #     val : List
-        #         A two item list with the [min, max] values of the range slider.
-        #     """
-        #     lower_t = val[0]
-        #     upper_t = val[1]
-
-        #     # Update the vertical lines on the spectrogram
-        #     lower_limit_line.set_xdata([lower_t, lower_t])
-        #     upper_limit_line.set_xdata([upper_t, upper_t])
-
-        #     # Highlight the section of the track that falls within the date window
-        #     #
-        #     # NOTE: .replace(tzinfo) is required to prevent errors from comparing tz-naive again tz-aware datetimes
-        #     subset = spline.loc[np.all(
-        #         [spline.time_audible >= num2date(lower_t).replace(tzinfo=None),
-        #          spline.time_audible <= num2date(upper_t).replace(tzinfo=None)],
-        #         axis=0)]
-        #     highlight.set_data(subset.geometry.x, subset.geometry.y)
-
-        #     self.audible_button.config(
-        #         state=tk.NORMAL,
-        #         command=lambda: self._store_annotation(
-        #             track_id,
-        #             spline,
-        #             valid=True,
-        #             audible=True,
-        #             audibility_start=num2date(lower_t).replace(tzinfo=None),
-        #             audibility_end=num2date(upper_t).replace(tzinfo=None))
-        #     )
-
-        #     # Redraw the figure to ensure it updates
-        #     fig.canvas.draw_idle()
-
         # ************************************ Build Plot ************************************#
 
         fig = plt.figure(figsize=(9, 5), constrained_layout=True)
@@ -887,7 +886,7 @@ class _GroundTruthingFrame(_AppFrame):
 
         for i, r in enumerate(self.audible_ranges):
 
-            label = f"Audible Window {i + 1}"
+            label = f"Audible Extent {i + 1}"
             ui = AudibleRangeUI(label, r, fig, map_ax, spectro_ax, slider_axes[i], self.spline, self.x_lims)
             self.audible_range_uis.append(ui)
 
@@ -898,15 +897,15 @@ class _GroundTruthingFrame(_AppFrame):
 
         # --------------------------------- New Slider Button --------------------------------- #
 
-        self.new_slider_button = Button(new_range_ax, "Add Additional Audible Range")
+        self.new_slider_button = Button(new_range_ax, "Add Additional Sound Event")
         self.new_slider_button.on_clicked(self.new_audible_range)
 
         # --------------------------------- Show Plot --------------------------------- #
 
         self.track_label.config(text=f"Microphone: {self.master.mic.name}\nTrack Id: {self.track_id}")
         self.progress_label.config(text=f"{self.i+1}/{self.master.tracks.track_id.nunique()}")
-        self.inaudible_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, valid=True, audible=False), state=tk.NORMAL)
-        self.unknown_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, valid=False, audible=False), state=tk.NORMAL)
+        self.submit_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, self.audible_ranges), state=tk.NORMAL)
+        self.unknown_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, valid=False), state=tk.NORMAL)
 
         canvas = FigureCanvasTkAgg(fig, master=self)
         canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=3)
