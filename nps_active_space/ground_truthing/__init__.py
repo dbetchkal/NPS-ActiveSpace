@@ -105,12 +105,7 @@ class _App(tk.Tk):
     def run(self):
         """Run the main application frame."""
         self.protocol("WM_DELETE_WINDOW", self._close)
-
-        if set(self.tracks.track_id.unique()) - set(self.annotations._id.unique()) == set():
-            self.switch_frame(_CompletionFrame)
-
-        else:
-            self.switch_frame(_GroundTruthingFrame)
+        self.switch_frame(_GroundTruthingFrame)
 
     def switch_frame(self, frame_class: Type[_AppFrame]):
         """
@@ -747,7 +742,7 @@ class _GroundTruthingFrame(_AppFrame):
             
             # add segment for the inaudible range at the beginning, if it exists
             first_inaudible_segment = points[points.time_audible < audible_ranges[0][0]]
-            if first_inaudible_segment.shape[0] > 0:
+            if first_inaudible_segment.shape[0] >= 2:
                 segments.append(
                     {'_id': track_id,
                     'start_dt': first_inaudible_segment.point_dt.iat[0],
@@ -761,7 +756,7 @@ class _GroundTruthingFrame(_AppFrame):
             # add segments for each audible range and the inaudible range following it
             for i, r in enumerate(audible_ranges):                
                 audible_segment = points[(points.time_audible >= r[0]) & (points.time_audible < r[1])]
-                if audible_segment.shape[0] > 0:
+                if audible_segment.shape[0] >= 2:
                     segments.append(
                         {'_id': track_id,
                         'start_dt': audible_segment.point_dt.iat[0],
@@ -778,7 +773,7 @@ class _GroundTruthingFrame(_AppFrame):
                     next_start = points.time_audible.iat[-1]
                 
                 inaudible_segment = points[(points.time_audible >= r[1]) & (points.time_audible < next_start)]
-                if inaudible_segment.shape[0] > 0:
+                if inaudible_segment.shape[0] >= 2:
                     segments.append(
                         {'_id': track_id,
                         'start_dt': inaudible_segment.point_dt.iat[0],
