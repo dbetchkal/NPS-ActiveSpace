@@ -582,6 +582,15 @@ class _GroundTruthingFrame(_AppFrame):
             font=('Avenir', 12),
             command=self._back
         )
+        self.next_unannotated_button = tk.Button(
+            self,
+            text='Next Unannotated >',
+            bg='ivory2',
+            fg='black',
+            width=15,
+            font=('Avenir', 12),
+            command=self._next_unannotated
+        )
 
         # Place widgets.
         self.grid_columnconfigure(0, weight=5)
@@ -590,6 +599,7 @@ class _GroundTruthingFrame(_AppFrame):
         self.grid_rowconfigure(1, weight=1)
         self.grid_rowconfigure(2, weight=1)
         self.grid_rowconfigure(3, weight=2)
+        self.grid_rowconfigure(4, weight=1)
         self.track_label.grid(row=0, column=1, pady=10)
         self.time_label.grid(row=1, column=1, pady=10)
         self.submit_button.grid(row=2, column=1, sticky='n')
@@ -599,6 +609,8 @@ class _GroundTruthingFrame(_AppFrame):
         self.nav_buttons.grid(row=3, column=1)
         self.back_button.pack(side=tk.LEFT, padx=10)
         self.next_button.pack(side=tk.LEFT, padx=10)
+
+        self.next_unannotated_button.grid(row=4, column=1, padx=10, pady=5)
 
         self._next()
     
@@ -833,7 +845,7 @@ class _GroundTruthingFrame(_AppFrame):
         fig = plt.figure(figsize=(9, 5), constrained_layout=True)
         fig.canvas.manager.set_window_title(f"Microphone: {self.master.mic.name}, Track Id: {self.track_id}")
 
-        height_ratios = [6, 3] + [1 for _ in range(len(self.audible_ranges))] + [1]
+        height_ratios = [12, 6] + [1 for _ in range(len(self.audible_ranges))] + [1]
         grid = GridSpec(ncols=2, nrows=3+len(self.audible_ranges), figure=fig,
                         width_ratios=[10,1], height_ratios=height_ratios)
 
@@ -879,9 +891,10 @@ class _GroundTruthingFrame(_AppFrame):
         self.closest_point.plot(
             label='closest point',
             ax=map_ax,
-            color="red",
+            color="lime",
             zorder=1,
-            markersize=3,
+            markersize=32,
+            edgecolor="blue"
         )
 
         # Point indicating where on the map corresponds to a certain spot in the spectrogram,
@@ -933,7 +946,7 @@ class _GroundTruthingFrame(_AppFrame):
         spectro_ax.axvline(
             date2num(self.closest_time),
             alpha=0.7,
-            color="red",
+            color="lime",
             zorder=2,
             linewidth=3,
             label='closest track point'
@@ -979,7 +992,7 @@ class _GroundTruthingFrame(_AppFrame):
         self.unknown_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, valid=False), state=tk.NORMAL)
 
         canvas = FigureCanvasTkAgg(fig, master=self)
-        canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=4)
+        canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=100)  # large rowspan so we don't have to update it if adding new rows
 
         fig.canvas.mpl_connect("motion_notify_event", self.on_mouse_move)
     
@@ -1006,7 +1019,7 @@ class _GroundTruthingFrame(_AppFrame):
             dt = num2date(event.xdata).replace(tzinfo=None)
 
             # update time display
-            self.time_label.config(text=f"Time: {dt.strftime('%H:%M:%S')}")
+            self.time_label.config(text=f"Cursor Time: {dt.strftime('%H:%M:%S')}")
 
             # get closest spline point to the mouse position
             closest_idx = (self.spline["time_audible"] - dt).abs().idxmin()
