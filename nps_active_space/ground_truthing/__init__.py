@@ -151,6 +151,8 @@ class _App(tk.Tk):
         self.annotations = pd.concat([self.annotations, annotated_lines], ignore_index=True).infer_objects()
         self._saved = False
 
+        print("n segments saved", (self.annotations["_id"] == track_id).sum())
+
     def load_annotations(self, filename: str):
         """
         Simple function to load existing annotations from a geojson file.
@@ -713,7 +715,8 @@ class _GroundTruthingFrame(_AppFrame):
         else:
             # note that in this conditional block, audible_ranges is not empty
 
-            # TODO collapse overlapping audible ranges
+            # simplify overlapping audible ranges
+            audible_ranges = _collapse_audible_ranges(audible_ranges)
 
             # TODO ask Davyd - should segments share endpoints?
 
@@ -754,7 +757,7 @@ class _GroundTruthingFrame(_AppFrame):
                 if i+1 < len(audible_ranges):
                     next_start = audible_ranges[i+1][0]
                 else:
-                    next_start = points.point_dt.iat[-1]
+                    next_start = points.time_audible.iat[-1]
                 
                 inaudible_segment = points[(points.time_audible >= r[1]) & (points.time_audible < next_start)]
                 if inaudible_segment.shape[0] > 0:
@@ -772,7 +775,6 @@ class _GroundTruthingFrame(_AppFrame):
         self.master.set_annotation(track_id, gdf)
         # plt.close()
         # self._next()
-
 
     def _build_plot(self):
         """
@@ -1013,3 +1015,39 @@ class AudibleRangeUI():
     def clear_ui_components(self):
         """Remove all UI components, for use when getting ready to delete this range."""
         pass
+
+
+def _collapse_audible_ranges(ranges: list):
+    """Collapse overlapping audible ranges into single audible ranges.
+    
+    Parameters
+    ----------
+    ranges: list of [datetime, datetime]
+    
+    Returns
+    -------
+    collapsed_ranges: list of [datetime, datetime]
+    """
+    
+    times = []
+    for start, end in ranges:
+        times.append({"t": start, "type": "start"})
+        times.append({"t": end, "type": "end"})
+    times.sort(key=lambda x: x["t"])
+    
+    intervals = []
+    n = 0
+    start_time = None
+    for t in times:
+        if t["type"] == "start":
+            # if it was previously quiet, start the next interval
+            if n == 0:
+                start_time = t["t"]
+            n += 1
+        elif t["type"] == "end":
+            n -= 1
+            if n == 0:
+                # last sound ended, save the interval
+                intervals.append([start_time, t["t"]])
+
+    return intervals
