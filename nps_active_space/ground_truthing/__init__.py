@@ -557,7 +557,26 @@ class _GroundTruthingFrame(_AppFrame):
             width=10,
             font=('Avenir', 12, 'bold')
         )
-        self.next_button = tk.Button()
+
+        self.nav_buttons = tk.Frame(self)
+        self.next_button = tk.Button(
+            self.nav_buttons,
+            text='Next >',
+            bg='ivory2',
+            fg='black',
+            width=10,
+            font=('Avenir', 12),
+            command=self._next
+        )
+        self.back_button = tk.Button(
+            self.nav_buttons,
+            text='< Back',
+            bg='ivory2',
+            fg='black',
+            width=10,
+            font=('Avenir', 12),
+            command=self._back
+        )
 
         # Place widgets.
         self.grid_columnconfigure(0, weight=5)
@@ -569,6 +588,10 @@ class _GroundTruthingFrame(_AppFrame):
         self.submit_button.grid(row=1, column=1, sticky='n')
         self.unknown_button.grid(row=1, column=1, sticky='s')
         self.progress_label.grid(row=0, column=1, sticky='ne', padx=10, pady=5)
+
+        self.nav_buttons.grid(row=2, column=1)
+        self.back_button.pack(side=tk.LEFT, padx=10)
+        self.next_button.pack(side=tk.LEFT, padx=10)
 
         self._next()
     
@@ -667,6 +690,12 @@ class _GroundTruthingFrame(_AppFrame):
             self._load_index(self.i + 1)
         else:
             self.master.switch_frame(_CompletionFrame)
+
+    def _back(self):
+        if self.i <= 0:
+            self.master.switch_frame(_InstructionsFrame)
+        else:
+            self._load_index(self.i - 1)
 
     def _next_unannotated(self):
         # iterate self.i until we find a track that hasn't been annotated
