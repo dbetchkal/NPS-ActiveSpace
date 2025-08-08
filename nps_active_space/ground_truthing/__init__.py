@@ -101,6 +101,9 @@ class _App(tk.Tk):
         self._frame = None
 
         self.switch_frame(_WelcomeFrame)
+        
+        # TODO remove
+        self.switch_frame(_GroundTruthingFrame)
 
     def run(self):
         """Run the main application frame."""
@@ -677,6 +680,7 @@ class _GroundTruthingFrame(_AppFrame):
         self.spectro = spectro
         self.audible_ranges = audible_ranges
         self.spline = spline
+        self.typical_t_diff = spline["time_audible"].diff().median()
         self.closest_point = closest_point
         self.closest_time = closest_time
         self.x_lims = x_lims
@@ -840,6 +844,11 @@ class _GroundTruthingFrame(_AppFrame):
             rm_range_button_axes.append(fig.add_subplot(grid[2+i, 1]))
         new_range_ax = fig.add_subplot(grid[grid.nrows-1, 0])
 
+        # make some axes member variables too so that on_mouse_move() can see them
+        self.fig = fig
+        self.slider_axes = slider_axes
+        self.spectro_ax = spectro_ax
+
         # --------------------------------- Plot Track --------------------------------- #
 
         # Display the study area, track points, spline points, closest point, and microphone
@@ -872,6 +881,20 @@ class _GroundTruthingFrame(_AppFrame):
             zorder=1,
             markersize=3,
         )
+
+        # Point indicating where on the map corresponds to a certain spot in the spectrogram,
+        # when the user hovers their mouse. Init at the microphone, but invisible
+        self.map_mousehover_point = map_ax.plot(
+            self.master.mic.x,
+            self.master.mic.y,
+            ms=10,
+            marker="o",
+            markerfacecolor="none",
+            markeredgecolor="black",
+            zorder=3
+        )[0]
+        self.map_mousehover_point.set_visible(False)
+
         map_ax.plot(
             self.master.mic.x,
             self.master.mic.y,
@@ -955,6 +978,8 @@ class _GroundTruthingFrame(_AppFrame):
 
         canvas = FigureCanvasTkAgg(fig, master=self)
         canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=3)
+
+        fig.canvas.mpl_connect("motion_notify_event", self.on_mouse_move)
     
     def new_audible_range(self, _):
         """
@@ -973,6 +998,23 @@ class _GroundTruthingFrame(_AppFrame):
         plt.close("all")
         del self.audible_ranges[i]
         self._build_plot()
+    
+    def on_mouse_move(self, event):
+        if event.inaxes == self.spectro_ax or event.inaxes in self.slider_axes:
+            dt = num2date(event.xdata).replace(tzinfo=None)
+            # get closest spline point to the mouse position
+            closest_idx = (self.spline["time_audible"] - dt).abs().idxmin()
+            closest_pt = self.spline.loc[closest_idx]
+
+            if abs(closest_pt["time_audible"] - dt) > self.typical_t_diff:
+                self.map_mousehover_point.set_visible(False)
+            else:
+                self.map_mousehover_point.set_data(
+                    [closest_pt.geometry.x], [closest_pt.geometry.y])
+                self.map_mousehover_point.set_visible(True)
+
+            self.fig.canvas.draw_idle()
+            
     
 
 class AudibleRangeUI():
@@ -1053,12 +1095,6 @@ class AudibleRangeUI():
         ], axis=0)
         subset = self.spline.loc[subset_mask]
         self.highlight.set_data(subset.geometry.x, subset.geometry.y)
-
-        self.fig.canvas.draw_idle()  # TODO probably unnecessary
-
-    def clear_ui_components(self):
-        """Remove all UI components, for use when getting ready to delete this range."""
-        pass
 
 
 def _collapse_audible_ranges(ranges: list):
