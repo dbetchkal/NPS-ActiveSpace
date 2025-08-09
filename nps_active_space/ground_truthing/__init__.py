@@ -720,12 +720,16 @@ class _GroundTruthingFrame(_AppFrame):
         if self.faa is not None:
             if self.master.database_type == "ADSB":
                 icao = points.iloc[0]["ICAO_address"]
-                faa_row = self.faa[self.faa["MODE S CODE HEX"] == icao].iloc[0]
-                aircraft_help_text = f"N-Number: {faa_row['N-NUMBER']}"
+                matching = self.faa[self.faa["MODE S CODE HEX"] == icao]
+                if not matching.empty:
+                    faa_row = matching.iloc[0]
+                    aircraft_help_text = f"N-Number: {faa_row['N-NUMBER']}"
             elif self.master.database_type == "GPS":
                 n_number = track_id.split("_")[0][1:]
-                faa_row = self.faa[self.faa["N-NUMBER"] == n_number].iloc[0]
-                aircraft_help_text = f"ICAO Address: {faa_row["MODE S CODE HEX"]}"
+                matching = self.faa[self.faa["N-NUMBER"] == n_number]
+                if not matching.empty:
+                    faa_row = matching.iloc[0]
+                    aircraft_help_text = f"ICAO Address: {faa_row["MODE S CODE HEX"]}"
 
         # update track-specific state, stored in member variables
         # these are stored as member variables because _build_plot() might be called again later,
