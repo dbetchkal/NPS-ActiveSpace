@@ -17,6 +17,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.widgets import RangeSlider, Button
 from PIL import Image, ImageTk
 from shapely.geometry import LineString, Point
+import rasterio
 
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.utils import Annotations, audible_time_delay, interpolate_spline, expected_relative_Lp, FAAReleasable
@@ -68,6 +69,8 @@ class _App(tk.Tk):
         A gpd.GeoDataFrame of polygon(s) that make up the study area.
     database_type: str
         Database type. 'GPS', 'ADSB', or 'AIS'.
+    dem
+        rasterio Dataset object for reading the DEM
     clip : bool, default False
         If True, clip the Tracks to the study area.
     faa_path : str, default None
@@ -76,7 +79,7 @@ class _App(tk.Tk):
         If using aircraft data, path to the FAA Releasable database corrections json file. Leave this as None if using AIS data.
     """
     def __init__(self, mic: 'Microphone', nvspl: 'Nvspl', tracks: 'Tracks',
-                 crs: str, study_area: gpd.GeoDataFrame, database_type: str, clip: bool = False,
+                 crs: str, study_area: gpd.GeoDataFrame, database_type: str, dem, clip: bool = False,
                  faa_path: str = None, faa_corrections_path: str = ""):
         super().__init__()
 
@@ -87,6 +90,7 @@ class _App(tk.Tk):
         self.nvspl = nvspl
         self.outfile = None
         self.database_type = database_type
+        self.dem = dem
         self.faa_path = faa_path
         self.faa_corrections_path = faa_corrections_path
 
@@ -542,6 +546,8 @@ class _GroundTruthingFrame(_AppFrame):
         self.data = list(self.master.tracks.groupby(by='track_id'))
         self.i = -1  # will be incremented by 1 to start at 0, and go up
 
+        self.dem_x, self.dem_y, self.dem_z = self.process_dem()
+
         # load aircraft data, if applicable
         self.faa = None
         if self.master.faa_path is not None and self.master.faa_corrections_path is not None:
@@ -914,6 +920,7 @@ class _GroundTruthingFrame(_AppFrame):
         # --------------------------------- Plot Track --------------------------------- #
 
         # Display the study area, track points, spline points, closest point, and microphone
+        # map_ax.contour(self.dem_x, self.dem_y, self.dem_z, levels=10, colors="lightgray")  # TODO contours still in WGS84
         self.master.study_area.geometry.boundary.plot(
             label='study area',
             ax=map_ax,
@@ -1058,6 +1065,28 @@ class _GroundTruthingFrame(_AppFrame):
 
         canvas = FigureCanvasTkAgg(fig, master=self)
         canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=100)  # large rowspan so we don't have to update it if adding new rows
+
+
+    def process_dem(self):
+        dem = self.master.dem
+        data = dem.read(1)
+
+        if dem.nodata is not None:
+            data = np.ma.masked_equal(data, dem.nodata)
+        
+        # convert pixel coords to spatial coords
+        x = np.arange(0, data.shape[1])
+        y = np.arange(0, data.shape[0])
+        x_coords, y_coords = np.meshgrid(x, y)  # pixel coords right now
+        x_coords, y_coords = rasterio.transform.xy(dem.transform, y_coords, x_coords, offset="center") # now spatial coords
+        x_coords = x_coords.reshape(data.shape)
+        y_coords = y_coords.reshape(data.shape)
+
+        fig, ax = plt.subplots()
+        ax.contour(x_coords, y_coords, data, levels=10)
+        plt.show()
+
+        return x_coords, y_coords, data
 
     
     def new_audible_range(self, _):
