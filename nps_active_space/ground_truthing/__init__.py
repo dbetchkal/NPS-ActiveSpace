@@ -19,7 +19,7 @@ from PIL import Image, ImageTk
 from shapely.geometry import LineString, Point
 
 from nps_active_space import ACTIVE_SPACE_DIR
-from nps_active_space.utils import Annotations, audible_time_delay, interpolate_spline
+from nps_active_space.utils import Annotations, audible_time_delay, interpolate_spline, FAAReleasable
 
 if TYPE_CHECKING:
     from nps_active_space.utils import Microphone, Nvspl, Tracks
@@ -66,11 +66,18 @@ class _App(tk.Tk):
         Format of 'epsg:XXXX...', E.g. 'epsg:32632'
     study_area : gpd.GeoDataFrame
         A gpd.GeoDataFrame of polygon(s) that make up the study area.
+    database_type: str
+        Database type. 'GPS', 'ADSB', or 'AIS'.
     clip : bool, default False
         If True, clip the Tracks to the study area.
+    faa_path : str, default None
+        If using aircraft data, path to the FAA Releasable database MASTER.txt file. Leave this as None if using AIS data.
+    faa_corrections_path : str
+        If using aircraft data, path to the FAA Releasable database corrections json file. Leave this as None if using AIS data.
     """
     def __init__(self, mic: 'Microphone', nvspl: 'Nvspl', tracks: 'Tracks',
-                 crs: str, study_area: gpd.GeoDataFrame, clip: bool = False):
+                 crs: str, study_area: gpd.GeoDataFrame, database_type: str, clip: bool = False,
+                 faa_path: str = None, faa_corrections_path: str = ""):
         super().__init__()
 
         self.crs = crs
@@ -79,6 +86,9 @@ class _App(tk.Tk):
         self.tracks = gpd.clip(tracks.to_crs(crs), self.study_area) if clip else tracks.to_crs(crs)
         self.nvspl = nvspl
         self.outfile = None
+        self.database_type = database_type
+        self.faa_path = faa_path
+        self.faa_corrections_path = faa_corrections_path
 
         # Set app features.
         self.title('NPS Active Space: Ground Truthing Module')
@@ -101,6 +111,7 @@ class _App(tk.Tk):
         self._frame = None
 
         self.switch_frame(_WelcomeFrame)
+        self.switch_frame(_GroundTruthingFrame)
 
     def run(self):
         """Run the main application frame."""
@@ -531,6 +542,21 @@ class _GroundTruthingFrame(_AppFrame):
         self.data = list(self.master.tracks.groupby(by='track_id'))
         self.i = -1  # will be incremented by 1 to start at 0, and go up
 
+        # load aircraft data, if applicable
+        self.faa = None
+        if self.master.faa_path is not None and self.master.faa_corrections_path is not None:
+            if self.master.database_type == "ADSB":
+                icaos = self.master.tracks["ICAO_address"].unique()
+                self.faa = FAAReleasable(self.master.faa_path, self.master.faa_corrections_path, icao_addresses=icaos).data
+                if self.faa.empty:
+                    self.faa = None
+            elif self.master.database_type == "GPS":
+                track_ids = self.master.tracks["track_id"].unique()
+                n_numbers = list(map(lambda s: s.split("_")[0][1:], track_ids))
+                self.faa = FAAReleasable(self.master.faa_path, self.master.faa_corrections_path, n_numbers=n_numbers).data
+                if self.faa.empty:
+                    self.faa = None
+
         # Define widgets.
         self.progress_label = tk.Label(
             self,
@@ -539,7 +565,8 @@ class _GroundTruthingFrame(_AppFrame):
         self.track_label = tk.Label(
             self,
             bg='ivory2',
-            font=('Avenir', 10, 'bold')
+            font=('Avenir', 10, 'bold'),
+            justify='left'
         )
         self.time_label = tk.Label(
             self,
@@ -686,7 +713,19 @@ class _GroundTruthingFrame(_AppFrame):
                 time_audible_end = spline[spline["point_dt"] == a["end_dt"]].iloc[0]["time_audible"]
                 audible_ranges.append([time_audible_start, time_audible_end])
         
-        # update track-specific member variables
+        # load FAA data if applicable
+        faa_row = None
+        if self.faa is not None:
+            if self.master.database_type == "ADSB":
+                icao = points.iloc[0]["ICAO_address"]
+                faa_row = self.faa[self.faa["MODE S CODE HEX"] == icao].iloc[0]
+                aircraft_help_text = f"N-Number: {faa_row['N-NUMBER']}"
+            elif self.master.database_type == "GPS":
+                n_number = track_id.split("_")[0][1:]
+                faa_row = self.faa[self.faa["N-NUMBER"] == n_number].iloc[0]
+                aircraft_help_text = f"ICAO Address: {faa_row["MODE S CODE HEX"]}"
+
+        # update track-specific state, stored in member variables
         # these are stored as member variables because _build_plot() might be called again later,
         # and we want it to always have access to these without having to pass them around constantly
         # nice to do this all at once to better keep track of these variables and not have only some of them update if we returned early
@@ -702,6 +741,8 @@ class _GroundTruthingFrame(_AppFrame):
         self.x_lims = x_lims
         self.lower_limit_start = lower_limit_start
         self.upper_limit_start = upper_limit_start
+        self.aircraft_help_text = aircraft_help_text if faa_row is not None else None
+        self.aircraft_type = faa_row["TYPE AIRCRAFT"] if faa_row is not None else None
 
         self._build_plot()
 
@@ -982,19 +1023,23 @@ class _GroundTruthingFrame(_AppFrame):
         self.new_slider_button = Button(new_range_ax, "Add Sound Event")
         self.new_slider_button.on_clicked(self.new_audible_range)
 
-        # --------------------------------- Show Plot --------------------------------- #
+        # --------------------------------- Update Track Labels and Event Handling --------------------------------- #
 
-        self.track_label.config(text=f"Microphone: {self.master.mic.name}\n"
-                                     f"Track Id: {self.track_id}\n"
+        self.track_label.config(text=f"Microphone: {self.master.mic.name}\n" + \
+                                     f"Track Id: {self.track_id}\n" + \
+                                     (f"{self.aircraft_help_text}\n" if self.aircraft_help_text is not None else "") + \
+                                     (f"Aircraft Type: {self.aircraft_type}\n" if self.aircraft_type is not None else "") + \
                                      f"Annotated: {self.track_annotated}")
         self.progress_label.config(text=f"{self.i+1}/{self.master.tracks.track_id.nunique()}")
         self.submit_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, self.audible_ranges), state=tk.NORMAL)
         self.unknown_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, valid=False), state=tk.NORMAL)
+        fig.canvas.mpl_connect("motion_notify_event", self.on_mouse_move)
+
+        # --------------------------------- Show Plot --------------------------------- #
 
         canvas = FigureCanvasTkAgg(fig, master=self)
         canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=100)  # large rowspan so we don't have to update it if adding new rows
 
-        fig.canvas.mpl_connect("motion_notify_event", self.on_mouse_move)
     
     def new_audible_range(self, _):
         """

@@ -34,8 +34,8 @@ if __name__ == '__main__':
                           help="Four letter site code. E.g. TRLA")
     argparse.add_argument('-y', '--year', type=int, required=True,
                           help="Four digit year. E.g. 2018")
-    argparse.add_argument('-t', '--track-source', default='Database', choices=["Database", "ADSB", "AIS"],
-                          help="Enter 'Database', 'ADSB', or 'AIS")
+    argparse.add_argument('-t', '--track-source', default='GPS', choices=["GPS", "ADSB", "AIS"],
+                          help="Enter 'GPS', 'ADSB', or 'AIS")
 
     args = argparse.parse_args()
 
@@ -50,6 +50,8 @@ if __name__ == '__main__':
     # Set the various path variables.
     archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
     project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
+    faa_path = None
+    faa_corrections_path = None
 
     # Load the microphone deployment site metadata and the study area shapefile.
     microphone = get_deployment(cfg.read('project', 'dir'), args.unit, args.site, args.year)
@@ -72,11 +74,15 @@ if __name__ == '__main__':
         raw_tracks["local_hourtime"] = raw_tracks["TIME"].apply(lambda t: t.replace(minute=0, second=0, microsecond=0))
         tracks = Tracks(raw_tracks, id_col='flight_id', datetime_col='TIME', z_col='altitude')
         hourtimes = tracks.local_hourtime.astype(object).unique()
+        faa_path = cfg.read('project', 'FAA_Releasable_db')
+        faa_corrections_path = cfg.read('project', 'FAA_type_corrections')
 
-    elif args.track_source == 'Database':
+    elif args.track_source == 'GPS':
         raw_tracks = query_tracks(engine=engine, start_date=nvspl_dates[0], end_date=nvspl_dates[-1], mask=study_area)
         tracks = Tracks(raw_tracks, 'flight_id', 'ak_datetime', 'altitude_m')
         hourtimes = tracks.ak_hourtime.astype(object).unique()
+        faa_path = cfg.read('project', 'FAA_Releasable_db')
+        faa_corrections_path = cfg.read('project', 'FAA_type_corrections')
 
     else:
         raise NotImplementedError('Code for AIS is not ready yet.')
@@ -98,5 +104,8 @@ if __name__ == '__main__':
         mic=microphone,
         crs=coords_to_utm(microphone.lat, microphone.lon),
         study_area=study_area,
-        clip=False
+        database_type=args.track_source,
+        clip=False,
+        faa_path=faa_path,
+        faa_corrections_path=faa_corrections_path
     )

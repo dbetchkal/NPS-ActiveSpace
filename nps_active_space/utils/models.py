@@ -26,13 +26,14 @@ pd.options.mode.copy_on_write = True
 pd.set_option('future.no_silent_downcasting', True)
 
 __all__ = [
-    'Adsb',
-    'Ais',
-    'Annotations',
-    'EarlyAdsb',
     'Microphone',
     'Nvspl',
-    'Tracks'
+    'Ais',
+    'Adsb',
+    'EarlyAdsb',
+    'FAAReleasable',
+    'Tracks',
+    'Annotations',
 ]
 
 
