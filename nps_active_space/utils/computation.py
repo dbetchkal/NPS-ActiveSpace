@@ -25,6 +25,7 @@ __all__ = [
     'contiguous_regions',
     'coords_to_utm',
     'create_overlapping_mesh',
+    'expected_relative_Lp',
     'interpolate_spline',
     'NMSIM_bbox_utm',
     'project_raster'
@@ -186,6 +187,32 @@ def audible_time_delay(points: gpd.GeoDataFrame, time_col: str, target: Point,
     if drop_cols:
         points.drop(['distance_to_target', 'audible_delay_sec'], inplace=True)
 
+    return points
+
+
+def expected_relative_Lp(points: gpd.GeoDataFrame, target: Point):
+    """Get expected Lp values for a set of points and a target observer location, using a crude acoustic propagation model.
+    Note that these are only relative Lp values, because an arbitrary speaker power is used.
+    
+    **IMPORTANT**: The points GeoDataFrame and the target Point should be in the same crs for accurate calculations.
+
+    Parameters
+    ----------
+    points : gpd.GeoDataFrame
+        A gpd.GeoDataFrame of sound location points.
+    target : Point
+        The target point.
+    
+    Returns
+    -------
+    The points GeoDataFrame with added columns: Lp_est
+    """
+    distances = points.geometry.apply(lambda geom: target.distance(geom))
+    Lw = 150
+    atm_abs = -0.002
+    A_geometric = 10*np.log10(1/(4*np.pi*np.power(distances,2)))
+    A_atmosphere = np.array(distances)*atm_abs
+    points["Lp_est"] = Lw + A_geometric + A_atmosphere
     return points
 
 

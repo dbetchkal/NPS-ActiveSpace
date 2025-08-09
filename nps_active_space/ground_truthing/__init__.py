@@ -19,7 +19,7 @@ from PIL import Image, ImageTk
 from shapely.geometry import LineString, Point
 
 from nps_active_space import ACTIVE_SPACE_DIR
-from nps_active_space.utils import Annotations, audible_time_delay, interpolate_spline, FAAReleasable
+from nps_active_space.utils import Annotations, audible_time_delay, interpolate_spline, expected_relative_Lp, FAAReleasable
 
 if TYPE_CHECKING:
     from nps_active_space.utils import Microphone, Nvspl, Tracks
@@ -675,9 +675,11 @@ class _GroundTruthingFrame(_AppFrame):
                 
         points.sort_values(by='point_dt', ascending=True, inplace=True)
         spline = interpolate_spline(points)
-        spline = audible_time_delay(spline, 'point_dt', Point(float(self.master.mic.x), 
-                                                              float(self.master.mic.y), 
-                                                              float(self.master.mic.z)))
+        mic_point = Point(float(self.master.mic.x), 
+                          float(self.master.mic.y), 
+                          float(self.master.mic.z))
+        spline = audible_time_delay(spline, 'point_dt', mic_point)
+        spline = expected_relative_Lp(spline, mic_point)
 
         # Determine the closest spline point to the mic.
         closest_point = spline[spline.distance_to_target == spline.distance_to_target.min()]
@@ -886,17 +888,18 @@ class _GroundTruthingFrame(_AppFrame):
         fig = plt.figure(figsize=(9, 5), constrained_layout=True)
         fig.canvas.manager.set_window_title(f"Microphone: {self.master.mic.name}, Track Id: {self.track_id}")
 
-        height_ratios = [12, 6] + [1 for _ in range(len(self.audible_ranges))] + [1]
-        grid = GridSpec(ncols=2, nrows=3+len(self.audible_ranges), figure=fig,
+        height_ratios = [12, 6, 1] + [1 for _ in range(len(self.audible_ranges))] + [1]
+        grid = GridSpec(ncols=2, nrows=4+len(self.audible_ranges), figure=fig,
                         width_ratios=[10,1], height_ratios=height_ratios)
 
         map_ax = fig.add_subplot(grid[0, 0])
         spectro_ax = fig.add_subplot(grid[1, 0])
+        cue_ax = fig.add_subplot(grid[2, 0])
         slider_axes = []
         rm_range_button_axes = []
         for i in range(len(self.audible_ranges)):
-            slider_axes.append(fig.add_subplot(grid[2+i, 0]))
-            rm_range_button_axes.append(fig.add_subplot(grid[2+i, 1]))
+            slider_axes.append(fig.add_subplot(grid[3+i, 0]))
+            rm_range_button_axes.append(fig.add_subplot(grid[3+i, 1]))
         new_range_ax = fig.add_subplot(grid[grid.nrows-1, 0])
 
         # make some axes member variables too so that on_mouse_move() can see them
@@ -1001,6 +1004,18 @@ class _GroundTruthingFrame(_AppFrame):
         spectro_ax.xaxis_date()  # tell matplotlib that the numeric axis should be formatted as dates
         spectro_ax.xaxis.set_major_formatter(DateFormatter("%b-%d\n%H:%M"))  # tidy them!
 
+        # --------------------------------- Plot Expected Lp Cue Signal --------------------------------- #
+
+        ys = np.zeros(len(self.spline["time_audible"]))
+        cue_ax.scatter(self.spline["time_audible"], ys, c=self.spline["Lp_est"], cmap="plasma")
+        cue_ax.set_xlim(self.x_lims[0], self.x_lims[-1])
+        cue_ax.set_ylabel("Sound Level Cue", rotation=0, ha='right', va='center')
+        # remove extra plot bits
+        for spine in cue_ax.spines.values():
+            spine.set_visible(False)
+        cue_ax.set_xticks([])
+        cue_ax.set_yticks([])
+
         # --------------------------------- UI for Selecting Audible Ranges --------------------------------- #
 
         # note - we need to save references to the AudibleRangeUI objects, so the garbage collector doesn't trash them
@@ -1025,11 +1040,11 @@ class _GroundTruthingFrame(_AppFrame):
 
         # --------------------------------- Update Track Labels and Event Handling --------------------------------- #
 
-        self.track_label.config(text=f"Microphone: {self.master.mic.name}\n" + \
+        self.track_label.config(text=f"Microphone: {self.master.mic.name}\n\n" + \
                                      f"Track Id: {self.track_id}\n" + \
                                      (f"{self.aircraft_help_text}\n" if self.aircraft_help_text is not None else "") + \
                                      (f"Aircraft Type: {self.aircraft_type}\n" if self.aircraft_type is not None else "") + \
-                                     f"Annotated: {self.track_annotated}")
+                                     f"\nAnnotated: {self.track_annotated}")
         self.progress_label.config(text=f"{self.i+1}/{self.master.tracks.track_id.nunique()}")
         self.submit_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, self.audible_ranges), state=tk.NORMAL)
         self.unknown_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, valid=False), state=tk.NORMAL)
