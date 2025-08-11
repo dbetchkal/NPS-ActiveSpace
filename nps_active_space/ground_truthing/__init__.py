@@ -1130,8 +1130,9 @@ class _GroundTruthingFrame(_AppFrame):
         self.progress_label.config(text=f"{self.i+1}/{self.master.tracks.track_id.nunique()}")
         self.submit_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, self.audible_ranges), state=tk.NORMAL)
         self.unknown_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, valid=False), state=tk.NORMAL)
-        self.cid_mousemove = canvas.mpl_connect("motion_notify_event", self.on_mouse_move)
-        self.cid_draw = canvas.mpl_connect("draw_event", self.on_draw)
+        canvas.mpl_connect("motion_notify_event", self.on_mouse_move)
+        canvas.mpl_connect("button_press_event", self.on_mouse_down)
+        canvas.mpl_connect("draw_event", self.on_draw)
 
         # --------------------------------- Show Plot --------------------------------- #
 
@@ -1163,6 +1164,10 @@ class _GroundTruthingFrame(_AppFrame):
         self.canvas.blit(self.fig.bbox)
         self.canvas.flush_events()
   
+    def on_mouse_down(self, event):
+        if event.button == 1 and event.inaxes in self.slider_axes:
+            self.update_plot()
+
     def on_mouse_move(self, event):
         if event.inaxes == self.spectro_ax or event.inaxes in self.slider_axes:
             dt = num2date(event.xdata).replace(tzinfo=None)
@@ -1292,8 +1297,8 @@ class AudibleRangeUI():
         subset = self.gt_frame.spline.loc[subset_mask]
         self.highlight.set_data(subset.geometry.x, subset.geometry.y)
         
-        # No need to call update_plot() here, any updates will be paired with a mousemove
-        # and the mousemove event handler calls update_plot().
+        # No need to call update_plot() here, any updates will be paired with a mousemove or mousedown
+        # and the mousemove/mousedown event handlers call update_plot().
         # This is also nice because we avoid having to deal with duplicate update_plot() calls
 
 
