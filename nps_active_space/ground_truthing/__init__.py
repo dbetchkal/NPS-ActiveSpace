@@ -118,7 +118,6 @@ class _App(tk.Tk):
         self._frame = None
 
         self.switch_frame(_WelcomeFrame)
-        self.switch_frame(_GroundTruthingFrame)
 
     def run(self):
         """Run the main application frame."""
@@ -948,10 +947,13 @@ class _GroundTruthingFrame(_AppFrame):
 
         # destroy old figure widget, to avoid incorrect background saving for blitting,
         # and probably also avoids app slowing down over time
+        figsize = [9, 5]
         if self.fig_widget is not None:
+            figsize[0] = self.fig_widget.winfo_width() / 100
+            figsize[1] = self.fig_widget.winfo_height() / 100
             self.fig_widget.destroy()
 
-        fig = plt.figure(figsize=(9, 5), constrained_layout=True)
+        fig = plt.figure(figsize=figsize, layout="constrained", dpi=100)
         fig.canvas.manager.set_window_title(f"Microphone: {self.master.mic.name}, Track Id: {self.track_id}")
         canvas = FigureCanvasTkAgg(fig, master=self)
 
