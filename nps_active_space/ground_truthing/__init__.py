@@ -6,6 +6,8 @@ from tkinter import filedialog, messagebox
 from typing import Any, List, Optional, Type, TYPE_CHECKING
 from functools import partial
 
+from time import sleep
+
 import contextily as cx
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -26,8 +28,6 @@ from nps_active_space.utils import Annotations, audible_time_delay, interpolate_
 
 if TYPE_CHECKING:
     from nps_active_space.utils import Microphone, Nvspl, Tracks
-
-# mplstyle.use("fast")
 
 _app = None
 
@@ -191,7 +191,7 @@ class _App(tk.Tk):
                 default='no'
             )
         if result == 'yes':
-            plt.close('all')
+            plt.close("all")
             self.destroy()
 
     def _save(self):
@@ -547,7 +547,7 @@ class _GroundTruthingFrame(_AppFrame):
 
         # Set frame variables to starting values.
         self.data = list(self.master.tracks.groupby(by='track_id'))
-        self.i = -1  # will be incremented by 1 to start at 0, and go up
+        self.i = 0
 
         self.dem_x, self.dem_y, self.dem_z = self.process_dem(self.master.tracks.crs)
 
@@ -637,6 +637,8 @@ class _GroundTruthingFrame(_AppFrame):
             command=self._next_identifier
         )
 
+        self.fig_widget = None
+
         # Place widgets.
         self.grid_columnconfigure(0, weight=5)
         self.grid_columnconfigure(1, weight=1)
@@ -659,7 +661,7 @@ class _GroundTruthingFrame(_AppFrame):
         self.next_unannotated_button.grid(row=4, column=1, padx=10, pady=5)
         self.next_identifier_button.grid(row=5, column=1, padx=10, pady=5)
 
-        self._next()
+        self._load_index(0)
     
     
     def process_dem(self, crs):
@@ -687,6 +689,7 @@ class _GroundTruthingFrame(_AppFrame):
     def _load_index(self, i):
         """Move to the track with index `i`."""
 
+        # set index
         self.i = i
 
         # load points
@@ -935,7 +938,6 @@ class _GroundTruthingFrame(_AppFrame):
 
         gdf = gpd.GeoDataFrame(segments, geometry='geometry', crs=points.crs)
         self.master.set_annotation(track_id, gdf)
-        plt.close("all")
         self._next()
 
     def _build_plot(self):
@@ -944,8 +946,14 @@ class _GroundTruthingFrame(_AppFrame):
         """
         # ************************************ Build Plot ************************************#
 
+        # destroy old figure widget, to avoid incorrect background saving for blitting,
+        # and probably also avoids app slowing down over time
+        if self.fig_widget is not None:
+            self.fig_widget.destroy()
+
         fig = plt.figure(figsize=(9, 5), constrained_layout=True)
         fig.canvas.manager.set_window_title(f"Microphone: {self.master.mic.name}, Track Id: {self.track_id}")
+        canvas = FigureCanvasTkAgg(fig, master=self)
 
         height_ratios = [12, 6, 1] + [1 for _ in range(len(self.audible_ranges))] + [1]
         grid = GridSpec(ncols=2, nrows=4+len(self.audible_ranges), figure=fig,
@@ -961,10 +969,13 @@ class _GroundTruthingFrame(_AppFrame):
             rm_range_button_axes.append(fig.add_subplot(grid[3+i, 1]))
         new_range_ax = fig.add_subplot(grid[grid.nrows-1, 0])
 
-        # make some axes member variables too so that on_mouse_move() can see them
+        # assign member variables so event handlers and AudibleRangeUI can see these
         self.fig = fig
+        self.canvas = canvas
+        self.bg = None
         self.slider_axes = slider_axes
         self.spectro_ax = spectro_ax
+        self.map_ax = map_ax
 
         # --------------------------------- Plot Track --------------------------------- #
 
@@ -1018,7 +1029,8 @@ class _GroundTruthingFrame(_AppFrame):
             marker="o",
             markerfacecolor="none",
             markeredgecolor="black",
-            zorder=3
+            zorder=3,
+            animated=True  # don't show until explicitly told to, for use with blitting
         )[0]
         self.map_mousehover_point.set_visible(False)
 
@@ -1087,13 +1099,14 @@ class _GroundTruthingFrame(_AppFrame):
         # --------------------------------- UI for Selecting Audible Ranges --------------------------------- #
 
         # note - we need to save references to the AudibleRangeUI objects, so the garbage collector doesn't trash them
+        # and also - so we can update them in self.update_plot()
         self.audible_range_uis = []
         self.rm_range_buttons = []  # same for storing these references
 
-        for i, r in enumerate(self.audible_ranges):
+        for i in range(len(self.audible_ranges)):
 
             label = f"Audible Extent {i + 1}"
-            ui = AudibleRangeUI(label, r, fig, map_ax, spectro_ax, slider_axes[i], self.spline, self.x_lims)
+            ui = AudibleRangeUI(self, i, label)
             self.audible_range_uis.append(ui)
 
             rm_button = Button(rm_range_button_axes[i], "Remove")
@@ -1116,32 +1129,39 @@ class _GroundTruthingFrame(_AppFrame):
         self.progress_label.config(text=f"{self.i+1}/{self.master.tracks.track_id.nunique()}")
         self.submit_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, self.audible_ranges), state=tk.NORMAL)
         self.unknown_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, valid=False), state=tk.NORMAL)
-        fig.canvas.mpl_connect("motion_notify_event", self.on_mouse_move)
+        self.cid_mousemove = canvas.mpl_connect("motion_notify_event", self.on_mouse_move)
+        self.cid_draw = canvas.mpl_connect("draw_event", self.on_draw)
 
         # --------------------------------- Show Plot --------------------------------- #
 
-        canvas = FigureCanvasTkAgg(fig, master=self)
-        canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew', rowspan=100)  # large rowspan so we don't have to update it if adding new rows
+        self.fig_widget = canvas.get_tk_widget()
+        self.fig_widget.grid(row=0, column=0, sticky='nsew', rowspan=100)  # large rowspan so we don't have to update it if adding new rows
 
+        # need to manually call canvas.draw() so that the correct background layout gets saved by self.on_draw()
+        canvas.draw()
+
+    def on_draw(self, event = None):
+        self.bg = self.canvas.copy_from_bbox(self.fig.bbox)
+        self.update_plot()
     
-    def new_audible_range(self, _):
-        """
-        Add a new audible range. Since we can't change the layout of axes after making them,
-        we need to clear the current plot and remake it, taking into account the new audible range.
-        """
-        plt.close("all")
-        self.audible_ranges.append([
-            num2date(self.lower_limit_start),
-            num2date(self.upper_limit_start)
-        ])
-        self._build_plot()
-    
-    def remove_audible_range(self, i, _):
-        """Remove a certain audible range. See new_audible_range() for why we have to replot the figure."""
-        plt.close("all")
-        del self.audible_ranges[i]
-        self._build_plot()
-    
+    def update_plot(self):
+        if self.bg is None:
+            return
+        self.canvas.restore_region(self.bg)
+
+        # mouse hover track point
+        self.map_ax.draw_artist(self.map_mousehover_point)
+
+        # audible range UIs
+        for ui in self.audible_range_uis:
+            self.map_ax.draw_artist(ui.highlight)
+            self.spectro_ax.draw_artist(ui.lower_limit_line)
+            self.spectro_ax.draw_artist(ui.upper_limit_line)
+            ui.slider.draw()
+        
+        self.canvas.blit(self.fig.bbox)
+        self.canvas.flush_events()
+  
     def on_mouse_move(self, event):
         if event.inaxes == self.spectro_ax or event.inaxes in self.slider_axes:
             dt = num2date(event.xdata).replace(tzinfo=None)
@@ -1157,61 +1177,85 @@ class _GroundTruthingFrame(_AppFrame):
             if abs(closest_pt["time_audible"] - dt) > self.typical_t_diff:
                 self.map_mousehover_point.set_visible(False)
             else:
+                
                 self.map_mousehover_point.set_data(
                     [closest_pt.geometry.x], [closest_pt.geometry.y])
                 self.map_mousehover_point.set_visible(True)
 
-            self.fig.canvas.draw_idle()
+            self.update_plot()
             
+
+    def new_audible_range(self, _):
+        """
+        Add a new audible range. Since we can't change the layout of axes after making them,
+        we need to clear the current plot and remake it, taking into account the new audible range.
+        """
+        self.audible_ranges.append([
+            num2date(self.lower_limit_start),
+            num2date(self.upper_limit_start)
+        ])
+        self._build_plot()
     
+    def remove_audible_range(self, i, _):
+        """Remove a certain audible range. See new_audible_range() for why we have to replot the figure."""
+        del self.audible_ranges[i]
+        self._build_plot()
+  
 
 class AudibleRangeUI():
     """Class to manage the various UI components of an audible range"""
-    def __init__(self, label, range_bounds, fig, map_ax, spectro_ax, slider_ax, spline, x_lims):
-        self.range_bounds = range_bounds  # where we store the range limits, part of the _GroundTruthingFrame.audible_ranges list
-        self.fig = fig
-        self.map_ax = map_ax
-        self.spectro_ax = spectro_ax
-        self.slider_ax = slider_ax
-        self.spline = spline
-        self.x_lims = x_lims
+    def __init__(self, gt_frame, i, label):
+        self.range_bounds = gt_frame.audible_ranges[i]  # where we store the range limits, part of the _GroundTruthingFrame.audible_ranges list
+        self.slider_ax = gt_frame.slider_axes[i]
+        self.gt_frame = gt_frame
+        # aliases for easier code
+        self.spline = self.gt_frame.spline
+        self.bg = self.gt_frame.bg
+        self.map_ax = self.gt_frame.map_ax
+        self.spectro_ax = self.gt_frame.spectro_ax
+        self.fig = self.gt_frame.fig
+        self.canvas = self.gt_frame.canvas
 
-        low_init = date2num(range_bounds[0])
-        high_init = date2num(range_bounds[1])
+        low_init = date2num(self.range_bounds[0])
+        high_init = date2num(self.range_bounds[1])
 
-        self.highlight = map_ax.plot(
-            spline.geometry.x,
-            spline.geometry.y,
+        self.highlight = gt_frame.map_ax.plot(
+            gt_frame.spline.geometry.x,
+            gt_frame.spline.geometry.y,
             lw=8,
             color='deepskyblue',
             ls='-',
             zorder=1,
-            alpha=0.4
+            alpha=0.4,
+            animated=True
         )[0]
-        self.lower_limit_line = spectro_ax.axvline(
+        self.lower_limit_line = gt_frame.spectro_ax.axvline(
             low_init,
             ls="--",
             alpha=0.7,
             color="white",
             zorder=2,
             linewidth=1,
+            animated=True
         )
-        self.upper_limit_line = spectro_ax.axvline(
+        self.upper_limit_line = gt_frame.spectro_ax.axvline(
             high_init,
             ls="--",
             alpha=0.7,
             color="white",
             zorder=2,
-            linewidth=1
+            linewidth=1,
+            animated=True
         )
 
-        self.slider = RangeSlider(
-            slider_ax,
+        self.slider = FastRangeSlider(
+            self.slider_ax,
             label=label,
-            valmin=x_lims[0],
-            valmax=x_lims[-1],
+            valmin=gt_frame.x_lims[0],
+            valmax=gt_frame.x_lims[-1],
             valinit=[low_init, high_init]
         )
+        self.slider.drawon = False  # don't call draw_idle() automatically, I want to handle UI updates manually using blitting
         self.slider.valtext.set_visible(False)  # Turn off range slider value label.
         self.slider.on_changed(self._slider_update)
         self._slider_update([low_init, high_init])
@@ -1225,6 +1269,9 @@ class AudibleRangeUI():
         val : List
             A two item list with the [min, max] values of the range slider.
         """
+        if self.bg is not None:
+            self.canvas.restore_region(self.bg)
+            
         lower_t, upper_t = val
 
         # update bounds - this gets propagated to _GroundTruthingFrame.audible_ranges, because self.range bounds list is inside that list
@@ -1238,11 +1285,16 @@ class AudibleRangeUI():
         # Highlight the section of the track that falls within the date window
         # NOTE: .replace(tzinfo) is required to prevent errors from comparing tz-naive again tz-aware datetimes
         subset_mask = np.all([
-            self.spline.time_audible >= num2date(lower_t).replace(tzinfo=None),
-            self.spline.time_audible <= num2date(upper_t).replace(tzinfo=None)
+            self.gt_frame.spline.time_audible >= num2date(lower_t).replace(tzinfo=None),
+            self.gt_frame.spline.time_audible <= num2date(upper_t).replace(tzinfo=None)
         ], axis=0)
-        subset = self.spline.loc[subset_mask]
+        subset = self.gt_frame.spline.loc[subset_mask]
         self.highlight.set_data(subset.geometry.x, subset.geometry.y)
+        
+        # No need to call update_plot() here, any updates will be paired with a mousemove
+        # and the mousemove event handler calls update_plot().
+        # This is also nice because we avoid having to deal with duplicate update_plot() calls
+
 
 
 def _collapse_audible_ranges(ranges: list):
@@ -1279,3 +1331,26 @@ def _collapse_audible_ranges(ranges: list):
                 intervals.append([start_time, t["t"]])
 
     return intervals
+
+
+
+class FastRangeSlider(RangeSlider):
+    """
+    Subclass of RangeSlider for compatibility with blitting.
+    RangeSlider is a widget, not an Artist, so it doesn't have a draw method.
+    This causes issues when we want to use ax.draw_artist() for blitting compatibility.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Set all changing UI components to be animated, so they don't render by default.
+        # This allows us to capture the background without these UI components already there.
+        self.poly.set_animated(True)
+        for h in self._handles:
+            h.set_animated(True)
+
+    def draw(self):
+        # call draw_artist() on each changing UI component individually
+        self.ax.draw_artist(self.poly)
+        for h in self._handles:
+            self.ax.draw_artist(h)
