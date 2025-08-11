@@ -117,12 +117,11 @@ class _App(tk.Tk):
         self._saved = True
         self._frame = None
 
+        # Handle window closing
+        self.protocol("WM_DELETE_WINDOW", self._close)
+
         self.switch_frame(_WelcomeFrame)
 
-    def run(self):
-        """Run the main application frame."""
-        self.protocol("WM_DELETE_WINDOW", self._close)
-        self.switch_frame(_GroundTruthingFrame)
 
     def switch_frame(self, frame_class: Type[_AppFrame]):
         """
@@ -489,7 +488,7 @@ class _InstructionsFrame(_AppFrame):
             font=('Avenir', 8),
             width=20,
             bg='ivory2',
-            command=lambda: self.master.run()
+            command=lambda: self.switch_frame(_GroundTruthingFrame)
         )
         back_button = tk.Button(
             self,
