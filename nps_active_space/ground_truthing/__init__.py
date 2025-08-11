@@ -118,6 +118,7 @@ class _App(tk.Tk):
         self._frame = None
 
         self.switch_frame(_WelcomeFrame)
+        self.switch_frame(_GroundTruthingFrame)
 
     def run(self):
         """Run the main application frame."""
@@ -626,26 +627,37 @@ class _GroundTruthingFrame(_AppFrame):
             font=('Avenir', 12),
             command=self._next_unannotated
         )
+        self.next_identifier_button = tk.Button(
+            self,
+            text='Next Identifier >',
+            bg='ivory2',
+            fg='black',
+            width=15,
+            font=('Avenir', 12),
+            command=self._next_identifier
+        )
 
         # Place widgets.
         self.grid_columnconfigure(0, weight=5)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(2, weight=2)
         self.grid_rowconfigure(3, weight=2)
         self.grid_rowconfigure(4, weight=1)
+        self.grid_rowconfigure(5, weight=1)
+        self.progress_label.grid(row=0, column=1, sticky='ne', padx=10, pady=5)
         self.track_label.grid(row=0, column=1, pady=10)
         self.time_label.grid(row=1, column=1, pady=10)
         self.submit_button.grid(row=2, column=1, sticky='n')
         self.unknown_button.grid(row=2, column=1, sticky='s')
-        self.progress_label.grid(row=0, column=1, sticky='ne', padx=10, pady=5)
-
+        
         self.nav_buttons.grid(row=3, column=1)
         self.back_button.pack(side=tk.LEFT, padx=10)
         self.next_button.pack(side=tk.LEFT, padx=10)
 
         self.next_unannotated_button.grid(row=4, column=1, padx=10, pady=5)
+        self.next_identifier_button.grid(row=5, column=1, padx=10, pady=5)
 
         self._next()
     
@@ -796,11 +808,23 @@ class _GroundTruthingFrame(_AppFrame):
             self._load_index(self.i - 1)
 
     def _next_unannotated(self):
-        # iterate self.i until we find a track that hasn't been annotated
+        """iterate self.i until we find a track that hasn't been annotated"""
         while (self.i+1 < len(self.data)):
             self.i += 1
             track_id = self.data[self.i][0]
             if str(track_id) not in self.master.annotations._id.values:
+                self._load_index(self.i)
+                return
+        # if all are annotated, we're done!
+        self.master.switch_frame(_CompletionFrame)
+
+    def _next_identifier(self):
+        """iterate self.i until we find a different vehicle identifier"""
+        current_id = self.track_id.split("_")[0]
+        while (self.i+1 < len(self.data)):
+            self.i += 1
+            track_id = self.data[self.i][0]
+            if str(track_id).split("_")[0] != current_id:
                 self._load_index(self.i)
                 return
         # if all are annotated, we're done!
