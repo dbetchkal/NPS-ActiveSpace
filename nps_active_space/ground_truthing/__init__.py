@@ -9,6 +9,7 @@ from functools import partial
 import contextily as cx
 import geopandas as gpd
 import matplotlib.pyplot as plt
+import matplotlib.style as mplstyle
 import numpy as np
 import pandas as pd
 from matplotlib.dates import date2num, DateFormatter, num2date
@@ -26,6 +27,7 @@ from nps_active_space.utils import Annotations, audible_time_delay, interpolate_
 if TYPE_CHECKING:
     from nps_active_space.utils import Microphone, Nvspl, Tracks
 
+# mplstyle.use("fast")
 
 _app = None
 
@@ -116,7 +118,6 @@ class _App(tk.Tk):
         self._frame = None
 
         self.switch_frame(_WelcomeFrame)
-        self.switch_frame(_GroundTruthingFrame)
 
     def run(self):
         """Run the main application frame."""
