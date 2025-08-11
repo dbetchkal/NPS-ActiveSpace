@@ -488,7 +488,7 @@ class _InstructionsFrame(_AppFrame):
             font=('Avenir', 8),
             width=20,
             bg='ivory2',
-            command=lambda: self.switch_frame(_GroundTruthingFrame)
+            command=lambda: self.master.switch_frame(_GroundTruthingFrame)
         )
         back_button = tk.Button(
             self,
