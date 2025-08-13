@@ -29,6 +29,7 @@ __all__ = [
     'get_deployment',
     'query_tracks',
     'query_adsb',
+    'load_annotations',
     'get_logger',
     'get_omni_sources',
     'estimate_line_count'
