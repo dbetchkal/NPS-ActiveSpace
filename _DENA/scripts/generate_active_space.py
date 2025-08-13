@@ -29,7 +29,8 @@ import iyore
 import _DENA.resource.config as cfg
 from _DENA import DENA_DIR
 from _DENA.resource.helpers import get_deployment, get_logger, get_omni_sources
-from nps_active_space.utils import Annotations, compute_fbeta, Nvspl
+from nps_active_space.utils import Annotations, Nvspl
+from nps_active_space.utils.computation import select_optimal
 from nps_active_space.active_space import ActiveSpaceGenerator
 
 if TYPE_CHECKING:
@@ -216,32 +217,13 @@ if __name__ == '__main__':
 
     for beta_ in args.beta:
 
-        # Calculate precision, recall, and fbeta score to determine the most accurate active space.
-        precisions = []
-        recalls = []
-        max_fbeta = 0
-        best_omni = None
-        best_recall = None
-        best_precision = None
-        for omni, res in results:
-            fbeta, precision, recall, n_tot = compute_fbeta(valid_points, res, beta_)
-            precisions.append(precision)
-            recalls.append(recall)
-            print(f"omni: {omni} --> F-{beta_}: {fbeta:0.3f} precision: {precision:0.3f} recall: {recall:0.3f}")
-            if fbeta > max_fbeta:
-                max_fbeta = fbeta
-                best_omni = omni
-                best_recall = recall
-                best_precision = precision
-        logger.info(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta})")
+        best_omni, max_fbeta, best_precision, best_recall, detection_results = select_optimal(unit=args.unit,
+                                                                                              site=args.site,
+                                                                                              year=args.year,
+                                                                                              valid_points=valid_points,
+                                                                                              active_space_polygons=results,
+                                                                                              beta_=beta_,
+                                                                                              plot=True,
+                                                                                              project_dir=project_dir)
 
-        # Create Precision-Recall Plot.
-        fig, ax = plt.subplots()
-        ax.plot(recalls, precisions, ls="-", lw=0.2, marker="o", ms=2, color="k")
-        ax.plot(best_recall, best_precision, ls="", marker="o", ms=5, color="None", markeredgecolor="limegreen")
-        ax.set_title(f'Precision-Recall Curve, {beta_:.1f}', loc="left")
-        ax.set_ylabel('Precision')
-        ax.set_xlabel('Recall')
-        plt.savefig(f'{project_dir}/PrecisionRecallPlot_{args.unit}{args.site}{args.year}_{str(beta_).replace(".","p")}.png')
-        plt.show()
-        plt.close()
+        logger.info(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta})")

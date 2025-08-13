@@ -3,7 +3,9 @@ import math
 from typing import Iterable, List, Optional, Tuple, TYPE_CHECKING
 
 import geopandas as gpd
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import rasterio
 from osgeo import gdal
 from scipy import interpolate
@@ -564,7 +566,7 @@ def calculate_duration_summary(noise_intervals):
 
     return duration_summary
 
-def select_optimal(unit: str, site: str, year: int, valid_points, active_space_polygons: list, beta_=1.0, plot=True):
+def select_optimal(unit: str, site: str, year: int, valid_points, active_space_polygons: list, beta_=1.0, plot=True, project_dir=None):
     """
     From a ground-truthed causal dataset and a set of active space polygons, 
     select the optimal geospatial prediction of observed audibility.
@@ -579,8 +581,11 @@ def select_optimal(unit: str, site: str, year: int, valid_points, active_space_p
         Deployment year. YYYY
     valid_points : gpd.GeoDataFrame
         Annotated points. Must include geometry and an 'audible' column.
-    active_space_polygon : list of gpd.GeoDataFrame objects
-        A list of Polygon or Multipolygons representing a set of active space predictions (typically computed over a range of gains).
+    active_space_polygons : list of gpd.GeoDataFrame objects
+        A list of 2-tuples. The first value in each tuple is a gain string (ex. "O_+055" or "O_-125").
+        The second value is a single-row `gpd.GeoDataFrame` of Polygons/Multipolygons representing an active space prediction.
+        The entire list usually represents the geometries computed over a range of gains.
+
     beta_ : float, default 1.0
         Beta value to use when calculating F-Beta
 
@@ -613,7 +618,7 @@ def select_optimal(unit: str, site: str, year: int, valid_points, active_space_p
     best_omni = None
     best_recall = None
     best_precision = None
-    for omni, res in results:
+    for omni, res in active_space_polygons:
 
         # it is convenient to store the gain in a simple, numeric representation
         numeric_gain = sign[omni[-4:-3]]*int(omni[-3:])/10
@@ -637,7 +642,7 @@ def select_optimal(unit: str, site: str, year: int, valid_points, active_space_p
 
         detection_results.sort_values("gain", ascending=True, inplace=True) # it makes sense to plot (and return) the object sorted by gain
         
-    if(plot): 
+    if((plot)&(project_dir is not None)): 
         # create Precision-Recall Plot.
         fig, ax = plt.subplots()
         ax.plot(detection_results["Recall"], detection_results["Precision"], ls="-", lw=0.2, marker="o", ms=2, color="k")
