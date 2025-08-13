@@ -28,7 +28,7 @@ import iyore
 
 import _DENA.resource.config as cfg
 from _DENA import DENA_DIR
-from _DENA.resource.helpers import get_deployment, get_logger, get_omni_sources
+from _DENA.resource.helpers import get_deployment, get_logger, get_omni_sources, load_annotations
 from nps_active_space.utils import Annotations, Nvspl
 from nps_active_space.utils.computation import select_optimal
 from nps_active_space.active_space import ActiveSpaceGenerator
@@ -134,16 +134,10 @@ if __name__ == '__main__':
 
     # Verify that annotation files exist for the unit/site location. If they do exist, load them into memory.
     logger.info("Locating unit/site annotations...")
-    annotation_files = glob.glob(f"{project_dir}/{args.unit}{args.site}{args.year}*saved_annotations*.geojson")
-    print("Found these annotation files:")
-    print(list(map(lambda f: os.path.basename(f), annotation_files)))
-    if len(annotation_files) == 0:
+    annotations = load_annotations(cfg.read("project", "dir"), args.unit, args.site, args.year)
+    if annotations.empty:
         logger.info(f"No track annotations found for {args.unit}{args.site}{args.year}. Exiting...")
         exit(-1)
-    annotations = []
-    for file in tqdm(annotation_files, desc='Loading annotation files', unit='files', colour='white'):
-        annotations.append(Annotations(file, only_valid=True))
-    annotations = pd.concat(annotations)
 
     # If the user does not pass an altitude, calculate the average altitude of all valid tracks. Extract the altitudes
     #  from each linestring to get the average height (in meters) of audible flight segments.

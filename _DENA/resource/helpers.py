@@ -14,7 +14,7 @@ import rasterio
 from pyproj import Transformer
 
 from nps_active_space import ACTIVE_SPACE_DIR
-from nps_active_space.utils import Adsb, EarlyAdsb, Microphone
+from nps_active_space.utils import Adsb, EarlyAdsb, Microphone, Annotations
 from nps_active_space.utils.computation import NMSIM_bbox_utm
 
 if TYPE_CHECKING:
@@ -315,6 +315,37 @@ def query_adsb(adsb_path: str,  start_date: str, end_date: str,
     adsb = adsb.loc[(adsb["TIME"] > start_date) & (adsb["TIME"] < end_date)]
     adsb = adsb.loc[~(adsb.geometry.is_empty)]
     return adsb
+
+
+def load_annotations(project_dir: str, unit: str, site: str, year: str):
+    """Utility for locating and loading ground-truthing annotation files in a directory.
+    If multiple files exist, they are combined into one GeoDataFrame.
+
+    Parameters
+    ----------
+    project_dir: str
+        Path to the project directory (contains site subfolders named e.g. DENATRLA/)
+    unit : str
+        Four letter park service unit code E.g. 'DENA'
+    site : str
+        Deployment site character code. E.g. 'TRLA', '009'
+    year : int
+        Deployment year. YYYY
+    
+    Returns
+    -------
+    annotations: Annotations
+        An Annotations object containing the loaded annotations.
+    """
+    # Verify that annotation files exist for the unit/site location. If they do exist, load them into memory.
+    annotation_files = glob.glob(f"{project_dir}/{unit}{site}/{unit}{site}{year}*saved_annotations*.geojson")
+    print("Found these annotation files:", list(map(lambda f: os.path.basename(f), annotation_files)))
+    if len(annotation_files) == 0:
+        return gpd.GeoDataFrame()
+    annotations = []
+    for file in tqdm(annotation_files, desc='Loading annotation files', unit='files', colour='white'):
+        annotations.append(Annotations(file, only_valid=True))
+    return pd.concat(annotations, ignore_index=True)
 
 
 class _TqdmStream:
