@@ -357,11 +357,16 @@ def get_logger(name: str, verbose: bool = False, logfile: str = None, make_log_b
         If verbose is False, only high-level messages will be printed to the console; everything is still saved to a log file.
     logfile: str, default None
         Path to a file to save the log in. If None, the log will not be saved to a file.
+    make_log_buffer: bool, default False
+        If True, save a full copy of the log in memory, that can later be saved to a file
 
     Returns
     -------
     logger : logging.Logger
         A python logger object
+    
+    If make_log_buffer is True:
+    Tuple of (logger , log_buffer). You can call log_buffer.save(filename) to save the buffered log to a file.
     """
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)  # let the handlers do the filtering
