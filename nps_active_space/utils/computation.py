@@ -566,7 +566,7 @@ def calculate_duration_summary(noise_intervals):
 
     return duration_summary
 
-def select_optimal(unit: str, site: str, year: int, valid_points, active_space_polygons: list, beta_=1.0, plot=True, project_dir=None):
+def select_optimal(unit: str, site: str, year: int, valid_points, active_space_polygons: list, beta_=1.0, verbose=True, plot=True, project_dir=None):
     """
     From a ground-truthed causal dataset and a set of active space polygons, 
     select the optimal geospatial prediction of observed audibility.
@@ -585,7 +585,12 @@ def select_optimal(unit: str, site: str, year: int, valid_points, active_space_p
         A list of 2-tuples. The first value in each tuple is a gain string (ex. "O_+055" or "O_-125").
         The second value is a single-row `gpd.GeoDataFrame` of Polygons/Multipolygons representing an active space prediction.
         The entire list usually represents the geometries computed over a range of gains.
-
+    verbose : bool, default True
+        If True, print out F-score, precision, and recall for each gain.
+    plot : bool, default True
+        If True, plot the precision recall curve.
+    project_dir : str
+        Path to the directory for this site. If provided, the precision recall curve will be saved in this directory. Requires plot=True to work.
     beta_ : float, default 1.0
         Beta value to use when calculating F-Beta
 
@@ -632,7 +637,8 @@ def select_optimal(unit: str, site: str, year: int, valid_points, active_space_p
         detection_results.loc[omni, "Precision"] = precision
         detection_results.loc[omni, "gain"] = numeric_gain
 
-        print(f"omni: {omni} --> F-{beta_}: {fbeta:0.3f} precision: {precision:0.3f} recall: {recall:0.3f}")
+        if verbose:
+            print(f"omni: {omni} --> F-{beta_}: {fbeta:0.3f} precision: {precision:0.3f} recall: {recall:0.3f}")
         
         if fbeta > max_fbeta:
             max_fbeta = fbeta
@@ -641,8 +647,8 @@ def select_optimal(unit: str, site: str, year: int, valid_points, active_space_p
             best_precision = precision
 
         detection_results.sort_values("gain", ascending=True, inplace=True) # it makes sense to plot (and return) the object sorted by gain
-        
-    if((plot)&(project_dir is not None)): 
+    
+    if plot:
         # create Precision-Recall Plot.
         fig, ax = plt.subplots()
         ax.plot(detection_results["Recall"], detection_results["Precision"], ls="-", lw=0.2, marker="o", ms=2, color="k")
@@ -650,9 +656,11 @@ def select_optimal(unit: str, site: str, year: int, valid_points, active_space_p
         ax.set_title(f'Precision-Recall Curve, {beta_:.1f}', loc="left")
         ax.set_ylabel('Precision')
         ax.set_xlabel('Recall')
-        plt.savefig(f'{project_dir}/PrecisionRecallPlot_{unit}{site}{year}_{str(beta_).replace(".","p")}.png')
-        plt.show()
-        plt.close()
+
+        if project_dir is None:
+            plt.show()
+        else:
+            plt.savefig(f'{project_dir}/PrecisionRecallPlot_{unit}{site}{year}_{str(beta_).replace(".","p")}.png')
 
     print(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta:0.3f})")
     return best_omni, max_fbeta, best_precision, best_recall, detection_results
