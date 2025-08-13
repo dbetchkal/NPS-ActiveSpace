@@ -563,3 +563,91 @@ def calculate_duration_summary(noise_intervals):
     duration_summary = (duration_list, mean, stdev, median, mad)
 
     return duration_summary
+
+def select_optimal(unit: str, site: str, year: int, valid_points, active_space_polygons: list, beta_=1.0, plot=True):
+    """
+    From a ground-truthed causal dataset and a set of active space polygons, 
+    select the optimal geospatial prediction of observed audibility.
+
+    Parameters
+    ------
+    unit : str
+        Four letter park service unit code E.g. 'DENA'
+    site : str
+        Deployment site character code. E.g. 'TRLA', '009'
+    year : int
+        Deployment year. YYYY
+    valid_points : gpd.GeoDataFrame
+        Annotated points. Must include geometry and an 'audible' column.
+    active_space_polygon : list of gpd.GeoDataFrame objects
+        A list of Polygon or Multipolygons representing a set of active space predictions (typically computed over a range of gains).
+    beta_ : float, default 1.0
+        Beta value to use when calculating F-Beta
+
+    Returns
+    -------
+    best_omni : float
+        The optimal gain, corresponding to a maximum F-Beta
+    max_fbeta : float
+        The maximum F-Beta score at the optimal gain
+    best_precision: float
+        The precision component of the maximum F-Beta score at the optimal gain
+    best_recall: float
+        The recall component of the maximum F-Beta score at the optimal gain
+    detection_results: pd.DataFrame
+        A table of the F-Beta, precision, and recall values indexed by gain. The `.name` attribute contains deployment and F-Beta information.
+    """
+
+    # map symbolic sign onto a numeric equivalent
+    sign = {"+":1, "-":-1}
+
+    # intialize a table to write each test result
+    detection_results = pd.DataFrame([])
+    detection_results.name = f"{unit}{site}{year} {beta_}"
+    
+    # calculate the F-Beta score to determine the active space with optimal detection properties
+    precisions = []
+    recalls = []
+    f_betas = []
+    max_fbeta = 0
+    best_omni = None
+    best_recall = None
+    best_precision = None
+    for omni, res in results:
+
+        # it is convenient to store the gain in a simple, numeric representation
+        numeric_gain = sign[omni[-4:-3]]*int(omni[-3:])/10
+
+        # compute the f-measure for the geometry at a given Beta
+        fbeta, precision, recall, n_tot = compute_fbeta(valid_points, res, beta_)
+
+        # store the overall result and its subcomponents in a `pd.DataFrame` object
+        detection_results.loc[omni, f"F-{beta_}"] = fbeta
+        detection_results.loc[omni, "Recall"] = recall
+        detection_results.loc[omni, "Precision"] = precision
+        detection_results.loc[omni, "gain"] = numeric_gain
+
+        print(f"omni: {omni} --> F-{beta_}: {fbeta:0.3f} precision: {precision:0.3f} recall: {recall:0.3f}")
+        
+        if fbeta > max_fbeta:
+            max_fbeta = fbeta
+            best_omni = omni
+            best_recall = recall
+            best_precision = precision
+
+        detection_results.sort_values("gain", ascending=True, inplace=True) # it makes sense to plot (and return) the object sorted by gain
+        
+    if(plot): 
+        # create Precision-Recall Plot.
+        fig, ax = plt.subplots()
+        ax.plot(detection_results["Recall"], detection_results["Precision"], ls="-", lw=0.2, marker="o", ms=2, color="k")
+        ax.plot(best_recall, best_precision, ls="", marker="o", ms=5, color="None", markeredgecolor="limegreen")
+        ax.set_title(f'Precision-Recall Curve, {beta_:.1f}', loc="left")
+        ax.set_ylabel('Precision')
+        ax.set_xlabel('Recall')
+        plt.savefig(f'{project_dir}/PrecisionRecallPlot_{unit}{site}{year}_{str(beta_).replace(".","p")}.png')
+        plt.show()
+        plt.close()
+
+    print(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta:0.3f})")
+    return best_omni, max_fbeta, best_precision, best_recall, detection_results
