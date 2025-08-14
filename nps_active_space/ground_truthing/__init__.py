@@ -634,6 +634,15 @@ class _GroundTruthingFrame(_AppFrame):
             font=('Avenir', 12),
             command=self._next_identifier
         )
+        self.last_annotated_button = tk.Button(
+            self,
+            text='Last Annotated',
+            bg='ivory2',
+            fg='black',
+            width=15,
+            font=('Avenir', 12),
+            command=self._to_last_annotated
+        )
 
         self.fig_widget = None
 
@@ -646,6 +655,7 @@ class _GroundTruthingFrame(_AppFrame):
         self.grid_rowconfigure(3, weight=2)
         self.grid_rowconfigure(4, weight=1)
         self.grid_rowconfigure(5, weight=1)
+        self.grid_rowconfigure(6, weight=1)
         self.progress_label.grid(row=0, column=1, sticky='ne', padx=10, pady=5)
         self.track_label.grid(row=0, column=1, pady=10)
         self.time_label.grid(row=1, column=1, pady=10)
@@ -656,8 +666,9 @@ class _GroundTruthingFrame(_AppFrame):
         self.back_button.pack(side=tk.LEFT, padx=10)
         self.next_button.pack(side=tk.LEFT, padx=10)
 
-        self.next_unannotated_button.grid(row=4, column=1, padx=10, pady=5)
-        self.next_identifier_button.grid(row=5, column=1, padx=10, pady=5)
+        self.next_unannotated_button.grid(row=4, column=1, padx=10, pady=1)
+        self.next_identifier_button.grid(row=5, column=1, padx=10, pady=1)
+        self.last_annotated_button.grid(row=6, column=1, padx=10, pady=1)
 
         self._load_index(0)
     
@@ -830,6 +841,20 @@ class _GroundTruthingFrame(_AppFrame):
                 return
         # if all are annotated, we're done!
         self.master.switch_frame(_CompletionFrame)
+
+    def _to_last_annotated(self):
+        """Search from the end until we find an annotated record"""
+        for i in range(len(self.data)-1, -1, -1):
+            track_id = self.data[i][0]
+            if str(track_id) in self.master.annotations._id.values:
+                self._load_index(i)
+                return
+        # if didn't find it, then presumably none annotated, warn the user
+        tk.messagebox.showinfo(
+            title='Status',
+            message=f"Failed to find last annotated track. This is probably because no tracks have been annotated."
+        )
+
 
     def _store_annotation(self, track_id: Any, points: gpd.GeoDataFrame, audible_ranges: Optional[list] = [],
                            valid: bool = True, note: Optional[str] = None):
