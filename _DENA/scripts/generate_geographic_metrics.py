@@ -93,7 +93,7 @@ def tracks2events(tracks, start_date, end_date, min_dur=10):
         A DataFrame containing each noise-free interval. Looks like:
             start_time | end_time | duration
     TA : float
-        Total fraction of time audible. Ranges from 0 to 1.
+        Total % of time audible. Ranges from 0 to 100.
     """
 
     print("Combining audible transits into a binary event time series.")
@@ -146,9 +146,9 @@ def tracks2events(tracks, start_date, end_date, min_dur=10):
         i += 1
 
     # Filter out short events and rename these arrays; they now represent the start and end times of each combined event
-    short_events = exit_times_cp - entry_times_cp >= np.timedelta64(min_dur, 's')
-    event_start_times = entry_times_cp[short_events]
-    event_end_times = exit_times_cp[short_events]
+    short_events = exit_times_cp - entry_times_cp < np.timedelta64(min_dur, 's')
+    event_start_times = entry_times_cp[~short_events]
+    event_end_times = exit_times_cp[~short_events]
     if short_events.sum() > 0:
         print(f"Filtered out {short_events.sum()} events shorter than {min_dur} seconds")
     
@@ -427,7 +427,7 @@ def _split_interval_by_hour(start, end):
         start = segment_end
         
 
-def plot_events(start_times, end_times, title="Events", labels=False):
+def plot_events(start_times, end_times, title="Events", labels=False, savepath=None):
     """Plot events on a timeline that wraps around at each hour.
     
     Parameters
@@ -438,6 +438,8 @@ def plot_events(start_times, end_times, title="Events", labels=False):
         Plot title, default is "Events"
     labels: bool
         Whether to annotate the event start/end times on the plot with text. Default False
+    savepath: str, default None
+        If provided, save the figure to this path instead of showing it.
     """
     plt.figure(figsize=(8, 8))
     ax = plt.gca()
@@ -473,7 +475,11 @@ def plot_events(start_times, end_times, title="Events", labels=False):
     ax.set_title(title)
     plt.grid(True)
     plt.tight_layout()
-    plt.show()
+    if savepath is not None:
+        plt.savefig(savepath)
+        plt.close()
+    else:
+        plt.show()
 
 ## ========================================== STEREOTYPICAL TRACKS ======================================== ##
 

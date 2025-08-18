@@ -252,6 +252,8 @@ class AudibleTransits(ABC):
             self.visualize_tracks(show_DEM=True)
 
         print("")  # visual buffer
+
+        self.tracks = self.tracks.reset_index(drop=True)  # TODO figure out why we got a duplicate index that we have to reset
         return self.tracks.copy()
 
     def init_spatial_data(self, visualize=False):
