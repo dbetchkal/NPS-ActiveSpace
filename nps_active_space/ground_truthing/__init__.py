@@ -977,6 +977,10 @@ class _GroundTruthingFrame(_AppFrame):
             figsize[1] = self.fig_widget.winfo_height() / 100
             self.fig_widget.destroy()
 
+        # clear any existing figures - matplotlib stores them internally if we don't, taking up tons of memory
+        plt.close("all")
+
+        # new figure
         fig = plt.figure(figsize=figsize, layout="constrained", dpi=100)
         fig.canvas.manager.set_window_title(f"Microphone: {self.master.mic.name}, Track Id: {self.track_id}")
         canvas = FigureCanvasTkAgg(fig, master=self)
