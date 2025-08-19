@@ -427,7 +427,7 @@ def _split_interval_by_hour(start, end):
         start = segment_end
         
 
-def plot_events(start_times, end_times, title="Events", labels=False, savepath=None):
+def plot_events(start_times, end_times, title="Events", colors=None, labels=False, savepath=None):
     """Plot events on a timeline that wraps around at each hour.
     
     Parameters
@@ -436,6 +436,8 @@ def plot_events(start_times, end_times, title="Events", labels=False, savepath=N
     end_times: pd.Series, dtype=datetime
     title: str
         Plot title, default is "Events"
+    colors: array-like
+        Colors to use for each event. Note than an alpha will be applied to the color. Default None, which uses the "skyblue" color.
     labels: bool
         Whether to annotate the event start/end times on the plot with text. Default False
     savepath: str, default None
@@ -447,7 +449,10 @@ def plot_events(start_times, end_times, title="Events", labels=False, savepath=N
     earliest_hour = start_times.min().floor("h")
     latest_hour = end_times.max().ceil("h")
 
-    for start, end in zip(start_times, end_times):
+    if colors is None:
+        colors = ["skyblue" for _ in range(len(start_times))]
+
+    for start, end, color in zip(start_times, end_times, colors):
         for s, e in _split_interval_by_hour(start, end):
             x_start = (s.minute + s.second / 60)
             duration = (e - s).total_seconds() / 60
@@ -455,7 +460,7 @@ def plot_events(start_times, end_times, title="Events", labels=False, savepath=N
 
             # Plot rectangle
             ax.add_patch(patches.Rectangle((x_start, y), duration, 0.8 * 3600,
-                                      linewidth=1, edgecolor='black', facecolor='skyblue', alpha=0.5))
+                                      linewidth=1, edgecolor='black', facecolor=color, alpha=0.5))
             # Plot Text
             if labels:
                 ax.text(x_start, y,
