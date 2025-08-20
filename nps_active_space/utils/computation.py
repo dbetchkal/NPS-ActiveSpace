@@ -566,7 +566,9 @@ def calculate_duration_summary(noise_intervals):
 
     return duration_summary
 
-def select_optimal(unit: str, site: str, year: int, valid_points, active_space_polygons: list, beta_=1.0, verbose=True, plot=True, project_dir=None):
+def select_optimal(unit: str, site: str, year: int,
+                   valid_points, active_space_polygons: list, beta_=1.0,
+                   verbose=True, plot=True, plot_savepath=None):
     """
     From a ground-truthed causal dataset and a set of active space polygons, 
     select the optimal geospatial prediction of observed audibility.
@@ -589,8 +591,8 @@ def select_optimal(unit: str, site: str, year: int, valid_points, active_space_p
         If True, print out F-score, precision, and recall for each gain.
     plot : bool, default True
         If True, plot the precision recall curve.
-    project_dir : str
-        Path to the directory for this site. If provided, the precision recall curve will be saved in this directory. Requires plot=True to work.
+    plot_savepath : str
+        Filename for saving the precision recall plot. If provided, the precision recall curve will be saved instead of shown. Requires plot=True to work.
     beta_ : float, default 1.0
         Beta value to use when calculating F-Beta
 
@@ -660,7 +662,7 @@ def select_optimal(unit: str, site: str, year: int, valid_points, active_space_p
         if project_dir is None:
             plt.show()
         else:
-            plt.savefig(f'{project_dir}/PrecisionRecallPlot_{unit}{site}{year}_{str(beta_).replace(".","p")}.png')
+            plt.savefig(plot_savepath)
 
     print(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta:0.3f})")
     return best_omni, max_fbeta, best_precision, best_recall, detection_results

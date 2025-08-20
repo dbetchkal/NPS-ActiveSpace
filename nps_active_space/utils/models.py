@@ -1522,6 +1522,17 @@ class Annotations(gpd.GeoDataFrame):
     """
 
     def __init__(self, filename: Optional[str] = None, only_valid: bool = False):
+
+        # handle init being called as a side-effect by various pandas methods
+        # in that case it will pass one argument - the data to use
+        if isinstance(filename, gpd.GeoDataFrame):
+            data = filename
+            super().__init__(data=data, crs=data.crs)
+            return
+        elif isinstance(filename, pd.DataFrame):
+            data = filename
+            super().__init__(data=data)
+            return
         
         def convert_to_bool(value):
             """

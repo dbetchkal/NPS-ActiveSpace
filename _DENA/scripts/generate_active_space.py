@@ -211,6 +211,7 @@ if __name__ == '__main__':
 
     for beta_ in args.beta:
 
+        plot_savepath = f'{project_dir}/PrecisionRecallPlot_{args.unit}{args.site}{args.year}_{str(beta_).replace(".","p")}.png'
         best_omni, max_fbeta, best_precision, best_recall, detection_results = select_optimal(unit=args.unit,
                                                                                               site=args.site,
                                                                                               year=args.year,
@@ -218,6 +219,6 @@ if __name__ == '__main__':
                                                                                               active_space_polygons=results,
                                                                                               beta_=beta_,
                                                                                               plot=True,
-                                                                                              project_dir=project_dir)
+                                                                                              plot_savepath=plot_savepath)
 
         logger.info(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta})")
