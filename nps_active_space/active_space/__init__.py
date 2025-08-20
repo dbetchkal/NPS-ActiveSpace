@@ -18,8 +18,6 @@ from tqdm import tqdm
 
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.utils import (
-    ambience_from_nvspl,
-    ambience_from_raster,
     build_src_point_mesh,
     coords_to_utm,
     create_overlapping_mesh,
@@ -45,23 +43,19 @@ class ActiveSpaceGenerator:
         Absolute path to a directory where all generated files required for running NMSIM can be stored.
     dem_src : str
         Path to a DEM raster file to be used as NMSIM input.
-    ambience_src : Nvspl or str
-        an NVSPL object to calculate ambience from or the absolute file path to a raster of ambience.
-    quantile : int, default 90
-        If using Nvspl data as the ambience source, this quantile of the data will be used to calculate the ambience.
-        90 = L90 = 10th quantile
-    broadband : bool, default False
-        If True and using Nvspl data as the ambience source, quantiles will be calculated from the dBA column
-        instead of the 1/3rd octave band columns.
+    ambience : float or pd.Series[float]
+        The ambience level(s) at the microphone site.
+        If float (broadband ambience), will be compared against the predicted A-weighted broadband level of noises.
+        If pd.Series[float], should contain sound levels for the 12.5 to 12500 Hz 1/3 octave bands.
     """
     def __init__(self, NMSIM: str, study_area: gpd.GeoDataFrame, root_dir: str, dem_src: str,
-                 ambience_src: Union['Nvspl', str], quantile: int = 90, broadband: bool = False):
+                 ambience: Union[float, pd.Series]):
+
+        assert (type(ambience) == float) or isinstance(ambience, pd.Series), "Improper ambience input"
 
         self.study_area = study_area.to_crs('epsg:4269')
         self.root_dir = root_dir
-        self.broadband = broadband
-        self.quantile = quantile
-        self.ambience_src = ambience_src
+        self.ambience = ambience
         self.dem_src = dem_src
         self.NMSIM = NMSIM
 
@@ -328,8 +322,7 @@ class ActiveSpaceGenerator:
 
         return batch_file
 
-    def _find_audible_points(self, trajectory_file: str, tis_file: str, crs: str,
-                             ambience: Union[int, Iterable[int]]) -> gpd.GeoDataFrame:
+    def _find_audible_points(self, trajectory_file: str, tis_file: str, crs: str) -> gpd.GeoDataFrame:
         """
         Determine which points from a trajectory file are audible given the corresponding NMSIM tis output.
 
@@ -341,8 +334,6 @@ class ActiveSpaceGenerator:
             Absolute path to the corresponding tis file.
         crs : str
             crs of the trajectory file and of the output GeoDataFrame. In the format 'epsg:XXXX'
-        ambience : int or Iterable[int]
-            The ambience level(s) at the microphone site.
 
         Returns
         -------
@@ -365,10 +356,13 @@ class ActiveSpaceGenerator:
         tis_df.loc[:, 'A':'12500'] = tis_df.loc[:, 'A':'12500'].astype(float) * 0.1  # centibels (cB) to decibels (dB)
 
         # Check to see if any of the frequency bands are louder than the ambient levels.
-        if not self.broadband and type(self.ambience_src) == Nvspl:
-            audible_times = (tis_df.loc[:, "12.5":"12500"] > ambience["12.5":"12500"].values).sum(axis=1)
-        else:
+        if type(self.ambience) == float:
+            # broadband ambience
             audible_times = tis_df.loc[:, "A"] > ambience
+        else:
+            # spectral ambience
+            audible_times = (tis_df.loc[:, "12.5":"12500"] > self.ambience["12.5":"12500"].values).sum(axis=1)
+            
 
         # Determine which aircraft locations produce or do not produce audible sounds.
         audible_pts = (trajectory_df.loc[tis_df[audible_times > 0].index, ["Xpos", "Ypos", "Zpos"]])
@@ -435,7 +429,7 @@ class ActiveSpaceGenerator:
         return list(map(Point, xyz))
 
     def _run_nmsim(self, job_name: str, source_pts: List[Point], crs: str, flt_file: str, site_file: str,
-                   omni_source: str, ambience, heading: Optional[int] = None) -> gpd.GeoDataFrame:
+                   omni_source: str, heading: Optional[int] = None) -> gpd.GeoDataFrame:
         """
         Execute a single NMSIM job.
 
@@ -477,8 +471,7 @@ class ActiveSpaceGenerator:
         new_audibility_pts = self._find_audible_points(
             trajectory_filename,
             f"{self.root_dir}/Output_Data/TIG_TIS/{job_name}.tis",
-            crs,
-            ambience
+            crs
         )
 
         return new_audibility_pts
@@ -564,13 +557,6 @@ class ActiveSpaceGenerator:
         flt_filename = self._flt_file or self._create_dem_flt(dem_filename)
         site_filename = self._site_file or self._create_site_file(mic, flt_filename)
 
-        # NOTE: These lines were written with the assumption that using Nvspl data for ambience levels would only
-        #  really happen when not running a mesh.
-        if type(self.ambience_src) == Nvspl:
-            ambience = ambience_from_nvspl(self.ambience_src, self.quantile, self.broadband)
-        else:
-            ambience = ambience_from_raster(self.ambience_src, mic)
-
         # Run the point mesh step a maximum of two times.
         for j in range(2):
             source_pts = build_src_point_mesh(active_space, src_pt_density, altitude_m)
@@ -581,7 +567,6 @@ class ActiveSpaceGenerator:
                 flt_filename,
                 site_filename,
                 omni_source,
-                ambience,
                 heading
             )
 
@@ -615,7 +600,6 @@ class ActiveSpaceGenerator:
                 flt_filename,
                 site_filename,
                 omni_source,
-                ambience,
                 heading
             )
             tested_space = pd.concat([tested_space, new_audibility_pts], ignore_index=True)

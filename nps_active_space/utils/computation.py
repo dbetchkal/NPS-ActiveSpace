@@ -350,10 +350,13 @@ def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50, broadband: bo
     -------
     Lx
     """
+    # filter out high wind periods
+    low_wind = ambience_src.loc[ambience_src["WindSpeed"] <= 5.0, :]
+
     if broadband:
-        Lx = ambience_src.loc[:, 'dbA'].quantile(1 - (quantile / 100))
+        Lx = low_wind.loc[:, 'dbA'].quantile(1 - (quantile / 100))
     else:
-        Lx = ambience_src.loc[:, "12.5":"20000"].quantile(1 - (quantile / 100))
+        Lx = low_wind.loc[:, "12.5":"20000"].quantile(1 - (quantile / 100))
 
     return Lx
 

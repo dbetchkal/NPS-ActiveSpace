@@ -30,7 +30,7 @@ import _DENA.resource.config as cfg
 from _DENA import DENA_DIR
 from _DENA.resource.helpers import get_deployment, get_logger, get_omni_sources, load_annotations
 from nps_active_space.utils import Annotations, Nvspl
-from nps_active_space.utils.computation import select_optimal
+from nps_active_space.utils.computation import select_optimal, ambience_from_nvspl, ambience_from_raster
 from nps_active_space.active_space import ActiveSpaceGenerator
 
 if TYPE_CHECKING:
@@ -108,8 +108,8 @@ if __name__ == '__main__':
                           help="Four letter site code. E.g. TRLA")
     argparse.add_argument('-y', '--year', type=int, required=True,
                           help="Four digit year. E.g. 2018")
-    argparse.add_argument('-a', '--ambience', default='nvspl', choices=['nvspl', 'mennitt'],
-                          help="What type of ambience to use in NMSIM calculations. Choose from ['nvspl', 'mennitt']")
+    argparse.add_argument('-a', '--ambience', default='nvspl',
+                          help="What type of ambience to use in NMSIM calculations. Choose from ['nvspl', 'mennitt', or a path to an ambience .pkl file]")
     argparse.add_argument('--headings', nargs='+', type=int, default=[0, 120, 240],
                           help="Headings of active spaces to dissolve. Accepts one or more values.")
     argparse.add_argument('--omni-min', type=float, default=-20,
@@ -123,6 +123,11 @@ if __name__ == '__main__':
     argparse.add_argument('--cleanup', action='store_true',
                           help="Remove intermediary control and batch files.")
     args = argparse.parse_args()
+
+    ambience_valid = (args.ambience == "nvspl") or (args.ambience == "mennitt") or (args.ambience.endswith(".pkl") and os.path.exists(args.ambience))
+    assert ambience_valid, "Ambience argument must be 'nvspl', 'mennitt', or a .pkl file"
+
+    # --------------- INIT --------------- #
 
     cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
     project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
@@ -165,13 +170,20 @@ if __name__ == '__main__':
     mic_ = get_deployment(cfg.read('project', 'dir'), args.unit, args.site, args.year, elevation=False)
     study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])
 
+    # Compute ambience
     # Load NVSPL data or the mennitt raster depending on the user input.
     if args.ambience == 'nvspl':
         archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
         nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year))]
-        ambience = Nvspl(nvspl_files)
+        nvspl = Nvspl(nvspl_files)
+        ambience_quantile = 90  # L90 = 90% exceedance = 10% quantile sound level
+        ambience = ambience_from_nvspl(nvspl, ambience_quantile, broadband=False)
+    elif args.ambience == 'mennitt':
+        ambience = ambience_from_raster(cfg.read('data', 'mennitt'), mic_)
     else:
-        ambience = cfg.read('data', 'mennitt')
+        # should be a .pkl filename
+        ambience = pd.read_pickle(args.ambience)
+
 
     # --------------- ACTIVE SPACE GENERATION --------------- #
 
@@ -181,7 +193,7 @@ if __name__ == '__main__':
         NMSIM=cfg.read('project', 'nmsim'),
         root_dir=project_dir,
         study_area=study_area,
-        ambience_src=ambience,
+        ambience=ambience,
         dem_src=cfg.read('data', 'dem'),
     )
     logger.info('Setting dem...')
