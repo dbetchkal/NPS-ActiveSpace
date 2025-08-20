@@ -659,7 +659,7 @@ def select_optimal(unit: str, site: str, year: int,
         ax.set_ylabel('Precision')
         ax.set_xlabel('Recall')
 
-        if project_dir is None:
+        if plot_savepath is None:
             plt.show()
         else:
             plt.savefig(plot_savepath)
