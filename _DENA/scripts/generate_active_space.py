@@ -183,6 +183,7 @@ if __name__ == '__main__':
     else:
         # should be a .pkl filename
         ambience = pd.read_pickle(args.ambience)
+        print(f"Read ambience from {args.ambience}")
 
 
     # --------------- ACTIVE SPACE GENERATION --------------- #

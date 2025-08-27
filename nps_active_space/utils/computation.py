@@ -334,7 +334,8 @@ def ambience_from_raster(ambience_src: str, mic: 'Microphone') -> float:
     return Lx
 
 
-def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50, broadband: bool = False): # TODO
+def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50,
+                        low_hz: float = "12.5", high_hz: float = "20000", broadband: bool = False):
     """
 
     Parameters
@@ -343,6 +344,10 @@ def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50, broadband: bo
         An NVSPL object to calculate ambience from.
     quantile : int, default 50
         This quantile of the data will be used to calculate the ambience.
+    low_hz : float, default 12.5
+        Lowest 1/3 octave band to include.
+    high_hz : float, default 20000
+        Highest 1/3 octave band to include.
     broadband : bool, default False
         If True, quantiles will be calculated from the dBA column instead of the 1/3rd octave band columns.
 
@@ -356,7 +361,7 @@ def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50, broadband: bo
     if broadband:
         Lx = low_wind.loc[:, 'dbA'].quantile(1 - (quantile / 100))
     else:
-        Lx = low_wind.loc[:, "12.5":"20000"].quantile(1 - (quantile / 100))
+        Lx = low_wind.loc[:, low_hz:high_hz].quantile(1 - (quantile / 100))
 
     return Lx
 
