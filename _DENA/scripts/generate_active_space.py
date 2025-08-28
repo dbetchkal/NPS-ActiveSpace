@@ -1,11 +1,11 @@
 import glob
 import multiprocessing as mp
 import os
+import numpy as np
 from argparse import ArgumentParser
 from copy import deepcopy
 from functools import partial
 from pathlib import Path
-from statistics import mean
 from typing import List, Tuple, TYPE_CHECKING
 
 import geopandas as gpd
@@ -165,28 +165,35 @@ if __name__ == '__main__':
         logger.info(f"No track annotations found for {args.unit}{args.site}{args.year}. Exiting...")
         exit(-1)
 
+    # Extract all valid points from their LineStrings. These will be needed for calculating fbeta scores later.
+    valid_points_lst = []
+    for idx, row in tqdm(annotations.iterrows(), total=annotations.shape[0], desc='Extracting valid points', unit='valid track', colour='white'):
+        valid_points_lst.extend([{'annotation_idx': idx, 'audible': row.audible, 'geometry': Point(coords)} for coords in row.geometry.coords])
+    valid_points = gpd.GeoDataFrame(data=valid_points_lst, geometry='geometry', crs=annotations.crs)
+
+    # Reduce point density to median density, so very dense areas (e.g. airports) don't skew the fit
+    valid_points = normalize_point_density(valid_points, study_area, random_seed=679)
+
     # If the user does not pass an altitude, calculate the average altitude of all valid tracks. Extract the altitudes
     #  from each linestring to get the average height (in meters) of audible flight segments.
     # We just use the audible segments so that we represent the typical altitude in the local area.
     #  (some inaudible segments are very far away / at different altitudes)
     if not args.altitude:
         logger.info("Calculating average altitude (in meters)...")
-        annotations['z_vals'] = (annotations['geometry'].apply(lambda geom: mean([coords[-1] for coords in geom.coords])))
-        altitudes_ = annotations[annotations.audible == True].z_vals
-        altitudes_ = altitudes_[(altitudes_ > 0)&(altitudes_ <= 10000)] # NOTE removing the negative values could be severe for some ADS-B loggers
-        altitude_ = int(mean(altitudes_.tolist()))
+        annotation_altitudes = []
+        relevant_mask = (valid_points["audible"]) & (valid_points.geometry.z > 0) & (valid_points.geometry.z <= 10000)
+        # NOTE we only apply the altitude filter for the purposes of calculating mean altitude, instead of removing
+        # them altogether, because removing the negative values could be severe for some ADS-B loggers
+        for idx, group in valid_points.loc[relevant_mask].groupby("annotation_idx"):
+            annotation_altitudes.append(group.geometry.z.mean())
+        altitude_ = int(np.mean(annotation_altitudes))
+        # annotations['z_val'] = (annotations['geometry'].apply(lambda geom: mean([coords[-1] for coords in geom.coords])))
+        # altitudes_ = annotations[annotations.audible == True].z_val
+        # altitudes_ = altitudes_[(altitudes_ > 0)&(altitudes_ <= 10000)] # NOTE removing the negative values could be severe for some ADS-B loggers
+        # altitude_ = int(mean(altitudes_.tolist()))
         logger.info(f"Average altitude is: {altitude_}m")
     else:
         altitude_ = args.altitude
-
-    # Extract all valid points from their LineStrings. These will be needed for calculating fbeta scores later.
-    valid_points_lst = []
-    for idx, row in tqdm(annotations.iterrows(), total=annotations.shape[0], desc='Extracting valid points', unit='valid track', colour='white'):
-        valid_points_lst.extend([{'audible': row.audible, 'geometry': Point(coords)} for coords in row.geometry.coords])
-    valid_points = gpd.GeoDataFrame(data=valid_points_lst, geometry='geometry', crs=annotations.crs)
-
-    # Reduce point density to median density, so very dense areas (e.g. airports) don't skew the fit
-    valid_points = normalize_point_density(valid_points, study_area, random_seed=679)
 
     # --------------- ACTIVE SPACE GENERATION --------------- #
 
