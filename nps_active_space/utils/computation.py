@@ -679,7 +679,7 @@ def select_optimal(unit: str, site: str, year: int,
     return best_omni, max_fbeta, best_precision, best_recall, detection_results
 
 
-def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFrame, bandwidth: float=100.0, cellsize: float=100.0, visualize=False):
+def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFrame, bandwidth: float=100.0, cellsize: float=100.0, random_seed=None, visualize=False):
     """
     Drop points from a dataframe that are in very dense areas, to normalize the point density.
     This uses kernel density estimation to get a density for each point, specifically FFTKDE from KDEpy,
@@ -744,7 +744,8 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
     n_before = len(points)
     median = np.median(point_densities)
     p_keep = median / np.maximum(point_densities, median)  # = 1 for points with density <= median
-    keep = np.random.rand(len(points)) <= p_keep
+    rng = np.random.default_rng(seed=random_seed)
+    keep = rng.random(len(points)) <= p_keep
     points = points[keep]
     print(f"Went from {n_before} to {len(points)} points when normalizing point density")
 
