@@ -186,7 +186,7 @@ if __name__ == '__main__':
     valid_points = gpd.GeoDataFrame(data=valid_points_lst, geometry='geometry', crs=annotations.crs)
 
     # Reduce point density to median density, so very dense areas (e.g. airports) don't skew the fit
-    valid_points = normalize_point_density(valid_points, study_area)
+    valid_points = normalize_point_density(valid_points, study_area, random_seed=679)
 
     # --------------- ACTIVE SPACE GENERATION --------------- #
 
