@@ -30,7 +30,7 @@ import _DENA.resource.config as cfg
 from _DENA import DENA_DIR
 from _DENA.resource.helpers import get_deployment, get_logger, get_omni_sources, load_annotations
 from nps_active_space.utils import Annotations, Nvspl
-from nps_active_space.utils.computation import select_optimal, ambience_from_nvspl, ambience_from_raster
+from nps_active_space.utils.computation import select_optimal, ambience_from_nvspl, ambience_from_raster, normalize_point_density
 from nps_active_space.active_space import ActiveSpaceGenerator
 
 if TYPE_CHECKING:
@@ -135,6 +135,27 @@ if __name__ == '__main__':
 
     omni_sources = get_omni_sources(lower=args.omni_min, upper=args.omni_max)
 
+    # --------------- DATA SELECTION --------------- #
+
+    # Load the microphone deployment site metadata and the study area shapefile.
+    mic_ = get_deployment(cfg.read('project', 'dir'), args.unit, args.site, args.year, elevation=False)
+    study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])
+
+    # Compute ambience
+    # Load NVSPL data or the mennitt raster depending on the user input.
+    if args.ambience == 'nvspl':
+        archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
+        nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year))]
+        nvspl = Nvspl(nvspl_files)
+        ambience_quantile = 90  # L90 = 90% exceedance = 10% quantile sound level
+        ambience = ambience_from_nvspl(nvspl, ambience_quantile, broadband=False)
+    elif args.ambience == 'mennitt':
+        ambience = ambience_from_raster(cfg.read('data', 'mennitt'), mic_)
+    else:
+        # should be a .pkl filename
+        ambience = pd.read_pickle(args.ambience)
+        print(f"Read ambience from {args.ambience}")
+
     # --------------- ANNOTATION LOGIC --------------- #
 
     # Verify that annotation files exist for the unit/site location. If they do exist, load them into memory.
@@ -164,27 +185,8 @@ if __name__ == '__main__':
         valid_points_lst.extend([{'audible': row.audible, 'geometry': Point(coords)} for coords in row.geometry.coords])
     valid_points = gpd.GeoDataFrame(data=valid_points_lst, geometry='geometry', crs=annotations.crs)
 
-    # --------------- DATA SELECTION --------------- #
-
-    # Load the microphone deployment site metadata and the study area shapefile.
-    mic_ = get_deployment(cfg.read('project', 'dir'), args.unit, args.site, args.year, elevation=False)
-    study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])
-
-    # Compute ambience
-    # Load NVSPL data or the mennitt raster depending on the user input.
-    if args.ambience == 'nvspl':
-        archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
-        nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year))]
-        nvspl = Nvspl(nvspl_files)
-        ambience_quantile = 90  # L90 = 90% exceedance = 10% quantile sound level
-        ambience = ambience_from_nvspl(nvspl, ambience_quantile, broadband=False)
-    elif args.ambience == 'mennitt':
-        ambience = ambience_from_raster(cfg.read('data', 'mennitt'), mic_)
-    else:
-        # should be a .pkl filename
-        ambience = pd.read_pickle(args.ambience)
-        print(f"Read ambience from {args.ambience}")
-
+    # Reduce point density to median density, so very dense areas (e.g. airports) don't skew the fit
+    valid_points = normalize_point_density(valid_points, study_area)
 
     # --------------- ACTIVE SPACE GENERATION --------------- #
 

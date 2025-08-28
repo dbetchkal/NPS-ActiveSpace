@@ -9,7 +9,9 @@ import pandas as pd
 import rasterio
 from osgeo import gdal
 from scipy import interpolate
+from scipy.spatial import KDTree
 from shapely.geometry import Point
+from KDEpy import FFTKDE
 
 if TYPE_CHECKING:
     from nps_active_space.utils.models import Microphone, Nvspl, Tracks
@@ -30,6 +32,7 @@ __all__ = [
     'expected_relative_Lp',
     'interpolate_spline',
     'NMSIM_bbox_utm',
+    'normalize_point_density',
     'project_raster'
 ]
 
@@ -674,3 +677,97 @@ def select_optimal(unit: str, site: str, year: int,
 
     print(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta:0.3f})")
     return best_omni, max_fbeta, best_precision, best_recall, detection_results
+
+
+def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFrame, bandwidth: float=500.0, cellsize: int=100, visualize=False):
+    """
+    Drop points from a dataframe that are in very dense areas, to normalize the point density.
+    This uses kernel density estimation to get a density for each point, specifically FFTKDE from KDEpy,
+    which is a very fast algorithm. This speed is critical for processing as many points as we do.
+    
+    Parameters
+    ----------
+    points: gpd.GeoDataFrame
+        Points to process
+    study_area: gpd.GeoDataFrame
+        Study area polygon. Used to determine the UTM zone, and any points outside will be removed.
+    bandwidth: float, default 500.0
+        Standard deviation of the gaussian kernel, in meters
+    cellsize: int, default 100
+        Resolution of the grid used to evaluate point density. Points are assigned the density at the nearest grid point.
+    visualize: bool, default False
+        If true, show a plot of the relative point densities before and after.
+
+    Returns
+    -------
+    points: gpd.GeoDataFrame
+        Copy of the input points with some points removed.
+    """
+    # convert to UTM because we are doing distance-based processing
+    orig_crs = points.crs  # remember this so we can project back later
+    crs = NMSIM_bbox_utm(study_area)
+    points = points.to_crs(crs)
+    
+    # clip to study area to reduce the amount of grid cells needed, since the KDEpy grid needs to include all points
+    # also those points can be safely excluded from consideration when fitting the active space
+    points = points.clip(study_area.to_crs(points.crs))
+
+    positions = np.stack([points.geometry.x, points.geometry.y], axis=1)
+
+    # construct grid - FFTKDE requires evaluating densities on an evenly spaced grid
+    # the grid needs to include all the points with some padding
+    pad = 3 * bandwidth  # enough to be outside of the range of the gaussian kernel
+    xmin, ymin = positions.min(axis=0)
+    xmax, ymax = positions.max(axis=0)
+    # use 1.1*pad in np.arange() since end value is exclusive, but we want it to be inclusive
+    x_coords = np.arange(xmin-pad, xmax + 1.1*pad, cellsize)
+    y_coords = np.arange(ymin-pad, ymax + 1.1*pad, cellsize)
+    mgrid = np.meshgrid(x_coords, y_coords)
+    # put x and y coords for each point in the grid in an array of shape (n_grid_points, 2)
+    # note that we use the transpose of the meshgrid so that the order is as KDEpy expects,
+    # where x starts at the first value while y sweeps through, then x goes to the next value and y sweeps through
+    grid = np.stack([mgrid[0].T.ravel(), mgrid[1].T.ravel()], axis=1)
+
+    # run kernel density estimation
+    grid_densities = FFTKDE(bw=bandwidth).fit(positions).evaluate(grid)
+
+    # assign points the density of their nearest grid point
+    # use a KDTree for faster nearest-neighbor querying
+    tree = KDTree(grid)
+    distance, idx = tree.query(positions)
+    point_densities = grid_densities[idx]
+
+    # drop points to reach a certain target density
+    # empirically and intuitively, the median density is a good target
+    # so for points with higher densities than the median, keep each point
+    # with probability median_density/point_density
+    n_before = len(points)
+    median = np.median(point_densities)
+    p_keep = median / np.maximum(point_densities, median)  # = 1 for points with density <= median
+    keep = np.random.rand(len(points)) <= p_keep
+    points = points[keep]
+    print(f"Went from {n_before} to {len(points)} points when normalizing point density")
+
+    if visualize:
+        # run it again to visualize the difference
+        new_pos = np.stack([points.geometry.x, points.geometry.y], axis=1)
+        new_grid_densities = FFTKDE(bw=bandwidth).fit(new_pos).evaluate(grid)
+
+        # reshape densities to work with matplotlib
+        z0 = grid_densities.reshape(x_coords.size, y_coords.size).T
+        z1 = new_grid_densities.reshape(x_coords.size, y_coords.size).T
+
+        fig, ax = plt.subplots(1, 2, figsize=(12, 6))
+        ax[0].set_title("Relative Density Before")
+        ax[0].contourf(mgrid[0], mgrid[1], z0, levels=50)
+        ax[0].axis("equal")
+        ax[1].set_title("Relative Density After")
+        ax[1].contourf(mgrid[0], mgrid[1], z1, levels=50)
+        ax[1].axis("equal")
+        fig.tight_layout()
+        plt.show()
+
+    # convert points back to the original crs
+    points = points.to_crs(orig_crs)
+
+    return points

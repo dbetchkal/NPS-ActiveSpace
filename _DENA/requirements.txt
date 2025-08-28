@@ -36,6 +36,7 @@ joblib==1.5.1
 Js2Py==0.74
 jupyter_client==8.6.3
 jupyter_core==5.8.1
+KDEpy==1.1.12
 kiwisolver==1.4.8
 matplotlib==3.10.3
 matplotlib-inline==0.1.7
