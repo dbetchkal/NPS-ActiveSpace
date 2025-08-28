@@ -679,7 +679,7 @@ def select_optimal(unit: str, site: str, year: int,
     return best_omni, max_fbeta, best_precision, best_recall, detection_results
 
 
-def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFrame, bandwidth: float=500.0, cellsize: int=100, visualize=False):
+def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFrame, bandwidth: float=100.0, cellsize: float=100.0, visualize=False):
     """
     Drop points from a dataframe that are in very dense areas, to normalize the point density.
     This uses kernel density estimation to get a density for each point, specifically FFTKDE from KDEpy,
@@ -691,9 +691,9 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
         Points to process
     study_area: gpd.GeoDataFrame
         Study area polygon. Used to determine the UTM zone, and any points outside will be removed.
-    bandwidth: float, default 500.0
+    bandwidth: float, default 100.0
         Standard deviation of the gaussian kernel, in meters
-    cellsize: int, default 100
+    cellsize: float, default: 100.0
         Resolution of the grid used to evaluate point density. Points are assigned the density at the nearest grid point.
     visualize: bool, default False
         If true, show a plot of the relative point densities before and after.
@@ -719,9 +719,9 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
     pad = 3 * bandwidth  # enough to be outside of the range of the gaussian kernel
     xmin, ymin = positions.min(axis=0)
     xmax, ymax = positions.max(axis=0)
-    # use 1.1*pad in np.arange() since end value is exclusive, but we want it to be inclusive
-    x_coords = np.arange(xmin-pad, xmax + 1.1*pad, cellsize)
-    y_coords = np.arange(ymin-pad, ymax + 1.1*pad, cellsize)
+    # use add cellsize to np.arange() end value since end value is exclusive, but we want it to be inclusive
+    x_coords = np.arange(xmin-pad, xmax+pad+cellsize, cellsize)
+    y_coords = np.arange(ymin-pad, ymax+pad+cellsize, cellsize)
     mgrid = np.meshgrid(x_coords, y_coords)
     # put x and y coords for each point in the grid in an array of shape (n_grid_points, 2)
     # note that we use the transpose of the meshgrid so that the order is as KDEpy expects,
@@ -759,10 +759,10 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
 
         fig, ax = plt.subplots(1, 2, figsize=(12, 6))
         ax[0].set_title("Relative Density Before")
-        ax[0].contourf(mgrid[0], mgrid[1], z0, levels=50)
+        ax[0].contourf(mgrid[0], mgrid[1], z0, levels=100)
         ax[0].axis("equal")
         ax[1].set_title("Relative Density After")
-        ax[1].contourf(mgrid[0], mgrid[1], z1, levels=50)
+        ax[1].contourf(mgrid[0], mgrid[1], z1, levels=100)
         ax[1].axis("equal")
         fig.tight_layout()
         plt.show()
