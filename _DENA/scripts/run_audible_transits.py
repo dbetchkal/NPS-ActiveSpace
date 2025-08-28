@@ -339,6 +339,8 @@ class AudibleTransits(ABC):
             Otherwise, `gpd.Geodataframe` containing all tracks (as points).
         '''
 
+        assert hasattr(self, "utm_zone"), "Need to determine the UTM zone before converting tracks to UTM"
+
         if type(tracks) is str:
             assert tracks == 'self'
             tracks = self.tracks
@@ -2675,7 +2677,7 @@ if __name__ == '__main__':
 
     metadata = {"unit": args.unit,
                 "site": args.site,
-                "activespace_year": args.year,
+                "activespace year": args.year,
                 "gain": args.gain,
                 "study start": args.begintracks,
                 "study end": args.endtracks,
