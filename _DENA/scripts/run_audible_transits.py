@@ -20,6 +20,7 @@ import math
 import json
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser
+import shapely
 from shapely.geometry import Point, MultiPoint, LineString, Polygon, box
 import rasterio.plot
 import rasterio
@@ -231,7 +232,8 @@ class AudibleTransits(ABC):
                 show_DEM=True, title=f"{self.unit}{self.site} Nearby Overflights\n{self.study_start} to {self.study_end}")
 
         logger.info("[3] Creating audible transits by clipping tracks to the active space...")
-        self.clip_tracks()
+        # self.clip_tracks()
+        self.stepwise_clip_tracks()
         self.update_track_parameters()
         self.update_trackQC()
         self.summarize_data_quality()
@@ -734,6 +736,182 @@ class AudibleTransits(ABC):
 
         return interp_tracks
 
+
+    def stepwise_clip_tracks(self, tracks='self'):
+        if type(tracks) is str:
+            assert tracks == 'self'
+            tracks = self.tracks
+            self_flag = True
+        else:
+            self_flag = False
+
+        if 'interp_geometry' not in tracks:
+            logger.debug("Error: No interpolated geometry found (column = 'interp_geometry'). Cannot clip tracks to active space.")
+            return 0
+        
+        new_tracks = []
+
+        active_poly = self.active.union_all()
+
+        for _, track in self.tracks.iterrows():
+            coords = track["interp_geometry"].coords
+            times = track["interp_point_dt"]
+            track_segments = [{
+                "coords": [coords[0]],
+                "times": [times[0]]
+            }]
+
+            n_new_points = 0
+
+            for i in range(1, len(coords)):
+                line = LineString([coords[i-1], coords[i]])
+                line_parts = list(shapely.ops.split(line, active_poly).geoms)
+                if len(line_parts) == 1:
+                    # no intersection, continue current segment
+                    track_segments[-1]["coords"].append(coords[i])
+                    track_segments[-1]["times"].append(times[i])
+                else:
+                    # intersection
+                    if len(line_parts) > 2:
+                        print("WHEEEEEEEE")
+                    n_new_points += (len(line_parts)-1)
+                    new_points = [part.coords[0] for part in line_parts[1:]]
+                    new_times = []
+                    for pt in new_points:
+                        frac = math.dist(coords[i-1], pt) / math.dist(coords[i-1], coords[i])
+                        new_times.append(times[i] + frac * (times[i] - times[i-1]))
+
+                    # make a new segment for each new point, each of which indicate a boundary crossing
+                    for j in range(len(new_points)):
+                        # finish last one with this point
+                        track_segments[-1]["coords"].append(new_points[j])
+                        track_segments[-1]["times"].append(new_times[j])
+                        # start new one with this point
+                        track_segments.append({
+                            "coords": [new_points[j]],
+                            "times": [new_times[j]]
+                        })
+                
+            print(f"{n_new_points} new points, {len(track_segments)} track segments")
+
+            # determine which track segments to keep, based on whether they are inside the active space,
+            # and if not, whether they are short and surrounded by two segments inside the active space
+            # TODO
+
+        print("done")
+        sys.exit()
+
+
+
+    def new_clip_tracks(self, tracks='self'):
+        if type(tracks) is str:
+            assert tracks == 'self'
+            tracks = self.tracks
+            self_flag = True
+        else:
+            self_flag = False
+
+        if 'interp_geometry' not in tracks:
+            logger.debug("Error: No interpolated geometry found (column = 'interp_geometry'). Cannot clip tracks to active space.")
+            return 0
+        
+        new_tracks = []
+
+        active_poly = self.active.union_all()
+
+        for _, track in self.tracks.iterrows():
+            print("")
+            segments = shapely.ops.split(track["interp_geometry"], active_poly).geoms
+            if len(segments) == 1:
+                print("inside?", active_poly.contains(segments[0]))
+            else:
+                continue
+                # figure out datetimes of the intersection points
+                # NOTE: We cannot assume how many times the section between two interpolated points crossed the active space boundary.
+                # Typically it is just once, but sometimes is two times
+
+                # start with the first segment
+                # we expect it to have the same first points as the track, except for the last point which was inserted by intersection
+                # - TODO: can the intersection insert no point, as an edge case if the intersection was at an existing point?
+                # search for the next interpolated point, and remember all the intersection points along the way
+                # then, do linear time interpolation
+
+                all_split_coords = []
+                for s in segments:
+                    all_split_coords += list(s.coords)
+
+                
+                for i, interp_pt in enumerate(track["interp_geometry"].coords):
+                    # look for where it stops matching - this is a newly created point along the activespace boundary
+                    pass
+
+                last = len(segments[0].coords)-1
+                print(last)
+                print("last ", segments[0].coords[last], track["interp_geometry"].coords[last])
+                print("last-1", segments[0].coords[last-1], track["interp_geometry"].coords[last-1])
+                # print(segments.geoms[0].coords[-2], 
+                
+                # fig, ax = plt.subplots()
+                # for s in segments.geoms:
+                #     gpd.GeoSeries(s).plot(ax=ax)
+                # self.active.boundary.clip(box(*segments.bounds)).plot(ax=ax, color="black")
+                # plt.show()
+
+            # intersection = track["interp_geometry"].intersection(self.active).item()
+            # print(intersection.geom_type)
+            # if intersection.is_empty:
+            #     # fully outside, skip
+            #     print("fully outside")
+            #     continue
+            # elif intersection.geom_type == "LineString":
+            #     # fully inside
+            #     print("fully inside")
+            #     new_tracks.append(track)
+            # elif intersection.geom_type == "MultiLineString":
+            #     lines = intersection.geoms
+
+            #     # figure out datetimes of the intersection points
+            #     for i in range(len(lines)-1):
+            #         print(lines[i].coords[-1], lines[i+1].coords[0])
+            
+        
+        sys.exit()
+
+        # for each track, get a boolean mask of when it's inside the active space
+        # adjust the boolean mask to account for the buffer time which still counts as an event
+        # construct new tracks by iterating through each segment of the boolean mask
+        # for idx, track in self.tracks.iterrows():
+        #     print(track)
+        #     sys.exit()
+        #     inside_mask = []
+        #     last_exit_k = None
+        #     for k, xyz in enumerate(track["interp_geometry"].coords):
+        #         pt_is_inside = Point(xyz).within(self.active).item()
+
+        #         # check for entrance after previous exit
+        #         if len(inside_mask) > 0 and last_exit_k is not None and inside_mask[-1] == False and pt_is_inside:
+        #             # figure out how long ago since the last exit
+        #             time_since_exit = track["interp_point_dt"][k] - track["interp_point_dt"][last_exit_k]
+        #             print("time since exit", time_since_exit)
+        #             print(inside_mask)
+        #             # if this duration is less than the event buffer time, count all the points since the last segment
+        #             # as part of this audible transit
+        #             sys.exit()
+
+        #         # check for exit
+        #         if len(inside_mask) > 0 and inside_mask[-1] == True and not pt_is_inside:
+        #             last_exit_k = k
+                
+        #         inside_mask.append(pt_is_inside)
+
+        #     inside_mask = np.array(inside_mask)
+        #     if inside_mask.sum() > 0:
+        #         np.set_printoptions(threshold=np.inf)
+        #         print(inside_mask)
+        #     #     sys.exit()
+        # sys.exit()
+
+
     def clip_tracks(self, tracks='self'):
         '''
         Clips tracks to the active space, cutting out any parts of tracks exterior to the active space polygon.
@@ -804,17 +982,16 @@ class AudibleTransits(ABC):
 
             # If clipped track contains more than 2 points, we can use the following algorithm
             # NOTE: endpoints likely do not exist in the original interpolated track.
-            found_match = False
             if len(clipped_coords) > 2:
                 # Find the index of the unclipped track's coordinate that is an identical match
                 #  to the 1st non-endpoint coordinate of the clipped track.
+                found_match = False
                 for x, y, z in unclipped_coords:
-                    if x == clipped_coords[1][0]:
-                        if y == clipped_coords[1][1]:
-                            # It's a match! set as the initial coordinate and leave the loop.
-                            initial_index = current_index
-                            found_match = True
-                            break
+                    if x == clipped_coords[1][0] and y == clipped_coords[1][1]:
+                        # It's a match! set as the initial coordinate and leave the loop.
+                        initial_index = current_index
+                        found_match = True
+                        break
                     current_index = current_index+1
                 # Set final index of unclipped track, lines up with the last coordinate of the clipped track before the endpoint.
                 final_index = initial_index + len(clipped_coords) - 3
@@ -915,8 +1092,6 @@ class AudibleTransits(ABC):
             tracks=cleaned_tracks.loc[cleaned_tracks.avg_speed == np.inf], reason='inf speed')
         cleaned_tracks = cleaned_tracks.loc[(cleaned_tracks.avg_speed != 0) & (
             cleaned_tracks.avg_speed != np.inf)]
-        cleaned_tracks = cleaned_tracks.loc[cleaned_tracks.interp_geometry.within(
-            self.active.geometry.iloc[0].buffer(100))]
         logger.debug("\tTransits with average speed = 0 or infinity have been removed.")
         logger.debug("\tQuality control completed!")
 
