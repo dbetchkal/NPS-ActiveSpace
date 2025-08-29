@@ -12,14 +12,12 @@ import matplotlib as mpl
 import numpy as np
 import pandas as pd
 from osgeo import gdal
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point, Polygon, box
 from shapely.validation import make_valid
 from tqdm import tqdm
 
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.utils import (
-    ambience_from_nvspl,
-    ambience_from_raster,
     build_src_point_mesh,
     coords_to_utm,
     create_overlapping_mesh,
@@ -47,23 +45,19 @@ class ActiveSpaceGenerator:
         Absolute path to a directory where all generated files required for running NMSIM can be stored.
     dem_src : str
         Path to a DEM raster file to be used as NMSIM input.
-    ambience_src : Nvspl or str
-        an NVSPL object to calculate ambience from or the absolute file path to a raster of ambience.
-    quantile : int, default 90
-        If using Nvspl data as the ambience source, this quantile of the data will be used to calculate the ambience.
-        90 = L90 = 10th quantile
-    broadband : bool, default False
-        If True and using Nvspl data as the ambience source, quantiles will be calculated from the dBA column
-        instead of the 1/3rd octave band columns.
+    ambience : float or pd.Series[float]
+        The ambience level(s) at the microphone site.
+        If float (broadband ambience), will be compared against the predicted A-weighted broadband level of noises.
+        If pd.Series[float], should contain sound levels for the 12.5 to 12500 Hz 1/3 octave bands.
     """
     def __init__(self, NMSIM: str, study_area: gpd.GeoDataFrame, root_dir: str, dem_src: str,
-                 ambience_src: Union['Nvspl', str], quantile: int = 90, broadband: bool = False):
+                 ambience: Union[float, pd.Series]):
+
+        assert (type(ambience) == float) or isinstance(ambience, pd.Series), "Improper ambience input"
 
         self.study_area = study_area.to_crs('epsg:4269')
         self.root_dir = root_dir
-        self.broadband = broadband
-        self.quantile = quantile
-        self.ambience_src = ambience_src
+        self.ambience = ambience
         self.dem_src = dem_src
         self.NMSIM = NMSIM
 
@@ -341,8 +335,7 @@ class ActiveSpaceGenerator:
 
         return batch_file
 
-    def _find_audible_points(self, trajectory_file: str, tis_file: str, crs: str,
-                             ambience: Union[int, Iterable[int]]) -> gpd.GeoDataFrame:
+    def _find_audible_points(self, trajectory_file: str, tis_file: str, crs: str) -> gpd.GeoDataFrame:
         """
         Determine which points from a trajectory file are audible given the corresponding NMSIM tis output.
 
@@ -354,8 +347,6 @@ class ActiveSpaceGenerator:
             Absolute path to the corresponding tis file.
         crs : str
             crs of the trajectory file and of the output GeoDataFrame. In the format 'epsg:XXXX'
-        ambience : int or Iterable[int]
-            The ambience level(s) at the microphone site.
 
         Returns
         -------
@@ -378,10 +369,13 @@ class ActiveSpaceGenerator:
         tis_df.loc[:, 'A':'12500'] = tis_df.loc[:, 'A':'12500'].astype(float) * 0.1  # centibels (cB) to decibels (dB)
 
         # Check to see if any of the frequency bands are louder than the ambient levels.
-        if not self.broadband and type(self.ambience_src) == Nvspl:
-            audible_times = (tis_df.loc[:, "12.5":"12500"] > ambience["12.5":"12500"].values).sum(axis=1)
-        else:
+        if type(self.ambience) == float:
+            # broadband ambience
             audible_times = tis_df.loc[:, "A"] > ambience
+        else:
+            # spectral ambience
+            audible_times = (tis_df.loc[:, "12.5":"12500"] > self.ambience["12.5":"12500"].values).sum(axis=1)
+            
 
         # Determine which aircraft locations produce or do not produce audible sounds.
         audible_pts = (trajectory_df.loc[tis_df[audible_times > 0].index, ["Xpos", "Ypos", "Zpos"]])
@@ -433,12 +427,12 @@ class ActiveSpaceGenerator:
 
         # append all contour points to a new xy file
         xyz = np.array([])
-        for contour_level in cs.collections:  # iterate through each contour interval
-            for contour_path in contour_level.get_paths():  # for each interval, iterate through each path
-                x = contour_path.vertices[:, 0]
-                y = contour_path.vertices[:, 1]
-                z = [altitude] * len(x)
-                xyz = np.array([x, y, z]).T if len(xyz) == 0 else np.append(xyz, np.array([x, y, z]).T, axis=0)
+        for l_, level in enumerate(levels): # iterate through the path at each level
+            contour_path = cs.get_paths()[l_]  
+            x = contour_path.vertices[:, 0]
+            y = contour_path.vertices[:, 1]
+            z = [altitude] * len(x)
+            xyz = np.array([x, y, z]).T if len(xyz) == 0 else np.append(xyz, np.array([x, y, z]).T, axis=0)
 
         # if we have more contour points than NMSim can handle, down-sample randomly
         if xyz.shape[0] > max_pts:
@@ -448,7 +442,7 @@ class ActiveSpaceGenerator:
         return list(map(Point, xyz))
 
     def _run_nmsim(self, job_name: str, source_pts: List[Point], crs: str, flt_file: str, site_file: str,
-                   omni_source: str, ambience, heading: Optional[int] = None) -> gpd.GeoDataFrame:
+                   omni_source: str, heading: Optional[int] = None) -> gpd.GeoDataFrame:
         """
         Execute a single NMSIM job.
 
@@ -473,6 +467,8 @@ class ActiveSpaceGenerator:
         new_audibility_pts : gpd.GeoDataFrame
             A GeoDataFrame of points tested during the NMSIM run and their audibility.
         """
+        assert len(source_pts) > 0, "Trying to run NMSIM on zero source points"
+
         trajectory_filename = self._create_trajectory_file(source_pts, crs, job_name, heading)
         batch_file = self._create_instruction_files(flt_file, site_file, trajectory_filename, omni_source)
 
@@ -488,8 +484,7 @@ class ActiveSpaceGenerator:
         new_audibility_pts = self._find_audible_points(
             trajectory_filename,
             f"{self.root_dir}/Output_Data/TIG_TIS/{job_name}.tis",
-            crs,
-            ambience
+            crs
         )
 
         return new_audibility_pts
@@ -511,10 +506,18 @@ class ActiveSpaceGenerator:
         -------
         A GeoDataFrame of the active space.
         """
-        fig, ax = plt.subplots()  # need an axis to call tricontour function
-        levels = np.linspace(0, 1, 10, endpoint=False)
+        # augment total space with inaudible points around the boundary, to avoid contour artifacts
+        minx, miny, maxx, maxy = total_space.total_bounds
+        region = gpd.GeoDataFrame({"geometry": [box(minx, miny, maxx, maxy)]}, crs=total_space.crs)
+        region.geometry = region.buffer(100)  # small buffer so that the active space boundary occurs just outside the study area
+        new_points = gpd.GeoDataFrame(geometry=build_src_point_mesh(region), crs=region.crs)
+        new_points = new_points[~new_points.geometry.within(region.unary_union)]
+        new_points["audible"] = 0
+        total_space = pd.concat([total_space, new_points], ignore_index=True)
 
         # create the triangulated irregular network and contour lines
+        fig, ax = plt.subplots()  # need an axis to call tricontour function
+        levels = np.linspace(0, 1, 10, endpoint=False)
         tri = mpl.tri.Triangulation(total_space.geometry.x.tolist(), total_space.geometry.y.tolist())
         cs = ax.tricontour(tri, total_space.audible.tolist(), levels=levels)
 
@@ -522,35 +525,14 @@ class ActiveSpaceGenerator:
         level_ind = np.where(cs.levels == 0.5)[0][0]
         plt.close('all')  # close triangulation figure
 
-        # iterate through all contour paths in the line collection at level_ind
-        active_space_poly = None
-        for i, contour_path in enumerate(cs.collections[level_ind].get_paths()):
-            x = contour_path.vertices[:, 0]
-            y = contour_path.vertices[:, 1]
+        # iterate through all contour paths in the `TriContourSet` at level_ind
+        # https://matplotlib.org/stable/api/tri_api.html#matplotlib.tri.TriContourSet
+        contour_path = cs.get_paths()[level_ind] # in recent versions of `matplotlib` there is 1:1 correspondence `cs.levels` : `Path`
+        polygons = [Polygon(P) for P in contour_path.to_polygons()] # convert to `shapely.Polygon`
 
-            # Check if there are at least 3 vertices, the minimum sufficient to describe a polygon
-            if len(x) < 3 or len(y) < 3:
-                continue
+        active_space_poly = [make_valid(poly) if not poly.is_valid else poly for poly in polygons] # ensure valid geometries
 
-            try:
-                new_poly = make_valid(Polygon([(i[0], i[1]) for i in zip(x, y)]))
-
-                # Don't bother with polygons that are smaller than .5 km^2.
-                if new_poly.area <= 50000:
-                    continue
-                elif active_space_poly is None:
-                    active_space_poly = new_poly
-                else:
-                    active_space_poly = active_space_poly.symmetric_difference(new_poly)
-
-            except ValueError as e:
-                raise PolygonCreationError(f"Failed to create polygon from contour path {i}: {e}")
-
-        # Check if any valid polygons were created
-        if active_space_poly is None:
-            raise PolygonCreationError("No valid active space polygons were created.") 
-
-        active_space_polys_gdf = gpd.GeoDataFrame(data={'geometry': [active_space_poly]}, geometry='geometry', crs=crs)
+        active_space_polys_gdf = gpd.GeoDataFrame(data={'geometry': active_space_poly}, geometry='geometry', crs=crs)
 
         return active_space_polys_gdf
 
@@ -588,13 +570,6 @@ class ActiveSpaceGenerator:
         flt_filename = self._flt_file or self._create_dem_flt(dem_filename)
         site_filename = self._site_file or self._create_site_file(mic, flt_filename)
 
-        # NOTE: These lines were written with the assumption that using Nvspl data for ambience levels would only
-        #  really happen when not running a mesh.
-        if type(self.ambience_src) == Nvspl:
-            ambience = ambience_from_nvspl(self.ambience_src, self.quantile, self.broadband)
-        else:
-            ambience = ambience_from_raster(self.ambience_src, mic)
-
         # Run the point mesh step a maximum of two times.
         for j in range(2):
             source_pts = build_src_point_mesh(active_space, src_pt_density, altitude_m)
@@ -605,7 +580,6 @@ class ActiveSpaceGenerator:
                 flt_filename,
                 site_filename,
                 omni_source,
-                ambience,
                 heading
             )
 
@@ -623,9 +597,15 @@ class ActiveSpaceGenerator:
             if min(shrinkage) > -0.30:
                 break
 
-        # Run triangulation n_counter times to refine the edges of the active space.
+        # Run triangulation n_contour times to refine the edges of the active space.
         for k in range(n_contour):
             source_pts = self._contour_active_space(tested_space, altitude_m)
+            # If gain is too big and everything is audible, no contours will exist and no test points will be generated.
+            # In this case, we simply won't refine the edge.
+            # The user shouldn't use this active space anyways because it overflows the study area,
+            # so no need to worry about boundary detail
+            if len(source_pts) == 0:
+                break
             new_audibility_pts = self._run_nmsim(
                 f"{mic.name}_contour{k + 1}",
                 source_pts,
@@ -633,7 +613,6 @@ class ActiveSpaceGenerator:
                 flt_filename,
                 site_filename,
                 omni_source,
-                ambience,
                 heading
             )
             tested_space = pd.concat([tested_space, new_audibility_pts], ignore_index=True)
@@ -668,7 +647,7 @@ class ActiveSpaceGenerator:
         self._site_file = self._create_site_file(projected_mic, self._flt_file)
 
     def generate(self, omni_source: str, altitude_m: int = 3658, mic: Optional[Microphone] = None,
-                 heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1) -> gpd.GeoDataFrame:
+                 heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 2) -> gpd.GeoDataFrame:
         """
         Generate an active space for the study area.
 

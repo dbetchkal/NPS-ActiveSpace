@@ -3,11 +3,15 @@ import math
 from typing import Iterable, List, Optional, Tuple, TYPE_CHECKING
 
 import geopandas as gpd
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import rasterio
 from osgeo import gdal
 from scipy import interpolate
+from scipy.spatial import KDTree
 from shapely.geometry import Point
+from KDEpy import FFTKDE
 
 if TYPE_CHECKING:
     from nps_active_space.utils.models import Microphone, Nvspl, Tracks
@@ -25,8 +29,10 @@ __all__ = [
     'contiguous_regions',
     'coords_to_utm',
     'create_overlapping_mesh',
+    'expected_relative_Lp',
     'interpolate_spline',
     'NMSIM_bbox_utm',
+    'normalize_point_density',
     'project_raster'
 ]
 
@@ -103,7 +109,7 @@ def climb_angle(v: Iterable) -> np.ndarray:
     return degrees
 
 
-def interpolate_spline(points: 'Tracks', ds: int = 1) -> gpd.GeoDataFrame:
+def interpolate_spline(points: 'Tracks', ds: int = 1, s: float = None) -> gpd.GeoDataFrame:
     """
     Interpolate points with a cubic spline between flight points, if possible.
     See https://docs.scipy.org/doc/scipy/reference/tutorial/interpolate.html#spline-interpolation for docs
@@ -115,6 +121,9 @@ def interpolate_spline(points: 'Tracks', ds: int = 1) -> gpd.GeoDataFrame:
     ds : int, default 1
         The second interval in which to calculate the spline for.
         E.g. ds = 1 is "calculate a spline point at every 1 second delta"
+    s : float, optional, default None
+        The amount of smoothing to apply. Larger `s` means more smoothing while smaller values of `s`
+        indicate less smoothing.
 
     Returns
     -------
@@ -136,7 +145,7 @@ def interpolate_spline(points: 'Tracks', ds: int = 1) -> gpd.GeoDataFrame:
     flight_times = (points.point_dt - starttime).dt.total_seconds().values  # Seconds after initial point
 
     coords = [points.geometry.x, points.geometry.y, points.z] if 'z' in points else [points.geometry.x, points.geometry.y]
-    tck, u = interpolate.splprep(x=coords, u=flight_times, k=k)
+    tck, u = interpolate.splprep(x=coords, u=flight_times, k=k, s=s)
 
     # Parametric interpolation on the time interval provided.
     duration = (endtime - starttime).total_seconds()
@@ -186,6 +195,32 @@ def audible_time_delay(points: gpd.GeoDataFrame, time_col: str, target: Point,
     if drop_cols:
         points.drop(['distance_to_target', 'audible_delay_sec'], inplace=True)
 
+    return points
+
+
+def expected_relative_Lp(points: gpd.GeoDataFrame, target: Point):
+    """Get expected Lp values for a set of points and a target observer location, using a crude acoustic propagation model.
+    Note that these are only relative Lp values, because an arbitrary speaker power is used.
+    
+    **IMPORTANT**: The points GeoDataFrame and the target Point should be in the same crs for accurate calculations.
+
+    Parameters
+    ----------
+    points : gpd.GeoDataFrame
+        A gpd.GeoDataFrame of sound location points.
+    target : Point
+        The target point.
+    
+    Returns
+    -------
+    The points GeoDataFrame with added columns: Lp_est
+    """
+    distances = points.geometry.apply(lambda geom: target.distance(geom))
+    Lw = 150
+    atm_abs = -0.002
+    A_geometric = 10*np.log10(1/(4*np.pi*np.power(distances,2)))
+    A_atmosphere = np.array(distances)*atm_abs
+    points["Lp_est"] = Lw + A_geometric + A_atmosphere
     return points
 
 
@@ -305,7 +340,8 @@ def ambience_from_raster(ambience_src: str, mic: 'Microphone') -> float:
     return Lx
 
 
-def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50, broadband: bool = False): # TODO
+def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50,
+                        low_hz: float = "12.5", high_hz: float = "20000", broadband: bool = False):
     """
 
     Parameters
@@ -314,6 +350,10 @@ def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50, broadband: bo
         An NVSPL object to calculate ambience from.
     quantile : int, default 50
         This quantile of the data will be used to calculate the ambience.
+    low_hz : float, default 12.5
+        Lowest 1/3 octave band to include.
+    high_hz : float, default 20000
+        Highest 1/3 octave band to include.
     broadband : bool, default False
         If True, quantiles will be calculated from the dBA column instead of the 1/3rd octave band columns.
 
@@ -321,10 +361,13 @@ def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50, broadband: bo
     -------
     Lx
     """
+    # filter out high wind periods
+    low_wind = ambience_src.loc[ambience_src["WindSpeed"] <= 5.0, :]
+
     if broadband:
-        Lx = ambience_src.loc[:, 'dbA'].quantile(1 - (quantile / 100))
+        Lx = low_wind.loc[:, 'dbA'].quantile(1 - (quantile / 100))
     else:
-        Lx = ambience_src.loc[:, "12.5":"20000"].quantile(1 - (quantile / 100))
+        Lx = low_wind.loc[:, low_hz:high_hz].quantile(1 - (quantile / 100))
 
     return Lx
 
@@ -536,3 +579,199 @@ def calculate_duration_summary(noise_intervals):
     duration_summary = (duration_list, mean, stdev, median, mad)
 
     return duration_summary
+
+def select_optimal(unit: str, site: str, year: int,
+                   valid_points, active_space_polygons: list, beta_=1.0,
+                   verbose=True, plot=True, plot_savepath=None):
+    """
+    From a ground-truthed causal dataset and a set of active space polygons, 
+    select the optimal geospatial prediction of observed audibility.
+
+    Parameters
+    ------
+    unit : str
+        Four letter park service unit code E.g. 'DENA'
+    site : str
+        Deployment site character code. E.g. 'TRLA', '009'
+    year : int
+        Deployment year. YYYY
+    valid_points : gpd.GeoDataFrame
+        Annotated points. Must include geometry and an 'audible' column.
+    active_space_polygons : list of gpd.GeoDataFrame objects
+        A list of 2-tuples. The first value in each tuple is a gain string (ex. "O_+055" or "O_-125").
+        The second value is a single-row `gpd.GeoDataFrame` of Polygons/Multipolygons representing an active space prediction.
+        The entire list usually represents the geometries computed over a range of gains.
+    verbose : bool, default True
+        If True, print out F-score, precision, and recall for each gain.
+    plot : bool, default True
+        If True, plot the precision recall curve.
+    plot_savepath : str
+        Filename for saving the precision recall plot. If provided, the precision recall curve will be saved instead of shown. Requires plot=True to work.
+    beta_ : float, default 1.0
+        Beta value to use when calculating F-Beta
+
+    Returns
+    -------
+    best_omni : float
+        The optimal gain, corresponding to a maximum F-Beta
+    max_fbeta : float
+        The maximum F-Beta score at the optimal gain
+    best_precision: float
+        The precision component of the maximum F-Beta score at the optimal gain
+    best_recall: float
+        The recall component of the maximum F-Beta score at the optimal gain
+    detection_results: pd.DataFrame
+        A table of the F-Beta, precision, and recall values indexed by gain. The `.name` attribute contains deployment and F-Beta information.
+    """
+
+    # map symbolic sign onto a numeric equivalent
+    sign = {"+":1, "-":-1}
+
+    # intialize a table to write each test result
+    detection_results = pd.DataFrame([])
+    detection_results.name = f"{unit}{site}{year} {beta_}"
+    
+    # calculate the F-Beta score to determine the active space with optimal detection properties
+    precisions = []
+    recalls = []
+    f_betas = []
+    max_fbeta = 0
+    best_omni = None
+    best_recall = None
+    best_precision = None
+    for omni, res in active_space_polygons:
+
+        # it is convenient to store the gain in a simple, numeric representation
+        numeric_gain = sign[omni[-4:-3]]*int(omni[-3:])/10
+
+        # compute the f-measure for the geometry at a given Beta
+        fbeta, precision, recall, n_tot = compute_fbeta(valid_points, res, beta_)
+
+        # store the overall result and its subcomponents in a `pd.DataFrame` object
+        detection_results.loc[omni, f"F-{beta_}"] = fbeta
+        detection_results.loc[omni, "Recall"] = recall
+        detection_results.loc[omni, "Precision"] = precision
+        detection_results.loc[omni, "gain"] = numeric_gain
+
+        if verbose:
+            print(f"omni: {omni} --> F-{beta_}: {fbeta:0.3f} precision: {precision:0.3f} recall: {recall:0.3f}")
+        
+        if fbeta > max_fbeta:
+            max_fbeta = fbeta
+            best_omni = omni
+            best_recall = recall
+            best_precision = precision
+
+        detection_results.sort_values("gain", ascending=True, inplace=True) # it makes sense to plot (and return) the object sorted by gain
+    
+    if plot:
+        # create Precision-Recall Plot.
+        fig, ax = plt.subplots()
+        ax.plot(detection_results["Recall"], detection_results["Precision"], ls="-", lw=0.2, marker="o", ms=2, color="k")
+        ax.plot(best_recall, best_precision, ls="", marker="o", ms=5, color="None", markeredgecolor="limegreen")
+        ax.set_title(f'Precision-Recall Curve, {beta_:.1f}', loc="left")
+        ax.set_ylabel('Precision')
+        ax.set_xlabel('Recall')
+
+        if plot_savepath is None:
+            plt.show()
+        else:
+            plt.savefig(plot_savepath)
+
+    print(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta:0.3f})")
+    return best_omni, max_fbeta, best_precision, best_recall, detection_results
+
+
+def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFrame, bandwidth: float=100.0, cellsize: float=100.0, random_seed=None, visualize=False):
+    """
+    Drop points from a dataframe that are in very dense areas, to normalize the point density.
+    This uses kernel density estimation to get a density for each point, specifically FFTKDE from KDEpy,
+    which is a very fast algorithm. This speed is critical for processing as many points as we do.
+    
+    Parameters
+    ----------
+    points: gpd.GeoDataFrame
+        Points to process
+    study_area: gpd.GeoDataFrame
+        Study area polygon. Used to determine the UTM zone, and any points outside will be removed.
+    bandwidth: float, default 100.0
+        Standard deviation of the gaussian kernel, in meters
+    cellsize: float, default: 100.0
+        Resolution of the grid used to evaluate point density. Points are assigned the density at the nearest grid point.
+    visualize: bool, default False
+        If true, show a plot of the relative point densities before and after.
+
+    Returns
+    -------
+    points: gpd.GeoDataFrame
+        Copy of the input points with some points removed.
+    """
+    # convert to UTM because we are doing distance-based processing
+    orig_crs = points.crs  # remember this so we can project back later
+    crs = NMSIM_bbox_utm(study_area)
+    points = points.to_crs(crs)
+    
+    # clip to study area to reduce the amount of grid cells needed, since the KDEpy grid needs to include all points
+    # also those points can be safely excluded from consideration when fitting the active space
+    points = points.clip(study_area.to_crs(points.crs))
+
+    positions = np.stack([points.geometry.x, points.geometry.y], axis=1)
+
+    # construct grid - FFTKDE requires evaluating densities on an evenly spaced grid
+    # the grid needs to include all the points with some padding
+    pad = 3 * bandwidth  # enough to be outside of the range of the gaussian kernel
+    xmin, ymin = positions.min(axis=0)
+    xmax, ymax = positions.max(axis=0)
+    # use add cellsize to np.arange() end value since end value is exclusive, but we want it to be inclusive
+    x_coords = np.arange(xmin-pad, xmax+pad+cellsize, cellsize)
+    y_coords = np.arange(ymin-pad, ymax+pad+cellsize, cellsize)
+    mgrid = np.meshgrid(x_coords, y_coords)
+    # put x and y coords for each point in the grid in an array of shape (n_grid_points, 2)
+    # note that we use the transpose of the meshgrid so that the order is as KDEpy expects,
+    # where x starts at the first value while y sweeps through, then x goes to the next value and y sweeps through
+    grid = np.stack([mgrid[0].T.ravel(), mgrid[1].T.ravel()], axis=1)
+
+    # run kernel density estimation
+    grid_densities = FFTKDE(bw=bandwidth).fit(positions).evaluate(grid)
+
+    # assign points the density of their nearest grid point
+    # use a KDTree for faster nearest-neighbor querying
+    tree = KDTree(grid)
+    distance, idx = tree.query(positions)
+    point_densities = grid_densities[idx]
+
+    # drop points to reach a certain target density
+    # empirically and intuitively, the median density is a good target
+    # so for points with higher densities than the median, keep each point
+    # with probability median_density/point_density
+    n_before = len(points)
+    median = np.median(point_densities)
+    p_keep = median / np.maximum(point_densities, median)  # = 1 for points with density <= median
+    rng = np.random.default_rng(seed=random_seed)
+    keep = rng.random(len(points)) <= p_keep
+    points = points[keep]
+    print(f"Went from {n_before} to {len(points)} points when normalizing point density")
+
+    if visualize:
+        # run it again to visualize the difference
+        new_pos = np.stack([points.geometry.x, points.geometry.y], axis=1)
+        new_grid_densities = FFTKDE(bw=bandwidth).fit(new_pos).evaluate(grid)
+
+        # reshape densities to work with matplotlib
+        z0 = grid_densities.reshape(x_coords.size, y_coords.size).T
+        z1 = new_grid_densities.reshape(x_coords.size, y_coords.size).T
+
+        fig, ax = plt.subplots(1, 2, figsize=(12, 6))
+        ax[0].set_title("Relative Density Before")
+        ax[0].contourf(mgrid[0], mgrid[1], z0, levels=100)
+        ax[0].axis("equal")
+        ax[1].set_title("Relative Density After")
+        ax[1].contourf(mgrid[0], mgrid[1], z1, levels=100)
+        ax[1].axis("equal")
+        fig.tight_layout()
+        plt.show()
+
+    # convert points back to the original crs
+    points = points.to_crs(orig_crs)
+
+    return points

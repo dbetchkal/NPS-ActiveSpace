@@ -37,23 +37,25 @@ than `dena_production.config`
 Currently, the template config file has the following data:
 
 ```text
-[database:overflights]
-name = Database name. Value required if pulling tracks from the database in run_ground_truthing.py
-username = Database credentials username. Value required if pulling tracks from the database in run_ground_truthing.py
-password = Database credentials password. Value required if pulling tracks from the database in run_ground_truthing.py
-port = Database port. Values required if pulling tracks from the database in run_ground_truthing.py
-host = Database host. Values required if pulling tracks from the database in run_ground_truthing.py
+[database:overflights] - Values required if pulling tracks from the database in run_ground_truthing.py or run_audible_transits.py
+name = Database name.
+username = Database credentials username.
+password = Database credentials password.
+port = Database port.
+host = Database host.
 
 [data]
 site_metadata = Absolute path to the the file containing site metadata. Value required for all run_ground_truthing.py and generate_active_space.py
 nvspl_archive = Absolute path to the directory where all NVSPL sound data is stored. Value required for all run_ground_truthing.py and generate_active_space.py
-adsb = Absolute path to the directory where ADSB track data is stored.  Value required if pulling ADSB tracks in run_ground_truthing.py
+adsb = Absolute path to the directory where ADSB track data is stored.  Value required if pulling ADSB tracks in run_ground_truthing.py or run_audible_transits.py
 dem = Absolute path to the DEM tif file to use for active space generation. Value required for generate_active_space.py and generate_active_space_mesh.py
 mennitt = Absolute path to the mennitt ambience tif. Value required for generate_active_space.py and generate_active_space_mesh.py
 
 [project]
 dir = Absolute path to the directory where all NPS-ActiveSpace files are stored. Required for all scripts.
 nmsim = Absolute path to the NMSIM Nord2000batch.exe file. Value required for generate_active_space.py and generate_active_space_mesh.py
+FAA_Releasable_db = Absolute path to the FAA MASTER.txt database file downloaded from the [FAA website](https://www.faa.gov/licenses_certificates/aircraft_certification/aircraft_registry/releasable_aircraft_download). Required for run_audible_transits.py
+FAA_type_corrections = Absolute path to a json file for correcting aircraft types in the FAA database. Keys are ICAO addresses, values are correct aircraft type. Required for run_ground_truthing.py and run_audible_transits.py
 ```
 
 ## Directories
@@ -76,7 +78,7 @@ This script is used to launch the ground truthing application to annotate the au
 | `-u`, `--unit`         | **required.**<br/>The 4 letter NPS unit code. *Ex*: Denali = DENA                                                                                          |
 | `-s`, `--site`         | **required.**<br/>The 4 letter site code. *Ex*: Cathedral = CATH                                                                                           |
 | `-y`, `--year`         | **required.**<br/>The deployment year, YYYY. *Ex*: 2018                                                                                                    |
-| `-t`, `--track-source` | ***default Database -> {Database, ADSB, AIS}***<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
+| `-t`, `--database-type` | ***default GPS -> {GPS, ADSB, AIS}***<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
 
 Example executions:
 
@@ -101,7 +103,7 @@ Please note that the Precision-Recall plot that is shown at the end of a run is 
 | `-u`, `--unit`         | **required.**<br/>The 4 letter NPS unit code. *Ex*: Denali = DENA                                                                                                                                                                                                       |
 | `-s`, `--site`         | **required.**<br/>The 4 letter site code. *Ex*: Cathedral = CATH                                                                                                                                                                                                        |
 | `-y`, `--year`         | **required.**<br/>The deployment year, YYYY. *Ex*: 2018                                                                                                                                                                                                                 |
-| `-a`, `--ambience`    | ***default nvspl -> {nvspl, mennitt}***<br/>The ambience type to use when running NMSIM.                                                                                                                                                                                |
+| `-a`, `--ambience`    | ***default nvspl -> {nvspl, mennitt, or .pkl file path}***<br/>The ambience type to use when running NMSIM.                                                                                                                                                                                |
 | `--headings`          | ***default [0, 120, 240]***<br/>A list of the active space headings that should be dissolved together to make the final active space. *Ex*: `--headings 0, 90, 180, 270`                                                                                                |
 | `--omni-min`          | ***default -20***<br/>The lowest gain to generate an active space for. Active spaces will be generated for all gains between `--omni-min` and `--omni-max`.                                                                                                             |
 | `--omni-max`          | ***default 30***<br/>The highest gain to generate an active space for. Active spaces will be generated for all gains between `--omni-min` and `--omni-max`.                                                                                                             |
@@ -139,7 +141,7 @@ $ python -u -W ignore _DENA/scripts/generate_active_space.py -e production -u DE
 | `--omni-source`       | ***default 0***<br/>Gain to generate the mesh with.                                                                                                                      |
 | `--mesh-spacing`      | ***default 1***<br/>How far apart, in km, mesh square centroids should be.                                                                                               |
 | `--mesh-size`         | ***default 25***<br/>How large, in km, each mesh square should be. Mesh squares will be mesh-size x mesh-size.                                                           |
-| `-l`, `--altitude`    | ***default 3658***Use this flag to generate the active spaces at a particular altitude (in meters). *Ex*: `-l 1524` generates active spaces at 1524 meters or 5000 feet. |
+| `-l`, `--altitude`    | ***default 3658***<br/>Use this flag to generate the active spaces at a particular altitude (in meters). *Ex*: `-l 1524` generates active spaces at 1524 meters or 5000 feet. |
 | `--cleanup`           | If this flag is added, all intermediary control and batch files will be deleted upon script completion.                                                                  |
 
 Example executions:
@@ -161,19 +163,21 @@ This script is used to estimate the geographic intersection of a set of tracks w
 | `-e`, `--environment`  | **required.**<br/>The configuration environment to use. *Ex*: To use `production.config` pass `-e production`                                              |
 | `-u`, `--unit`         | **required.**<br/>The 4 letter NPS unit code. *Ex*: Denali = DENA                                                                                          |
 | `-s`, `--site`         | **required.**<br/>The 4 letter site code. *Ex*: Cathedral = CATH                                                                                           |
-| `-y`, `--year`         | **required.**<br/>The deployment year, YYYY. *Ex*: 2018                                                                                                    |
+| `-y`, `--year`         | **required.**<br/>Which year's active space to use, YYYY. *Ex*: 2018                                                                                                    |
 | `-g`, `--gain` | **required.**<br/>The signed gain of the optimal active space fit, float. *Ex.*: -20.5 |
 | `-t0`, `--begintracks` | **required.**<br/>Date to begin parsing the position record, YYYY-MM-DD. *Ex.*: 2018-01-01 |
 | `-tf`, `--endtracks` | **required.**<br/>Date to stop parsing the position record, YYYY-MM-DD. *Ex.*:  2018-06-05 |
-| `-t`, `--track-source` | ***default Database -> {Database, ADSB, AIS}***<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
-| `-garb`, `--exportgarbage` | **default 0 -> {0, 1}***<br/>Whether to export garbage tracks (1) or not (0).  *Ex.*:  1 |
+| `-t`, `--track-source` | ***default GPS -> {GPS, ADSB, AIS}***<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
+| `-o`, `--output`         | **default ""**<br/>Output directory. Directory to store output files. Defaults to [project directory]/[unit][site]/Output_Data |
+| `-garb`, `--exportgarbage` | **default 0 -> {0, 1}**<br/>Whether to export garbage tracks (1) or not (0).  *Ex.*:  1 |
+| `-v`, `--verbose` | <br/>If provided, prints additional details to the console during processing steps.
 
 Example executions:
 
 ```bash
-$ python -u -W ignore _DENA/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20
+$ python _DENA/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20
 ```
 
 ```bash
-$ python -u -W ignore _DENA/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20 -t ADSB
+$ python _DENA/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20 -t ADSB
 ```

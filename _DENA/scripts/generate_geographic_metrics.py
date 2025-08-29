@@ -6,25 +6,62 @@ from scipy.spatial.distance import directed_hausdorff, cdist
 from scipy.signal import find_peaks
 from shapely.geometry import Point, LineString
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
+import matplotlib.patches as patches
+import warnings
 
 __all__ = [
-    'calculate_special_stats',
-    'circular_sliding_avg',
-    'compute_audibility_stats',
-    'compute_duration_stats',
-    'compute_event_stats',
-    'compute_NFI_stats',
-    'endpoints_around_active',
-    'find_circular_peaks',
+    'clip_events_to_time_period',
+    'tracks2events',
     'get_all_stats',
-    'identify_stereotypical_tracks',
-    'tracks2events' 
+    'calculate_spatial_stats',
+    'plot_events',
+    'circular_sliding_avg',
+    'find_circular_peaks',
+    'endpoints_around_active',
+    'identify_stereotypical_tracks'
 ]
 
-## ========================================== STATISTICS/METRCIS ======================================== ##
+## ========================================== STATISTICS/METRICS ======================================== ##
 
-def tracks2events(tracks, start_date, end_date, min_dur=30):
-    '''
+def clip_events_to_time_period(df, start_col, end_col, start_date, end_date, months=list(range(1,13))):
+    """Clips events to only fall within a time period and within ceratin months.
+    Events that partially overlap the time period boundaries are shortened to only include the section within the time period.
+    
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame containing events, represented by start time and end time columns.
+    start_col: str
+        The name of the column representing event start times.
+    end_col: str
+        The name of the column representing event end times.
+    start_date: np.datetime64
+        The start datetime for the time period to clip to.
+    end_date: np.datetime64
+        The end datetime for the time period to clip to.
+    months : int or list of ints (between 1 and 12)
+        Months to clip to. Events will only be included if either their start or end time falls within one of these months. Defaults to all months.
+    
+    Returns
+    -------
+    df: pd.DataFrame
+        A copy of the input DataFrame, only containing the events within the time period,
+        with modified start / end times if the event overlapped the time period boundaries.
+    """
+    df = df.copy()
+    during_time_period = (df[end_col] > start_date) & (df[start_col] < end_date)
+    during_correct_months = df[start_col].dt.month.isin(months) | df[end_col].dt.month.isin(months)
+    df = df[during_time_period & during_correct_months]
+    # shorten events that partly exist outside of the time period
+    df[start_col] = np.maximum(df[start_col].values, start_date)
+    df[end_col] = np.minimum(df[end_col].values, end_date)
+    return df
+
+
+def tracks2events(tracks, start_date, end_date, min_dur=10):
+    """
     Performs audibility binarization on outputs of the `NPS-ActiveSpace.audible_transits` module. 
     
     This function collapses a set of audible transits spanning a certain time period into 
@@ -40,22 +77,24 @@ def tracks2events(tracks, start_date, end_date, min_dur=30):
         A GeoDataFrame containing the fully interpolated, cleaned, clipped, and extrapolated tracks
         resembling those produced by `NPS-ActiveSpace.audible_transits`. Only requires columns 'entry_time' and 'exit_time'
     start_date : string
-        The initial date of tracks to include, formatted as 'yyyy-mm-dd'
+        The initial date of tracks to include, formatted as 'yyyy-mm-dd'. Note that midnight at the beginning of this day should fall within the monitoring period (not before).
     end_date : string
-        The last date of tracks to include, formatted as 'yyyy-mm-dd'
-    min_dur : float
-        The minimum duration ____________
+        The last date of tracks to include, formatted as 'yyyy-mm-dd'. Note that midnight at the beginning of this day should fall within the monitoring period (not after).
+    min_dur : float, default 30
+        The minimum event duration to include, in seconds
          
         
     Returns
     -------
-    event_df : GeoDataFrame
-        A GeoDataFrame containing each noise event. Looks like:
+    event_df : pd.DataFrame
+        A DataFrame containing each noise event. Looks like:
             start_time | end_time | duration
-    NFI_df : GeoDataFrame
-        A GeoDataFrame containing each noise-free interval. Looks like:
+    NFI_df : pd.DataFrame
+        A DataFrame containing each noise-free interval. Looks like:
             start_time | end_time | duration
-    ''' 
+    TA : float
+        Total % of time audible. Ranges from 0 to 100.
+    """
 
     print("Combining audible transits into a binary event time series.")
     
@@ -63,6 +102,13 @@ def tracks2events(tracks, start_date, end_date, min_dur=30):
     
     start_date = np.datetime64(start_date)  # conversion to datetime64
     end_date = np.datetime64(end_date)      # conversion to datetime64
+
+    tracks = clip_events_to_time_period(tracks, "entry_time", "exit_time", start_date, end_date)
+
+    if tracks.empty:
+        event_df = pd.DataFrame(columns=["start_time", "end_time", "duration"])
+        NFI_df = pd.DataFrame(columns=["start_time", "end_time", "duration"])
+        return event_df, NFI_df, 0.0
     
     tracks.sort_values(by=['entry_time'], inplace=True)
     entry_times = np.asarray(tracks.entry_time) # datetime format
@@ -100,329 +146,231 @@ def tracks2events(tracks, start_date, end_date, min_dur=30):
         i += 1
 
     # Filter out short events and rename these arrays; they now represent the start and end times of each combined event
-    event_start_times = entry_times_cp[exit_times_cp - entry_times_cp >= np.timedelta64(min_dur, 's')]
-    event_end_times = exit_times_cp[exit_times_cp - entry_times_cp >= np.timedelta64(min_dur, 's')]
-    
-    # Create a list of tuples of the event intervals (audible intervals)
-    audible_intervals = [(a, b) for a, b in zip(event_start_times, event_end_times)]
-    audible_times = event_end_times - event_start_times        # List of event durations in timedelta64 format
-    total_audible = sum(audible_times)/np.timedelta64(1,'s')   # Add up all event durations to get total audible time (convert to float in seconds)
+    short_events = exit_times_cp - entry_times_cp < np.timedelta64(min_dur, 's')
+    event_start_times = entry_times_cp[~short_events]
+    event_end_times = exit_times_cp[~short_events]
+    if short_events.sum() > 0:
+        print(f"Filtered out {short_events.sum()} events shorter than {min_dur} seconds")
     
     # Account for event-less time at beginning and end of timeframe in question
-    # Note that if timeframe starts/ends with an event, no inaudible time will actually be added
+    # This is needed for the inaudible_begins and inaudible_ends indices to match up properly so we can subtract to compute durations.
     inaudible_begins = np.insert(event_end_times, 0, start_date)
     inaudible_ends = np.append(event_start_times, end_date)
+    # Filter out zero-duration NFIs caused by the timeframe starting or ending with an event
+    zero_duration = inaudible_begins == inaudible_ends
+    inaudible_begins = inaudible_begins[~zero_duration]
+    inaudible_ends = inaudible_ends[~zero_duration]
 
-    # Create a list of tuples of the inaudible intervals (time in between audible intervals)
-    inaudible_intervals = [(a, b) for a, b in zip(inaudible_begins, inaudible_ends)]
+    # Get durations for events and NFIs
+    audible_times = event_end_times - event_start_times        # List of event durations in timedelta64 format
     inaudible_times = inaudible_ends - inaudible_begins            # List of noise-free interval durations in timedelta64 format
-    total_inaudible = sum(inaudible_times)/np.timedelta64(1,'s')   # Add up all noise-free durations to get inaudible time (convert to float in seconds)
-    
+
+    # Calculate time audible
+    total_audible = sum(audible_times)/np.timedelta64(1,'s')   # Add up all event durations to get total audible time (convert to float in seconds)
     total_time = (end_date - start_date)/np.timedelta64(1,'s')     # Calculate total time of timeframe in seconds 
-    
-    # Format the statistics
-    duration_list = audible_times/np.timedelta64(1,'s')  # list of event duration lengths in seconds
-    NFI_list = inaudible_times/np.timedelta64(1,'s')     # list of noise-free interval lengths in seconds
     TA = 100 * total_audible / total_time                # (%) of total time with an audible event (Time Audible)
 
     # We organize this information into two dataframes -> Noise events, Noise-free intervals
+    duration_list = audible_times/np.timedelta64(1,'s')  # list of event duration lengths in seconds
+    NFI_list = inaudible_times/np.timedelta64(1,'s')     # list of noise-free interval lengths in seconds
     event_df = pd.DataFrame(data={'start_time': event_start_times, 'end_time': event_end_times, 'duration': duration_list})
     NFI_df = pd.DataFrame(data={'start_time': inaudible_begins, 'end_time': inaudible_ends, 'duration': NFI_list})
 
-    return event_df, NFI_df
-    
-def compute_audibility_stats(event_dataframe, start_date, end_date, months=list(range(1,13)), quantiles=.5):
-    '''
-    Computes audibility using the event dataframe from `tracks2events()`. 
-    The output includes the following, both hourly and daily in %:
-                                                                 - min
-                                                                 - max
-                                                                 - mean
-                                                                 - standard deviation
-                                                                 - median absolute deviation
-                                                                 - desired quantiles                                                  
+    return event_df, NFI_df, TA
+
+
+def _split_events(df, freq):
+    """Split events that span hour/day/etc boundaries into consecutive events.
     
     Parameters
     ----------
-    event_dataframe : GeoDataFrame
-        A GeoDataFrame containing each noise event. Looks like:
+    df: pd.DataFrame
+        A DataFrame containing each event. Looks like:
             start_time | end_time | duration
-    start_date : string
-        The start date to begin calculating audibility, formatted as 'yyyy-mm-dd'. Partitions by event start date
-    end_date : string
-        The end date to stop calculating audibility, formatted as 'yyyy-mm-dd'. Partitions by event start date
-    months : int or list of ints (between 1 and 12)
-        Default is the full year, an optional input to specify the months of interest as a list of integers, 1-12. 
-        This is helpful for highly seasonal flight patterns, such as Denali's summer vs winter splits.
-    quantiles : float or list of floats (between 0 and 1)
-        Default is .5 (the median), specifies which quantiles to output. E.g., [.1, .5., .9] will output 10th, 50th, and 90th quantiles
+    freq: str
+        A string representing a time frequency in pandas, e.g. 'h', 'd', etc.
     
-        
     Returns
     -------
-    daily_audibility_stats : GeoDataFrame
-        A GeoDataFrame containing the daily audibility % min, max, mean, standard deviation, median absolute deviation, and quantiles
-    hourly_audibility_stats : GeoDataFrame
-        A GeoDataFrame containing the hourly audibility % min, max, mean, standard deviation, median absolute deviation, and quantiles
-    '''        
-    start_date = np.datetime64(start_date)  # Convert to datetime64
-    end_date = np.datetime64(end_date)      # Convert to datetime64
-    
-    # Input validation. Both 'quantiles' and 'months' paramters must be converted to lists
-    quantiles = [quantiles] if type(quantiles)!=type([]) else quantiles
-    months = [months] if type(months)!=type([]) else months
-    # Make sure months are between 1 and 12
-    for month in months:
-        if (month < 1) | (month > 12):
-            print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
-            months=list(range(1,13))
-    print("Computing daily and hourly audibility metrics (% audible time)")
-            
-    # Extract events within the start and end date
-    event_df = event_dataframe[(event_dataframe.start_time >= start_date) & (event_dataframe.start_time <= end_date)]
-    # Filter just the months specified in the 'months' parameter
-    event_df = event_df[[date.month in months for date in event_df.start_time]]
+    df: pd.DataFrame
+        A new DataFrame containing split events.
+    """
 
-    # Create a datetimeindex that spans all days within the start and end date; add column time_audible
-    daily_audibility_df = pd.DataFrame(index=pd.date_range(start_date, end_date, freq='d'), columns=['time_audible'])
-    daily_audibility_df = daily_audibility_df[[date.month in months for date in daily_audibility_df.index]]
-    for id, event in event_df.groupby(event_df.start_time.dt.floor('d')):
-        daily_audibility_df['time_audible'].loc[event.start_time.dt.floor('d')] = 100 * event.duration.sum() / (60*60*24)
-    daily_audibility_df.fillna(0, inplace=True)  # Fill in any days that had no audibile events with 0
-    # Generate a stats summary dataframe for daily audibility
-    daily_audibility_stats = daily_audibility_df.agg(['min', 'max','mean', 'std', stats.median_abs_deviation, 'sem'])
-    # Add in quantiles as specified by user
-    quantile_string = [str(int(100*q))+'% quantile' for q in quantiles]  # Generates index label for each quantile
-    for i, q in enumerate(quantiles):
-        daily_audibility_stats.loc[quantile_string[i]] = daily_audibility_df.quantile(q)  # Calculates each quantile
-        
-    # Create a datetimeindex that spans all hours within the start and end date; add column time_audible
-    hourly_audibility_df = pd.DataFrame(index=pd.date_range(start_date, end_date, freq='h'), columns=['time_audible'])
-    hourly_audibility_df = hourly_audibility_df[[date.month in months for date in hourly_audibility_df.index]]
-    for id, event in event_df.groupby(event_df.start_time.dt.floor('h')):
-        hourly_audibility_df['time_audible'].loc[event.start_time.dt.floor('h')] = 100 * event.duration.sum() / (60*60)
-    hourly_audibility_df.fillna(0, inplace=True) # Fill in any hours that had no audibile events with 0
-    # Generate a stats summary dataframe for hourly audibility
-    hourly_audibility_stats = hourly_audibility_df.agg(['min', 'max', 'mean', 'std', stats.median_abs_deviation, 'sem'])
-    # Add in quantiles as specified by user
-    quantile_string = [str(int(100*q))+'% quantile' for q in quantiles]  # Generates index label for each quantile
-    for i, q in enumerate(quantiles):
-        hourly_audibility_stats.loc[quantile_string[i]] = hourly_audibility_df.quantile(q)  # Calculates each quantile
-    
-    return daily_audibility_stats, hourly_audibility_stats
+    split_rows = []
+    for _, row in df.iterrows():
+        current_start = row['start_time']
+        while current_start < row['end_time']:
+            # Find the end of the current frequency bucket
+            next_boundary = current_start.floor(freq) + pd.to_timedelta(1, unit=freq)
+            current_end = min(row['end_time'], next_boundary)
+            # Add segment
+            split_duration = (current_end - current_start).total_seconds()
+            split_rows.append({
+                'start_time': current_start,
+                'end_time': current_end,
+                'duration': split_duration
+            })
+            current_start = current_end
 
-def compute_NFI_stats(NFI_dataframe, start_date, end_date, months=list(range(1,13)), quantiles=.5):
-    '''
-    Computes noise-free interval (NFI) stats using the event dataframe from tracks2events(). 
-    The output includes the following NFI stats in timestamp format:
-                                                                         - min
-                                                                         - max
-                                                                         - mean
-                                                                         - standard deviation
-                                                                         - median absolute deviation
-                                                                         - desired quantiles                                                  
+    return pd.DataFrame(split_rows)
+
+
+def _time_binned_df(event_df, start_date, end_date, months, freq):
+    """Calculates time audible and event count for each time chunk (e.g. hourly) in a given time period.
     
     Parameters
     ----------
-    NFI_dataframe : GeoDataFrame
-        A GeoDataFrame containing each noise-free interval. Looks like:
-            start_time | end_time | duration
-    start_date : string
-        The start date to begin calculating NFI stats, formatted as 'yyyy-mm-dd'. Partitions by event start date
-    end_date : string
-        The end date to stop calculating NFI stats, formatted as 'yyyy-mm-dd'. Partitions by event start date
-    months : int or list of ints (between 1 and 12)
-        Default is the full year, an optional input to specify the months of interest as a list of integers, 1-12. 
-        This is helpful for highly seasonal flight patterns, such as Denali's summer vs winter splits.
-    quantiles : float or list of floats (between 0 and 1)
-        Default is .5 (the median), specifies which quantiles to output. E.g., [.1, .5., .9] will output 10th, 50th, and 90th quantiles
+    event_df: pd.DataFrame
+        DataFrame containing non-overlapping events, with columns ["start_time", "end_time", "duration" (in sec)]
+    start_date: np.datetime64
+        Start of the time period of interest
+    end_date: np.datetime64
+        End of the time period of interest
+    months: list
+        List of month indices to include, valid indices are 1-12
+    freq: str
+        A character representing a pandas time frequency. E.g. "h"=hourly, "d"=daily, "w"=weekly, "m"=monthly
     
-        
     Returns
     -------
-    NFI_stats : GeoDataFrame
-        A GeoDataFrame containing the NFI duration min, max, mean, standard deviation, median absolute deviation, and quantiles
-    '''    
-    start_date = np.datetime64(start_date)  # Convert to datetime64
-    end_date = np.datetime64(end_date)      # Convert to datetime64
-    
-    # Input validation. Both 'quantiles' and 'months' paramters must be converted to lists
-    quantiles = [quantiles] if type(quantiles)!=type([]) else quantiles
-    months = [months] if type(months)!=type([]) else months
-    # Make sure months are between 1 and 12
-    for month in months:
-        if (month < 1) | (month > 12):
-            print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
-            months=list(range(1,13))
-    print("Computing noise-free interval stats (in timedelta format)")
-    
-    # Extract events within the start and end date
-    NFI_df = NFI_dataframe[(NFI_dataframe.start_time >= start_date) & (NFI_dataframe.start_time <= end_date)]
-    # Filter just the months specified in the 'months' parameter
-    NFI_df = NFI_df[[date.month in months for date in NFI_df.start_time]]
-    # Generate a stats summary dataframe for noise-free interval duration
-    NFI_stats = NFI_df.duration.agg(['min', 'max', 'mean', 'std', stats.median_abs_deviation, 'sem'])
-    
-    # Add in quantiles as specified by user
-    quantile_string = [str(int(100*q))+'% quantile' for q in quantiles]  # Generates index label for each quantile
-    for i, q in enumerate(quantiles):
-       NFI_stats.loc[quantile_string[i]] = NFI_df.duration.quantile(q)   # Calculates each quantile
-    NFI_stats = NFI_stats * np.timedelta64(1,'s')  # Convert to timedelta64 format (more human readable)
-    return NFI_stats
+    binned_df: pd.DataFrame
+        A DataFrame with a datetime index representing each time chunk, and two columns for time audible and event count.
 
-def compute_event_stats(event_dataframe, start_date, end_date, months=list(range(1,13)), quantiles=.5):
-    '''
-    Computes event count stats using the event dataframe from tracks2events(). 
-    The output includes the following, both hourly and daily in # of events:
-                                                                             - min
-                                                                             - max
-                                                                             - mean
-                                                                             - standard deviation
-                                                                             - median absolute deviation
-                                                                             - desired quantiles                                                  
-    
-    Parameters
-    ----------
-    event_dataframe : GeoDataFrame
-        A GeoDataFrame containing each noise event. Looks like:
-            start_time | end_time | duration
-    start_date : string
-        The start date to begin calculating event stats, formatted as 'yyyy-mm-dd'. Partitions by event start date
-    end_date : string
-        The end date to stop calculating event stats, formatted as 'yyyy-mm-dd'. Partitions by event start date
-    months : int or list of ints (between 1 and 12)
-        Default is the full year, an optional input to specify the months of interest as a list of integers, 1-12. 
-        This is helpful for highly seasonal flight patterns, such as Denali's summer vs winter splits.
-    quantiles : float or list of floats (between 0 and 1)
-        Default is .5 (the median), specifies which quantiles to output. E.g., [.1, .5., .9] will output 10th, 50th, and 90th quantiles
-    
-        
-    Returns
-    -------
-    daily_event_stats : GeoDataFrame
-        A GeoDataFrame containing the daily event count min, max, mean, standard deviation, median absolute deviation, and quantiles
-    hourly_event_stats : GeoDataFrame
-        A GeoDataFrame containing the hourly event count min, max, mean, standard deviation, median absolute deviation, and quantiles
-    '''
-    start_date = np.datetime64(start_date)  # Convert to datetime64
-    end_date = np.datetime64(end_date)      # Convert to datetime64
-    
-    # Input validation. Both 'quantiles' and 'months' paramters must be converted to lists
-    quantiles = [quantiles] if type(quantiles)!=type([]) else quantiles
-    months = [months] if type(months)!=type([]) else months
-    # Make sure months are between 1 and 12
-    for month in months:
-        if (month < 1) | (month > 12):
-            print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
-            months=list(range(1,13))
-    print("Computing daily and hourly event metrics (# of events)")
-            
-    # Extract events within the start and end date
-    event_df = event_dataframe[(event_dataframe.start_time >= start_date) & (event_dataframe.start_time <= end_date)]
-    # Filter just the months specified in the 'months' parameter
-    event_df = event_df[[date.month in months for date in event_df.start_time]]
+    """
+    # determine appropriate human-readable time period prefix
+    prefix_map = {"h": "hourly", "d": "daily", "w": "weekly", "m": "monthly"}
+    prefix = f"{prefix_map[freq]}_" if freq in prefix_map else ""
 
-    # Create a datetimeindex that spans all days within the start and end date; add column event_count
-    daily_event_df = pd.DataFrame(index=pd.date_range(start_date, end_date, freq='d'), columns=['event_count'])
-    daily_event_df = daily_event_df[[date.month in months for date in daily_event_df.index]]  # Filter by 'months'
-    for id, event in event_df.groupby(event_df.start_time.dt.floor('d')):
-        daily_event_df['event_count'].loc[event.start_time.dt.floor('d')] = len(event)  # event count is just length of dataframe group
-    daily_event_df.fillna(0, inplace=True)    # Fill in any days that had no audibile events with 0
-    # Generate a stats summary dataframe for daily event count
-    daily_event_stats = daily_event_df.agg(['min', 'max','mean', 'std', stats.median_abs_deviation, 'sem'])
-    
-    # Add in quantiles as specified by user
-    quantile_string = [str(int(100*q))+'% quantile' for q in quantiles]  # Generates index label for each quantile
-    for i, q in enumerate(quantiles):
-        daily_event_stats.loc[quantile_string[i]] = daily_event_df.quantile(q)  # Calculates each quantile
+    # prepare a dataframe to hold values for each time period, indexed by the time at the start of that period
+    # make sure that the entire time range of interest is represented, so that periods without data are accounted for
+    date_index = pd.date_range(start_date, end_date, freq=freq, inclusive="left")
+    date_index = date_index[date_index.month.isin(months)]
+    periods_df = pd.DataFrame(index=date_index, columns=[prefix+"time_audible", prefix+"event_count"])
 
-    # Create a datetimeindex that spans all hours within the start and end date; add column event_count
-    hourly_event_df = pd.DataFrame(index=pd.date_range(start_date, end_date, freq='h'), columns=['event_count'])
-    hourly_event_df = hourly_event_df[[date.month in months for date in hourly_event_df.index]]  # Filter by 'months'
-    for id, event in event_df.groupby(event_df.start_time.dt.floor('h')):
-        hourly_event_df['event_count'].loc[event.start_time.dt.floor('h')] = len(event)  # event count is just length of dataframe group
-    hourly_event_df.fillna(0, inplace=True)   # Fill in any hours that had no audibile events with 0
-    # Generate a stats summary dataframe for hourly event count
-    hourly_event_stats = hourly_event_df.agg(['min', 'max', 'mean', 'std', stats.median_abs_deviation, 'sem'])
-    # Add in quantiles as specified by user    
-    quantile_string = [str(int(100*q))+'% quantile' for q in quantiles]   # Generates index label for each quantile
-    for i, q in enumerate(quantiles):
-        hourly_event_stats.loc[quantile_string[i]] = hourly_event_df.quantile(q)  # Calculates each quantile
-    
-    return daily_event_stats, hourly_event_stats
+    # group by each time period and calculate the number of events STARTING in each period
+    # (which is different than the number of events overlapping that period)
+    for period, group in event_df.groupby(event_df["start_time"].dt.floor(freq)):
+        periods_df.loc[period, prefix+"event_count"] = len(group)  # event count is just length of dataframe group
 
-def compute_duration_stats(event_dataframe, start_date, end_date, months=list(range(1,13)), quantiles=.5):
-    '''
-    Computes event duration stats using the event dataframe from tracks2events(). 
-    The output includes the following duration stats in timestamp format:
-                                                                         - min
-                                                                         - max
-                                                                         - mean
-                                                                         - standard deviation
-                                                                         - median absolute deviation
-                                                                         - desired quantiles                                                  
-    
-    Parameters
-    ----------
-    event_dataframe : GeoDataFrame
-        A GeoDataFrame containing each noise event. Looks like:
-            start_time | end_time | duration
-    start_date : string
-        The start date to begin calculating duration stats, formatted as 'yyyy-mm-dd'. Partitions by event start date
-    end_date : string
-        The end date to stop calculating duration stats, formatted as 'yyyy-mm-dd'. Partitions by event start date
-    months : int or list of ints (between 1 and 12)
-        Default is the full year, an optional input to specify the months of interest as a list of integers, 1-12. 
-        This is helpful for highly seasonal flight patterns, such as Denali's summer vs winter splits.
-    quantiles : float or list of floats (between 0 and 1)
-        Default is .5 (the median), specifies which quantiles to output. E.g., [.1, .5., .9] will output 10th, 50th, and 90th quantiles
-    
-        
-    Returns
-    -------
-    duration_stats : GeoDataFrame
-        A GeoDataFrame containing the event duration min, max, mean, standard deviation, median absolute deviation, and quantiles
-    '''
-    start_date = np.datetime64(start_date)  # Convert to datetime64
-    end_date = np.datetime64(end_date)      # Convert to datetime64
+    # group by each time period and calculate time audible
+    # first, split events overlapping multiple periods, so that the relevant chunks of each event
+    # are assigned to the correct time period
+    split = _split_events(event_df, freq)
+    period_duration = pd.to_timedelta(1, freq).total_seconds()
+    for period, group in split.groupby(split["start_time"].dt.floor(freq)):
+        periods_df.loc[period, prefix+"time_audible"] = 100 * group["duration"].sum() / period_duration
 
-    # Input validation. Both 'quantiles' and 'months' paramters must be converted to lists
-    quantiles = [quantiles] if type(quantiles)!=type([]) else quantiles
-    months = [months] if type(months)!=type([]) else months
-    # Make sure months are between 1 and 12
-    for month in months:
-        if (month < 1) | (month > 12):
-            print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
-            months=list(range(1,13))
-    print("Computing event duration stats (in timedelta format)")
+    periods_df.fillna(0, inplace=True)  # Fill in any periods that had no audible events with count=0 and % time audible=0
+
+    return periods_df
+
+
+def _agg_conf_intervals(series: pd.Series, agg_funcs: list):
+    out = {}
+    for f in agg_funcs:
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("error")
+                result = stats.bootstrap((series.values,), lambda x: f(pd.Series(x)),
+                                        confidence_level=0.95, n_resamples=1000, method="BCa")
+            out[f.__name__] = result.confidence_interval
+        except:
+            out[f.__name__] = (pd.NA, pd.NA)
+    return pd.Series(out)
+
+
+# nice trick for aggregating quantiles cleanly, inspired from here:
+# https://skeptric.com/pandas-aggregate-quantile/
+class Quantile:
+    def __init__(self, q):
+        self.q = q
+        self.__name__ = f"{int(100*q)}% quantile"
     
-    # Extract events within the start and end date
-    event_df = event_dataframe[(event_dataframe.start_time >= start_date) & (event_dataframe.start_time <= end_date)]
-    # Filter just the months specified in the 'months' parameter
-    event_df = event_df[[date.month in months for date in event_df.start_time]]
-    # Generate a stats summary dataframe for event duration
-    duration_stats = event_df.duration.agg(['min', 'max', 'mean', 'std', stats.median_abs_deviation, 'sem'])
-    
-    # Add in quantiles as specified by user
-    quantile_string = [str(int(100*q))+'% quantile' for q in quantiles]  # Generates index label for each quantile
-    for i, q in enumerate(quantiles):
-       duration_stats.loc[quantile_string[i]] = event_df.duration.quantile(q)   # Calculates each quantile
-    duration_stats = duration_stats * np.timedelta64(1,'s')  # Convert to timedelta64 format (more human readable)
-    return duration_stats
+    def __call__(self, series: pd.Series):
+        return series.quantile(self.q)
+
 
 def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13)), quantiles=.5):
-    '''
-    A convenience function to run all the event summary functions included in this module.
-    '''
+    """Calculates all event statistics, given a set of events and corresponding noise free intervals (NFIs).
+    
+    Parameters
+    ----------
+    event_df: pd.DataFrame
+        A DataFrame containing events, such as those returned by tracks2events(). Looks like:
+            start_time (datetime) | end_time (datetime) | duration (# secs as ints)
+    NFI_df: pd.DataFrame
+        A DataFrame containing noise free intervals, such as those returned by tracks2events(). Looks like:
+            start_time (datetime) | end_time (datetime) | duration (# secs as ints)
+    start_date : string
+        The start date to begin calculating duration stats, formatted as 'yyyy-mm-dd'. Refers to midnight of this date.
+    end_date : string
+        The end date to stop calculating duration stats, formatted as 'yyyy-mm-dd'. Refers to midnight of this date, so no events occuring during this day will be captured.
+    months : int or list of ints (between 1 and 12)
+        Default is the full year, an optional input to specify the months of interest as a list of integers, 1-12. 
+        This is helpful for highly seasonal flight patterns, such as Denali's summer vs winter splits.
+    quantiles : float or list of floats (between 0 and 1)
+        Default is .5 (the median), specifies which quantiles to output. E.g., [.1, .5., .9] will output 10th, 50th, and 90th quantiles
+    
+    Returns
+    -------
+    Tuple of (statistics, confidence_intervals, data)
+        statistics: pd.DataFrame
+            DataFrame containing computed statistics.
+            Columns represent the metrics that statistics are computed for: event_duration, NFI_duration, daily_time_audible, daily_event_count, hourly_time_audible, hourly_event_count
+            Rows represent the statistic: mean, quantiles, min, max, std, median_abs_deviation 
+        confidence_intervals: pd.DataFrame
+            DataFrame containing 95% BCa confidence intervals for the mean and quantiles, computed using bootstrapping.
+            Columns are metric names, rows are statistic names.
+            Entries in the DataFrame are tuples representing the confidence intervals. Note that tuples may contain nan if the statistic
+            distribution was degenerate (always the same value when performing bootstrapping).
+        data: dict
+            A dictionary where keys are metric names, and values are pd.Series representing the data.
+    """
 
     start_date = np.datetime64(start_date)  # Convert to datetime64
     end_date = np.datetime64(end_date)      # Convert to datetime64
 
-    duration_stats = compute_duration_stats(event_df, start_date, end_date, months=months, quantiles=quantiles)
-    daily_event_stats, hourly_event_stats = compute_event_stats(event_df, start_date, end_date, months=months, quantiles=quantiles)
-    NFI_stats = compute_NFI_stats(NFI_df, start_date, end_date, months=months, quantiles=quantiles)
-    daily_audibility_stats, hourly_audibility_stats = compute_audibility_stats(event_df, start_date, end_date, months=months, quantiles=quantiles)
-    return duration_stats, daily_event_stats, hourly_event_stats, daily_audibility_stats, hourly_audibility_stats, NFI_stats
+    # Input validation. Both 'quantiles' and 'months' paramters must be converted to lists
+    quantiles = [quantiles] if type(quantiles)!=type([]) else quantiles
+    months = [months] if type(months)!=type([]) else months
+
+    # Make sure months are between 1 and 12
+    for month in months:
+        if (month < 1) | (month > 12):
+            print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
+            months=list(range(1,13))
+
+    event_df = clip_events_to_time_period(event_df, "start_time", "end_time", start_date, end_date, months)
+    NFI_df = clip_events_to_time_period(NFI_df, "start_time", "end_time", start_date, end_date, months)
+
+    # prepare the values we want statistics for
+    values = {
+        "event_duration": event_df["duration"],
+        "NFI_duration": NFI_df["duration"]
+    }
+    # include time audible and event count, binned by hour and by day
+    for freq in ['d', 'h']:
+        binned_df = _time_binned_df(event_df, start_date, end_date, months, freq)
+        for col in binned_df.columns:
+            values[col] = binned_df[col]
+    
+    # prepare the statistics we want
+    agg_stats = ["mean"] + [Quantile(q) for q in quantiles] + ["min", "max", "std", stats.median_abs_deviation]
+    conf_int_stats = [np.mean] + [Quantile(q) for q in quantiles]
+
+    # compute statistics
+    statistics = {}
+    conf_intervals = {}
+    for col, series in values.items():
+        statistics[col] = series.agg(agg_stats)
+        conf_intervals[col] = _agg_conf_intervals(series, conf_int_stats)
+        # convert duration fields to timedeltas, more human readable
+        # if col in ["event_duration", "NFI_duration"]:
+        #     statistics[col] = pd.to_timedelta(statistics[col], unit="s")
+        #     conf_intervals[col] = conf_intervals[col].apply(lambda x: tuple(pd.to_timedelta(x, unit="s")))
+    
+    return pd.DataFrame(statistics), pd.DataFrame(conf_intervals), values    
+
 
 def calculate_spatial_stats(tracks, active):
     '''
@@ -466,6 +414,77 @@ def calculate_spatial_stats(tracks, active):
     distance_from_inaudibility_stats = tracks.agg({'max_distance_from_inaudibility':['min', 'max', 'mean', 'median'], 'mean_distance_from_inaudibility':['min', 'max', 'mean', 'median']})
     
     return distance_from_inaudibility_stats
+
+
+## ========================================== VISUALIZATION =============================================== ##
+
+def _split_interval_by_hour(start, end):
+    """Yield (segment_start, segment_end) tuples split at each hour boundary."""
+    while start < end:
+        next_hour = (start + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+        segment_end = min(end, next_hour)
+        yield (start, segment_end)
+        start = segment_end
+        
+
+def plot_events(start_times, end_times, title="Events", colors=None, labels=False, savepath=None):
+    """Plot events on a timeline that wraps around at each hour.
+    
+    Parameters
+    ----------
+    start_times: pd.Series, dtype=datetime
+    end_times: pd.Series, dtype=datetime
+    title: str
+        Plot title, default is "Events"
+    colors: array-like
+        Colors to use for each event. Note than an alpha will be applied to the color. Default None, which uses the "skyblue" color.
+    labels: bool
+        Whether to annotate the event start/end times on the plot with text. Default False
+    savepath: str, default None
+        If provided, save the figure to this path instead of showing it.
+    """
+    plt.figure(figsize=(8, 8))
+    ax = plt.gca()
+
+    earliest_hour = start_times.min().floor("h")
+    latest_hour = end_times.max().ceil("h")
+
+    if colors is None:
+        colors = ["skyblue" for _ in range(len(start_times))]
+
+    for start, end, color in zip(start_times, end_times, colors):
+        for s, e in _split_interval_by_hour(start, end):
+            x_start = (s.minute + s.second / 60)
+            duration = (e - s).total_seconds() / 60
+            y = s.floor('h').timestamp()
+
+            # Plot rectangle
+            ax.add_patch(patches.Rectangle((x_start, y), duration, 0.8 * 3600,
+                                      linewidth=1, edgecolor='black', facecolor=color, alpha=0.5))
+            # Plot Text
+            if labels:
+                ax.text(x_start, y,
+                        f"{start.strftime('%H:%M')}-{end.strftime('%H:%M')}",
+                        ha='left', va='top', fontsize=8)
+
+    # Configure axes
+    hours = pd.date_range(earliest_hour, latest_hour, freq="h")
+    ax.set_xlim(0, 60)
+    ax.set_ylim(latest_hour.timestamp(), earliest_hour.timestamp())  # inverted y axis so time flows down
+    ax.set_yticks(hours.astype(int) // 1e9)
+    yticklabels = hours.map(lambda t: t.strftime("%m-%d  %H:00") if t.hour == 0 else t.strftime("%H:00")).tolist()
+    yticklabels[0] = hours[0].strftime("%m-%d  %H:00")  # make sure the first hour is labeled with the date
+    ax.set_yticklabels(yticklabels)
+    ax.set_xlabel('Minutes within the hour')
+    ax.set_ylabel('Hour')
+    ax.set_title(title)
+    plt.grid(True)
+    plt.tight_layout()
+    if savepath is not None:
+        plt.savefig(savepath)
+        plt.close()
+    else:
+        plt.show()
 
 ## ========================================== STEREOTYPICAL TRACKS ======================================== ##
 

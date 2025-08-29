@@ -18,7 +18,7 @@ from nps_active_space.utils import Nvspl, Tracks
 
 import _DENA.resource.config as cfg
 from _DENA import DENA_DIR
-from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks
+from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM
 from nps_active_space.utils import coords_to_utm
 
 
@@ -34,8 +34,8 @@ if __name__ == '__main__':
                           help="Four letter site code. E.g. TRLA")
     argparse.add_argument('-y', '--year', type=int, required=True,
                           help="Four digit year. E.g. 2018")
-    argparse.add_argument('-t', '--track-source', default='Database', choices=["Database", "ADSB", "AIS"],
-                          help="Enter 'Database', 'ADSB', or 'AIS")
+    argparse.add_argument('-t', '--track-source', default='GPS', choices=["GPS", "ADSB", "AIS"],
+                          help="Enter 'GPS', 'ADSB', or 'AIS")
 
     args = argparse.parse_args()
 
@@ -50,9 +50,11 @@ if __name__ == '__main__':
     # Set the various path variables.
     archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
     project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
+    faa_path = None
+    faa_corrections_path = None
 
     # Load the microphone deployment site metadata and the study area shapefile.
-    microphone = get_deployment(args.unit, args.site, args.year, cfg.read('data', 'site_metadata'))
+    microphone = get_deployment(cfg.read('project', 'dir'), args.unit, args.site, args.year)
     study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])  # In NAD83, epsg:4269
 
     # Retrieve the days for which at least some NVSPL data exist.
@@ -72,11 +74,15 @@ if __name__ == '__main__':
         raw_tracks["local_hourtime"] = raw_tracks["TIME"].apply(lambda t: t.replace(minute=0, second=0, microsecond=0))
         tracks = Tracks(raw_tracks, id_col='flight_id', datetime_col='TIME', z_col='altitude')
         hourtimes = tracks.local_hourtime.astype(object).unique()
+        faa_path = cfg.read('project', 'FAA_Releasable_db')
+        faa_corrections_path = cfg.read('project', 'FAA_type_corrections')
 
-    elif args.track_source == 'Database':
+    elif args.track_source == 'GPS':
         raw_tracks = query_tracks(engine=engine, start_date=nvspl_dates[0], end_date=nvspl_dates[-1], mask=study_area)
         tracks = Tracks(raw_tracks, 'flight_id', 'ak_datetime', 'altitude_m')
         hourtimes = tracks.ak_hourtime.astype(object).unique()
+        faa_path = cfg.read('project', 'FAA_Releasable_db')
+        faa_corrections_path = cfg.read('project', 'FAA_type_corrections')
 
     else:
         raise NotImplementedError('Code for AIS is not ready yet.')
@@ -91,6 +97,9 @@ if __name__ == '__main__':
     nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year), items=track_hours)]
     nvspl = Nvspl(nvspl_files)
 
+    # Load DEM
+    dem = load_DEM(cfg.read('project', 'dir'), args.unit, args.site)
+
     logger.info("Launching application...")
     app.launch(
         tracks=tracks,
@@ -98,5 +107,9 @@ if __name__ == '__main__':
         mic=microphone,
         crs=coords_to_utm(microphone.lat, microphone.lon),
         study_area=study_area,
-        clip=False
+        database_type=args.track_source,
+        dem=dem,
+        clip=False,
+        faa_path=faa_path,
+        faa_corrections_path=faa_corrections_path
     )

@@ -1,11 +1,11 @@
 import glob
 import multiprocessing as mp
 import os
+import numpy as np
 from argparse import ArgumentParser
 from copy import deepcopy
 from functools import partial
 from pathlib import Path
-from statistics import mean
 from typing import List, Tuple, TYPE_CHECKING
 
 import geopandas as gpd
@@ -28,8 +28,9 @@ import iyore
 
 import _DENA.resource.config as cfg
 from _DENA import DENA_DIR
-from _DENA.resource.helpers import get_deployment, get_logger, get_omni_sources
-from nps_active_space.utils import Annotations, compute_fbeta, Nvspl
+from _DENA.resource.helpers import get_deployment, get_logger, get_omni_sources, load_annotations
+from nps_active_space.utils import Annotations, Nvspl
+from nps_active_space.utils.computation import select_optimal, ambience_from_nvspl, ambience_from_raster, normalize_point_density
 from nps_active_space.active_space import ActiveSpaceGenerator
 
 if TYPE_CHECKING:
@@ -107,21 +108,26 @@ if __name__ == '__main__':
                           help="Four letter site code. E.g. TRLA")
     argparse.add_argument('-y', '--year', type=int, required=True,
                           help="Four digit year. E.g. 2018")
-    argparse.add_argument('-a', '--ambience', default='nvspl', choices=['nvspl', 'mennitt'],
-                          help="What type of ambience to use in NMSIM calculations. Choose from ['nvspl', 'mennitt']")
+    argparse.add_argument('-a', '--ambience', default='nvspl',
+                          help="What type of ambience to use in NMSIM calculations. Choose from ['nvspl', 'mennitt', or a path to an ambience .pkl file]")
     argparse.add_argument('--headings', nargs='+', type=int, default=[0, 120, 240],
-                          help="Headings of active spaces to dissolve.")
+                          help="Headings of active spaces to dissolve. Accepts one or more values.")
     argparse.add_argument('--omni-min', type=float, default=-20,
                           help="The minimum omni source to run the mesh for.")
     argparse.add_argument('--omni-max', type=float, default=30,
                           help="The maximum omni source to run the mesh for.")
     argparse.add_argument('-l', '--altitude', type=int, required=False,
                           help="Altitude to run NSMIM with in meters.")
-    argparse.add_argument('-b', '--beta', default=1.0, type=float,
-                          help="Beta value to use when calculating fbeta.")
+    argparse.add_argument('-b', '--beta', nargs='+', type=float, default=[1.0, 2.0], 
+                          help="Beta value(s) to use when calculating fbeta. Accepts one or more values.")
     argparse.add_argument('--cleanup', action='store_true',
                           help="Remove intermediary control and batch files.")
     args = argparse.parse_args()
+
+    ambience_valid = (args.ambience == "nvspl") or (args.ambience == "mennitt") or (args.ambience.endswith(".pkl") and os.path.exists(args.ambience))
+    assert ambience_valid, "Ambience argument must be 'nvspl', 'mennitt', or a .pkl file"
+
+    # --------------- INIT --------------- #
 
     cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
     project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
@@ -129,50 +135,65 @@ if __name__ == '__main__':
 
     omni_sources = get_omni_sources(lower=args.omni_min, upper=args.omni_max)
 
-    # --------------- ANNOTATION LOGIC --------------- #
-
-    # Verify that annotation files exist for the unit/site location. If they do exist, load them into memory.
-    logger.info("Locating unit/site annotations...")
-    annotation_files = glob.glob(f"{project_dir}/{args.unit}{args.site}*_saved_annotations.geojson")
-    if len(annotation_files) == 0:
-        logger.info(f"No track annotations found for {args.unit}{args.site}{args.year}. Exiting...")
-        exit(-1)
-    annotations = []
-    for file in tqdm(annotation_files, desc='Loading annotation files', unit='files', colour='white'):
-        annotations.append(Annotations(file, only_valid=True))
-    annotations = pd.concat(annotations)
-
-    # If the user does not pass an altitude, calculate the average altitude of all valid tracks. Extract the altitudes
-    #  from each linestring to get the average height (in meters) of audible flight segments.
-    if not args.altitude:
-        logger.info("Calculating average altitude (in meters)...")
-        annotations['z_vals'] = (annotations['geometry'].apply(lambda geom: mean([coords[-1] for coords in geom.coords])))
-        altitudes_ = annotations[annotations.audible == True].z_vals
-        altitudes_ = altitudes_[(altitudes_ > 0)&(altitudes_ <= 10000)] # NOTE removing the negative values could be severe for some ADS-B loggers
-        altitude_ = int(mean(altitudes_.tolist()))
-        logger.info(f"Average altitude is: {altitude_}m")
-    else:
-        altitude_ = args.altitude
-
-    # Extract all valid points from their LineStrings. These will be needed for calculating fbeta scores later.
-    valid_points_lst = []
-    for idx, row in tqdm(annotations.iterrows(), total=annotations.shape[0], desc='Extracting valid points', unit='valid track', colour='white'):
-        valid_points_lst.extend([{'audible': row.audible, 'geometry': Point(coords)} for coords in row.geometry.coords])
-    valid_points = gpd.GeoDataFrame(data=valid_points_lst, geometry='geometry', crs=annotations.crs)
-
     # --------------- DATA SELECTION --------------- #
 
     # Load the microphone deployment site metadata and the study area shapefile.
-    mic_ = get_deployment(args.unit, args.site, args.year, cfg.read('data', 'site_metadata'), elevation=False)
+    mic_ = get_deployment(cfg.read('project', 'dir'), args.unit, args.site, args.year, elevation=False)
     study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])
 
+    # Compute ambience
     # Load NVSPL data or the mennitt raster depending on the user input.
     if args.ambience == 'nvspl':
         archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
         nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year))]
-        ambience = Nvspl(nvspl_files)
+        nvspl = Nvspl(nvspl_files)
+        ambience_quantile = 90  # L90 = 90% exceedance = 10% quantile sound level
+        ambience = ambience_from_nvspl(nvspl, ambience_quantile, broadband=False)
+    elif args.ambience == 'mennitt':
+        ambience = ambience_from_raster(cfg.read('data', 'mennitt'), mic_)
     else:
-        ambience = cfg.read('data', 'mennitt')
+        # should be a .pkl filename
+        ambience = pd.read_pickle(args.ambience)
+        print(f"Read ambience from {args.ambience}")
+
+    # --------------- ANNOTATION LOGIC --------------- #
+
+    # Verify that annotation files exist for the unit/site location. If they do exist, load them into memory.
+    logger.info("Locating unit/site annotations...")
+    annotations = load_annotations(cfg.read("project", "dir"), args.unit, args.site, args.year)
+    if annotations.empty:
+        logger.info(f"No track annotations found for {args.unit}{args.site}{args.year}. Exiting...")
+        exit(-1)
+
+    # Extract all valid points from their LineStrings. These will be needed for calculating fbeta scores later.
+    valid_points_lst = []
+    for idx, row in tqdm(annotations.iterrows(), total=annotations.shape[0], desc='Extracting valid points', unit='valid track', colour='white'):
+        valid_points_lst.extend([{'annotation_idx': idx, 'audible': row.audible, 'geometry': Point(coords)} for coords in row.geometry.coords])
+    valid_points = gpd.GeoDataFrame(data=valid_points_lst, geometry='geometry', crs=annotations.crs)
+
+    # Reduce point density to median density, so very dense areas (e.g. airports) don't skew the fit
+    valid_points = normalize_point_density(valid_points, study_area, random_seed=679)
+
+    # If the user does not pass an altitude, calculate the average altitude of all valid tracks. Extract the altitudes
+    #  from each linestring to get the average height (in meters) of audible flight segments.
+    # We just use the audible segments so that we represent the typical altitude in the local area.
+    #  (some inaudible segments are very far away / at different altitudes)
+    if not args.altitude:
+        logger.info("Calculating average altitude (in meters)...")
+        annotation_altitudes = []
+        relevant_mask = (valid_points["audible"]) & (valid_points.geometry.z > 0) & (valid_points.geometry.z <= 10000)
+        # NOTE we only apply the altitude filter for the purposes of calculating mean altitude, instead of removing
+        # them altogether, because removing the negative values could be severe for some ADS-B loggers
+        for idx, group in valid_points.loc[relevant_mask].groupby("annotation_idx"):
+            annotation_altitudes.append(group.geometry.z.mean())
+        altitude_ = int(np.mean(annotation_altitudes))
+        # annotations['z_val'] = (annotations['geometry'].apply(lambda geom: mean([coords[-1] for coords in geom.coords])))
+        # altitudes_ = annotations[annotations.audible == True].z_val
+        # altitudes_ = altitudes_[(altitudes_ > 0)&(altitudes_ <= 10000)] # NOTE removing the negative values could be severe for some ADS-B loggers
+        # altitude_ = int(mean(altitudes_.tolist()))
+        logger.info(f"Average altitude is: {altitude_}m")
+    else:
+        altitude_ = args.altitude
 
     # --------------- ACTIVE SPACE GENERATION --------------- #
 
@@ -182,7 +203,7 @@ if __name__ == '__main__':
         NMSIM=cfg.read('project', 'nmsim'),
         root_dir=project_dir,
         study_area=study_area,
-        ambience_src=ambience,
+        ambience=ambience,
         dem_src=cfg.read('data', 'dem'),
     )
     logger.info('Setting dem...')
@@ -212,26 +233,16 @@ if __name__ == '__main__':
 
     # --------------- ANALYSIS --------------- #
 
-    # Calculate precision, recall, and fbeta score to determine the most accurate active space.
-    precisions = []
-    recalls = []
-    max_fbeta = 0
-    best_omni = None
-    for omni, res in valid_results:
-        fbeta, precision, recall, n_tot = compute_fbeta(valid_points, res, args.beta)
-        precisions.append(precision)
-        recalls.append(recall)
-        print(f"omni: {omni} --> fbeta: {fbeta:0.3f} precision: {precision:0.3f} recall: {recall:0.3f}")
-        if fbeta > max_fbeta:
-            max_fbeta = fbeta
-            best_omni = omni
-    logger.info(f"The best performing omni source is: {best_omni} (fbeta: {max_fbeta})")
+    for beta_ in args.beta:
 
-    # Create Precision-Recall Plot.
-    fig, ax = plt.subplots()
-    ax.plot(recalls, precisions, ls="", marker="o", ms=2)
-    ax.set_title('Precision-Recall Curve')
-    ax.set_ylabel('Precision')
-    ax.set_xlabel('Recall')
-    plt.savefig(f'{project_dir}/PrecisionRecallPlot_{args.unit}{args.site}{args.year}.png')
-    plt.show()
+        plot_savepath = f'{project_dir}/PrecisionRecallPlot_{args.unit}{args.site}{args.year}_{str(beta_).replace(".","p")}.png'
+        best_omni, max_fbeta, best_precision, best_recall, detection_results = select_optimal(unit=args.unit,
+                                                                                              site=args.site,
+                                                                                              year=args.year,
+                                                                                              valid_points=valid_points,
+                                                                                              active_space_polygons=results,
+                                                                                              beta_=beta_,
+                                                                                              plot=True,
+                                                                                              plot_savepath=plot_savepath)
+
+        logger.info(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta})")
