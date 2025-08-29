@@ -1212,6 +1212,7 @@ class AudibleTransits(ABC):
 
         if savepath is not None:
             plt.savefig(savepath)
+            plt.close()
         if show_plot:
             plt.show()
 
@@ -1978,6 +1979,8 @@ class AudibleTransits(ABC):
         with PdfPages(os.path.join(path, 'view_garbage.pdf')) as pdf:
             for fig in figs:
                 pdf.savefig(fig, bbox_inches='tight')
+        
+        plt.close("all")
 
     def add_to_garbage(self, tracks, reason, other_explanation=None):
         '''
