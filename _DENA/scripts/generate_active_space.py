@@ -222,6 +222,8 @@ if __name__ == '__main__':
                                                   callback=_update_pbar, error_callback=_handle_error))
             results = [p.get() for p in processes]
 
+    valid_results = [result for result in results if result is not None]
+
     # Clean up intermediary files if the user requests.
     if args.cleanup:
         for file in glob.glob(f"{project_dir}/control*"):
