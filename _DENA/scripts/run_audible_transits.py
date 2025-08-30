@@ -115,7 +115,7 @@ class AudibleTransits(ABC):
     a source in motion may be heard, we refer to it as an "audible transit" of the active space.
     """
 
-    default_object_filename = "AudibleTransits_object.pkl"
+    pkl_filename = "AudibleTransits_object.pkl"
 
     def __init__(self, metadata, paths, raw_tracks = None):
         '''
@@ -232,9 +232,13 @@ class AudibleTransits(ABC):
                 show_DEM=True, title=f"{self.unit}{self.site} Nearby Overflights\n{self.study_start} to {self.study_end}")
 
         logger.info("[3] Creating audible transits by clipping tracks to the active space...")
+        print(len(self.tracks), "tracks preclip")
         # self.clip_tracks()
-        self.stepwise_clip_tracks()
+        self.stepwise_clip_tracks(min_gap_dur=0)
+        print(len(self.tracks), "tracks postclip")
         self.update_track_parameters()
+        self.visualize_tracks(show_DEM=True)
+        sys.exit()
         self.update_trackQC()
         self.summarize_data_quality()
 
@@ -737,31 +741,34 @@ class AudibleTransits(ABC):
         return interp_tracks
 
 
-    def stepwise_clip_tracks(self, tracks='self'):
+    def stepwise_clip_tracks(self, tracks='self', min_gap_dur=30):
         if type(tracks) is str:
             assert tracks == 'self'
             tracks = self.tracks
             self_flag = True
         else:
             self_flag = False
-
+        
         if 'interp_geometry' not in tracks:
             logger.debug("Error: No interpolated geometry found (column = 'interp_geometry'). Cannot clip tracks to active space.")
             return 0
-        
-        new_tracks = []
 
+        min_gap_dur = np.timedelta64(min_gap_dur, 's')
         active_poly = self.active.union_all()
+        shapely.prepare(active_poly)  # speeds up future computation
+        new_track_rows = []
 
-        for _, track in self.tracks.iterrows():
+        fig, ax = plt.subplots(figsize=(8,8))
+        plt.plot(*active_poly.exterior.xy)
+
+        for _, track in verbose_tqdm(tracks.iterrows(), desc="Clipping Tracks", total=len(tracks)):
             coords = track["interp_geometry"].coords
             times = track["interp_point_dt"]
+            # init a temp data structure to store segments of the track that are entirely inside or entirely outside the activespace
             track_segments = [{
                 "coords": [coords[0]],
                 "times": [times[0]]
             }]
-
-            n_new_points = 0
 
             for i in range(1, len(coords)):
                 line = LineString([coords[i-1], coords[i]])
@@ -770,11 +777,17 @@ class AudibleTransits(ABC):
                     # no intersection, continue current segment
                     track_segments[-1]["coords"].append(coords[i])
                     track_segments[-1]["times"].append(times[i])
+                    # need to check if the endpoint exactly intersected the active space boundary
+                    # because that doesn't increase the number of line parts
+                    if Point(coords[i]).touches(active_poly):  # touches is true only for boundary intersection, not interior intersection
+                        print("WOW!")
+                        # new segment
+                        track_segments.append({
+                            "coords": [coords[i]],
+                            "times": [times[i]]
+                        })
                 else:
                     # intersection
-                    if len(line_parts) > 2:
-                        print("WHEEEEEEEE")
-                    n_new_points += (len(line_parts)-1)
                     new_points = [part.coords[0] for part in line_parts[1:]]
                     new_times = []
                     for pt in new_points:
@@ -791,15 +804,77 @@ class AudibleTransits(ABC):
                             "coords": [new_points[j]],
                             "times": [new_times[j]]
                         })
+            
+            # convert coords to linestrings and determine if they're in the activespace
+            
+            for seg in track_segments:
+                seg["geometry"] = LineString(seg["coords"])
+                # Use midpoint of segment for determining if inside, helps avoid weird boundary behavior.
+                # In theory, the segment can only be inside or outside (not partially inside),
+                # but in practice using .contains() on the full linestring results in incorrect behavior.
+                midpoint = seg["geometry"].interpolate(seg["geometry"].length / 2)
+                seg["inside"] = active_poly.contains(midpoint)
+
+                plt.plot(*seg["geometry"].xy, color="blue" if seg["inside"] else "red")
+                plt.scatter(midpoint.x, midpoint.y, c="blue" if seg["inside"] else "red")
                 
-            print(f"{n_new_points} new points, {len(track_segments)} track segments")
-
             # determine which track segments to keep, based on whether they are inside the active space,
-            # and if not, whether they are short and surrounded by two segments inside the active space
-            # TODO
+            # and if not, whether they are short-in-duration and surrounded by two segments inside the active space.
+            segments_to_keep = []
+            for i, seg in enumerate(track_segments):
+                seg_before_inside = (i > 0) and (track_segments[i-1]["inside"])
+                seg_after_inside = (i < len(track_segments)-1) and (track_segments[i+1]["inside"])
+                duration = seg["times"][-1] - seg["times"][0]
+                assert duration > np.timedelta64(0, 's')
 
-        print("done")
-        sys.exit()
+
+                if seg["inside"]:
+                    segments_to_keep.append(seg)
+
+                # if seg["inside"] or (duration < min_gap_dur and seg_before_inside and seg_after_inside):
+                #     segments_to_keep.append(seg)
+                #     tqdm.write("append")
+
+                #     # # check if needs to be glued to the previous track
+                #     # # if len(segments_to_keep) > 0:
+                #     #     # time_gap = seg["times"][0] - segments_to_keep[-1]["times"][-1]
+                #     #     # tqdm.write(f"{time_gap/np.timedelta64(1, 's')}")
+                #     #     # tqdm.write(f"{seg} {segments_to_keep[-1]}")
+                #     # if (len(segments_to_keep) > 0) and (seg["times"][0] == segments_to_keep[-1]["times"][-1]):
+                #     #     # coord_match = np.all(np.array(seg["coords"][0]) == np.array(segments_to_keep[-1]["coords"][-1]))
+                #     #     # tqdm.write(f"{coord_match} {seg["coords"][0]} {segments_to_keep[-1]["coords"][-1]}")
+                #     #     tqdm.write("boo")
+                #     #     segments_to_keep[-1]["coords"] += seg["coords"][1:]
+                #     #     segments_to_keep[-1]["times"] += seg["times"][1:]
+                #     # else:
+                #     #     # no glue needed, just add it
+                #     #     tqdm.write("append")
+                #     #     segments_to_keep.append(seg)
+                    
+                        
+            # convert segments into proper track rows
+            for seg in segments_to_keep:
+                row = track.copy()
+                row["interp_geometry"] = seg["geometry"]
+                row["interp_point_dt"] = seg["times"]
+                new_track_rows.append(row)
+        
+        minx, miny, maxx, maxy = active_poly.bounds
+        ax.set_xlim(minx, maxx)
+        ax.set_ylim(miny, maxy)
+        plt.show()
+
+        # convert track rows to geodataframe
+        clipped_tracks = gpd.GeoDataFrame(data=new_track_rows, geometry="interp_geometry", crs=tracks.crs)
+        clipped_tracks.reset_index(inplace=True)
+        if 'track_id' not in clipped_tracks:
+            clipped_tracks.rename(columns={'index': 'track_id'}, inplace=True)
+        if (self_flag):
+            self.tracks = clipped_tracks.copy()
+
+        logger.debug("\tTracks clipped into audible transits.")
+
+        return clipped_tracks
 
 
 
@@ -1046,7 +1121,6 @@ class AudibleTransits(ABC):
             2) Glue together tracks that are broken by self intersection -- this is essentially a bug patch -- see `.glue_tracks()`
             3) Remove tracks that are less than 10 seconds (unlikely to be annotated)
             4) Remove tracks that have 0 or infinite average flight speeds (physically impossible, indicates bad data)
-            5) Remove tracks that have still somehow managed to be outside the active space -- no clue why clip didn't get rid of them        
 
         Parameters
         ----------
@@ -2076,7 +2150,7 @@ class AudibleTransits(ABC):
         if not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
 
-        self.to_pickle(os.path.join(output_dir, self.default_object_filename))
+        self.to_pickle(os.path.join(output_dir, self.pkl_filename))
         self.visualize_tracks(savepath=os.path.join(
             output_dir, "transits_plot.png"), show_DEM=True, show_plot=False)
         if export_garbage:

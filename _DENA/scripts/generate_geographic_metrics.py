@@ -60,7 +60,7 @@ def clip_events_to_time_period(df, start_col, end_col, start_date, end_date, mon
     return df
 
 
-def tracks2events(tracks, start_date, end_date, min_dur=10):
+def tracks2events(tracks, start_date, end_date, min_dur=10, min_gap_dur=30):
     """
     Performs audibility binarization on outputs of the `NPS-ActiveSpace.audible_transits` module. 
     
@@ -82,7 +82,9 @@ def tracks2events(tracks, start_date, end_date, min_dur=10):
         The last date of tracks to include, formatted as 'yyyy-mm-dd'. Note that midnight at the beginning of this day should fall within the monitoring period (not after).
     min_dur : float, default 30
         The minimum event duration to include, in seconds
-         
+    min_gap_dur : float, default 30
+        The minimum period of time (in seconds) between tracks for them to be considered separate events.
+        Tracks separated by less time than this will be considered part of the same event.
         
     Returns
     -------
@@ -98,7 +100,7 @@ def tracks2events(tracks, start_date, end_date, min_dur=10):
 
     print("Combining audible transits into a binary event time series.")
     
-    buffer = np.timedelta64(30, 's') # Max number of seconds between tracks in order to combine
+    min_gap_dur = np.timedelta64(min_gap_dur, 's') # Max number of seconds between tracks in order to combine
     
     start_date = np.datetime64(start_date)  # conversion to datetime64
     end_date = np.datetime64(end_date)      # conversion to datetime64
@@ -131,7 +133,7 @@ def tracks2events(tracks, start_date, end_date, min_dur=10):
 
         # check if the current track exits after the next track starts; 
         # if so, adjust the event end time and increment
-        while event_end >= (entry_times_cp[i+j+1] - buffer):
+        while event_end >= (entry_times_cp[i+j+1] - min_gap_dur):
             event_end = max(exit_times_cp[i+j+1], event_end)  # account for case where first track starts first but also ends later
             j += 1
             if (i+j+1) >= len(entry_times_cp):
