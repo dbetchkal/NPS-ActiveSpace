@@ -770,11 +770,18 @@ class AudibleTransits(ABC):
 
                 if len(line_parts) > 1:
                     # intersection(s), add new points created by intersection and new segment(s)
-                    new_points = [part.coords[0] for part in line_parts[1:]]
+                    line_part_starts = [part.coords[0] for part in line_parts]
+                    new_points = []
                     new_times = []
-                    for pt in new_points:
+                    for pt in line_part_starts[1:]:
                         frac = math.dist(coords[i-1], pt) / math.dist(coords[i-1], coords[i])
-                        new_times.append(times[i] + frac * (times[i] - times[i-1]))
+                        assert frac > 0 and frac < 1
+                        # handle floating point error - the fact that the point is essentially exactly on the boundary
+                        # will get picked up by the .touches() check below and trigger a new segment there.
+                        if frac < 1e-4 or frac > 1 - 1e-4:
+                            continue
+                        new_points.append(pt)
+                        new_times.append(times[i-1] + frac * (times[i] - times[i-1]))
 
                     # make a new segment for each new point, each of which indicate a boundary crossing
                     for j in range(len(new_points)):
@@ -787,13 +794,12 @@ class AudibleTransits(ABC):
                             "times": [new_times[j]]
                         })
                 
-                # continue current segment
+                # add original point coord in
                 track_segments[-1]["coords"].append(coords[i])
                 track_segments[-1]["times"].append(times[i])
                 # need to check if the endpoint exactly intersected the active space boundary
                 # and if so a new segment should be created. But only if it isn't the first/last point
                 if i > 0 and i < len(coords)-1 and Point(coords[i]).touches(active_poly):
-                    print("WOW!")
                     # new segment
                     track_segments.append({
                         "coords": [coords[i]],
@@ -816,7 +822,7 @@ class AudibleTransits(ABC):
                 seg_before_inside = (i > 0) and (track_segments[i-1]["inside"])
                 seg_after_inside = (i < len(track_segments)-1) and (track_segments[i+1]["inside"])
                 duration = seg["times"][-1] - seg["times"][0]
-                assert duration > np.timedelta64(0, 's'), f"{seg}"
+                assert duration > np.timedelta64(0, 's'), f"{track_segments[i-1]['times']}\n\n{seg['times']}\n\n{times[-5:]}"
 
                 if seg["inside"] or (duration < min_gap_dur and seg_before_inside and seg_after_inside):
                     # check if needs to be glued to the previous segment
