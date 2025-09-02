@@ -235,8 +235,6 @@ class AudibleTransits(ABC):
         print(len(self.tracks), "tracks preclip")
         self.clip_tracks(min_gap_dur=30)
         print(len(self.tracks), "tracks postclip")
-        self.visualize_tracks(show_DEM=True, title="Post clip")
-
         self.update_track_parameters()
         self.update_trackQC()
         self.summarize_data_quality()
@@ -769,21 +767,9 @@ class AudibleTransits(ABC):
             for i in range(1, len(coords)):
                 line = LineString([coords[i-1], coords[i]])
                 line_parts = list(shapely.ops.split(line, active_poly).geoms)
-                if len(line_parts) == 1:
-                    # no intersection, continue current segment
-                    track_segments[-1]["coords"].append(coords[i])
-                    track_segments[-1]["times"].append(times[i])
-                    # need to check if the endpoint exactly intersected the active space boundary
-                    # because that doesn't increase the number of line parts
-                    if Point(coords[i]).touches(active_poly):  # touches is true only for boundary intersection, not interior intersection
-                        print("WOW!")
-                        # new segment
-                        track_segments.append({
-                            "coords": [coords[i]],
-                            "times": [times[i]]
-                        })
-                else:
-                    # intersection
+
+                if len(line_parts) > 1:
+                    # intersection(s), add new points created by intersection and new segment(s)
                     new_points = [part.coords[0] for part in line_parts[1:]]
                     new_times = []
                     for pt in new_points:
@@ -800,7 +786,20 @@ class AudibleTransits(ABC):
                             "coords": [new_points[j]],
                             "times": [new_times[j]]
                         })
-            
+                
+                # continue current segment
+                track_segments[-1]["coords"].append(coords[i])
+                track_segments[-1]["times"].append(times[i])
+                # need to check if the endpoint exactly intersected the active space boundary
+                # and if so a new segment should be created. But only if it isn't the first/last point
+                if i > 0 and i < len(coords)-1 and Point(coords[i]).touches(active_poly):
+                    print("WOW!")
+                    # new segment
+                    track_segments.append({
+                        "coords": [coords[i]],
+                        "times": [times[i]]
+                    })
+
             # determine which segments are in the activespace
             # Use midpoint of segment for determining if inside, helps avoid weird boundary behavior.
             # In theory, the segment can only be inside or outside (not partially inside),
@@ -817,7 +816,7 @@ class AudibleTransits(ABC):
                 seg_before_inside = (i > 0) and (track_segments[i-1]["inside"])
                 seg_after_inside = (i < len(track_segments)-1) and (track_segments[i+1]["inside"])
                 duration = seg["times"][-1] - seg["times"][0]
-                assert duration > np.timedelta64(0, 's')
+                assert duration > np.timedelta64(0, 's'), f"{seg}"
 
                 if seg["inside"] or (duration < min_gap_dur and seg_before_inside and seg_after_inside):
                     # check if needs to be glued to the previous segment
@@ -844,12 +843,6 @@ class AudibleTransits(ABC):
             self.tracks = clipped_tracks.copy()
 
         logger.debug("\tTracks clipped into audible transits.")
-
-        fig, ax = plt.subplots()
-        ax.plot(*active_poly.exterior.xy)
-        for _, track in self.tracks.iterrows():
-            ax.plot(*track["interp_geometry"].xy)
-        plt.show()
 
         return clipped_tracks
 
@@ -1087,7 +1080,6 @@ class AudibleTransits(ABC):
 
         new_times = []  # list of list of timestamps for each extrapolated track
         new_geometry = []  # list of LineStrings (one per track)
-        takeoffs = []  # keep track of takeoffs and landings
         logger.debug("Extending track entries:")
         for idx, track in verbose_tqdm(needs_extrapolation_df.iterrows(), unit=' tracks'):
 
@@ -1128,14 +1120,12 @@ class AudibleTransits(ABC):
                 # If beginning is fine, just pass through original geometry and time.
                 new_geometry.append(old_geometry)
                 new_times.append(old_times)
-                takeoffs.append(False)
 
         extrapolated_tracks.interp_geometry = new_geometry
         extrapolated_tracks.interp_point_dt = new_times
 
         new_times = []
         new_geometry = []
-        landings = []
         logger.debug("Extending track exits:")
         for idx, track in verbose_tqdm(extrapolated_tracks.iterrows(), unit=' tracks'):
 
