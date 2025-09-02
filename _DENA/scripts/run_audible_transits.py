@@ -233,7 +233,7 @@ class AudibleTransits(ABC):
 
         logger.info("[3] Creating audible transits by clipping tracks to the active space...")
         print(len(self.tracks), "tracks preclip")
-        self.clip_tracks(min_gap_dur=30)
+        self.clip_tracks(min_gap_dur=0)
         print(len(self.tracks), "tracks postclip")
         self.update_track_parameters()
         self.update_trackQC()
@@ -778,7 +778,7 @@ class AudibleTransits(ABC):
                         assert frac > 0 and frac < 1
                         # handle floating point error - the fact that the point is essentially exactly on the boundary
                         # will get picked up by the .touches() check below and trigger a new segment there.
-                        if frac < 1e-4 or frac > 1 - 1e-4:
+                        if frac < 1e-8 or frac > 1 - 1e-8:
                             continue
                         new_points.append(pt)
                         new_times.append(times[i-1] + frac * (times[i] - times[i-1]))
@@ -798,7 +798,7 @@ class AudibleTransits(ABC):
                 track_segments[-1]["coords"].append(coords[i])
                 track_segments[-1]["times"].append(times[i])
                 # need to check if the endpoint exactly intersected the active space boundary
-                # and if so a new segment should be created. But only if it isn't the first/last point
+                # and if so a new segment should be started at the endpoint. But only if it isn't the first/last point
                 if i > 0 and i < len(coords)-1 and Point(coords[i]).touches(active_poly):
                     # new segment
                     track_segments.append({
@@ -831,7 +831,7 @@ class AudibleTransits(ABC):
                         segments_to_keep[-1]["times"] += seg["times"][1:]
                     else:
                         # no glue needed, just add it
-                        segments_to_keep.append(seg)                    
+                        segments_to_keep.append(seg)
                         
             # convert segments into proper track rows
             for seg in segments_to_keep:
@@ -842,9 +842,12 @@ class AudibleTransits(ABC):
 
         # convert track rows to geodataframe
         clipped_tracks = gpd.GeoDataFrame(data=new_track_rows, geometry="interp_geometry", crs=tracks.crs)
-        clipped_tracks.reset_index(inplace=True)
-        if 'track_id' not in clipped_tracks:
-            clipped_tracks.rename(columns={'index': 'track_id'}, inplace=True)
+
+        # Track id is no longer a unique identifier, so should reset the index, but remember track_id
+        if 'track_id' not in clipped_tracks.columns:
+            clipped_tracks.insert(0, "track_id", clipped_tracks.index)
+        clipped_tracks.reset_index(inplace=True, drop=True)
+
         if (self_flag):
             self.tracks = clipped_tracks.copy()
 
