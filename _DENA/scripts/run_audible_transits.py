@@ -223,13 +223,13 @@ class AudibleTransits(ABC):
         self.add_to_garbage(low_quality_tracks, 'low quality')
 
         AudibleTransits.get_sampling_interval(self.tracks)
-
         self.interpolate_tracks()
-
         self.update_track_parameters()
+
+        self.overflights_fig = self.visualize_tracks(
+                show_DEM=True, title=f"{self.unit}{self.site} Nearby Overflights\n{self.study_start} to {self.study_end}", show_plot=False)
         if verbose:
-            self.visualize_tracks(
-                show_DEM=True, title=f"{self.unit}{self.site} Nearby Overflights\n{self.study_start} to {self.study_end}")
+            plt.show()
 
         logger.info("[3] Creating audible transits by clipping tracks to the active space...")
         self.clip_tracks(min_gap_dur=min_gap_dur)
@@ -249,12 +249,13 @@ class AudibleTransits(ABC):
                 self.extrapolate_tracks(return_extrapolated=True, min_gap_dur=min_gap_dur)
 
         self.summarize_data_quality()
+        self.tracks = self.tracks.reset_index(drop=True)  # TODO figure out why we got a duplicate index that we have to reset
+
+        self.transits_fig = self.visualize_tracks(show_DEM=True, show_plot=False)
         if verbose:
-            self.visualize_tracks(show_DEM=True)
+            plt.show()
 
         print("")  # visual buffer
-
-        self.tracks = self.tracks.reset_index(drop=True)  # TODO figure out why we got a duplicate index that we have to reset
         return self.tracks.copy()
 
     def init_spatial_data(self, visualize=False):
@@ -1102,14 +1103,13 @@ class AudibleTransits(ABC):
             Title of the resulting plot. Default is "{self.unit}{self.site} Flight Tracks".
         fig, ax 
             Allows a user to pass more customization of the plot, as well as use subplots. Defaults to 'None'.
-        savepath : str
-            If provided, saves the plot at this path. Defaults to 'None'.
         show_plot : bool
             If True, show the plot with plt.show(). Defaults to True.
 
         Returns
         -------
-        Creates a plot of flight tracks/points with optional features such as the active space boundary, mic location, and DEM.
+        fig : plt.Figure
+            The figure containing the plot. Useful if you want to save the plot later.
         '''
         # TODO: add options for plotting linestrings as points, with colormapping options using other GDF columns
 
@@ -1195,11 +1195,10 @@ class AudibleTransits(ABC):
 
         ax.set_title(title)
 
-        if savepath is not None:
-            plt.savefig(savepath)
-            plt.close()
         if show_plot:
             plt.show()
+        
+        return fig
 
     # ========================================== DATA QC + DETECTION ===================================================
     @staticmethod
@@ -1887,8 +1886,8 @@ class AudibleTransits(ABC):
             os.makedirs(output_dir, exist_ok=True)
 
         self.to_pickle(os.path.join(output_dir, self.pkl_filename))
-        self.visualize_tracks(savepath=os.path.join(
-            output_dir, "transits_plot.png"), show_DEM=True, show_plot=False)
+        self.overflights_fig.savefig(os.path.join(output_dir, "overflights_plot.png"))
+        self.transits_fig.savefig(os.path.join(output_dir, "transits_plot.png"))
         if export_garbage:
             self.export_garbage_summary(output_dir)
         
