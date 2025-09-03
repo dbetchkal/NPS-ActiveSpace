@@ -177,7 +177,7 @@ class AudibleTransits(ABC):
         self.garbage = gpd.GeoDataFrame(
             {'track_id': [], 'n_number': [], 'point_dt': [], 'geometry': []})
 
-    def run_pipeline(self, verbose=False):
+    def run_pipeline(self, verbose=False, min_gap_dur=30):
         '''
         Main function that calculates audible transits, running everything in the correct order.
 
@@ -232,9 +232,7 @@ class AudibleTransits(ABC):
                 show_DEM=True, title=f"{self.unit}{self.site} Nearby Overflights\n{self.study_start} to {self.study_end}")
 
         logger.info("[3] Creating audible transits by clipping tracks to the active space...")
-        print(len(self.tracks), "tracks preclip")
-        self.clip_tracks(min_gap_dur=0)
-        print(len(self.tracks), "tracks postclip")
+        self.clip_tracks(min_gap_dur=min_gap_dur)
         self.update_track_parameters()
         self.update_trackQC()
         self.summarize_data_quality()
@@ -248,7 +246,7 @@ class AudibleTransits(ABC):
         if self.tracks.needs_extrapolation.sum() > 0:
             self.detect_takeoffs_and_landings()
             if self.tracks.needs_extrapolation.sum() > 0:
-                self.extrapolate_tracks(return_extrapolated=True)
+                self.extrapolate_tracks(return_extrapolated=True, min_gap_dur=min_gap_dur)
 
         self.summarize_data_quality()
         if verbose:
@@ -825,7 +823,6 @@ class AudibleTransits(ABC):
                 assert duration > np.timedelta64(0, 's'), f"{track_segments[i-1]['times']}\n\n{seg['times']}\n\n{times[-5:]}"
 
                 if seg["inside"] or (duration < min_gap_dur and seg_before_inside and seg_after_inside):
-                    # check if needs to be glued to the previous segment
                     if (len(segments_to_keep) > 0) and (seg["times"][0] == segments_to_keep[-1]["times"][-1]):
                         segments_to_keep[-1]["coords"] += seg["coords"][1:]
                         segments_to_keep[-1]["times"] += seg["times"][1:]
@@ -1043,7 +1040,7 @@ class AudibleTransits(ABC):
 
         return cleaned_tracks
 
-    def extrapolate_tracks(self, tracks='self', extrapolation_time=800, return_extrapolated=False):
+    def extrapolate_tracks(self, tracks='self', extrapolation_time=800, return_extrapolated=False, min_gap_dur=30):
         '''
         Extrapolates tracks that start/end in the active space and have been determined to not be takeoffs or landings.
         This is a linear extrapolation, based on the first two or last two points in the track. 
@@ -1180,7 +1177,7 @@ class AudibleTransits(ABC):
         extrapolated_tracks.interp_point_dt = new_times
 
         # Clip the newly extrapolated tracks, update parameters and QC.
-        extrapolated_clipped = self.clip_tracks(tracks=extrapolated_tracks)
+        extrapolated_clipped = self.clip_tracks(tracks=extrapolated_tracks, min_gap_dur=min_gap_dur)
         self.update_track_parameters(tracks=extrapolated_clipped)
         self.update_trackQC(tracks=extrapolated_clipped)
 
