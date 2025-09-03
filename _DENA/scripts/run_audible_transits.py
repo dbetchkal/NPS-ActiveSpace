@@ -754,7 +754,7 @@ class AudibleTransits(ABC):
         shapely.prepare(active_poly)  # speeds up future computation
         new_track_rows = []
 
-        for _, track in verbose_tqdm(tracks.iterrows(), desc="Clipping Tracks", total=len(tracks)):
+        for _, track in tqdm(tracks.iterrows(), desc="Clipping Tracks", total=len(tracks)):
             coords = track["interp_geometry"].coords
             times = track["interp_point_dt"]
             # init a temp data structure to store segments of the track that are entirely inside or entirely outside the activespace
