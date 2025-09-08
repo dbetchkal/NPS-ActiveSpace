@@ -99,7 +99,7 @@ def load_DEM(project_dir: str, unit: str, site: str):
     """
 
     raster_path = glob.glob(os.path.join(
-        project_dir, unit+site, r"Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif"))[0]
+        project_dir, unit+site, "Input_Data", "01_ELEVATION", "elevation_m_nad83_utm*.tif"))[0]
     return rasterio.open(raster_path)
 
 
