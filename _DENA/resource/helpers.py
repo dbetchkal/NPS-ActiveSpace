@@ -5,13 +5,16 @@ import os
 from typing import List, Optional, TYPE_CHECKING, Union
 import json
 import pandas as pd
+import matplotlib.pyplot as plt
 
 import geopandas as gpd
 import numpy as np
 from tqdm import tqdm
 import re
 import rasterio
+import rasterio.plot
 from pyproj import Transformer
+from shapely.geometry import box
 
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.utils import Adsb, EarlyAdsb, Microphone, Annotations
@@ -63,15 +66,8 @@ def load_activespace(project_dir, unit, site, year, gain, third_octave=True, crs
         A dataframe containing the geometry of the active space. Can be a single polygon or a multipolygon.
     """
 
-    if gain < 0:
-        sign = "-"
-    else:
-        sign = "+"
-
-    if np.abs(gain) < 10:
-        gain_string = "0" + str(np.abs(int(10*gain)))
-    else:
-        gain_string = str(np.abs(int(10*gain)))
+    sign = "-" if gain < 0 else "+"
+    gain_string = str(np.abs(int(10*gain))).zfill(3)
     path = os.path.join(project_dir, unit + site, unit + site + str(year) +
                         '_O_' + sign + gain_string + '.geojson')
     active_space = gpd.read_file(path)
@@ -486,3 +482,41 @@ def estimate_line_count(filename, sample_size=1024 * 1024):
     if not newlines:
         return 0
     return int((file_size / sample_size) * newlines)
+
+
+
+def plot_activespace_fit(project_dir, unit, site, year, gain, ax=None, dem=None, mic=None, active=None, annotations=None):
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    if dem is None:
+        dem = load_DEM(project_dir, unit, site)
+    if mic is None:
+        mic = get_deployment(project_dir, unit, site, year)
+    if active is None:
+        active = load_activespace(project_dir, unit, site, year, gain)
+    if annotations is None:
+        annotations = load_annotations(project_dir, unit, site, year)
+    
+    mic = mic.to_crs(dem.crs)
+    active = active.to_crs(dem.crs)
+
+    ax.set_title(f"{unit}{site}{year} Gain {gain}dB")
+    rasterio.plot.show(dem, ax=ax, alpha=.4, cmap='Blues_r')
+
+    active.boundary.plot(ax=ax, color="black", label=f"{gain}", zorder=5)
+
+    dem_extent = box(dem.bounds.left, dem.bounds.bottom, dem.bounds.right, dem.bounds.top)
+    annotations = annotations.clip(dem_extent)
+    if not annotations.empty and annotations["valid"].sum() > 0:
+        valid_segments = annotations[annotations.valid]
+        color = valid_segments.apply(lambda x: "deepskyblue" if x["audible"] else "red", axis=1)
+        valid_segments.plot(
+            ax=ax,
+            color=color,
+            alpha=0.5,
+            markersize=3,
+            zorder=2
+        )
+    
+    mic.plot(ax=ax, color='r', markersize=10, marker='*', zorder=10)
