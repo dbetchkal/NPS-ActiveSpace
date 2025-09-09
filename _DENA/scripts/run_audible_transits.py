@@ -36,21 +36,6 @@ from nps_active_space.utils.models import Tracks, FAAReleasable
 
 pd.set_option('future.no_silent_downcasting', True)
 
-# We are declaring the logger in the global scope instead of a class attribute because static methods need access to it
-# and refactoring the static methods into member variables is a bit of a headache
-# will re-initialize the logger each time run_pipeline() is called, to update verbose settings, filename, etc.
-logger, log_buffer = get_logger("AUDIBLE-TRANSITS", make_log_buffer=True)
-
-# Same thing for verbose_tqdm bars; don't want to show all of them if the user runs the pipeline with verbose=False
-# We make a verbose_tqdm utility for keeping the code in this file clean
-hide_progress_bars = False
-def verbose_tqdm(iterable, *args, **kwargs):
-    if hide_progress_bars:
-        return iterable
-    else:
-        return tqdm(iterable, *args, **kwargs)
-
-
 def init_audible_transits(metadata, paths, raw_tracks = None):
     '''
     Main function for initialization. Decides which AudibleTransits subclass to initialize based on the metadata provided.
@@ -106,6 +91,23 @@ def init_audible_transits(metadata, paths, raw_tracks = None):
 
     return listener
 
+
+# We are declaring the logger in the global scope instead of a class attribute because static methods need access to it
+# and refactoring the static methods into member variables is a bit of a headache
+# will re-initialize the logger each time run_pipeline() is called, to update verbose settings, filename, etc.
+logger, log_buffer = get_logger("AUDIBLE-TRANSITS", make_log_buffer=True)
+
+# Same thing for verbose_tqdm bars; don't want to show all of them if the user runs the pipeline with verbose=False
+# We make a verbose_tqdm utility for keeping the code in this file clean
+hide_progress_bars = False
+def verbose_tqdm(iterable, *args, **kwargs):
+    if hide_progress_bars:
+        return iterable
+    else:
+        return tqdm(iterable, *args, **kwargs)
+
+def dist(a, b):
+    return math.sqrt((a[0] - b[0])**2 + (a[1] - b[1])**2)
 
 class AudibleTransits(ABC):
     """
@@ -738,7 +740,7 @@ class AudibleTransits(ABC):
 
 
     def clip_tracks(self, tracks='self', min_gap_dur=30):
-        debug = False
+        debug = True
 
         if type(tracks) is str:
             assert tracks == 'self'
@@ -767,7 +769,9 @@ class AudibleTransits(ABC):
             # split the track along the activespace boundary
             # this results in track segments that are either entirely inside or entirely outside the activespace
             # note that track self intersections act as split points which will be re-joined later
-            linestrings = list(shapely.ops.split(track["interp_geometry"], active_poly).geoms)
+            split = shapely.ops.split(track["interp_geometry"], active_poly)
+            linestrings = list(split.geoms)
+            # make a data structure to allow us to pair times with the new points resulting from the split
             track_segments = [{"coords": list(line.coords), "times": []} for line in linestrings]
 
             # assign datetimes to the new points introduced by the split
@@ -790,11 +794,13 @@ class AudibleTransits(ABC):
                     sys.exit()
 
                 # check if coordinates match
+                tol = 1e-6
+                # coords_match = abs(orig_coord[0] - seg_coord[0]) < tol and abs(orig_coord[1] - seg_coord[1]) < tol
                 coords_match = orig_coord[0] == seg_coord[0] and orig_coord[1] == seg_coord[1]
                 # note - it's possible to have floating point error issues, which will result in nanoscale length tracks
                 # these will get filtered out by cleaning so no worries
 
-                if debug:
+                if debug:# and (idx_in_segment <=2 or idx_in_segment >= len(seg["coords"])-3):
                     tqdm.write(f"segment {idx_of_segment}, seg coord {idx_in_segment+1}/{len(seg['coords'])}, orig coord {coord_idx}"
                             f"{' match' if coords_match else '      '}"
                             f"\t{seg_coord[:2]} {orig_coord[:2]}")
@@ -822,8 +828,20 @@ class AudibleTransits(ABC):
 
                     a = orig_coords[coord_idx-1]
                     b = orig_coord
-                    frac = math.dist(a, seg_coord) / math.dist(a, b)
-                    assert frac > 0 and frac < 1
+                    frac = dist(a, seg_coord) / dist(a, b)
+                    if frac > 1:
+                        aseg = math.sqrt((a[0] - seg_coord[0])**2 + (a[1] - seg_coord[1])**2)
+                        segb = math.sqrt((b[0] - seg_coord[0])**2 + (b[1] - seg_coord[1])**2)
+                        ab = math.sqrt((b[0] - a[0])**2 + (b[1] - a[1])**2)
+                        print(f"{aseg} + {segb} = {aseg + segb}, should = {ab}")
+                        fig, ax = plt.subplots()
+                        ax.plot([a[0], seg_coord[0]], [a[1], seg_coord[1]], linewidth=5, label="a-seg")
+                        ax.plot([a[0], b[0]], [a[1], b[1]], label="a-b")
+                        ax.scatter([seg_coord[0]], [seg_coord[1]])
+                        plt.axis("equal")
+                        plt.legend()
+                        plt.show()
+                    assert frac >= 0 and frac <= 1, frac
                     ta = track["interp_point_dt"][coord_idx-1]
                     tb = track["interp_point_dt"][coord_idx]
                     seg["times"].append(ta + frac * (tb - ta))
