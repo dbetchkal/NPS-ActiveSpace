@@ -1245,7 +1245,7 @@ class AudibleTransits(ABC):
             retted = rasterio.plot.show(
                 self.DEM, ax=ax, alpha=.4, cmap='Blues_r')
             im = retted.get_images()[0]
-            fig.colorbar(im, ax=ax, label='Elevation (m)', shrink=0.85)
+            fig.colorbar(im, ax=ax, label='Elevation (m)', shrink=0.8, aspect=10)
 
         # If a different default crs is set, we need to reproject all geometries: active space, track lines, and entry + exit positions.
         if crs != 'self':
@@ -1494,9 +1494,13 @@ class AudibleTransits(ABC):
             The 'scrambled' tracks that were removed. Only returned if `returned_scrambled_tracks` is set to True.
         '''
 
-        # We filter out an irrelevant and redundant warning related to timedelta division.
+        # We filter out an irrelevant and redundant warning related to timedelta division,
+        # and a divide by 0 warning caused by v1 or v2 being 0 vectors (which results in "dot" and "speed" being nan,
+        # which is fine because the flags are unaffected)
         warnings.filterwarnings(
             'ignore', message=".*invalid value encountered in true_divide.*")
+        warnings.filterwarnings(
+            'ignore', message="invalid value encountered in divide")
 
         angle_flag_list = []
         speed_flag_list = []
