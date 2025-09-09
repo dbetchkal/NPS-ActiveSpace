@@ -116,7 +116,8 @@ def complex_split(geom: LineString, splitter):
     """
     Function to split linestrings without self intersection issues.
     Solution comes from here: https://github.com/shapely/shapely/issues/1068#issuecomment-770296614
-    Note that this will fail if the splitter intersects the geometry at a self-intersection point
+    Note that this will fail to fully split the geom if the splitter intersects the geometry at a self-intersection point.
+    This can likely be fixed by calling this function again on the split results, but not sure.
     """
     if geom.is_simple:
         return shapely.ops.split(geom, splitter)
@@ -534,7 +535,6 @@ class AudibleTransits(ABC):
         Updates analysis status for each track. Adds or updates existing columns in the `self.track` dataframe. 
         This function introduces the following fields:
             - needs_extrapolation: indicates whether a track endpoint is inside of the active space -- see `.needs_extrapolation()`
-            - needs_glue: indicates whether a track suffers from `gpd.clip()` self-intersection errors -- `.see needs_glue()`
             - short_distance: whether a track traverses a distance less than a default threshold -- see `.find_short_tracks()`
             - speed_out_of_range: whether the groundspeed is outside of a realistic range -- see `.find_err_flight_speeds()`
 
@@ -564,7 +564,6 @@ class AudibleTransits(ABC):
             tracks = self.tracks
 
         AudibleTransits.needs_extrapolation(tracks, self.active)
-        AudibleTransits.needs_glue(tracks, self.active)
         AudibleTransits.find_short_tracks(tracks, max_distance=max_distance)
         AudibleTransits.find_err_flight_speeds(
             tracks, min_speed=min_speed, max_speed=max_speed)
@@ -652,8 +651,6 @@ class AudibleTransits(ABC):
         logger.debug("\tQuality control assessment:")
         logger.debug(
             f"\t\tNeed Extrapolation: {tracks.needs_extrapolation.sum()}  ....  {round(100*tracks.needs_extrapolation.sum()/num_tracks, 2)} %")
-        logger.debug(
-            f"\t\tNeed Glue: {tracks.needs_glue.sum()}  ....  {round(100*tracks.needs_glue.sum()/num_tracks, 2)}%")
         logger.debug(
             f"\t\tShort Tracks: {tracks.short_distance.sum()}  ....  {round(100*tracks.short_distance.sum()/num_tracks, 2)}%")
         logger.debug(
@@ -768,6 +765,37 @@ class AudibleTransits(ABC):
 
 
     def clip_tracks(self, tracks='self', min_gap_dur=30):
+        """
+        Clips tracks to the active space, cutting out any parts of tracks exterior to the active space polygon.
+        Finds and manually aligns each resultant `shapely.geometry.LineString` coordinate to its respective timestamp. 
+
+        This function can specifically handle cases where there are many clipped tracks for each individual 
+        flight (e.g., track goes back and forth across active space). For this reason, objects returned
+        downstream of `.clip_tracks()` do not have a unique `track_id`; the field should no longer be 
+        considered indexical.
+
+        Note that sometimes tracks exit the space very briefly and then re-enter. We would like to count this
+        as a single transit instead of two, since AudibleTransits is meant to be used to predict metrics such as # events,
+        and our definition of noise event allows for brief intervals of inaudibility. To deal with this,
+        his function has a parameter "minimum gap duration" which specifies how long a vehicle needs to be outside
+        the active space before a re-entry is counted as a new transit. Note that this results in some clipped track
+        points being outside the active space.
+
+        Parameters
+        ----------
+        tracks: `gpd.GeoDataFrame` (or string 'self')
+            Default is 'self', which uses `self.tracks`. Otherwise, a dataframe containing tracks. 
+            Requires basic track elements:
+                interp_geometry | interp_point_dt
+        min_gap_dur: float
+            Minimum number of seconds between transits. If a vehicle spends less than this amount of time outside
+            the active space between two transits inside the space, the two transits will be collapsed into a single transit.
+
+        Returns
+        -------
+        interp_tracks : `gpd.GeoDataFrame`
+            A dataframe of clipped flight tracks. 
+        """
         debug = False
 
         if type(tracks) is str:
@@ -790,6 +818,7 @@ class AudibleTransits(ABC):
             fig, ax = plt.subplots(figsize=(8,8))
             ax.plot(*active_poly.exterior.xy)
 
+        # Iterate through tracks, clipping one track at a time for simplicity
         for track_idx, track in tqdm(tracks.iterrows(), desc="Clipping Tracks", total=len(tracks)):
             if debug:
                 tqdm.write(f"{track_idx}")
@@ -821,11 +850,11 @@ class AudibleTransits(ABC):
 
                 # It is possible to run out of original coords before running out of segment coords.
                 # This is typically due to extrapolation adding a point near the boundary,
-                # resulting in the final two coords of a track being duplicates and both matching the
-                # final original coord. This edge case can be handled by stopping coord_idx from incrementing
-                # once we've reached the end of the original coords.
-                if coord_idx >= len(orig_coords):
-                    coord_idx = len(orig_coords) - 1
+                # resulting in the final two coords of a track being duplicates (within floating pt tolerance)
+                # and both matching the final original coord. This edge case can be handled by
+                # stopping coord_idx from incrementing once we've reached the end of the original coords.
+                if coord_idx >= len(orig_coords):  # if reached the end
+                    coord_idx = len(orig_coords) - 1  # set to final coordinate to give it a chance to match the duplicate coord
 
                 orig_coord = orig_coords[coord_idx]
 
@@ -841,17 +870,23 @@ class AudibleTransits(ABC):
                     seg["times"].append(track["interp_point_dt"][coord_idx])
                     # Increment coord_idx and idx_in_segment appropriately.
                     # Note that an original coord can correspond to two segment coords
-                    # if the track was split within tolerance of the original coord (can be detected
-                    # by checking if the segment coord was at the end of the segment, and not incrementing
-                    # coord_idx if this is the case)
-                    if idx_in_segment < len(seg["coords"])-1:
+                    # if the track was split within tolerance of the original coord. This makes
+                    # the original coord match the end of a segment and the beginning of the next segment.
+                    # This case can be detected by checking if the segment coord was at the end of the segment,
+                    # and not incrementing coord_idx if this is the case)
+                    if idx_in_segment < len(seg["coords"])-1:  # if not the last point in a segment
                         coord_idx += 1
                     idx_in_segment += 1
                 else:
                     # found a new split point
                     # it must be on the line between original coords with indices coord_idx and coord_idx-1
                     # use those two original coords to do time interpolation
+                    
                     assert coord_idx > 0, "First point should always match"
+                    # NOTE - used to be another assert here making sure that mismatches only happened at the 
+                    # endpoints of segments. But for whatever reason, currently they can happen at non-endpoints.
+                    # Really weird but the code overall seems to work so...
+
                     a = orig_coords[coord_idx-1]
                     b = orig_coord
                     frac = dist(a, seg_coord) / dist(a, b)
@@ -1278,7 +1313,6 @@ class AudibleTransits(ABC):
     def needs_extrapolation(tracks, active_ea, buffer=10, inplace=True):
         """
         Identifies tracks that end or begin inside of the active space; adds a corresponding boolean column 'needs_extrapolation' to the input dataframe.
-        This column is needed in order to run glue_tracks and needs_glue -- some of the needs_extrapolation==true rows will actually just need to be glued
         NEW COLUMNS: starts_inside and ends_inside specifies which end(s) of the tracks may need extrapolation. Usable downstream in extrapolation, but mainly
         necessary for detection of takeoffs and landings.
 
@@ -1358,75 +1392,6 @@ class AudibleTransits(ABC):
         else:
             new_tracks = tracks.copy()
             new_tracks['short_distance'] = short_distance
-            return new_tracks
-
-    @staticmethod
-    def needs_glue(tracks, active_ea, inplace=True):
-        """
-        Identifies tracks that will need gluing, and adds a corresponding boolean column to the input dataframe.
-        NOTE: this function should not be used to bound tracks for the actual gluing process. It is designed to 
-        give an idea as to how many tracks are fragmented due to a clipping-related intersection bug.
-
-        conditions for gluing: needs_extrapolation[i] == True
-                               needs_extrapolation[i+1] == True
-                               track_id[i] == track_id[i+1]
-                               entry_time[i+1] - exit_time[i] == 1 second
-                               exit_position[i] == entry_position[i+1]
-                               NOTE: Will also mark the next track to be glued
-
-        Parameters
-        ----------
-        tracks: `gpd.GeoDataFrame`
-            A dataframe containing flight tracks. Must have the following columns in order to compute:
-            index(unlabeled) | track_id | entry_time | exit_time | entry_position | exit_position 
-
-        active_ea: `gpd.GeoDataFrame`
-            A dataframe containing the equal area active space being studied. Should contain a Polygon or MultiPolygon geometry    
-
-        inplace: boolean
-            Whether to modify the input dataframe as part of the process. Defaults to True. If False, returns a new dataframe.
-
-        Returns
-        -------
-        None (if inplace=True)
-        new_tracks: `gpd.GeoDataFrame` (if inplace=False)
-
-        """
-
-        AudibleTransits.needs_extrapolation(tracks, active_ea)
-        # hold all pairs of track indices that need gluing (e.g., [[1,2],[4,5],[5,6],[11,12]])
-        needs_glue = []
-        glued_to_prev = False  # flags when the next track should also be marked
-        # track counter for iteration ('index' below is specific to the pandas object and may not be sequential/consecutive)
-        i = 0
-
-        # Loop through each track up until the final one (there will be no track to glue the final track to).
-        for index, track in tracks[:-1].iterrows():
-            current_track = tracks.iloc[i]
-            next_track = tracks.iloc[i+1]
-
-            # If current and next track meet all of the above criteria, they will need to be glued.
-            if (current_track.needs_extrapolation) & (next_track.needs_extrapolation) & (current_track.track_id == next_track.track_id) & (next_track.entry_position == current_track.exit_position) & ((next_track.entry_time - current_track.exit_time) / pd.Timedelta(seconds=1) <= 2):
-                needs_glue.append(True)
-                glued_to_prev = True
-            elif (glued_to_prev):
-                needs_glue.append(True)
-                glued_to_prev = False
-            else:
-                needs_glue.append(False)
-                glued_to_prev = False  # probably redundant
-
-            i = i+1
-
-        # Need to account for the final track, will need to be glued if the previous track met all the criteria for gluing.
-        needs_glue.append(glued_to_prev)
-
-        # Add column if inplace==True, else create new dataframe.
-        if (inplace):
-            tracks['needs_glue'] = needs_glue
-        else:
-            new_tracks = tracks.copy()
-            new_tracks['needs_glue'] = needs_glue
             return new_tracks
 
     @staticmethod
