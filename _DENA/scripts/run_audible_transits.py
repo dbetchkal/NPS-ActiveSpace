@@ -21,7 +21,7 @@ import json
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser
 import shapely
-from shapely.geometry import Point, MultiPoint, LineString, Polygon, box
+from shapely.geometry import Point, MultiPoint, LineString, Polygon, box, GeometryCollection
 import rasterio.plot
 import rasterio
 import geopy as geopy
@@ -108,6 +108,37 @@ def verbose_tqdm(iterable, *args, **kwargs):
 
 def dist(a, b):
     return math.sqrt((a[0] - b[0])**2 + (a[1] - b[1])**2)
+
+def coords_equal(a, b, tol=1e-6):
+    return abs(a[0] - b[0]) <= tol and abs(a[1] - b[1] <= tol)
+
+def complex_split(geom: LineString, splitter):
+    """
+    Function to split linestrings without self intersection issues.
+    Solution comes from here: https://github.com/shapely/shapely/issues/1068#issuecomment-770296614
+    """
+    if geom.is_simple:
+        return shapely.ops.split(geom, splitter)
+    
+    if isinstance(splitter, Polygon):
+        splitter = splitter.exterior
+    
+    # Ensure that intersection exists and is zero dimensional.
+    relate_str = geom.relate(splitter)
+    if relate_str[0] == '1':
+        raise ValueError('Cannot split LineString by a geometry which intersects a '
+                         'continuous portion of the LineString.')
+    if not (relate_str[0] == '0' or relate_str[1] == '0'):
+        return GeometryCollection((geom,))
+
+    intersection_points = geom.intersection(splitter)
+    # This only inserts the point at the first pass of a self-intersection if
+    # the point falls on a self-intersection.
+    snapped_geom = shapely.snap(geom, intersection_points, tolerance=1.0e-4)  # may want to make tolerance a parameter.
+    # A solution to the warning in the docstring is to roll your own split method here.
+    # The current one in shapely returns early when a point is found to be part of a segment.
+    # But if the point was at a self-intersection it could be part of multiple segments.
+    return shapely.ops.split(snapped_geom, intersection_points)
 
 class AudibleTransits(ABC):
     """
@@ -740,7 +771,7 @@ class AudibleTransits(ABC):
 
 
     def clip_tracks(self, tracks='self', min_gap_dur=30):
-        debug = True
+        debug = False
 
         if type(tracks) is str:
             assert tracks == 'self'
@@ -760,7 +791,7 @@ class AudibleTransits(ABC):
 
         if debug:
             fig, ax = plt.subplots(figsize=(8,8))
-            plt.plot(*active_poly.exterior.xy)
+            ax.plot(*active_poly.exterior.xy)
 
         for track_idx, track in tqdm(tracks.iterrows(), desc="Clipping Tracks", total=len(tracks)):
             if debug:
@@ -769,10 +800,19 @@ class AudibleTransits(ABC):
             # split the track along the activespace boundary
             # this results in track segments that are either entirely inside or entirely outside the activespace
             # note that track self intersections act as split points which will be re-joined later
-            split = shapely.ops.split(track["interp_geometry"], active_poly)
+            split = complex_split(track["interp_geometry"], active_poly)
             linestrings = list(split.geoms)
             # make a data structure to allow us to pair times with the new points resulting from the split
             track_segments = [{"coords": list(line.coords), "times": []} for line in linestrings]
+
+            # track_segments = []
+
+            # for line in linestrings:
+            #     coords = list(line.coords)
+            #     # if len(track_segments) > 0 and not coords_equal(track_segments[-1]["coords"][-1], coords[0], tol=0.0):
+            #     #     coords.insert(0, track_segments[-1]["coords"][-1])
+            #     if len(coords) >= 2:
+            #         track_segments.append({"coords": coords, "times": []})
 
             # assign datetimes to the new points introduced by the split
             idx_of_segment = 0
@@ -783,8 +823,13 @@ class AudibleTransits(ABC):
             # TODO - optimization - we can assume that all interior segment coords match, so can skip to end of segment
 
             while idx_of_segment < len(track_segments):
-                seg = track_segments[idx_of_segment]                
+                seg = track_segments[idx_of_segment]
                 seg_coord = seg["coords"][idx_in_segment]
+
+                # this is an edge case patch, TODO explain
+                if coord_idx >= len(orig_coords):
+                    coord_idx = len(orig_coords) - 1
+                
                 try:
                     orig_coord = orig_coords[coord_idx]
                 except IndexError:
@@ -794,13 +839,13 @@ class AudibleTransits(ABC):
                     sys.exit()
 
                 # check if coordinates match
-                tol = 1e-6
+                # tol = 1e-6
                 # coords_match = abs(orig_coord[0] - seg_coord[0]) < tol and abs(orig_coord[1] - seg_coord[1]) < tol
-                coords_match = orig_coord[0] == seg_coord[0] and orig_coord[1] == seg_coord[1]
+                coords_match = coords_equal(orig_coord, seg_coord, tol=1e-4)
                 # note - it's possible to have floating point error issues, which will result in nanoscale length tracks
                 # these will get filtered out by cleaning so no worries
 
-                if debug:# and (idx_in_segment <=2 or idx_in_segment >= len(seg["coords"])-3):
+                if debug and (idx_in_segment <=2 or idx_in_segment >= len(seg["coords"])-3):
                     tqdm.write(f"segment {idx_of_segment}, seg coord {idx_in_segment+1}/{len(seg['coords'])}, orig coord {coord_idx}"
                             f"{' match' if coords_match else '      '}"
                             f"\t{seg_coord[:2]} {orig_coord[:2]}")
@@ -829,7 +874,10 @@ class AudibleTransits(ABC):
                     a = orig_coords[coord_idx-1]
                     b = orig_coord
                     frac = dist(a, seg_coord) / dist(a, b)
+                    if frac > 1 and frac < 1 + 1e-4:
+                        frac = 1
                     if frac > 1:
+
                         aseg = math.sqrt((a[0] - seg_coord[0])**2 + (a[1] - seg_coord[1])**2)
                         segb = math.sqrt((b[0] - seg_coord[0])**2 + (b[1] - seg_coord[1])**2)
                         ab = math.sqrt((b[0] - a[0])**2 + (b[1] - a[1])**2)
