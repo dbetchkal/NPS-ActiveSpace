@@ -1245,7 +1245,7 @@ class AudibleTransits(ABC):
             retted = rasterio.plot.show(
                 self.DEM, ax=ax, alpha=.4, cmap='Blues_r')
             im = retted.get_images()[0]
-            fig.colorbar(im, ax=ax, label='Elevation (m)')
+            fig.colorbar(im, ax=ax, label='Elevation (m)', shrink=0.85)
 
         # If a different default crs is set, we need to reproject all geometries: active space, track lines, and entry + exit positions.
         if crs != 'self':
