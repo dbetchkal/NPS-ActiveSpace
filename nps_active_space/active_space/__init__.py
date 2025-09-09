@@ -549,7 +549,7 @@ class ActiveSpaceGenerator:
         #  current active space. The active space will initially be the same as the study area, but will be refined.
         tested_space = gpd.GeoDataFrame(columns=['audible', 'geometry'], geometry='geometry', crs=crs)
         active_space = study_area.to_crs(crs)
-        valid_query_region = study_area.to_crs(crs).union_all().buffer(-100)
+        valid_query_region = study_area.to_crs(crs).union_all().buffer(-100)  # require points to not be right on the boundary
         study_area_extent = ([active_space.total_bounds[0], active_space.total_bounds[2]],  # ([minx, maxx],
                              [active_space.total_bounds[1], active_space.total_bounds[3]])  # [miny, maxy])
 
