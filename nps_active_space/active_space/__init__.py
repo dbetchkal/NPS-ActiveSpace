@@ -371,7 +371,7 @@ class ActiveSpaceGenerator:
         # Check to see if any of the frequency bands are louder than the ambient levels.
         if type(self.ambience) == float:
             # broadband ambience
-            audible_times = tis_df.loc[:, "A"] > ambience
+            audible_times = tis_df.loc[:, "A"] > self.ambience
         else:
             # spectral ambience
             audible_times = (tis_df.loc[:, "12.5":"12500"] > self.ambience["12.5":"12500"].values).sum(axis=1)
@@ -511,7 +511,7 @@ class ActiveSpaceGenerator:
         region = gpd.GeoDataFrame({"geometry": [box(minx, miny, maxx, maxy)]}, crs=total_space.crs)
         region.geometry = region.buffer(100)  # small buffer so that the active space boundary occurs just outside the study area
         new_points = gpd.GeoDataFrame(geometry=build_src_point_mesh(region), crs=region.crs)
-        new_points = new_points[~new_points.geometry.within(region.unary_union)]
+        new_points = new_points[~new_points.geometry.within(region.union_all())]
         new_points["audible"] = 0
         total_space = pd.concat([total_space, new_points], ignore_index=True)
 
