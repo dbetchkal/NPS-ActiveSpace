@@ -549,7 +549,7 @@ class ActiveSpaceGenerator:
         #  current active space. The active space will initially be the same as the study area, but will be refined.
         tested_space = gpd.GeoDataFrame(columns=['audible', 'geometry'], geometry='geometry', crs=crs)
         active_space = study_area.to_crs(crs)
-        study_area_poly = study_area.to_crs(crs).union_all()
+        valid_query_region = study_area.to_crs(crs).union_all().buffer(-100)
         study_area_extent = ([active_space.total_bounds[0], active_space.total_bounds[2]],  # ([minx, maxx],
                              [active_space.total_bounds[1], active_space.total_bounds[3]])  # [miny, maxy])
 
@@ -574,8 +574,8 @@ class ActiveSpaceGenerator:
         # Run the point mesh step a maximum of two times.
         for j in range(2):
             source_pts = build_src_point_mesh(active_space, src_pt_density, altitude_m)
-            # only query points inside the study area; build_src_point_mesh uses the bounding box
-            valid_source_pts = [pt for pt in source_pts if pt.within(study_area_poly)]
+            # only query points inside the study area and far enough from the boundary; build_src_point_mesh uses the bounding box
+            valid_source_pts = [pt for pt in source_pts if pt.within(valid_query_region)]
             
             new_audibility_pts = self._run_nmsim(
                 f"{mic.name}_mesh{j + 1}",
@@ -604,8 +604,8 @@ class ActiveSpaceGenerator:
         # Run triangulation n_contour times to refine the edges of the active space.
         for k in range(n_contour):
             source_pts = self._contour_active_space(tested_space, altitude_m)
-            # only query points inside the study area; build_src_point_mesh uses the bounding box
-            valid_source_pts = [pt for pt in source_pts if pt.within(study_area_poly)]
+            # only query points inside the study area and far enough from the boundary; build_src_point_mesh uses the bounding box
+            valid_source_pts = [pt for pt in source_pts if pt.within(valid_query_region)]
             if len(valid_source_pts) == 0:
                 break
             new_audibility_pts = self._run_nmsim(
