@@ -796,36 +796,38 @@ class AudibleTransits(ABC):
 
             # split the track along the activespace boundary
             # this results in track segments that are either entirely inside or entirely outside the activespace
-            # note that track self intersections act as split points which will be re-joined later
+            # use complex_split() to avoid splitting at self-intersections, which shapely.ops.split() does
             split = complex_split(track["interp_geometry"], active_poly)
             linestrings = list(split.geoms)
             # make a data structure to allow us to pair times with the new points resulting from the split
             track_segments = [{"coords": list(line.coords), "times": []} for line in linestrings]
 
-            # assign datetimes to the new points introduced by the split
+            # Assign datetimes to the new points introduced by the split
+            # Together, the coordinates of the segments should mostly match the original track coords,
+            # with some extra points introduced by the split.
+            # So, step through the original track coords and the segment coords together.
+            # Keep track of the current original coord (coord_idx) and the current segment coord (idx_of_segment and idx_in_segment),
+            # If they match, we can copy over the datetime. Otherwise, a new point was introduced and we
+            # linearly interpolate to obtain the datetime.
+
             idx_of_segment = 0
             idx_in_segment = 0
             orig_coords = track["interp_geometry"].coords
             coord_idx = 0
 
-            # TODO - optimization - we can assume that all interior segment coords match, so can skip to end of segment
-            # actually... that assumption fails edge cases under the current algorithm
-
             while idx_of_segment < len(track_segments):
                 seg = track_segments[idx_of_segment]
                 seg_coord = seg["coords"][idx_in_segment]
 
-                # this is an edge case patch, TODO explain
+                # It is possible to run out of original coords before running out of segment coords.
+                # This is typically due to extrapolation adding a point near the boundary,
+                # resulting in the final two coords of a track being duplicates and both matching the
+                # final original coord. This edge case can be handled by stopping coord_idx from incrementing
+                # once we've reached the end of the original coords.
                 if coord_idx >= len(orig_coords):
                     coord_idx = len(orig_coords) - 1
-                
-                try:
-                    orig_coord = orig_coords[coord_idx]
-                except IndexError:
-                    print("BEEP BEEP")
-                    print(list(seg["coords"]), seg["times"])
-                    print(f"{idx_of_segment+1}/{len(track_segments)} segments")
-                    sys.exit()
+
+                orig_coord = orig_coords[coord_idx]
 
                 # check if coordinates match
                 coords_match = coords_equal(orig_coord, seg_coord, tol=1e-4)
@@ -837,13 +839,11 @@ class AudibleTransits(ABC):
 
                 if coords_match:
                     seg["times"].append(track["interp_point_dt"][coord_idx])
-                    # both original and segment points are accounted for, increment both
-                    # TODO recomment
-
-                    # note that an original coord can correspond to two segment coords
-                    # if the track was split at EXACTLY the original coord (can be detected
-                    # by checking if the segment coord was at the end of the segment)
-                    
+                    # Increment coord_idx and idx_in_segment appropriately.
+                    # Note that an original coord can correspond to two segment coords
+                    # if the track was split within tolerance of the original coord (can be detected
+                    # by checking if the segment coord was at the end of the segment, and not incrementing
+                    # coord_idx if this is the case)
                     if idx_in_segment < len(seg["coords"])-1:
                         coord_idx += 1
                     idx_in_segment += 1
@@ -852,7 +852,6 @@ class AudibleTransits(ABC):
                     # it must be on the line between original coords with indices coord_idx and coord_idx-1
                     # use those two original coords to do time interpolation
                     assert coord_idx > 0, "First point should always match"
-
                     a = orig_coords[coord_idx-1]
                     b = orig_coord
                     frac = dist(a, seg_coord) / dist(a, b)
@@ -873,18 +872,16 @@ class AudibleTransits(ABC):
                     idx_of_segment += 1
                     idx_in_segment = 0
 
-            # determine which segments are in the activespace
+            # Determine which segments are in the activespace (remember they can only be inside or outside, not partially inside)
             # Use midpoint of segment for determining if inside, helps avoid weird boundary behavior.
-            # In theory, the segment can only be inside or outside (not partially inside),
-            # but in practice using .contains() on the full linestring results in incorrect behavior.
             for seg in track_segments:
                 line = LineString(seg["coords"])
                 midpoint = line.interpolate(line.length / 2)
                 seg["inside"] = active_poly.contains(midpoint)
                 if debug:
                     ax.plot(*line.xy, color="blue" if seg["inside"] else "red")
-                    ax.scatter(midpoint.x, midpoint.y, c="blue" if seg["inside"] else "red")
-                            
+                    ax.scatter(midpoint.x, midpoint.y, c="blue" if seg["inside"] else "red")        
+
             # determine which track segments to keep, based on whether they are inside the active space,
             # and if not, whether they are short-in-duration and surrounded by two segments inside the active space.
             segments_to_keep = []
