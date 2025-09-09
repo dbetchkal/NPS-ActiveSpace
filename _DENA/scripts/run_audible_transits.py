@@ -109,13 +109,14 @@ def verbose_tqdm(iterable, *args, **kwargs):
 def dist(a, b):
     return math.sqrt((a[0] - b[0])**2 + (a[1] - b[1])**2)
 
-def coords_equal(a, b, tol=1e-6):
+def coords_equal(a, b, tol=1e-4):
     return abs(a[0] - b[0]) <= tol and abs(a[1] - b[1] <= tol)
 
 def complex_split(geom: LineString, splitter):
     """
     Function to split linestrings without self intersection issues.
     Solution comes from here: https://github.com/shapely/shapely/issues/1068#issuecomment-770296614
+    Note that this will fail if the splitter intersects the geometry at a self-intersection point
     """
     if geom.is_simple:
         return shapely.ops.split(geom, splitter)
@@ -132,13 +133,9 @@ def complex_split(geom: LineString, splitter):
         return GeometryCollection((geom,))
 
     intersection_points = geom.intersection(splitter)
-    # This only inserts the point at the first pass of a self-intersection if
-    # the point falls on a self-intersection.
-    snapped_geom = shapely.snap(geom, intersection_points, tolerance=1.0e-4)  # may want to make tolerance a parameter.
-    # A solution to the warning in the docstring is to roll your own split method here.
-    # The current one in shapely returns early when a point is found to be part of a segment.
-    # But if the point was at a self-intersection it could be part of multiple segments.
+    snapped_geom = shapely.snap(geom, intersection_points, tolerance=1.0e-4)
     return shapely.ops.split(snapped_geom, intersection_points)
+
 
 class AudibleTransits(ABC):
     """
@@ -805,15 +802,6 @@ class AudibleTransits(ABC):
             # make a data structure to allow us to pair times with the new points resulting from the split
             track_segments = [{"coords": list(line.coords), "times": []} for line in linestrings]
 
-            # track_segments = []
-
-            # for line in linestrings:
-            #     coords = list(line.coords)
-            #     # if len(track_segments) > 0 and not coords_equal(track_segments[-1]["coords"][-1], coords[0], tol=0.0):
-            #     #     coords.insert(0, track_segments[-1]["coords"][-1])
-            #     if len(coords) >= 2:
-            #         track_segments.append({"coords": coords, "times": []})
-
             # assign datetimes to the new points introduced by the split
             idx_of_segment = 0
             idx_in_segment = 0
@@ -821,6 +809,7 @@ class AudibleTransits(ABC):
             coord_idx = 0
 
             # TODO - optimization - we can assume that all interior segment coords match, so can skip to end of segment
+            # actually... that assumption fails edge cases under the current algorithm
 
             while idx_of_segment < len(track_segments):
                 seg = track_segments[idx_of_segment]
@@ -839,11 +828,7 @@ class AudibleTransits(ABC):
                     sys.exit()
 
                 # check if coordinates match
-                # tol = 1e-6
-                # coords_match = abs(orig_coord[0] - seg_coord[0]) < tol and abs(orig_coord[1] - seg_coord[1]) < tol
                 coords_match = coords_equal(orig_coord, seg_coord, tol=1e-4)
-                # note - it's possible to have floating point error issues, which will result in nanoscale length tracks
-                # these will get filtered out by cleaning so no worries
 
                 if debug and (idx_in_segment <=2 or idx_in_segment >= len(seg["coords"])-3):
                     tqdm.write(f"segment {idx_of_segment}, seg coord {idx_in_segment+1}/{len(seg['coords'])}, orig coord {coord_idx}"
@@ -866,29 +851,13 @@ class AudibleTransits(ABC):
                     # found a new split point
                     # it must be on the line between original coords with indices coord_idx and coord_idx-1
                     # use those two original coords to do time interpolation
-
-                    is_segment_endpoint = (idx_in_segment == 0) or (idx_in_segment == len(seg["coords"])-1)
-                    assert is_segment_endpoint, "New coord should be at track segment endpoints only"
                     assert coord_idx > 0, "First point should always match"
 
                     a = orig_coords[coord_idx-1]
                     b = orig_coord
                     frac = dist(a, seg_coord) / dist(a, b)
-                    if frac > 1 and frac < 1 + 1e-4:
+                    if frac > 1 and frac < 1 + 1e-4:  # floating point error
                         frac = 1
-                    if frac > 1:
-
-                        aseg = math.sqrt((a[0] - seg_coord[0])**2 + (a[1] - seg_coord[1])**2)
-                        segb = math.sqrt((b[0] - seg_coord[0])**2 + (b[1] - seg_coord[1])**2)
-                        ab = math.sqrt((b[0] - a[0])**2 + (b[1] - a[1])**2)
-                        print(f"{aseg} + {segb} = {aseg + segb}, should = {ab}")
-                        fig, ax = plt.subplots()
-                        ax.plot([a[0], seg_coord[0]], [a[1], seg_coord[1]], linewidth=5, label="a-seg")
-                        ax.plot([a[0], b[0]], [a[1], b[1]], label="a-b")
-                        ax.scatter([seg_coord[0]], [seg_coord[1]])
-                        plt.axis("equal")
-                        plt.legend()
-                        plt.show()
                     assert frac >= 0 and frac <= 1, frac
                     ta = track["interp_point_dt"][coord_idx-1]
                     tb = track["interp_point_dt"][coord_idx]
@@ -927,8 +896,8 @@ class AudibleTransits(ABC):
 
                 # check if this track segment started where the previous one ended
                 # if so, we need to glue them together instead of keeping a new segment
-                # this gluing can be between a segment inside and a segment outside the activespace,
-                # or between two segments that were split by self-intersection
+                # this gluing is needed between a segment inside and a segment outside the activespace,
+                # both of which we decided to keep
                 if seg["inside"] or (duration < min_gap_dur and seg_before_inside and seg_after_inside):
                     if (len(segments_to_keep) > 0) and (seg["times"][0] == segments_to_keep[-1]["times"][-1]):
                         segments_to_keep[-1]["coords"] += seg["coords"][1:]
@@ -949,123 +918,6 @@ class AudibleTransits(ABC):
             ax.set_xlim(minx, maxx)
             ax.set_ylim(miny, maxy)
             plt.show()
-
-        # convert track rows to geodataframe
-        clipped_tracks = gpd.GeoDataFrame(data=new_track_rows, geometry="interp_geometry", crs=tracks.crs)
-
-        # Track id is no longer a unique identifier, so should reset the index, but remember track_id
-        if 'track_id' not in clipped_tracks.columns:
-            clipped_tracks.insert(0, "track_id", clipped_tracks.index)
-        clipped_tracks.reset_index(inplace=True, drop=True)
-
-        if (self_flag):
-            self.tracks = clipped_tracks.copy()
-
-        logger.debug("\tTracks clipped into audible transits.")
-
-        return clipped_tracks
-
-
-    def slow_clip_tracks(self, tracks='self', min_gap_dur=30):
-        if type(tracks) is str:
-            assert tracks == 'self'
-            tracks = self.tracks
-            self_flag = True
-        else:
-            self_flag = False
-        
-        if 'interp_geometry' not in tracks:
-            logger.debug("Error: No interpolated geometry found (column = 'interp_geometry'). Cannot clip tracks to active space.")
-            return 0
-
-        min_gap_dur = np.timedelta64(min_gap_dur, 's')
-        active_poly = self.active.union_all()
-        shapely.prepare(active_poly)  # speeds up future computation
-        new_track_rows = []
-
-        for _, track in tqdm(tracks.iterrows(), desc="Clipping Tracks", total=len(tracks)):
-            coords = track["interp_geometry"].coords
-            times = track["interp_point_dt"]
-            # init a temp data structure to store segments of the track that are entirely inside or entirely outside the activespace
-            track_segments = [{
-                "coords": [coords[0]],
-                "times": [times[0]]
-            }]
-
-            for i in range(1, len(coords)):
-                line = LineString([coords[i-1], coords[i]])
-                line_parts = list(shapely.ops.split(line, active_poly).geoms)
-
-                if len(line_parts) > 1:
-                    # intersection(s), add new points created by intersection and new segment(s)
-                    line_part_starts = [part.coords[0] for part in line_parts]
-                    new_points = []
-                    new_times = []
-                    for pt in line_part_starts[1:]:
-                        frac = math.dist(coords[i-1], pt) / math.dist(coords[i-1], coords[i])
-                        assert frac > 0 and frac < 1
-                        # handle floating point error - the fact that the point is essentially exactly on the boundary
-                        # will get picked up by the .touches() check below and trigger a new segment there.
-                        if frac < 1e-8 or frac > 1 - 1e-8:
-                            continue
-                        new_points.append(pt)
-                        new_times.append(times[i-1] + frac * (times[i] - times[i-1]))
-
-                    # make a new segment for each new point, each of which indicate a boundary crossing
-                    for j in range(len(new_points)):
-                        # finish last one with this point
-                        track_segments[-1]["coords"].append(new_points[j])
-                        track_segments[-1]["times"].append(new_times[j])
-                        # start new one with this point
-                        track_segments.append({
-                            "coords": [new_points[j]],
-                            "times": [new_times[j]]
-                        })
-                
-                # add original point coord in
-                track_segments[-1]["coords"].append(coords[i])
-                track_segments[-1]["times"].append(times[i])
-                # need to check if the endpoint exactly intersected the active space boundary
-                # and if so a new segment should be started at the endpoint. But only if it isn't the first/last point
-                if i > 0 and i < len(coords)-1 and Point(coords[i]).touches(active_poly):
-                    # new segment
-                    track_segments.append({
-                        "coords": [coords[i]],
-                        "times": [times[i]]
-                    })
-
-            # determine which segments are in the activespace
-            # Use midpoint of segment for determining if inside, helps avoid weird boundary behavior.
-            # In theory, the segment can only be inside or outside (not partially inside),
-            # but in practice using .contains() on the full linestring results in incorrect behavior.
-            for seg in track_segments:
-                line = LineString(seg["coords"])
-                midpoint = line.interpolate(line.length / 2)
-                seg["inside"] = active_poly.contains(midpoint)
-                
-            # determine which track segments to keep, based on whether they are inside the active space,
-            # and if not, whether they are short-in-duration and surrounded by two segments inside the active space.
-            segments_to_keep = []
-            for i, seg in enumerate(track_segments):
-                seg_before_inside = (i > 0) and (track_segments[i-1]["inside"])
-                seg_after_inside = (i < len(track_segments)-1) and (track_segments[i+1]["inside"])
-                duration = seg["times"][-1] - seg["times"][0]
-                assert duration > np.timedelta64(0, 's'), f"{track_segments[i-1]['times']}\n\n{seg['times']}\n\n{times[-5:]}"
-
-                if seg["inside"] or (duration < min_gap_dur and seg_before_inside and seg_after_inside):
-                    if (len(segments_to_keep) > 0) and (seg["times"][0] == segments_to_keep[-1]["times"][-1]):
-                        segments_to_keep[-1]["coords"] += seg["coords"][1:]
-                        segments_to_keep[-1]["times"] += seg["times"][1:]
-                    else:
-                        # no glue needed, just add it
-                        segments_to_keep.append(seg)
-                        
-            # convert segments into proper track rows
-            for seg in segments_to_keep:
-                row = track.copy()
-                row["interp_geometry"] = LineString(seg["coords"])
-                row["interp_point_dt"] = seg["times"]
-                new_track_rows.append(row)
 
         # convert track rows to geodataframe
         clipped_tracks = gpd.GeoDataFrame(data=new_track_rows, geometry="interp_geometry", crs=tracks.crs)
