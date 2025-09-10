@@ -678,7 +678,6 @@ def select_optimal(unit: str, site: str, year: int,
         else:
             plt.savefig(plot_savepath)
 
-    print(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta:0.3f})")
     return best_omni, max_fbeta, best_precision, best_recall, detection_results
 
 

@@ -164,6 +164,7 @@ if __name__ == '__main__':
     if annotations.empty:
         logger.info(f"No track annotations found for {args.unit}{args.site}{args.year}. Exiting...")
         exit(-1)
+    print(f"{annotations.shape[0]} valid annotated segments found")
 
     # Extract all valid points from their LineStrings. These will be needed for calculating fbeta scores later.
     valid_points_lst = []
