@@ -371,7 +371,7 @@ class ActiveSpaceGenerator:
         # Check to see if any of the frequency bands are louder than the ambient levels.
         if type(self.ambience) == float:
             # broadband ambience
-            audible_times = tis_df.loc[:, "A"] > ambience
+            audible_times = tis_df.loc[:, "A"] > self.ambience
         else:
             # spectral ambience
             audible_times = (tis_df.loc[:, "12.5":"12500"] > self.ambience["12.5":"12500"].values).sum(axis=1)
@@ -511,7 +511,7 @@ class ActiveSpaceGenerator:
         region = gpd.GeoDataFrame({"geometry": [box(minx, miny, maxx, maxy)]}, crs=total_space.crs)
         region.geometry = region.buffer(100)  # small buffer so that the active space boundary occurs just outside the study area
         new_points = gpd.GeoDataFrame(geometry=build_src_point_mesh(region), crs=region.crs)
-        new_points = new_points[~new_points.geometry.within(region.unary_union)]
+        new_points = new_points[~new_points.geometry.within(region.union_all())]
         new_points["audible"] = 0
         total_space = pd.concat([total_space, new_points], ignore_index=True)
 
@@ -549,6 +549,7 @@ class ActiveSpaceGenerator:
         #  current active space. The active space will initially be the same as the study area, but will be refined.
         tested_space = gpd.GeoDataFrame(columns=['audible', 'geometry'], geometry='geometry', crs=crs)
         active_space = study_area.to_crs(crs)
+        valid_query_region = study_area.to_crs(crs).union_all().buffer(-100)  # require points to not be right on the boundary
         study_area_extent = ([active_space.total_bounds[0], active_space.total_bounds[2]],  # ([minx, maxx],
                              [active_space.total_bounds[1], active_space.total_bounds[3]])  # [miny, maxy])
 
@@ -573,9 +574,12 @@ class ActiveSpaceGenerator:
         # Run the point mesh step a maximum of two times.
         for j in range(2):
             source_pts = build_src_point_mesh(active_space, src_pt_density, altitude_m)
+            # only query points inside the study area and far enough from the boundary; build_src_point_mesh uses the bounding box
+            valid_source_pts = [pt for pt in source_pts if pt.within(valid_query_region)]
+            
             new_audibility_pts = self._run_nmsim(
                 f"{mic.name}_mesh{j + 1}",
-                source_pts,
+                valid_source_pts,
                 crs,
                 flt_filename,
                 site_filename,
@@ -600,15 +604,13 @@ class ActiveSpaceGenerator:
         # Run triangulation n_contour times to refine the edges of the active space.
         for k in range(n_contour):
             source_pts = self._contour_active_space(tested_space, altitude_m)
-            # If gain is too big and everything is audible, no contours will exist and no test points will be generated.
-            # In this case, we simply won't refine the edge.
-            # The user shouldn't use this active space anyways because it overflows the study area,
-            # so no need to worry about boundary detail
-            if len(source_pts) == 0:
+            # only query points inside the study area and far enough from the boundary; build_src_point_mesh uses the bounding box
+            valid_source_pts = [pt for pt in source_pts if pt.within(valid_query_region)]
+            if len(valid_source_pts) == 0:
                 break
             new_audibility_pts = self._run_nmsim(
                 f"{mic.name}_contour{k + 1}",
-                source_pts,
+                valid_source_pts,
                 crs,
                 flt_filename,
                 site_filename,
