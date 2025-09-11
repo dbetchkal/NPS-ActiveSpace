@@ -163,7 +163,7 @@ if __name__ == '__main__':
     logger.info("Locating unit/site annotations...")
     if args.annotation_file is not None:
         print(f"Using non-default annotation file: {args.annotation_file}")
-        annotations = Annotations(f"{project_dir}/{args.unit}{args.site}/{args.annotations_file}", only_valid=True)
+        annotations = Annotations(f"{project_dir}/{args.unit}{args.site}/{args.annotation_file}", only_valid=True)
     else:
         annotations = load_annotations(cfg.read("project", "dir"), args.unit, args.site, args.year)
     if annotations.empty:
