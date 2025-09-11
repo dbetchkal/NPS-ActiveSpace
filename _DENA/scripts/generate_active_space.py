@@ -122,7 +122,7 @@ if __name__ == '__main__':
                           help="Beta value(s) to use when calculating fbeta. Accepts one or more values.")
     argparse.add_argument('--cleanup', action='store_true',
                           help="Remove intermediary control and batch files.")
-    argparse.add_argument('--annotation_file', help="Basename of GEOJSON annotations file to use, if not the default. File should be in the site directory.")
+    argparse.add_argument('--annotation-file', help="Basename of GEOJSON annotations file to use, if not the default. File should be in the site directory.")
     args = argparse.parse_args()
 
     ambience_valid = (args.ambience == "nvspl") or (args.ambience == "mennitt") or (args.ambience.endswith(".pkl") and os.path.exists(args.ambience))
