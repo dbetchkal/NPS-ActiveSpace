@@ -131,7 +131,7 @@ if __name__ == '__main__':
     # --------------- INIT --------------- #
 
     cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
-    project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
+    site_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
     logger = get_logger(f"ACTIVE-SPACE: {args.unit}{args.site}{args.year}")
 
     omni_sources = get_omni_sources(lower=args.omni_min, upper=args.omni_max)
@@ -140,7 +140,7 @@ if __name__ == '__main__':
 
     # Load the microphone deployment site metadata and the study area shapefile.
     mic_ = get_deployment(cfg.read('project', 'dir'), args.unit, args.site, args.year, elevation=False)
-    study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])
+    study_area = gpd.read_file(glob.glob(f"{site_dir}/*study*.shp")[0])
 
     # Compute ambience
     # Load NVSPL data or the mennitt raster depending on the user input.
@@ -163,7 +163,7 @@ if __name__ == '__main__':
     logger.info("Locating unit/site annotations...")
     if args.annotation_file is not None:
         print(f"Using non-default annotation file: {args.annotation_file}")
-        annotations = Annotations(f"{project_dir}/{args.unit}{args.site}/{args.annotation_file}", only_valid=True)
+        annotations = Annotations(f"{site_dir}/{args.annotation_file}", only_valid=True)
     else:
         annotations = load_annotations(cfg.read("project", "dir"), args.unit, args.site, args.year)
     if annotations.empty:
@@ -207,7 +207,7 @@ if __name__ == '__main__':
     #  the same location for every active space. This is a MAJOR time saver!
     generator_ = ActiveSpaceGenerator(
         NMSIM=cfg.read('project', 'nmsim'),
-        root_dir=project_dir,
+        root_dir=site_dir,
         study_area=study_area,
         ambience=ambience,
         dem_src=cfg.read('data', 'dem'),
@@ -223,7 +223,7 @@ if __name__ == '__main__':
         with tqdm(desc='Omni Sources', unit='omni source', colour='green', total=len(omni_sources), leave=True) as pbar:
             processes = []
             for omni_source_ in omni_sources:
-                outfile_ = f'{project_dir}/{args.unit}{args.site}{args.year}_{Path(omni_source_).stem}.geojson'
+                outfile_ = f'{site_dir}/{args.unit}{args.site}{args.year}_{Path(omni_source_).stem}.geojson'
                 processes.append(pool.apply_async(_run, kwds={'outfile': outfile_, 'omni_source': omni_source_},
                                                   callback=_update_pbar, error_callback=_handle_error))
             results = [p.get() for p in processes]
@@ -232,16 +232,16 @@ if __name__ == '__main__':
 
     # Clean up intermediary files if the user requests.
     if args.cleanup:
-        for file in glob.glob(f"{project_dir}/control*"):
+        for file in glob.glob(f"{site_dir}/control*"):
             os.remove(file)
-        for file in glob.glob(f"{project_dir}/batch*"):
+        for file in glob.glob(f"{site_dir}/batch*"):
             os.remove(file)
 
     # --------------- ANALYSIS --------------- #
 
     for beta_ in args.beta:
 
-        plot_savepath = f'{project_dir}/PrecisionRecallPlot_{args.unit}{args.site}{args.year}_{str(beta_).replace(".","p")}.png'
+        plot_savepath = f'{site_dir}/PrecisionRecallPlot_{args.unit}{args.site}{args.year}_{str(beta_).replace(".","p")}.png'
         best_omni, max_fbeta, best_precision, best_recall, detection_results = select_optimal(unit=args.unit,
                                                                                               site=args.site,
                                                                                               year=args.year,
