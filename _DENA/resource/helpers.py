@@ -519,4 +519,4 @@ def plot_activespace_fit(project_dir, unit, site, year, gain, ax=None, dem=None,
             zorder=2
         )
     
-    mic.plot(ax=ax, color='r', markersize=10, marker='*', zorder=10)
+    mic.plot(ax=ax, color="black", markersize=15, marker='o', zorder=10)
