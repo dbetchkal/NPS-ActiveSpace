@@ -507,20 +507,26 @@ def get_all_srcid_stats(src_data, start_date, end_date, months=list(range(1,13))
             print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
             months=list(range(1,13))
 
+    src_filtered = src_data.loc[src_data.srcID.isin(src_list), :]
+
     # notably, this function adds two columns "start_time" and "end_time"
     # which are necessary to use the functions `NFI_list` and `_time_binned_df`
-    src_clip =  clip_srcid_to_time_period(src_data, 
+    src_clip =  clip_srcid_to_time_period(src_filtered, 
                                            start_date=start_date, 
                                            end_date=end_date, 
                                            months=months)
 
     src_clip["duration"] = src_clip["len"].apply(lambda t: float(t.total_seconds()))
-    NFI_df = NFI_list(src_clip, source = src_list, unit="seconds")
+    NFI_df = NFI_list(src_clip, source = "all", unit="seconds")
 
     # prepare the values we want statistics for
     values = {
         "event_duration": src_clip["duration"],
-        "NFI_duration": NFI_df["duration"]
+        "NFI_duration": NFI_df["duration"],
+        "SEL_A" : src_clip["SEL"].astype('float'),
+        "SEL_T" : src_clip["SELt"].astype('float'),
+        "LAmax" : src_clip["MaxSPL"].astype('float'),
+        "LTmax" : src_clip["MaxSPLt"].astype('float')
     }
     # include time audible and event count, binned by hour and by day
     for freq in ['d', 'h']:
