@@ -13,8 +13,11 @@ import warnings
 
 __all__ = [
     'clip_events_to_time_period',
+    'clip_srcid_to_time_period',
     'tracks2events',
+    'NFI_list',
     'get_all_stats',
+    'get_all_srcid_stats',
     'calculate_spatial_stats',
     'plot_events',
     'circular_sliding_avg',
@@ -58,6 +61,32 @@ def clip_events_to_time_period(df, start_col, end_col, start_date, end_date, mon
     df[start_col] = np.maximum(df[start_col].values, start_date)
     df[end_col] = np.minimum(df[end_col].values, end_date)
     return df
+
+
+def clip_srcid_to_time_period(src_data, start_date, end_date, months=list(range(1,13))):
+    """A wrapper function around `clip_events_to_time_period` to clip SRCID data.
+    """
+
+    # we'll filter an uninformative performance warning
+    warnings.filterwarnings("ignore", 
+                            message=".*Adding/subtracting object-dtype array to DatetimeArray not vectorized.*")
+
+    # the clipping function expects start and end datetimes, so we add two columns...
+    src_data["start_time"] = pd.to_datetime(src_data.index.to_series())
+    src_data["end_time"]   = pd.to_datetime(src_data["start_time"] + src_data["len"])
+    
+    src_clipped = clip_events_to_time_period(src_data,
+                                             start_col = "start_time",
+                                             end_col = "end_time",
+                                             start_date=np.datetime64(start_date),
+                                             end_date=np.datetime64(end_date),
+                                             months=months)
+
+    # just in case, we update the SRCID datatime information to match
+    src_clipped.index = src_clipped["start_time"]
+    src_clipped.len = src_clipped["end_time"] - src_clipped["start_time"]
+    
+    return src_clipped
 
 
 def tracks2events(tracks, start_date, end_date, min_dur=10, min_gap_dur=30):
@@ -271,12 +300,11 @@ def _agg_conf_intervals(series: pd.Series, agg_funcs: list):
     out = {}
     for f in agg_funcs:
         try:
-            with warnings.catch_warnings():
-                warnings.filterwarnings("error")
-                result = stats.bootstrap((series.values,), lambda x: f(pd.Series(x)),
-                                        confidence_level=0.95, n_resamples=1000, method="BCa")
+            result = stats.bootstrap((series.values,), lambda x: f(pd.Series(x)),
+                                    confidence_level=0.95, n_resamples=1000, method="percentile")
             out[f.__name__] = result.confidence_interval
-        except:
+        except Exception as e:
+            print(f"Error with function {f.__name__}: {e}")
             out[f.__name__] = (pd.NA, pd.NA)
     return pd.Series(out)
 
@@ -290,6 +318,62 @@ class Quantile:
     
     def __call__(self, series: pd.Series):
         return series.quantile(self.q)
+
+
+def NFI_list(srcid, source = "all", unit="hours"): 
+    """
+    Returns a DataFrame of all Noise Free Intervals for selected source type(s).
+
+    Parameters
+    ----------
+    srcid: pandas dataframe representing NPS NSNSD srcid file, formatted by soundDB library.
+    source: str or list of floats, optional.  Which subset of srcid codes to summarize - choose either "all", "air", or specify a list of srcID codes as float.  Defaults to "all" if unspecified.
+    unit: str, a value that indicates the units desired for the output value.  Defaults to "hours".
+
+    Returns
+    -------
+    pandas Series of floating-point times
+    """
+
+    # 'look-up' dictionary to translate time unit from string to integer (in seconds)
+    unitDict = {"seconds":1, "minutes":60, "hours":3600, "days":86400}
+
+    # because NFI depends on event timing, 
+    # it is critical to first sort chronologically
+    srcid.sort_index(inplace=True)
+
+    # two of the source categories are built-in as strings ("all", "air")
+    if(type(source) == str):
+        if(source.lower() == "all"):  
+
+            # difference the starting datetime indices to create a list of timedeltas
+            NFIlst = srcid.index.to_series().diff()
+
+        elif(source.lower() == "air"):
+
+            # aviation sources have source ID codes starting with 1: (1., 1.1, 1.2, 1.3, etc.)
+            srcid = srcid.loc[(srcid.srcID > 0) & (srcid.srcID < 2.), :]
+
+            # difference the starting datetime indices to create a list of timedeltas
+            NFIlst = srcid.index.to_series().diff()
+    else: 
+
+        # select only the source ID code of interest
+        srcid = srcid.loc[srcid.srcID.isin(source), :]
+
+        # difference the starting datetime indices to create a list of timedeltas
+        NFIlst = srcid.index.to_series().diff()
+
+    valid_NFIs = NFIlst[NFIlst > "00:00:00"]
+    NFI_df = pd.DataFrame([])
+    NFI_durations = pd.Series(np.array([m.total_seconds() for m in valid_NFIs])/unitDict[unit])
+    NFI_df["duration"] = NFI_durations
+    NFI_df["start_time"] = valid_NFIs.index
+    NFI_df["end_time"] = NFI_df["start_time"] + valid_NFIs.values
+    NFI_df.index = valid_NFIs.index
+    NFI_df = NFI_df.dropna()
+    
+    return NFI_df
 
 
 def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13)), quantiles=.5):
@@ -372,6 +456,90 @@ def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13
         #     conf_intervals[col] = conf_intervals[col].apply(lambda x: tuple(pd.to_timedelta(x, unit="s")))
     
     return pd.DataFrame(statistics), pd.DataFrame(conf_intervals), values    
+
+
+def get_all_srcid_stats(src_data, start_date, end_date, months=list(range(1,13)), quantiles=.5, src_list=[1.2,1.3]):
+    """Calculates all event statistics, given a set of events and corresponding noise free intervals (NFIs).
+    
+    Parameters
+    ----------
+    src_data: pd.DataFrame
+        A DataFrame containing canonical source identification data as returned by the Srcid().data attribute. 
+    start_date : string
+        The start date to begin calculating duration stats, formatted as 'yyyy-mm-dd'. Refers to midnight of this date.
+    end_date : string
+        The end date to stop calculating duration stats, formatted as 'yyyy-mm-dd'. Refers to midnight of this date, so no events occuring during this day will be captured.
+    months : int or list of ints (between 1 and 12)
+        Default is the full year, an optional input to specify the months of interest as a list of integers, 1-12. 
+        This is helpful for highly seasonal flight patterns, such as Denali's summer vs winter splits.
+    quantiles : float or list of floats (between 0 and 1)
+        Default is .5 (the median), specifies which quantiles to output. E.g., [.1, .5., .9] will output 10th, 50th, and 90th quantiles
+    src_list : list of floats
+        Default is [1.2,1.3], which includes propeller aircraft (1.2) and helicopters (1.3). Any source identification code may be used.
+        E.g., for vessels [3.0], for jets [1.1], etc.
+    
+    Returns
+    -------
+    Tuple of (statistics, confidence_intervals, data)
+        statistics: pd.DataFrame
+            DataFrame containing computed statistics.
+            Columns represent the metrics that statistics are computed for: event_duration, NFI_duration, daily_time_audible, daily_event_count, hourly_time_audible, hourly_event_count
+            Rows represent the statistic: mean, quantiles, min, max, std, median_abs_deviation 
+        confidence_intervals: pd.DataFrame
+            DataFrame containing 95% BCa confidence intervals for the mean and quantiles, computed using bootstrapping.
+            Columns are metric names, rows are statistic names.
+            Entries in the DataFrame are tuples representing the confidence intervals. Note that tuples may contain nan if the statistic
+            distribution was degenerate (always the same value when performing bootstrapping).
+        data: dict
+            A dictionary where keys are metric names, and values are pd.Series representing the data.
+    """
+
+    start_date = np.datetime64(start_date)  # Convert to datetime64
+    end_date = np.datetime64(end_date)      # Convert to datetime64
+
+    # Input validation. Both 'quantiles' and 'months' paramters must be converted to lists
+    quantiles = [quantiles] if type(quantiles)!=type([]) else quantiles
+    months = [months] if type(months)!=type([]) else months
+
+    # Make sure months are between 1 and 12
+    for month in months:
+        if (month < 1) | (month > 12):
+            print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
+            months=list(range(1,13))
+
+    # notably, this function adds two columns "start_time" and "end_time"
+    # which are necessary to use the functions `NFI_list` and `_time_binned_df`
+    src_clip =  clip_srcid_to_time_period(src_data, 
+                                           start_date=start_date, 
+                                           end_date=end_date, 
+                                           months=months)
+
+    src_clip["duration"] = src_clip["len"].apply(lambda t: float(t.total_seconds()))
+    NFI_df = NFI_list(src_clip, source = src_list, unit="seconds")
+
+    # prepare the values we want statistics for
+    values = {
+        "event_duration": src_clip["duration"],
+        "NFI_duration": NFI_df["duration"]
+    }
+    # include time audible and event count, binned by hour and by day
+    for freq in ['d', 'h']:
+        binned_df = _time_binned_df(src_clip, start_date, end_date, months, freq)
+        for col in binned_df.columns:
+            values[col] = binned_df[col]
+    
+    # prepare the statistics we want
+    agg_stats = ["mean"] + [Quantile(q) for q in quantiles] + ["min", "max", "std", stats.median_abs_deviation]
+    conf_int_stats = [np.mean] + [Quantile(q) for q in quantiles]
+
+    # compute statistics
+    statistics = {}
+    conf_intervals = {}
+    for col, series in values.items():
+        statistics[col] = series.agg(agg_stats)
+        conf_intervals[col] = _agg_conf_intervals(series, conf_int_stats)
+    
+    return pd.DataFrame(statistics), pd.DataFrame(conf_intervals), values  
 
 
 def calculate_spatial_stats(tracks, active):
@@ -516,6 +684,7 @@ def circular_sliding_avg(vector, window_len):
     
     return smoothed
 
+
 def find_circular_peaks(column, distance_delta, peak_distance):
     '''
     A specific adaptation of SciPy.Signal's 'find_peaks' algorithm for use on an active space polygon.
@@ -557,6 +726,7 @@ def find_circular_peaks(column, distance_delta, peak_distance):
     # get rid of peaks in the prepended AND appended parts of the wrapped vector.
     sorted_peak_indices = sorted_peaks[(sorted_peaks >= samples_between_peaks) & (sorted_peaks < len(entries_vector)+samples_between_peaks)] - samples_between_peaks
     return sorted_peak_indices
+
 
 def endpoints_around_active(active, tracks, distance_delta, peak_distance, endpoint_type):
     '''
@@ -621,6 +791,7 @@ def endpoints_around_active(active, tracks, distance_delta, peak_distance, endpo
         return 0
                                             
     return active_gdf, peak_indices
+
 
 def identify_stereotypical_tracks(active, tracks, distance_delta=100, peak_distance=1000):
     '''

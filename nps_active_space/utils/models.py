@@ -1645,7 +1645,7 @@ class Srcid():
                                 parse_dates= False)
 
         # Combine nvsplDate, hr, secs columns into one DatetimeIndex
-        dates = pd.to_datetime(data.nvsplDate, infer_datetime_format= True)
+        dates = pd.to_datetime(data.nvsplDate)
         hrs   = pd.to_timedelta(data.hr, unit= "h")
         secs  = pd.to_timedelta(data.secs, unit= "s")
 
@@ -1675,7 +1675,7 @@ class Srcid():
 
         # Parse tagDate to datetime (though old versions don't have tagDate)
         if 'tagDate' in data.columns:
-            data.tagDate = pd.to_datetime(data.tagDate, infer_datetime_format= True)
+            data.tagDate = pd.to_datetime(data.tagDate)
 
         return data
 
@@ -1693,7 +1693,7 @@ class Srcid():
         new_MaxA = "{0:.01f}".format(df["MaxSPL"].max())
 
         new_user = df.head(1)["userName"].values[0]
-        new_tagdate = df.tail(1)["tagDate"][0]
+        new_tagdate = df.tail(1)["tagDate"].values[0]
 
         # because SEL values are already normalized you just logarithmically add them
         # this gives the total energy dose
