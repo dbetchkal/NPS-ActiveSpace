@@ -82,7 +82,7 @@ def clip_srcid_to_time_period(src_data, start_date, end_date, months=list(range(
                                              end_date=np.datetime64(end_date),
                                              months=months)
 
-    # just in case, we update the SRCID datatime information to match
+    # just in case, we update the SRCID datetime information to match
     src_clipped.index = src_clipped["start_time"]
     src_clipped.len = src_clipped["end_time"] - src_clipped["start_time"]
     
