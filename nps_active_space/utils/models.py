@@ -622,6 +622,12 @@ class Adsb(gpd.GeoDataFrame):
                 data=data,
                 geometry=gpd.points_from_xy(data["lon"], data["lat"]),
                 crs="epsg:4326")
+            
+        # pre-filtered MORU rotorcraft only
+        data = data.loc[data["ICAO_address"].isin(['A04BA8', 'A46456', 'A6A060', 'A73D55',
+                                                   'A6364A', 'A8752D', 'A875F4', 'A9E799', 'A9F230']), :]
+        # adjust for Daylight Savings Time glitch...
+        data["TIME"] += dt.timedelta(hours=-1.22)
 
         return data
 
