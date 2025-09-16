@@ -128,6 +128,11 @@ def complex_split(geom: LineString, splitter):
     # Ensure that intersection exists and is zero dimensional.
     relate_str = geom.relate(splitter)
     if relate_str[0] == '1':
+        fig, ax = plt.subplots()
+        ax.plot(*splitter.xy)
+        ax.plot(*geom.xy)
+        print(list(geom.coords))
+        plt.show()
         raise ValueError('Cannot split LineString by a geometry which intersects a '
                          'continuous portion of the LineString.')
     if not (relate_str[0] == '0' or relate_str[1] == '0'):
