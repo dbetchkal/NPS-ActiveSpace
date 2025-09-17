@@ -28,7 +28,7 @@ __all__ = [
 
 ## ========================================== STATISTICS/METRICS ======================================== ##
 
-def clip_events_to_time_period(df, start_col, end_col, start_date, end_date, months=list(range(1,13))):
+def clip_events_to_time_period(df, start_col, end_col, start_dt, end_dt, months=list(range(1,13))):
     """Clips events to only fall within a time period and within ceratin months.
     Events that partially overlap the time period boundaries are shortened to only include the section within the time period.
     
@@ -40,9 +40,9 @@ def clip_events_to_time_period(df, start_col, end_col, start_date, end_date, mon
         The name of the column representing event start times.
     end_col: str
         The name of the column representing event end times.
-    start_date: np.datetime64
+    start_dt: np.datetime64
         The start datetime for the time period to clip to.
-    end_date: np.datetime64
+    end_dt: np.datetime64
         The end datetime for the time period to clip to.
     months : int or list of ints (between 1 and 12)
         Months to clip to. Events will only be included if either their start or end time falls within one of these months. Defaults to all months.
@@ -54,16 +54,16 @@ def clip_events_to_time_period(df, start_col, end_col, start_date, end_date, mon
         with modified start / end times if the event overlapped the time period boundaries.
     """
     df = df.copy()
-    during_time_period = (df[end_col] > start_date) & (df[start_col] < end_date)
+    during_time_period = (df[end_col] > start_dt) & (df[start_col] < end_dt)
     during_correct_months = df[start_col].dt.month.isin(months) | df[end_col].dt.month.isin(months)
     df = df[during_time_period & during_correct_months]
     # shorten events that partly exist outside of the time period
-    df[start_col] = np.maximum(df[start_col].values, start_date)
-    df[end_col] = np.minimum(df[end_col].values, end_date)
+    df[start_col] = np.maximum(df[start_col].values, start_dt)
+    df[end_col] = np.minimum(df[end_col].values, end_dt)
     return df
 
 
-def clip_srcid_to_time_period(src_data, start_date, end_date, months=list(range(1,13))):
+def clip_srcid_to_time_period(src_data, start_dt, end_dt, months=list(range(1,13))):
     """A wrapper function around `clip_events_to_time_period` to clip SRCID data.
     """
 
@@ -78,8 +78,8 @@ def clip_srcid_to_time_period(src_data, start_date, end_date, months=list(range(
     src_clipped = clip_events_to_time_period(src_data,
                                              start_col = "start_time",
                                              end_col = "end_time",
-                                             start_date=np.datetime64(start_date),
-                                             end_date=np.datetime64(end_date),
+                                             start_dt=np.datetime64(start_dt),
+                                             end_dt=np.datetime64(end_dt),
                                              months=months)
 
     # just in case, we update the SRCID datetime information to match
@@ -108,7 +108,7 @@ def tracks2events(tracks, start_date, end_date, min_dur=10, min_gap_dur=30):
     start_date : string
         The initial date of tracks to include, formatted as 'yyyy-mm-dd'. Note that midnight at the beginning of this day should fall within the monitoring period (not before).
     end_date : string
-        The last date of tracks to include, formatted as 'yyyy-mm-dd'. Note that midnight at the beginning of this day should fall within the monitoring period (not after).
+        The last date of tracks to include, formatted as 'yyyy-mm-dd'. Note that midnight/23:59 at the end of this day should fall within the monitoring period (not after).
     min_dur : float, default 30
         The minimum event duration to include, in seconds
     min_gap_dur : float, default 30
@@ -131,10 +131,10 @@ def tracks2events(tracks, start_date, end_date, min_dur=10, min_gap_dur=30):
     
     min_gap_dur = np.timedelta64(min_gap_dur, 's') # Max number of seconds between tracks in order to combine
     
-    start_date = np.datetime64(start_date)  # conversion to datetime64
-    end_date = np.datetime64(end_date)      # conversion to datetime64
+    start_dt = np.datetime64(start_date)  # Convert to datetime64
+    end_dt = np.datetime64(end_date) + np.timedelta64(1, "D")  # Convert to datetime64, should be midnight at the END of end_date
 
-    tracks = clip_events_to_time_period(tracks, "entry_time", "exit_time", start_date, end_date)
+    tracks = clip_events_to_time_period(tracks, "entry_time", "exit_time", start_dt, end_dt)
 
     if tracks.empty:
         event_df = pd.DataFrame(columns=["start_time", "end_time", "duration"])
@@ -185,8 +185,8 @@ def tracks2events(tracks, start_date, end_date, min_dur=10, min_gap_dur=30):
     
     # Account for event-less time at beginning and end of timeframe in question
     # This is needed for the inaudible_begins and inaudible_ends indices to match up properly so we can subtract to compute durations.
-    inaudible_begins = np.insert(event_end_times, 0, start_date)
-    inaudible_ends = np.append(event_start_times, end_date)
+    inaudible_begins = np.insert(event_end_times, 0, start_dt)
+    inaudible_ends = np.append(event_start_times, end_dt)
     # Filter out zero-duration NFIs caused by the timeframe starting or ending with an event
     zero_duration = inaudible_begins == inaudible_ends
     inaudible_begins = inaudible_begins[~zero_duration]
@@ -198,7 +198,7 @@ def tracks2events(tracks, start_date, end_date, min_dur=10, min_gap_dur=30):
 
     # Calculate time audible
     total_audible = sum(audible_times)/np.timedelta64(1,'s')   # Add up all event durations to get total audible time (convert to float in seconds)
-    total_time = (end_date - start_date)/np.timedelta64(1,'s')     # Calculate total time of timeframe in seconds 
+    total_time = (end_dt - start_dt)/np.timedelta64(1,'s')     # Calculate total time of timeframe in seconds 
     TA = 100 * total_audible / total_time                # (%) of total time with an audible event (Time Audible)
 
     # We organize this information into two dataframes -> Noise events, Noise-free intervals
@@ -246,16 +246,16 @@ def _split_events(df, freq):
     return pd.DataFrame(split_rows)
 
 
-def _time_binned_df(event_df, start_date, end_date, months, freq):
+def _time_binned_df(event_df, start_dt, end_dt, months, freq):
     """Calculates time audible and event count for each time chunk (e.g. hourly) in a given time period.
     
     Parameters
     ----------
     event_df: pd.DataFrame
         DataFrame containing non-overlapping events, with columns ["start_time", "end_time", "duration" (in sec)]
-    start_date: np.datetime64
+    start_dt: np.datetime64
         Start of the time period of interest
-    end_date: np.datetime64
+    end_dt: np.datetime64
         End of the time period of interest
     months: list
         List of month indices to include, valid indices are 1-12
@@ -274,7 +274,7 @@ def _time_binned_df(event_df, start_date, end_date, months, freq):
 
     # prepare a dataframe to hold values for each time period, indexed by the time at the start of that period
     # make sure that the entire time range of interest is represented, so that periods without data are accounted for
-    date_index = pd.date_range(start_date, end_date, freq=freq, inclusive="left")
+    date_index = pd.date_range(start_dt, end_dt, freq=freq, inclusive="left")
     date_index = date_index[date_index.month.isin(months)]
     periods_df = pd.DataFrame(index=date_index, columns=[prefix+"time_audible", prefix+"event_count"])
 
@@ -388,9 +388,9 @@ def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13
         A DataFrame containing noise free intervals, such as those returned by tracks2events(). Looks like:
             start_time (datetime) | end_time (datetime) | duration (# secs as ints)
     start_date : string
-        The start date to begin calculating duration stats, formatted as 'yyyy-mm-dd'. Refers to midnight of this date.
+        The start date to begin calculating duration stats, formatted as 'yyyy-mm-dd'.
     end_date : string
-        The end date to stop calculating duration stats, formatted as 'yyyy-mm-dd'. Refers to midnight of this date, so no events occuring during this day will be captured.
+        The end date to stop calculating duration stats, formatted as 'yyyy-mm-dd'. This is inclusive, so events on this date will be included.
     months : int or list of ints (between 1 and 12)
         Default is the full year, an optional input to specify the months of interest as a list of integers, 1-12. 
         This is helpful for highly seasonal flight patterns, such as Denali's summer vs winter splits.
@@ -400,21 +400,23 @@ def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13
     Returns
     -------
     Tuple of (statistics, confidence_intervals, data)
-        statistics: pd.DataFrame
+        statistics: pd.DataFrame.
             DataFrame containing computed statistics.
             Columns represent the metrics that statistics are computed for: event_duration, NFI_duration, daily_time_audible, daily_event_count, hourly_time_audible, hourly_event_count
             Rows represent the statistic: mean, quantiles, min, max, std, median_abs_deviation 
-        confidence_intervals: pd.DataFrame
-            DataFrame containing 95% BCa confidence intervals for the mean and quantiles, computed using bootstrapping.
+
+        confidence_intervals: pd.DataFrame.
+            DataFrame containing 95% percentile confidence intervals for the mean and quantiles, computed using bootstrapping.
             Columns are metric names, rows are statistic names.
             Entries in the DataFrame are tuples representing the confidence intervals. Note that tuples may contain nan if the statistic
             distribution was degenerate (always the same value when performing bootstrapping).
+
         data: dict
             A dictionary where keys are metric names, and values are pd.Series representing the data.
     """
 
-    start_date = np.datetime64(start_date)  # Convert to datetime64
-    end_date = np.datetime64(end_date)      # Convert to datetime64
+    start_dt = np.datetime64(start_date)  # Convert to datetime64
+    end_dt = np.datetime64(end_date) + np.timedelta64(1, "D")  # Convert to datetime64, should be midnight at the END of end_date
 
     # Input validation. Both 'quantiles' and 'months' paramters must be converted to lists
     quantiles = [quantiles] if type(quantiles)!=type([]) else quantiles
@@ -426,8 +428,8 @@ def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13
             print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
             months=list(range(1,13))
 
-    event_df = clip_events_to_time_period(event_df, "start_time", "end_time", start_date, end_date, months)
-    NFI_df = clip_events_to_time_period(NFI_df, "start_time", "end_time", start_date, end_date, months)
+    event_df = clip_events_to_time_period(event_df, "start_time", "end_time", start_dt, end_dt, months)
+    NFI_df = clip_events_to_time_period(NFI_df, "start_time", "end_time", start_dt, end_dt, months)
 
     # prepare the values we want statistics for
     values = {
@@ -436,7 +438,7 @@ def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13
     }
     # include time audible and event count, binned by hour and by day
     for freq in ['d', 'h']:
-        binned_df = _time_binned_df(event_df, start_date, end_date, months, freq)
+        binned_df = _time_binned_df(event_df, start_dt, end_dt, months, freq)
         for col in binned_df.columns:
             values[col] = binned_df[col]
     
@@ -458,7 +460,7 @@ def get_all_stats(event_df, NFI_df, start_date, end_date, months=list(range(1,13
     return pd.DataFrame(statistics), pd.DataFrame(conf_intervals), values    
 
 
-def get_all_srcid_stats(src_data, start_date, end_date, months=list(range(1,13)), quantiles=.5, src_list=[1.2,1.3]):
+def get_all_srcid_stats(src_data, start_date, end_date, months=list(range(1,13)), quantiles=.5, src_list=[1.2]):
     """Calculates all event statistics, given a set of events and corresponding noise free intervals (NFIs).
     
     Parameters
@@ -466,16 +468,16 @@ def get_all_srcid_stats(src_data, start_date, end_date, months=list(range(1,13))
     src_data: pd.DataFrame
         A DataFrame containing canonical source identification data as returned by the Srcid().data attribute. 
     start_date : string
-        The start date to begin calculating duration stats, formatted as 'yyyy-mm-dd'. Refers to midnight of this date.
+        The start date to begin calculating duration stats, formatted as 'yyyy-mm-dd'.
     end_date : string
-        The end date to stop calculating duration stats, formatted as 'yyyy-mm-dd'. Refers to midnight of this date, so no events occuring during this day will be captured.
+        The end date to stop calculating duration stats, formatted as 'yyyy-mm-dd'. This is inclusive, so events on this date will be included.
     months : int or list of ints (between 1 and 12)
         Default is the full year, an optional input to specify the months of interest as a list of integers, 1-12. 
         This is helpful for highly seasonal flight patterns, such as Denali's summer vs winter splits.
     quantiles : float or list of floats (between 0 and 1)
         Default is .5 (the median), specifies which quantiles to output. E.g., [.1, .5., .9] will output 10th, 50th, and 90th quantiles
     src_list : list of floats
-        Default is [1.2,1.3], which includes propeller aircraft (1.2) and helicopters (1.3). Any source identification code may be used.
+        Default is [1.2], which includes propeller aircraft (1.2). Any source identification code may be used.
         E.g., for vessels [3.0], for jets [1.1], etc.
     
     Returns
@@ -494,8 +496,8 @@ def get_all_srcid_stats(src_data, start_date, end_date, months=list(range(1,13))
             A dictionary where keys are metric names, and values are pd.Series representing the data.
     """
 
-    start_date = np.datetime64(start_date)  # Convert to datetime64
-    end_date = np.datetime64(end_date)      # Convert to datetime64
+    start_dt = np.datetime64(start_date)  # Convert to datetime64
+    end_dt = np.datetime64(end_date) + np.timedelta64(1, "D")  # Convert to datetime64, should be midnight at the END of end_date
 
     # Input validation. Both 'quantiles' and 'months' paramters must be converted to lists
     quantiles = [quantiles] if type(quantiles)!=type([]) else quantiles
@@ -511,10 +513,7 @@ def get_all_srcid_stats(src_data, start_date, end_date, months=list(range(1,13))
 
     # notably, this function adds two columns "start_time" and "end_time"
     # which are necessary to use the functions `NFI_list` and `_time_binned_df`
-    src_clip =  clip_srcid_to_time_period(src_filtered, 
-                                           start_date=start_date, 
-                                           end_date=end_date, 
-                                           months=months)
+    src_clip =  clip_srcid_to_time_period(src_filtered, start_dt, end_dt, months)
 
     src_clip["duration"] = src_clip["len"].apply(lambda t: float(t.total_seconds()))
     NFI_df = NFI_list(src_clip, source = "all", unit="seconds")
@@ -530,7 +529,7 @@ def get_all_srcid_stats(src_data, start_date, end_date, months=list(range(1,13))
     }
     # include time audible and event count, binned by hour and by day
     for freq in ['d', 'h']:
-        binned_df = _time_binned_df(src_clip, start_date, end_date, months, freq)
+        binned_df = _time_binned_df(src_clip, start_dt, end_dt, months, freq)
         for col in binned_df.columns:
             values[col] = binned_df[col]
     
