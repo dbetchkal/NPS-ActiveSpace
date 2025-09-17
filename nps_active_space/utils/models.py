@@ -1625,8 +1625,9 @@ class Srcid():
         
         if(merge): # ...however, by default we'd like to work with events spanning hours (or even days) as if they were annotated in their entirety
             src = self._merge_SRCID(self.data)
+            src = src.astype(src_raw.dtypes.to_dict())  # convert dtypes, they got lost somehow during merging
             self.data = src
-
+        
     def _read(self):
         """
         Read data, format and tidy fields, handle various edge cases.
