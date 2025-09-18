@@ -22,6 +22,7 @@ import geopandas as gpd
 from shapely.geometry import Point, box
 import numpy as np
 import pandas as pd
+from .computation import contiguous_regions
 pd.options.mode.copy_on_write = True
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -1573,6 +1574,7 @@ class Annotations(gpd.GeoDataFrame):
 
         super().__init__(data=data, crs=data.crs)
 
+
 class Srcid():
     """
     A pandas DataFrame wrapper class to ensure consistent SRCID data.
@@ -1623,8 +1625,9 @@ class Srcid():
         
         if(merge): # ...however, by default we'd like to work with events spanning hours (or even days) as if they were annotated in their entirety
             src = self._merge_SRCID(self.data)
+            src = src.astype(src_raw.dtypes.to_dict())  # convert dtypes, they got lost somehow during merging
             self.data = src
-
+        
     def _read(self):
         """
         Read data, format and tidy fields, handle various edge cases.
@@ -1795,3 +1798,30 @@ class Srcid():
         merged_src = merged_src.sort_index()
 
         return merged_src
+    
+    def get_observation_periods(self):
+        """
+        Get periods of time with an acoustic record (there may be gaps). Periods are separated by
+        the passing of at least a full day (midnight to midnight) without any SPLAT annotations.
+
+        Returns
+        -------
+        periods: np.ndarray
+            Numpy array of shape (# periods, 2) containing pairs of strings "yyyy-mm-dd" bounding each period.
+            The start and end dates are inclusive, meaning there are annotations on both of these dates.
+        """
+        annotated_dates = np.sort(np.unique(self.data.index.date))
+
+        # make np array of all dates
+        # add one extra day to end date for np.arange exclusive indexing
+        all_dates = np.arange(annotated_dates[0], annotated_dates[-1] + dt.timedelta(days=1))
+
+        # Get contiguous regions. Returns a numpy array of shape (len(all_dates), 2),
+        # containing indices of the beginning and end of each contiguous region (exclusive end index)
+        period_indices = contiguous_regions(np.isin(all_dates, annotated_dates))
+        # convert end indices to inclusive
+        period_indices[:,1] -= 1
+
+        # index into all dates and convert to strings
+        obs_periods = all_dates[period_indices]
+        return np.datetime_as_string(obs_periods, unit="D")
