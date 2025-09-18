@@ -216,7 +216,7 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
     start_date : str
         ISO date string (YYYY-mm-dd) indicating the beginning of the date range to query within
     end_date : str
-        ISO date string (YYYY-mm-dd) indicating the end of the date range to query within
+        ISO date string (YYYY-mm-dd) indicating the end of the date range to query within, inclusive
     mask : gpd.GeoDataFrame, default None
         Geopandas.GeoDataframe instance to spatially filter query results.
 
@@ -225,7 +225,7 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
     data : gpd.GeoDataFrame
         A GeoDataFrame of flight track points.
     """
-    wheres = [f"fp.ak_datetime::date BETWEEN '{start_date}' AND '{end_date}'"]
+    wheres = [f"fp.ak_datetime::date BETWEEN '{start_date}' AND '{end_date}'"]  # start and end date are inclusive
 
     if mask is not None:
         if mask.crs.to_epsg() != 4326:  # If mask is not already in WGS84, project it.
@@ -273,7 +273,7 @@ def query_adsb(adsb_path: str,  start_date: str, end_date: str,
     start_date : str
         ISO date string (YYYY-mm-dd) indicating the beginning of the date range to query within
     end_date : str
-        ISO date string (YYYY-mm-dd) indicating the end of the date range to query within
+        ISO date string (YYYY-mm-dd) indicating the end of the date range to query within, inclusive
     mask : gpd.GeoDataFrame, default None
         Geopandas.GeoDataframe instance to spatially filter query results.
 
@@ -304,7 +304,9 @@ def query_adsb(adsb_path: str,  start_date: str, end_date: str,
         adsb_files = glob.glob(os.path.join(adsb_path, "*.TSV"))
         assert len(adsb_files) > 0, f"No ADSB files found in {adsb_path}"
         start_dt = pd.Timestamp(start_date)
-        end_dt = pd.Timestamp(end_date)
+        # Adsb() takes an exclusive end date (midnight) so it can do comparisons like: time < end_dt
+        # so convert inclusive end date to exclusive end date by adding one day
+        end_dt = pd.Timestamp(end_date) + pd.Timedelta(days=1)
         adsb = Adsb(adsb_files, mask, start_dt, end_dt)
     
     assert not adsb.empty, f"No ADSB data loaded for {start_date} to {end_date}, please check the time period and/or region mask"
