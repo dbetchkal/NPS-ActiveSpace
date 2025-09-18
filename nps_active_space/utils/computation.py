@@ -22,7 +22,7 @@ __all__ = [
     'ambience_from_nvspl',
     'ambience_from_raster',
     'audible_time_delay',
-    'barometric_pressure'
+    'barometric_pressure',
     'build_src_point_mesh',
     'calculate_duration_summary',
     'climb_angle',
@@ -30,7 +30,7 @@ __all__ = [
     'contiguous_regions',
     'coords_to_utm',
     'create_overlapping_mesh',
-    'expected_relative_Lp',
+    'expected_Lp',
     'interpolate_spline',
     'NMSIM_bbox_utm',
     'normalize_point_density',
@@ -194,14 +194,13 @@ def audible_time_delay(points: gpd.GeoDataFrame, time_col: str, target: Point,
     points['time_audible'] = points.apply(lambda row: row[time_col] + dt.timedelta(seconds=row.audible_delay_sec), axis=1)
 
     if drop_cols:
-        points.drop(['distance_to_target', 'audible_delay_sec'], inplace=True)
+        points.drop(['distance_to_target', 'audible_delay_sec'], inplace=True, axis=1)
 
     return points
 
 
-def expected_relative_Lp(points: gpd.GeoDataFrame, target: Point):
+def expected_Lp(points: gpd.GeoDataFrame, target: Point, Lw: float = 140, atm_abs: float = -0.002, new_col_name: str = "Lp_est"):
     """Get expected Lp values for a set of points and a target observer location, using a crude acoustic propagation model.
-    Note that these are only relative Lp values, because an arbitrary speaker power is used.
     
     **IMPORTANT**: The points GeoDataFrame and the target Point should be in the same crs for accurate calculations.
 
@@ -211,17 +210,21 @@ def expected_relative_Lp(points: gpd.GeoDataFrame, target: Point):
         A gpd.GeoDataFrame of sound location points.
     target : Point
         The target point.
+    Lw : float
+        The power level of the source, in dB. Default 140 dB
+    atm_abs : float
+        The atmospheric absorption coefficient, in dB/m. Should be negative. Default -0.002 dB/m
+    new_col_name : str
+        What to call the added column containing Lp estimates. Default "Lp_est"
     
     Returns
     -------
     The points GeoDataFrame with added columns: Lp_est
     """
     distances = points.geometry.apply(lambda geom: target.distance(geom))
-    Lw = 150
-    atm_abs = -0.002
     A_geometric = 10*np.log10(1/(4*np.pi*np.power(distances,2)))
     A_atmosphere = np.array(distances)*atm_abs
-    points["Lp_est"] = Lw + A_geometric + A_atmosphere
+    points[new_col_name] = Lw + A_geometric + A_atmosphere
     return points
 
 
@@ -428,6 +431,7 @@ def compute_fbeta(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame
 
     return fbeta, precision, recall, n_tot
 
+
 def contiguous_regions(condition):
 
     """
@@ -467,6 +471,7 @@ def contiguous_regions(condition):
     idx.shape = (-1,2)
 
     return idx
+
 
 def audibility_to_interval(aud, invert=False):
 
@@ -538,6 +543,7 @@ def audibility_to_interval(aud, invert=False):
     
     return noise_intervals, noise_free_intervals
 
+
 def calculate_duration_summary(noise_intervals):
 
     '''
@@ -580,6 +586,7 @@ def calculate_duration_summary(noise_intervals):
     duration_summary = (duration_list, mean, stdev, median, mad)
 
     return duration_summary
+
 
 def select_optimal(unit: str, site: str, year: int,
                    valid_points, active_space_polygons: list, beta_=1.0,
@@ -775,6 +782,7 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
     points = points.to_crs(orig_crs)
 
     return points
+
 
 def barometric_pressure(h):
     """

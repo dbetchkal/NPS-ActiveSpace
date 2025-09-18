@@ -24,7 +24,7 @@ import rasterio
 import pyproj
 
 from nps_active_space import ACTIVE_SPACE_DIR
-from nps_active_space.utils import Annotations, audible_time_delay, interpolate_spline, expected_relative_Lp, FAAReleasable
+from nps_active_space.utils import Annotations, audible_time_delay, interpolate_spline, expected_Lp, FAAReleasable
 
 if TYPE_CHECKING:
     from nps_active_space.utils import Microphone, Nvspl, Tracks
@@ -734,7 +734,7 @@ class _GroundTruthingFrame(_AppFrame):
                           float(self.master.mic.y), 
                           float(self.master.mic.z))
         spline = audible_time_delay(spline, 'point_dt', mic_point)
-        spline = expected_relative_Lp(spline, mic_point)
+        spline = expected_Lp(spline, mic_point)
 
         # Determine the closest spline point to the mic.
         closest_point = spline[spline.distance_to_target == spline.distance_to_target.min()]
