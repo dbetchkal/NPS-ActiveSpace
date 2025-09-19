@@ -211,7 +211,7 @@ def expected_Lp(points: gpd.GeoDataFrame, target: Point, Lw: float = 140, atm_ab
     target : Point
         The target point.
     Lw : float
-        The power level of the source, in dB. Default 140 dB
+        The broadband (12.5-20000Hz) power level of the source, in dB. Default 140 dB
     atm_abs : float
         The atmospheric absorption coefficient, in dB/m. Should be negative. Default -0.002 dB/m
     new_col_name : str
@@ -220,7 +220,7 @@ def expected_Lp(points: gpd.GeoDataFrame, target: Point, Lw: float = 140, atm_ab
     Returns
     -------
     The points GeoDataFrame with added columns: Lp_est
-    """
+    """    
     distances = points.geometry.apply(lambda geom: target.distance(geom))
     A_geometric = 10*np.log10(1/(4*np.pi*np.power(distances,2)))
     A_atmosphere = np.array(distances)*atm_abs
@@ -353,7 +353,8 @@ def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50,
     ambience_src : Nvspl
         An NVSPL object to calculate ambience from.
     quantile : int, default 50
-        This quantile of the data will be used to calculate the ambience.
+        This exceedance quantile of the data will be used to calculate the ambience.
+        For example, quantile=90 means we will use the 10% percentile of the sound level in each band.
     low_hz : float, default 12.5
         Lowest 1/3 octave band to include.
     high_hz : float, default 20000
@@ -800,7 +801,7 @@ def barometric_pressure(h):
 
     Returns
     -------
-    patm : numpy float64, the atmospheric pressure estimated at `h`, in Pascals (N/m^2)
+    patm : numpy float64, the atmospheric pressure estimated at `h`, in kilopascals
     """
 
     g = 9.80665 # m/s^2,  earth-surface gravitational acceleration
@@ -808,9 +809,47 @@ def barometric_pressure(h):
     M = 0.0289644 # kg/mol,  molar mass of dry air
     L = -0.0065 # K/m,  standard adiabatic temperature lapse rate 
     T_0 = 288.15 # K,  sea level standard temperature    
-    p_0 = 101325. # Pa,  sea level standard atmospheric pressure
+    p_0 = 101.325 # kPa  sea level standard atmospheric pressure
     
     # calculate air pressure at altitude using the Barometric Formula
     patm = p_0 * np.power((1 - (L * h / T_0)), (g * M) / (R * L))   # Pa
     
     return patm
+
+
+def atmospheric_absorption(frequency, atm_pressure, air_temp_celsius=25., percent_relative_humidity=75.):
+    """Calculate atmospheric acoustic absorption coefficient, in dB/m
+    
+    Parameters
+    ----------
+    frequency: float or np.ndarray
+        The sound frequency, in Hz
+    atm_pressure: float
+        The atmospheric pressure, in kPa
+    air_temp_celsius: float
+        The air temperature, in degrees Celsius. Defautl 25
+    percent_relative_humidity: float
+        The relative humidty. Should be between 0 and 100, inclusive. Default 75
+
+    Returns
+    -------
+    a: float or np.ndarray
+        The atmospheric absorption coefficient, in db/m. Will be positive.
+        Returns a float if frequency was a float, returns a numpy array if frequency was a numpy array.
+    """
+    T_K = air_temp_celsius + 273.15
+    psat = 101.325*math.pow(10, (-6.8346*math.pow(273.16/T_K, 1.261))+4.6151) # atmospheric saturation pressure
+    
+    x = 1/(10*math.log(math.pow(math.exp(1),2), 10))  # 'equation shortener #1'
+    h = percent_relative_humidity*(psat/atm_pressure)/100  # molar concentration of water vapor
+
+    frO = (atm_pressure/101.325)*(24 + (4.04*math.pow(10, 4)*h*((0.02 + h)/(0.391 + h)))) # oxygen relaxation frequency
+    frN = (atm_pressure/101.325)*math.pow(T_K/293.15, -0.5)*(9 + (280 *h*math.exp(-4.17*(-1*math.pow(T_K/293.15, -1/3))))) # nitrogen relaxation frequency
+
+    z = 0.1068*np.exp(-3352/T_K)*np.pow((frN+np.pow(frequency,2))/frN, -1) # 'equation shortener #2'
+    y = np.pow(T_K/293.15, -5/2)*((0.01275*np.exp(-2239.1/T_K)*np.pow((frO+np.pow(frequency,2))/frO, -1))+z) # 'equation shortener #3'
+
+    # here's the atmospheric absorption coefficient, itself:
+    a = 8.686*np.pow(frequency,2)*(1.84*np.pow(10., -11.)*np.pow(atm_pressure/101.325, -1)*np.pow(T_K/293.15,0.5)+y)
+
+    return a
