@@ -49,13 +49,13 @@ if __name__ == '__main__':
 
     # Set the various path variables.
     archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
-    project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
+    site_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
     faa_path = None
     faa_corrections_path = None
 
     # Load the microphone deployment site metadata and the study area shapefile.
     microphone = get_deployment(cfg.read('project', 'dir'), args.unit, args.site, args.year)
-    study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])  # In NAD83, epsg:4269
+    study_area = gpd.read_file(glob.glob(f"{site_dir}/*study*.shp")[0])  # In NAD83, epsg:4269
 
     # Retrieve the days for which at least some NVSPL data exist.
     nvspl_dates = sorted(set([f"{e.year}-{e.month}-{e.day}" for e in archive.nvspl(unit=args.unit, site=args.site, year=args.year)]))
