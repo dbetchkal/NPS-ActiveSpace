@@ -1730,72 +1730,78 @@ class Srcid():
 
         start_at_hour = src.loc[(src.index.minute==0)&(src.index.second==0)]
 
-        # these are only the events that start during the first second of the hour
-        starts_at_hour_break = src.index[(src.index.minute==0)&(src.index.second==0)].to_series()
+        if((len(end_at_hour) > 0)&(len(start_at_hour) > 0)):
 
-        # IMPORTANT: these are the starts where there is definitely an ending one second before
-        # conveniently the next two lines handle both (1) matching srcid values, 
-        # and (2) lots of back-to-back-to-back hour long annotations!
-        matches_end = start_at_hour.copy()
-        matches_end.index = (start_at_hour.index + start_at_hour["len"] + dt.timedelta(seconds=1))
+            # these are only the events that start during the first second of the hour
+            starts_at_hour_break = src.index[(src.index.minute==0)&(src.index.second==0)].to_series()
 
-        # the .isin method is extremely helpful for working backwards to get the matched starts
-        matches_start = end_at_hour[(end_at_hour.index + end_at_hour["len"] + dt.timedelta(seconds=1)).isin(start_at_hour.index)].copy()
+            # IMPORTANT: these are the starts where there is definitely an ending one second before
+            # conveniently the next two lines handle both (1) matching srcid values, 
+            # and (2) lots of back-to-back-to-back hour long annotations!
+            matches_end = start_at_hour.copy()
+            matches_end.index = (start_at_hour.index + start_at_hour["len"] + dt.timedelta(seconds=1))
 
-        # these are the real break-point annotations
-        cons = pd.concat([matches_start, matches_end]).sort_index().dropna()
-        cons = cons.drop_duplicates(keep="first") # frankly, it doesn't matter
+            # the .isin method is extremely helpful for working backwards to get the matched starts
+            matches_start = end_at_hour[(end_at_hour.index + end_at_hour["len"] + dt.timedelta(seconds=1)).isin(start_at_hour.index)].copy()
 
-        # assign groups to each set of consecutive annotations 
-        # it's a huge benefit to group by source type first!
-        group = 1
-        for srcID, source_group in cons.groupby("srcID"):
+            # these are the real break-point annotations
+            cons = pd.concat([matches_start, matches_end]).sort_index().dropna()
+            cons = cons.drop_duplicates(keep="first") # frankly, it doesn't matter
 
-            for ts, annotation in source_group.sort_index().iterrows():
+            # assign groups to each set of consecutive annotations 
+            # it's a huge benefit to group by source type first!
+            group = 1
+            for srcID, source_group in cons.groupby("srcID"):
 
-                ends = ts + annotation["len"]
+                for ts, annotation in source_group.sort_index().iterrows():
 
-                if((ts.minute!=0)&(ts.second!=0)&
-                (ends.minute==59)&(ends.second==59)):
+                    ends = ts + annotation["len"]
 
-                    group = group + 1
-                    cons.loc[ts, "group"] = group
+                    if((ts.minute!=0)&(ts.second!=0)&
+                    (ends.minute==59)&(ends.second==59)):
 
-                elif((ts.minute==0)&(ts.second==0)&
-                (ends.minute!=59)&(ends.second!=59)):
+                        group = group + 1
+                        cons.loc[ts, "group"] = group
 
-                    cons.loc[ts, "group"] = group
-                    group = group + 1
+                    elif((ts.minute==0)&(ts.second==0)&
+                    (ends.minute!=59)&(ends.second!=59)):
+
+                        cons.loc[ts, "group"] = group
+                        group = group + 1
+
+                    else:
+                        cons.loc[ts, "group"] = group
+
+                # at the end of the current source type, 
+                # "flush" the current group
+                group = group + 1
+
+            frames = []
+
+            # now we can actually perform the joining operations
+            for group_number, pieces in cons.groupby('group'):
+
+                if(len(pieces) < 2):
+                    # this removes single values - they don't actually need to be merged
+                    cons.drop(pieces.index, inplace=True)
 
                 else:
-                    cons.loc[ts, "group"] = group
+                    frames.append(self._join_srcID_rows(pieces))
 
-            # at the end of the current source type, 
-            # "flush" the current group
-            group = group + 1
+            # here are all the joined data
+            merged_breaks = pd.concat(frames)
 
-        frames = []
+            # now that everything is neat and tidy, we can get the lines
+            # not representing true breaks
+            no_breaks = src.loc[~src.index.isin(cons.index)]
 
-        # now we can actually perform the joining operations
-        for group_number, pieces in cons.groupby('group'):
+            # final SRCID file with events across hour breaks merged
+            merged_src = pd.concat([merged_breaks, no_breaks])
+            merged_src = merged_src.sort_index()
 
-            if(len(pieces) < 2):
-                # this removes single values - they don't actually need to be merged
-                cons.drop(pieces.index, inplace=True)
+        elif((len(end_at_hour) == 0)|(len(start_at_hour) == 0)):
+            merged_src = src.copy()
 
-            else:
-                frames.append(self._join_srcID_rows(pieces))
-
-        # here are all the joined data
-        merged_breaks = pd.concat(frames)
-
-        # now that everything is neat and tidy, we can get the lines
-        # not representing true breaks
-        no_breaks = src.loc[~src.index.isin(cons.index)]
-
-        # final SRCID file with events across hour breaks merged
-        merged_src = pd.concat([merged_breaks, no_breaks])
-        merged_src = merged_src.sort_index()
 
         return merged_src
     
