@@ -5,6 +5,8 @@ import geopandas as gpd
 import os
 import sqlalchemy
 import sys
+import numpy as np
+import pandas as pd
 repo_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 config_dir = os.path.join(repo_dir, "_DENA")
 script_dir = os.path.join(repo_dir, "nps_active_space")
@@ -59,6 +61,7 @@ if __name__ == '__main__':
 
     # Retrieve the days for which at least some NVSPL data exist.
     nvspl_dates = sorted(set([f"{e.year}-{e.month}-{e.day}" for e in archive.nvspl(unit=args.unit, site=args.site, year=args.year)]))
+    assert len(nvspl_dates) > 0, f"No NVSPL data found in archive {cfg.read('data', 'nvspl_archive')}"
 
     # Query flight tracks from days there is NVSPL data for.
     logger.info("Querying tracks...")
@@ -70,7 +73,6 @@ if __name__ == '__main__':
             end_date=nvspl_dates[-1],
             mask=study_area
         )
-
         raw_tracks["local_hourtime"] = raw_tracks["TIME"].apply(lambda t: t.replace(minute=0, second=0, microsecond=0))
         tracks = Tracks(raw_tracks, id_col='flight_id', datetime_col='TIME', z_col='altitude')
         hourtimes = tracks.local_hourtime.astype(object).unique()
@@ -87,13 +89,38 @@ if __name__ == '__main__':
     else:
         raise NotImplementedError('Code for AIS is not ready yet.')
 
+    assert not tracks.empty, "No tracks loaded, is your track source correct?"
+    
+    # correct for clock drift
+    clock_drift_file = os.path.join(site_dir, f"{args.unit}{args.site}{args.year}_clock_drift_{args.track_source}.csv")
+    if os.path.exists(clock_drift_file):
+        print(f"Found clock drift correction file, using it: {os.path.basename(clock_drift_file)}")
+
+        # read file into a pd.Series
+        drifts = pd.read_csv(clock_drift_file, index_col="Time")["Seconds"]
+        drifts.index = pd.to_datetime(drifts.index)
+        # make sure the clock drifts encompass the track point times, so we can interpolate
+        if tracks["point_dt"].min() < drifts.index.min() or tracks["point_dt"].max() > drifts.index.max():
+            raise Exception(f"Clock drift corrections must encompass the whole track period ({tracks["point_dt"].min()} - {tracks["point_dt"].max()})")
+        
+        # add in entries corresponding to the track point times in between existing clock drift entries 
+        # then interpolate to fill them in, then extract those interpolated values to get time adjustments
+        drifts_augmented = pd.concat([
+            drifts,
+            pd.Series(data=np.nan, index=tracks["point_dt"].unique())
+        ])
+        drifts_augmented.sort_index(inplace=True)
+        drifts_augmented.interpolate(method="time", inplace=True)
+        adjustments = drifts_augmented[tracks["point_dt"]]
+        adjustments = pd.to_timedelta(adjustments, unit="s")
+        tracks["point_dt"] = tracks["point_dt"] + adjustments.values
+        
+    # Open NVSPL data files during hours in which there is flight data.
     track_hours = [{'year': hourtime.year,
                     'month': hourtime.month,
                     'day': hourtime.day,
                     'hour': hourtime.hour}
                    for hourtime in hourtimes]
-
-    # Open NVSPL data files during hours in which there is flight data.
     nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year), items=track_hours)]
     nvspl = Nvspl(nvspl_files)
 
