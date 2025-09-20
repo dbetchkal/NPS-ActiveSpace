@@ -75,14 +75,12 @@ if __name__ == '__main__':
         )
         raw_tracks["local_hourtime"] = raw_tracks["TIME"].apply(lambda t: t.replace(minute=0, second=0, microsecond=0))
         tracks = Tracks(raw_tracks, id_col='flight_id', datetime_col='TIME', z_col='altitude')
-        hourtimes = tracks.local_hourtime.astype(object).unique()
         faa_path = cfg.read('project', 'FAA_Releasable_db')
         faa_corrections_path = cfg.read('project', 'FAA_type_corrections')
 
     elif args.track_source == 'GPS':
         raw_tracks = query_tracks(engine=engine, start_date=nvspl_dates[0], end_date=nvspl_dates[-1], mask=study_area)
         tracks = Tracks(raw_tracks, 'flight_id', 'ak_datetime', 'altitude_m')
-        hourtimes = tracks.ak_hourtime.astype(object).unique()
         faa_path = cfg.read('project', 'FAA_Releasable_db')
         faa_corrections_path = cfg.read('project', 'FAA_type_corrections')
 
@@ -116,6 +114,7 @@ if __name__ == '__main__':
         tracks["point_dt"] = tracks["point_dt"] + adjustments.values
         
     # Open NVSPL data files during hours in which there is flight data.
+    hourtimes = tracks["point_dt"].dt.floor("h").unique()
     track_hours = [{'year': hourtime.year,
                     'month': hourtime.month,
                     'day': hourtime.day,
