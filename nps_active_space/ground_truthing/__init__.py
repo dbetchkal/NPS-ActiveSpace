@@ -121,7 +121,6 @@ class _App(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self._close)
 
         self.switch_frame(_WelcomeFrame)
-        # self.switch_frame(_GroundTruthingFrame)
 
 
     def switch_frame(self, frame_class: Type[_AppFrame]):
