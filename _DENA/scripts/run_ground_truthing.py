@@ -21,7 +21,7 @@ from nps_active_space.utils import Nvspl, Tracks
 import _DENA.resource.config as cfg
 from _DENA import DENA_DIR
 from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM
-from nps_active_space.utils import coords_to_utm
+from nps_active_space.utils import coords_to_utm, correct_clock_drift
 
 
 if __name__ == '__main__':
@@ -92,25 +92,7 @@ if __name__ == '__main__':
     clock_drift_file = os.path.join(site_dir, f"{args.unit}{args.site}{args.year}_clock_drift_{args.track_source}.csv")
     if os.path.exists(clock_drift_file):
         print(f"Found clock drift correction file, using it: {os.path.basename(clock_drift_file)}")
-
-        # read file into a pd.Series
-        drifts = pd.read_csv(clock_drift_file, index_col="Time")["Seconds"]
-        drifts.index = pd.to_datetime(drifts.index)
-        # make sure the clock drifts encompass the track point times, so we can interpolate
-        if tracks["point_dt"].min() < drifts.index.min() or tracks["point_dt"].max() > drifts.index.max():
-            raise Exception(f"Clock drift corrections must encompass the whole track period ({tracks["point_dt"].min()} - {tracks["point_dt"].max()})")
-        
-        # add in entries corresponding to the track point times in between existing clock drift entries 
-        # then interpolate to fill them in, then extract those interpolated values to get time adjustments
-        drifts_augmented = pd.concat([
-            drifts,
-            pd.Series(data=np.nan, index=tracks["point_dt"].unique())
-        ])
-        drifts_augmented.sort_index(inplace=True)
-        drifts_augmented.interpolate(method="time", inplace=True)
-        adjustments = drifts_augmented[tracks["point_dt"]]
-        adjustments = pd.to_timedelta(adjustments, unit="s")
-        tracks["point_dt"] = tracks["point_dt"] + adjustments.values
+        correct_clock_drift(tracks, clock_drift_file, inplace=True)
         
     # Open NVSPL data files during hours in which there is flight data.
     hourtimes = tracks["point_dt"].dt.floor("h").unique()

@@ -501,12 +501,14 @@ def plot_activespace_fit(project_dir, unit, site, year, gain, ax=None, dem=None,
         annotations = load_annotations(project_dir, unit, site, year)
     
     mic = mic.to_crs(dem.crs)
-    active = active.to_crs(dem.crs)
+    
 
     ax.set_title(f"{unit}{site}{year} Gain {gain}dB")
     rasterio.plot.show(dem, ax=ax, alpha=.4, cmap='Blues_r')
 
-    active.boundary.plot(ax=ax, color="black", label=f"{gain}", zorder=5)
+    if not active.empty:
+        active = active.to_crs(dem.crs)
+        active.boundary.plot(ax=ax, color="black", label=f"{gain}", zorder=5)
 
     dem_extent = box(dem.bounds.left, dem.bounds.bottom, dem.bounds.right, dem.bounds.top)
     annotations = annotations.clip(dem_extent)
