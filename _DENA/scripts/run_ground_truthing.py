@@ -73,7 +73,6 @@ if __name__ == '__main__':
             end_date=nvspl_dates[-1],
             mask=study_area
         )
-        raw_tracks["local_hourtime"] = raw_tracks["TIME"].apply(lambda t: t.replace(minute=0, second=0, microsecond=0))
         tracks = Tracks(raw_tracks, id_col='flight_id', datetime_col='TIME', z_col='altitude')
         faa_path = cfg.read('project', 'FAA_Releasable_db')
         faa_corrections_path = cfg.read('project', 'FAA_type_corrections')

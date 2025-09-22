@@ -89,13 +89,17 @@ class _App(tk.Tk):
         self.crs = crs
         self.mic = mic.to_crs(crs)
         self.study_area = study_area.to_crs(crs)
-        self.tracks = gpd.clip(tracks.to_crs(crs), self.study_area) if clip else tracks.to_crs(crs)
         self.nvspl = nvspl
         self.outfile = None
         self.database_type = database_type
         self.dem = dem
         self.faa_path = faa_path
         self.faa_corrections_path = faa_corrections_path
+
+        # clip and project tracks, and then add z coordinate into geometry so it gets saved to GEOJSON properly later
+        self.tracks = gpd.clip(tracks.to_crs(crs), self.study_area) if clip else tracks.to_crs(crs)
+        self.tracks.geometry = gpd.points_from_xy(
+            self.tracks.geometry.x, self.tracks.geometry.y, self.tracks.z)
 
         # Set app features.
         self.title('NPS Active Space: Ground Truthing Module')
@@ -710,7 +714,7 @@ class _GroundTruthingFrame(_AppFrame):
                 icon='warning'
             )
             self._store_annotation(track_id, points, valid=False, note='Too few points')
-            # that called _next()
+            # self._store_annotation() advances to the next track
             return
 
         # load spectrogram
@@ -725,7 +729,7 @@ class _GroundTruthingFrame(_AppFrame):
                 icon='warning'
             )
             self._store_annotation(track_id, points, valid=False, note='No SPL data')
-            # that called _next()
+            # self._store_annotation() advances to the next track
             return
                 
         points.sort_values(by='point_dt', ascending=True, inplace=True)
@@ -752,7 +756,7 @@ class _GroundTruthingFrame(_AppFrame):
                 icon='warning'
             )
             self._store_annotation(track_id, spline, valid=False, note='Crossed limit lines.')
-            # that called _next()
+            # self._store_annotation() advances to the next track
             return
         
         # load audible ranges - check for previous annotations
@@ -766,8 +770,13 @@ class _GroundTruthingFrame(_AppFrame):
             audible_ranges = []
             for _, a in annots[annots["valid"] & annots["audible"]].iterrows():
                 # note that invalid or fully inaudible annotations will result in no ranges, as desired
-                time_audible_start = spline[spline["point_dt"] == a["start_dt"]].iloc[0]["time_audible"]
-                time_audible_end = spline[spline["point_dt"] == a["end_dt"]].iloc[0]["time_audible"]
+
+                # GEOJSON doesn't save full time precision (up to millisecond it seems),
+                # so when trying to match an annotated start_dt or end_dt to a point's point_dt,
+                # we have to only check if they're close enough, not exactly equal
+                tol = pd.Timedelta(seconds=0.1)
+                time_audible_start = spline[np.abs(spline["point_dt"] - a["start_dt"]) < tol].iloc[0]["time_audible"]
+                time_audible_end = spline[np.abs(spline["point_dt"] - a["end_dt"]) < tol].iloc[0]["time_audible"]
                 audible_ranges.append([time_audible_start, time_audible_end])
         
         # load FAA data if applicable
