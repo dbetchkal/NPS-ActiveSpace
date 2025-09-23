@@ -11,8 +11,8 @@ import pandas as pd
 import numpy as np
 from shapely.geometry import Point
 
-from nps_active_space.utils.models import FAAReleasable, Nvspl, Tracks, Adsb
-from nps_active_space.utils.computation import expected_Lp, NMSIM_bbox_utm, audible_time_delay, ambience_from_nvspl, interpolate_spline, coords_to_utm
+from nps_active_space.utils.models import FAAReleasable, Nvspl, Tracks
+from nps_active_space.utils.computation import expected_Lp, NMSIM_bbox_utm, audible_time_delay, ambience_from_nvspl, interpolate_spline
 from _DENA.resource.helpers import load_studyarea, get_deployment
     
 
@@ -96,6 +96,11 @@ class ClockDriftFixer():
             return np.nan
         nvspl_section = self.nvspl.loc[full_index]
 
+        pts_section = self.pts[(self.pts["point_dt"] > start_dt) & (self.pts["point_dt"] < end_dt)]
+        if pts_section.empty:
+            print("No track points")
+            return np.nan
+
         # use a vertical sobel filter to get a signal without wind gust issues
         # tonal sounds (e.g. fixed-wing aircraft and helicopters and vessels) will have much stronger
         # vertical derivatives (across changing bands) than wind, which tends to be somewhat uniform over all frequencies
@@ -103,12 +108,7 @@ class ClockDriftFixer():
         spectro = nvspl_section.loc[:,"12.5":"20000"]
         sobel_signal = np.abs(sobel(spectro, axis=1))
         sobel_signal = pd.DataFrame(sobel_signal, index=spectro.index, columns=spectro.columns)
-        sobel_signal = logsum(sobel_signal.loc[:,"80":"1250"])
-
-        pts_section = self.pts[(self.pts["point_dt"] > start_dt) & (self.pts["point_dt"] < end_dt)]
-        if pts_section.empty:
-            print("No track points")
-            return np.nan
+        sobel_signal = logsum(sobel_signal.loc[:,"80":"1250"])  # transportation band
 
         # set up an index for each second of the time period,
         # minus a period at the beginning and end corresponding to the max clock drift size,
@@ -124,6 +124,7 @@ class ClockDriftFixer():
             orig_series = pd.Series(
                 index=group["time_audible"], data=group["Lp_est"].values)
 
+            # create a subset of near_full_index that's relevant for this track
             sec_index = pd.date_range(group["time_audible"].min().floor(
                 "s"), group["time_audible"].max().ceil("s"), freq="s")
             seconds_to_calc = pd.Series(
@@ -184,7 +185,7 @@ class ClockDriftFixer():
         plt.ylabel("Estimated Clock Drift (sec)")
     
 
-    def drift_time_series(self, start_dt=None, end_dt=None):
+    def drift_time_series(self, start_dt=None, end_dt=None, max_clock_drift=pd.Timedelta(minutes=5)):
         if start_dt is None:
             start_dt = self.nvspl.index.min()
         if end_dt is None:
@@ -195,7 +196,7 @@ class ClockDriftFixer():
         drifts = []
         for i in range(len(period_bounds)-1):
             print(period_bounds[i], period_bounds[i+1])
-            drifts.append(self.get_clock_drift(period_bounds[i], period_bounds[i+1]))
+            drifts.append(self.get_clock_drift(period_bounds[i], period_bounds[i+1], max_clock_drift))
         
         # use the center of the period as the time anchor for each period's drift
         self.times = period_bounds[:-1] + (period_bounds.diff()[1:] / 2)
@@ -239,10 +240,10 @@ class ClockDriftFixer():
         # fit a line for each period between maintenance times
         fits_list = []
         file_entries_list = []
-        maintenance_times = [start_dt] + sorted(maintenance_times) + [end_dt]
-        for i in range(len(maintenance_times)-1):
-            period_start = maintenance_times[i]
-            period_end = maintenance_times[i+1]
+        period_boundaries = [start_dt] + sorted(maintenance_times) + [end_dt]
+        for i in range(len(period_boundaries)-1):
+            period_start = period_boundaries[i]
+            period_end = period_boundaries[i+1]
 
             period_mask = (x >= period_start) & (x < period_end)
             slope, intercept = self._fit_drift_line(x[period_mask], y[period_mask])
