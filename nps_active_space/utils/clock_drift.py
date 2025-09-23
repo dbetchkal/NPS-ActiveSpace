@@ -263,7 +263,7 @@ class ClockDriftFixer():
             ]).astype('datetime64[ns]')
             x_new = new_times.astype(np.int64) / (1e9 * 60 * 60 * 24)
             y_new = slope * x_new + intercept
-            file_entries_list.append(pd.DataFrame({"Times": new_times, "Seconds": y_new}))
+            file_entries_list.append(pd.DataFrame({"Time": new_times, "Seconds": y_new}))
 
             plt.plot(new_times, y_new, color="black")
             print(f"{period_start} to {period_end}, clock drift {slope:.3f} sec per day")
