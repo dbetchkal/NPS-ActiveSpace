@@ -21,7 +21,8 @@ from nps_active_space.utils import Nvspl, Tracks
 import _DENA.resource.config as cfg
 from _DENA import DENA_DIR
 from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM
-from nps_active_space.utils import coords_to_utm, correct_clock_drift
+from nps_active_space.utils.computation import coords_to_utm
+from nps_active_space.utils.clock_drift import correct_clock_drift
 
 
 if __name__ == '__main__':
