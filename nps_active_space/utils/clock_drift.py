@@ -73,7 +73,7 @@ class ClockDriftFixer():
         print("Interpolating points")
         interp_list = []
         for track_id, group in pts.groupby("track_id"):
-            if len(group) < 2:
+            if len(group) < 3:
                 continue
             df = interpolate_spline(group)
             df["track_id"] = track_id
@@ -204,6 +204,12 @@ class ClockDriftFixer():
 
         self._init_time_series_plot()
         plt.plot(self.times, self.drifts, marker="o", color="black")
+        # add labels
+        label = 0
+        for i in range(len(self.drifts)):
+            if not np.isnan(self.drifts[i]):
+                plt.text(self.times[i], self.drifts[i], f"  {label}", fontsize=9)
+                label += 1
         if self.plot_dir is not None:
             plt.savefig(os.path.join(self.plot_dir, "Clock Drift Time Series.png"))
         plt.show()
@@ -235,7 +241,11 @@ class ClockDriftFixer():
         valid = ~np.isnan(self.drifts)
         x = self.times[valid][indices_to_use]
         y = self.drifts[valid][indices_to_use]
+        plt.scatter(self.times, self.drifts, c="lightgray")
         plt.scatter(x, y, color="black")
+        # add labels
+        for i, (xi, yi) in enumerate(zip(x, y)):
+            plt.text(xi, yi, f"  {indices_to_use[i]}", fontsize=9)
 
         # fit a line for each period between maintenance times
         fits_list = []
