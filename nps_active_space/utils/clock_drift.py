@@ -25,12 +25,45 @@ def logsum(df, axis=1):
 class ClockDriftFixer():
     """A tool to fix clock drift between the geographic and acoustic records by using cross-correlation.
     
-    Parameters
-    ----------
-    TODO
+    Usage:
+    (1) Load NVSPL and track data
+    (2) Instantiate this class, e.g. `fixer = ClockDriftFixer(...)`
+    (3) Call fixer.drift_time_series(...)
+    (4) Examine plots to determine which clock drift estimations are credible.
+    (5) Call fixer.fit_drift_lines(...) to use the credible points to fit linear models of clock drift.
+        The clock drift predictions based on the models get saved to a clock drift file.
+    (6) The ground truthing module will automatically find the clock drift file and apply the corrections.
     """
+    
     def __init__(self, project_dir: str, unit: str, site: str, year: str,
                  pts: Tracks, nvspl: Nvspl, database_type: str, plot_dir: str = None):
+        """Constructor for the ClockDriftFixer class. Loads data and computes predicted audibility of causal data.
+
+        Parameters
+        ----------
+        project_dir: str
+            Path to directory containing site directories (e.g. containing DENATRLA/)
+        unit: str
+            NPS unit code, e.g. "DENA"
+        site: str
+            Deployment site code, e.g. "TRLA"
+        year: str
+            Deployment year, e.g. "2025"
+        pts: Tracks
+            A GeoDataFrame
+        pts: Tracks
+            A Tracks object containing causal track points and times, with a row for each point.
+            The times in this GeoDataFrame have not been corrected for clock drift.
+        nvspl: Nvspl
+            An NVSPL object containing the acoustic record for the period of interest. Should overlap
+            with pts as much as possible. Any partial days will be excluded from analysis.
+        database_type: str
+            What type of causal data is being used. Options "ADSB", "GPS", "AIS". This is only used
+            for creating the default clock drift file name.
+        plot_dir: str, Optional
+            If provided, intermediate plots will be saved to this directory. This is very helpful for
+            doing quality control, and is highly recommended.
+        """
         assert database_type in ["GPS", "ADSB", "AIS"]
         self.deployment = unit + site + year
         self.default_clock_drift_file = os.path.join(
@@ -47,11 +80,10 @@ class ClockDriftFixer():
         self.nvspl = nvspl
 
         print("Filtering for only fixed-wing and helicopters")
-        # filter for only fixed-wing and helicopters
-        ids = pts["track_id"].str.split("_").str[0]
+        ids = pts["track_id"].str.split("_").str[0]  # ids will be either N-numbers or ICAO addresses
         uses_n_numbers = ids[0].startswith("N")
         if uses_n_numbers:
-            ids = ids.str[1:]
+            ids = ids.str[1:]  # the track id lists N-numbers like: N12345, but FAA uses just 12345
         faa = FAAReleasable(R"V:\Noncanonical Data\ReleasableAircraft\MASTER.txt",
                             R"V:\Noncanonical Data\ReleasableAircraft\FAA_AircraftCorrections.json",
                             n_numbers=ids.unique() if uses_n_numbers else [],
@@ -69,11 +101,11 @@ class ClockDriftFixer():
         pts.geometry = gpd.points_from_xy(
             pts.geometry.x, pts.geometry.y, pts.z)
         
-        # interpolate points
+        # Interpolate points. This is essential for GPS, and seems to help smooth stuff out for ADSB too
         print("Interpolating points")
         interp_list = []
         for track_id, group in pts.groupby("track_id"):
-            if len(group) < 3:
+            if len(group) < 3:  # need at least 3 points to interpolate
                 continue
             df = interpolate_spline(group)
             df["track_id"] = track_id
@@ -90,63 +122,95 @@ class ClockDriftFixer():
 
 
     def get_clock_drift(self, start_dt, end_dt, max_clock_drift=pd.Timedelta(minutes=5)):
+        """
+        Gets clock drift during a period of time using cross-correlation between the acoustic and causal records.
+        
+        Parameters
+        ----------
+        start_dt: pd.Timestamp or datetime
+            Start time of the period in which to compute clock drift.
+        end_dt: pd.Timestamp or datetime
+            End time of the period in which to compute clock drift.
+        max_clock_drift: pd.Timedelta
+            The maximum expected magnitude of clock drift. Will only check for drifts less than this
+            in magnitude. This helps to avoid situations where the most powerful predicted Lp peaks happen
+            to line up well two hours in the future, but we know clock drift isn't two hours.
+        """
+        # get the nvspl data corresponding to this time period
         full_index = pd.date_range(start_dt, end_dt, freq="s", inclusive="left")
         if len(self.nvspl.index.intersection(full_index)) < len(full_index):
             print("NVSPL doesn't cover full period")
             return np.nan
         nvspl_section = self.nvspl.loc[full_index]
 
+        # get the track points corresponding to this time period
         pts_section = self.pts[(self.pts["point_dt"] > start_dt) & (self.pts["point_dt"] < end_dt)]
         if pts_section.empty:
             print("No track points")
             return np.nan
 
-        # use a vertical sobel filter to get a signal without wind gust issues
-        # tonal sounds (e.g. fixed-wing aircraft and helicopters and vessels) will have much stronger
-        # vertical derivatives (across changing bands) than wind, which tends to be somewhat uniform over all frequencies
-        # use whole spectrum for sobel filter to avoid boundary artifacts
+        # Correlating with NVSPL broadband SPL has issues with wind noise obscuring the aircraft signal.
+        # To fix this, first process the NVSPL spectrogram with a vertical sobel filter,
+        # which calculates the derivative across bands. Wind gusts tend to stretch across most
+        # bands with gradual changes, but tonal sounds like fixed-wing aircraft have sharply differing
+        # power levels between nearby bands. We then logsum this derivative value, which emphasizes
+        # aircraft peaks more than summing. We only logsum over the transportation band to reduce noise.
+        # Empirically, this works very well.
         spectro = nvspl_section.loc[:,"12.5":"20000"]
         sobel_signal = np.abs(sobel(spectro, axis=1))
         sobel_signal = pd.DataFrame(sobel_signal, index=spectro.index, columns=spectro.columns)
         sobel_signal = logsum(sobel_signal.loc[:,"80":"1250"])  # transportation band
 
-        # set up an index for each second of the time period,
-        # minus a period at the beginning and end corresponding to the max clock drift size,
-        # to allow doing valid-mode correlation
-        near_full_index = pd.date_range(start_dt + max_clock_drift, end_dt - max_clock_drift, freq="s", inclusive="left")
+        # Set up an index that will be used for the predicted signal.
+        # This contains each second of the time period, minus a period at the beginning and end
+        # corresponding to the max clock drift size, to allow shifting this signal over the full NVSPL day
+        # while always fully overlapping the NVSPL data
+        pred_index = pd.date_range(start_dt + max_clock_drift, end_dt - max_clock_drift, freq="s", inclusive="left")
 
-        # get initial Lp based on ambience
+        # initialize a list of predicted SPL time series that we will later logsum to get the overall predicted SPL time series
+        # put ambience in it because we want to add in ambience
         ambience = logsum(ambience_from_nvspl(nvspl_section, 90), axis=0)
-        Lp_series_list = [pd.Series(index=near_full_index, data=ambience)]
+        Lp_series_list = [pd.Series(index=pred_index, data=ambience)]
 
-        # add in each flight's Lp contribution
+        # add in each flight's Lp contribution to the Lp_series_list
         for _, group in pts_section.groupby("track_id"):
+            # get a series of predicted Lp values at various times for this flight
+            # we would like to interpolate this series to make it line up with pred_index,
+            # which we need in order to cross-correlate with the NVSPL data
             orig_series = pd.Series(
                 index=group["time_audible"], data=group["Lp_est"].values)
 
-            # create a subset of near_full_index that's relevant for this track
+            # figure out which times we need to calculate interpolated Lp_est values
+            # within the temporal extent of this flight
             sec_index = pd.date_range(group["time_audible"].min().floor(
                 "s"), group["time_audible"].max().ceil("s"), freq="s")
             seconds_to_calc = pd.Series(
                 index=sec_index.difference(orig_series.index), data=np.nan)
+            # .difference() because we don't want to calculate interpolated Lp_est if we
+            # already have Lp_est for that time
 
+            # interpolate
             series = pd.concat((orig_series, seconds_to_calc)).sort_index()
             series = series.interpolate(method="time", limit=1, limit_direction="both")
+            # just pick out the seconds that match with the pred_index
             series = series.loc[sec_index]
-            series = series.reindex(near_full_index)
+            # expand the index to the full pred_index
+            series = series.reindex(pred_index)
+            # set any na values to no sound
             series.loc[series.isna()] = -100  # -100 dB for "no sound"
             Lp_series_list.append(series)
 
         Lp_pred = logsum(pd.concat(Lp_series_list, axis=1, ignore_index=True))
 
+        # correlate to determine max clock drift
         correlation = correlate(sobel_signal, Lp_pred, mode="valid")
         assert len(correlation) == 2 * max_clock_drift.total_seconds() + 1, \
             f"{len(correlation)} != {2 * max_clock_drift.total_seconds() + 1}"
-        drifts = np.arange(-max_clock_drift.total_seconds(), max_clock_drift.total_seconds() + 1)
         max_idx = np.argmax(correlation)
         if max_idx == 0 or max_idx == len(correlation)-1:
             print("Max correlation at boundary, not true maximum")
             return None  # boundary-limited, not true peak
+        drifts = np.arange(-max_clock_drift.total_seconds(), max_clock_drift.total_seconds() + 1)
         clock_drift = drifts[max_idx]
 
         # plot
@@ -178,6 +242,7 @@ class ClockDriftFixer():
     
 
     def _init_time_series_plot(self):
+        """Utility for setting up a time series plot of clock drifts"""
         plt.subplots(figsize=(14, 6))
         plt.title(f"Estimated Daily Clock Drift, {self.deployment}")
         plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=5))
@@ -186,6 +251,7 @@ class ClockDriftFixer():
     
 
     def drift_time_series(self, start_dt=None, end_dt=None, max_clock_drift=pd.Timedelta(minutes=5)):
+        """Compute clock drift each day over an extended period of time to determine patterns over time."""
         if start_dt is None:
             start_dt = self.nvspl.index.min()
         if end_dt is None:
@@ -202,6 +268,7 @@ class ClockDriftFixer():
         self.times = period_bounds[:-1] + (period_bounds.diff()[1:] / 2)
         self.drifts = np.array(drifts).astype(float)
 
+        # plot
         self._init_time_series_plot()
         plt.plot(self.times, self.drifts, marker="o", color="black")
         # add labels
@@ -218,6 +285,7 @@ class ClockDriftFixer():
     
 
     def _fit_drift_line(self, times, drifts):
+        """Utility to fit a line, used by fit_drift_lines()"""
         times_ns = times.astype(np.int64)
         times_days = times_ns / (1e9 * 60 * 60 * 24)
         return np.polyfit(times_days, drifts, deg=1)
@@ -225,8 +293,29 @@ class ClockDriftFixer():
 
     def fit_drift_lines(self, indices_to_use, clock_drift_file=None,
                         maintenance_times=[], start_dt=None, end_dt=None):
-        assert hasattr(self, "times") and hasattr(self, "drifts")
+        """
+        Clock drift tends to be linear (for ADSB particularly).
+        This function fits lines for each time period between maintenance visits,
+        and creates a clock drift file based on these lines.
 
+        Parameters
+        ----------
+        indices_to_use: list of ints
+            A list of credible clock drift estimation points to use for fitting the line.
+            The indices correspond to those shown on the time series plot produced by self.drift_time_series()
+        clock_drift_file: str, optional
+            Filename for saving the clock drift file. If not provided, a default path is used.
+        maintenance_times: list of pd.Timestamp or datetime, default []
+            Times when maintenance was performed on the system. Linear models will be fit for the periods between
+            maintenance visits, since resetting the clock during visits can cause discontinuities in the clock drift.
+        start_dt: pd.Timestamp or datetime, optional
+            Start time for estimating clock drift. Should precede all track data.
+            Default is midnight before the earliest track point.
+        end_dt: pd.Timestamp or datetime, optional
+            End time for estimating clock drift. Should come after all track data.
+            Default is midnight after the last track point.
+        """
+        assert hasattr(self, "times") and hasattr(self, "drifts")
         self._init_time_series_plot()
 
         # fill in default values for clock drift file name and time period
