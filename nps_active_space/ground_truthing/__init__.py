@@ -5,7 +5,7 @@ from abc import ABC
 from tkinter import filedialog, messagebox
 from typing import Any, List, Optional, Type, TYPE_CHECKING
 from functools import partial
-
+import warnings
 from time import sleep
 
 import contextily as cx
@@ -773,10 +773,21 @@ class _GroundTruthingFrame(_AppFrame):
 
                 # GEOJSON doesn't save full time precision (up to millisecond it seems),
                 # so when trying to match an annotated start_dt or end_dt to a point's point_dt,
-                # we have to only check if they're close enough, not exactly equal
-                tol = pd.Timedelta(seconds=0.1)
-                time_audible_start = spline[np.abs(spline["point_dt"] - a["start_dt"]) < tol].iloc[0]["time_audible"]
-                time_audible_end = spline[np.abs(spline["point_dt"] - a["end_dt"]) < tol].iloc[0]["time_audible"]
+                # we have to only check if they're close enough, not exactly equal.
+                # Also, if a clock drift file was changed slightly, the annotation start and end time
+                # may not match up perfectly (but will be close enough)
+                start_diff = (spline["point_dt"] - a["start_dt"]).abs()
+                end_diff = (spline["point_dt"] - a["end_dt"]).abs()
+                # warn if not close enough
+                tol = pd.Timedelta(seconds=1)
+                if start_diff.min() > tol:
+                    warnings.warn(f"Could not find a track point within {tol.total_seconds()} sec of annotation start")
+                    return
+                if end_diff.min() > tol:
+                    warnings.warn(f"Could not find a track point within {tol.total_seconds()} sec of annotation end")
+                    return
+                time_audible_start = spline.loc[start_diff.idxmin(), "time_audible"]
+                time_audible_end = spline.loc[end_diff.idxmin(), "time_audible"]
                 audible_ranges.append([time_audible_start, time_audible_end])
         
         # load FAA data if applicable
