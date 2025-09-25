@@ -478,13 +478,13 @@ class ActiveSpaceGenerator:
                 try:
                     row, col = dem.index(pt.x, pt.y)
                     elev = dem.read(1)[row, col]
+                    if elev == dem.nodata or elev is None or pt.z < elev:
+                        underground_pts.append(pt)
+                    else:
+                        aboveground_pts.append(pt)
                 except:
                     print("Queried point outside DEM bounds")
                     underground_pts.append(pt)
-                if elev == dem.nodata or elev is None or pt.z < elev:
-                    underground_pts.append(pt)
-                else:
-                    aboveground_pts.append(pt)
 
         trajectory_filename = self._create_trajectory_file(aboveground_pts, crs, job_name, heading)
         batch_file = self._create_instruction_files(flt_file, site_file, trajectory_filename, omni_source)
