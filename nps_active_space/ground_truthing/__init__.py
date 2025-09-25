@@ -620,6 +620,15 @@ class _GroundTruthingFrame(_AppFrame):
             font=('Avenir', 12),
             command=self._back
         )
+        self.next_annotated_button = tk.Button(
+            self,
+            text='Next Annotated >',
+            bg='ivory2',
+            fg='black',
+            width=15,
+            font=('Avenir', 12),
+            command=self._next_annotated
+        )
         self.next_unannotated_button = tk.Button(
             self,
             text='Next Unannotated >',
@@ -653,13 +662,14 @@ class _GroundTruthingFrame(_AppFrame):
         # Place widgets.
         self.grid_columnconfigure(0, weight=5)
         self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=2)
         self.grid_rowconfigure(1, weight=1)
-        self.grid_rowconfigure(2, weight=2)
-        self.grid_rowconfigure(3, weight=2)
+        self.grid_rowconfigure(2, weight=3)
+        self.grid_rowconfigure(3, weight=3)
         self.grid_rowconfigure(4, weight=1)
         self.grid_rowconfigure(5, weight=1)
         self.grid_rowconfigure(6, weight=1)
+        self.grid_rowconfigure(7, weight=1)
         self.progress_label.grid(row=0, column=1, sticky='ne', padx=10, pady=5)
         self.track_label.grid(row=0, column=1, pady=10)
         self.time_label.grid(row=1, column=1, pady=10)
@@ -670,9 +680,10 @@ class _GroundTruthingFrame(_AppFrame):
         self.back_button.pack(side=tk.LEFT, padx=10)
         self.next_button.pack(side=tk.LEFT, padx=10)
 
-        self.next_unannotated_button.grid(row=4, column=1, padx=10, pady=1)
-        self.next_identifier_button.grid(row=5, column=1, padx=10, pady=1)
-        self.last_annotated_button.grid(row=6, column=1, padx=10, pady=1)
+        self.next_annotated_button.grid(row=4, column=1, padx=10, pady=1)
+        self.next_unannotated_button.grid(row=5, column=1, padx=10, pady=1)
+        self.next_identifier_button.grid(row=6, column=1, padx=10, pady=1)
+        self.last_annotated_button.grid(row=7, column=1, padx=10, pady=1)
 
         self._load_index(0)
     
@@ -812,6 +823,7 @@ class _GroundTruthingFrame(_AppFrame):
         # nice to do this all at once to better keep track of these variables and not have only some of them update if we returned early
         self.track_id = track_id
         self.track_annotated = not annots.empty
+        self.valid = annots["valid"].all()  # if invalid should only be one row anyways
         self.points = points
         self.spectro = spectro
         self.audible_ranges = audible_ranges
@@ -849,6 +861,20 @@ class _GroundTruthingFrame(_AppFrame):
                 return
         # if all are annotated, we're done!
         self.master.switch_frame(_CompletionFrame)
+    
+    def _next_annotated(self):
+        i = self.i
+        while (i+1 < len(self.data)):
+            i += 1
+            track_id = self.data[i][0]
+            if str(track_id) in self.master.annotations._id.values:
+                self._load_index(i)
+                return
+        # if none are annotated, don't go anywhere
+        tk.messagebox.showinfo(
+            title='Info',
+            message=f"None annotated."
+        )
 
     def _next_identifier(self):
         """iterate self.i until we find a different vehicle identifier"""
@@ -1175,7 +1201,8 @@ class _GroundTruthingFrame(_AppFrame):
                                      f"Track Id: {self.track_id}\n" + \
                                      (f"{self.aircraft_help_text}\n" if self.aircraft_help_text is not None else "") + \
                                      (f"Aircraft Type: {self.aircraft_type}\n" if self.aircraft_type is not None else "") + \
-                                     f"\nAnnotated: {self.track_annotated}")
+                                     f"\nAnnotated: {self.track_annotated}" + \
+                                     f"\nValid: {self.valid}")
         self.progress_label.config(text=f"{self.i+1}/{self.master.tracks.track_id.nunique()}")
         self.submit_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, self.audible_ranges), state=tk.NORMAL)
         self.unknown_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, valid=False), state=tk.NORMAL)
