@@ -475,6 +475,8 @@ class ActiveSpaceGenerator:
         underground_pts = []  # underground or no DEM data
         with rasterio.open(self._dem_file) as dem:
             for pt in source_pts:
+                import pdb
+                pdb.set_trace()
                 try:
                     row, col = dem.index(pt.x, pt.y)
                     elev = dem.read(1)[row, col]
