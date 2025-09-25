@@ -12,6 +12,7 @@ import matplotlib as mpl
 import numpy as np
 import pandas as pd
 from osgeo import gdal
+import rasterio
 from shapely.geometry import Point, Polygon, box
 from shapely.validation import make_valid
 from tqdm import tqdm
@@ -469,7 +470,23 @@ class ActiveSpaceGenerator:
         """
         assert len(source_pts) > 0, "Trying to run NMSIM on zero source points"
 
-        trajectory_filename = self._create_trajectory_file(source_pts, crs, job_name, heading)
+        # Mark any underground points as inaudible and don't pass them to NMSIM
+        aboveground_pts = []
+        underground_pts = []  # underground or no DEM data
+        with rasterio.open(self._dem_file) as dem:
+            for pt in source_pts:
+                try:
+                    row, col = dem.index(pt.x, pt.y)
+                    elev = dem.read(1)[row, col]
+                except:
+                    print("Queried point outside DEM bounds")
+                    underground_pts.append(pt)
+                if elev == dem.nodata or elev is None or pt.z < elev:
+                    underground_pts.append(pt)
+                else:
+                    aboveground_pts.append(pt)
+
+        trajectory_filename = self._create_trajectory_file(aboveground_pts, crs, job_name, heading)
         batch_file = self._create_instruction_files(flt_file, site_file, trajectory_filename, omni_source)
 
         # Run NMSIM.
@@ -486,6 +503,8 @@ class ActiveSpaceGenerator:
             f"{self.root_dir}/Output_Data/TIG_TIS/{job_name}.tis",
             crs
         )
+        import pdb
+        pdb.set_trace()
 
         return new_audibility_pts
 
