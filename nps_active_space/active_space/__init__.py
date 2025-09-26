@@ -12,6 +12,7 @@ import matplotlib as mpl
 import numpy as np
 import pandas as pd
 from osgeo import gdal
+from pyproj import Transformer
 import rasterio
 from shapely.geometry import Point, Polygon, box
 from shapely.validation import make_valid
@@ -474,9 +475,11 @@ class ActiveSpaceGenerator:
         aboveground_pts = []
         underground_pts = []  # underground or no DEM data
         with rasterio.open(self._dem_file) as dem:
+            proj = Transformer.from_crs(crs, dem.crs, always_xy=True)
             for pt in source_pts:
                 try:
-                    row, col = dem.index(pt.x, pt.y)
+                    x, y = proj.transform(pt.x, pt.y)
+                    row, col = dem.index(x, y)
                     elev = dem.read(1)[row, col]
                     if elev == dem.nodata or elev is None or pt.z < elev:
                         underground_pts.append(pt)
