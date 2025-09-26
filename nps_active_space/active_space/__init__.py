@@ -481,13 +481,31 @@ class ActiveSpaceGenerator:
             ys = [pt.y for pt in source_pts]
             xs, ys = proj.transform(xs, ys)
             proj_pts = [(xs[i], ys[i]) for i in range(len(source_pts))]
-            proj_pts = rasterio.sample.sort_xy(proj_pts) # sorting improves performance
+            # proj_pts = rasterio.sample.sort_xy(proj_pts) # sorting improves performance
             elevs = list(dem.sample(proj_pts))
             for i in range(len(source_pts)):
                 if elevs[i] is None or elevs[i] == dem.nodata or source_pts[i].z < elevs[i]:
                     underground_pts.append(source_pts[i])
                 else:
                     aboveground_pts.append(source_pts[i])
+        
+        #     old_underground = []
+        #     old_aboveground = []
+        #     for pt in source_pts:
+        #         try:
+        #             x, y = proj.transform(pt.x, pt.y)
+        #             row, col = dem.index(x, y)
+        #             elev = dem.read(1)[row, col]
+        #             if elev == dem.nodata or elev is None or pt.z < elev:
+        #                 old_underground.append(pt)
+        #             else:
+        #                 old_aboveground.append(pt)
+        #         except Exception as e:
+        #             print(e)
+        #             old_underground.append(pt)
+            
+        # print(old_aboveground)
+        # print(aboveground_pts)
         
         print(f"above {len(aboveground_pts)}")
         print(f"below {len(underground_pts)}")
