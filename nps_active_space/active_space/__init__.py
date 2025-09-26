@@ -475,8 +475,6 @@ class ActiveSpaceGenerator:
         underground_pts = []  # underground or no DEM data
         with rasterio.open(self._dem_file) as dem:
             for pt in source_pts:
-                import pdb
-                pdb.set_trace()
                 try:
                     row, col = dem.index(pt.x, pt.y)
                     elev = dem.read(1)[row, col]
@@ -484,8 +482,8 @@ class ActiveSpaceGenerator:
                         underground_pts.append(pt)
                     else:
                         aboveground_pts.append(pt)
-                except:
-                    print("Queried point outside DEM bounds")
+                except Exception as e:
+                    print(e)
                     underground_pts.append(pt)
 
         trajectory_filename = self._create_trajectory_file(aboveground_pts, crs, job_name, heading)
@@ -505,8 +503,7 @@ class ActiveSpaceGenerator:
             f"{self.root_dir}/Output_Data/TIG_TIS/{job_name}.tis",
             crs
         )
-        import pdb
-        pdb.set_trace()
+        print(new_audibility_pts)
 
         return new_audibility_pts
 
