@@ -472,6 +472,7 @@ class ActiveSpaceGenerator:
         assert len(source_pts) > 0, "Trying to run NMSIM on zero source points"
 
         # Mark any underground points as inaudible and don't pass them to NMSIM
+        print("Testing underground")
         aboveground_pts = []
         underground_pts = []  # underground or no DEM data
         with rasterio.open(self._dem_file) as dem:
@@ -488,6 +489,8 @@ class ActiveSpaceGenerator:
                 except Exception as e:
                     print(e)
                     underground_pts.append(pt)
+        
+        print("Running NMSIM")
 
         trajectory_filename = self._create_trajectory_file(aboveground_pts, crs, job_name, heading)
         batch_file = self._create_instruction_files(flt_file, site_file, trajectory_filename, omni_source)
