@@ -22,6 +22,7 @@ __all__ = [
     'ambience_from_nvspl',
     'ambience_from_raster',
     'audible_time_delay',
+    'barometric_pressure'
     'build_src_point_mesh',
     'calculate_duration_summary',
     'climb_angle',
@@ -774,3 +775,34 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
     points = points.to_crs(orig_crs)
 
     return points
+
+def barometric_pressure(h):
+    """
+    An implementation of the "first" barometric formula https://en.wikipedia.org/wiki/Barometric_formula#Derivation
+     which predicts Earth's atmospheric pressure at altitude.
+
+    This version of the formula makes two assumptions about Earth's atmosphere:
+     [1] all pressure is hydrostatic, and
+     [2] linear temperature change (e.g., T = T_0 - Lh)
+     and is therefore appropriate for most coarse estimation purposes.
+
+    Parameters
+    ----------
+    h : float, altitude in the atmosphere in meters
+
+    Returns
+    -------
+    patm : numpy float64, the atmospheric pressure estimated at `h`, in Pascals (N/m^2)
+    """
+
+    g = 9.80665 # m/s^2,  earth-surface gravitational acceleration
+    R = 8.31447 # J/(mol • K),  universal gas constant
+    M = 0.0289644 # kg/mol,  molar mass of dry air
+    L = -0.0065 # K/m,  standard adiabatic temperature lapse rate 
+    T_0 = 288.15 # K,  sea level standard temperature    
+    p_0 = 101325. # Pa,  sea level standard atmospheric pressure
+    
+    # calculate air pressure at altitude using the Barometric Formula
+    patm = p_0 * np.power((1 - (L * h / T_0)), (g * M) / (R * L))   # Pa
+    
+    return patm

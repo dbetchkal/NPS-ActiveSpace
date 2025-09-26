@@ -50,8 +50,8 @@ def init_audible_transits(metadata, paths, raw_tracks = None):
         - "site": site code (e.g. Triple Lakes = "TRLA")
         - "activespace year": year of fitted active space, if differs from study year
         - "gain": modeled gain value from fitting the active space
-        - "study start": date of format yyyy-mm-dd
-        - "study end": date of format yyyy-mm-dd
+        - "study start": date represented as a string of format yyyy-mm-dd, inclusive
+        - "study end": date represented as a string of format yyyy-mm-dd, inclusive
         - "database type": type of database. Can be one of "ADSB", "GPS", "AIS". Note that AIS functionality is not yet implemented.
     paths: dict
         A dictionary containing paths to the project directory and data files. Should have the following keys:
@@ -166,7 +166,7 @@ class AudibleTransits(ABC):
         self.activespace_year = metadata["activespace year"]
         self.gain = metadata["gain"]
         self.study_start = metadata["study start"]
-        self.study_end = metadata["study end"]
+        self.study_end = metadata["study end"]  # inclusive
         self.database_type = metadata["database type"]
 
         self.paths = paths.copy()
@@ -2176,10 +2176,6 @@ class AudibleTransitsADSB(AudibleTransits):
 
         logger.debug(
             f"\t\tRemoved {time_duplicates} points with repeated times and {position_duplicates} points with repeated positions.")
-
-        # Only include points within the date range specified in the initialization
-        loaded_track_pts = loaded_track_pts[(loaded_track_pts.point_dt >= self.study_start) & (
-            loaded_track_pts.point_dt <= self.study_end)]
 
         self.tracks = loaded_track_pts
 

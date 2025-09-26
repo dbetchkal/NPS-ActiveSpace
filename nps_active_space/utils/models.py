@@ -22,6 +22,7 @@ import geopandas as gpd
 from shapely.geometry import Point, box
 import numpy as np
 import pandas as pd
+from .computation import contiguous_regions
 pd.options.mode.copy_on_write = True
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -34,6 +35,7 @@ __all__ = [
     'FAAReleasable',
     'Tracks',
     'Annotations',
+    'Srcid'
 ]
 
 
@@ -1571,3 +1573,255 @@ class Annotations(gpd.GeoDataFrame):
                                     geometry='geometry', crs='epsg:4326')
 
         super().__init__(data=data, crs=data.crs)
+
+
+class Srcid():
+    """
+    A pandas DataFrame wrapper class to ensure consistent SRCID data.
+
+    The ``nvsplDate``, ``hr``, and ``secs`` columns are combined into a single DatetimeIndex for the DataFrame and dropped.
+    The ``len`` column (length of the noise event) is converted to a pandas Timedelta.
+
+    Example Resulting DataFrame
+    ---------------------------
+
+    <class 'pandas.core.frame.DataFrame'>
+    DatetimeIndex: 971 entries, 2015-05-12 05:40:03 to 2015-07-14 23:55:11
+    Data columns (total 10 columns):
+    len         971 non-null timedelta64[ns]
+    srcID       971 non-null float64
+    Hz_L        971 non-null float64
+    Hz_U        971 non-null int64
+    MaxSPL      971 non-null float64
+    SEL         971 non-null float64
+    MaxSPLt     971 non-null float64
+    SELt        971 non-null float64
+    userName    971 non-null object
+    tagDate     971 non-null datetime64[ns]
+    dtypes: datetime64[ns](1), float64(6), int64(1), object(1), timedelta64[ns](1)
+    memory usage: 83.4+ KB
+
+    Parameters
+    ----------
+    srcid_path: str
+        Path to a single SRCID file one wishes to load.
+
+    merge: bool, default True
+        
+    Notes
+    -----
+    [1] The SRCID format, short for "Source Identification File" was initially developed by the U.S. National Park Service
+          circa 2008 as the primary output of `SPLAT.exe` (Sound Pressure Level Annotation Tool).
+    """
+
+    def __init__(self, srcid_path, merge=True):
+
+        self.srcid_path = srcid_path
+        self.merge = merge
+        self.data = None
+
+        src_raw = self._read()
+        self.data = src_raw # if `merge = False` then we stop here...
+        
+        if(merge): # ...however, by default we'd like to work with events spanning hours (or even days) as if they were annotated in their entirety
+            src = self._merge_SRCID(self.data)
+            src = src.astype(src_raw.dtypes.to_dict())  # convert dtypes, they got lost somehow during merging
+            self.data = src
+        
+    def _read(self):
+        """
+        Read data, format and tidy fields, handle various edge cases.
+        """
+
+        with open(self.srcid_path) as f:
+
+            # Determine version; older versions immediately start with header, newer has version comment
+            firstline = f.readline()
+            if not firstline.startswith(r"%%"):
+                f.seek(0)   # Rewind, as we just consumed the header row.
+                            # Otherwise, we consumed the comment row, which is fine
+
+            data = pd.read_csv(f,
+                                engine= "c",
+                                sep= "\t",
+                                # skiprows= 1,
+                                parse_dates= False)
+
+        # Combine nvsplDate, hr, secs columns into one DatetimeIndex
+        dates = pd.to_datetime(data.nvsplDate)
+        hrs   = pd.to_timedelta(data.hr, unit= "h")
+        secs  = pd.to_timedelta(data.secs, unit= "s")
+
+        data.drop(["nvsplDate", "hr", "secs"], axis= 1, inplace= True)
+        data.index = dates + hrs + secs
+
+        # Turn len into timedelta
+        data.len = pd.to_timedelta(data.len, unit= "s")
+
+        if 'sID' in data.columns:
+            # Some bizzare old files have a different name for srcID (really only DENAUSLC2008 so far)
+            data.rename(columns= {'sID': 'srcID'}, inplace= True)
+
+        # Days with no noise events are entered with the `MaxSPLt` and `SELt` columns skipped,
+        # so they get filled with userName and tagDate, giving them a mixed type instead of float
+        # Resolve this by finding zero-noise rows and setting all their values to NaN (more appropriate than 0)
+        if 'MaxSPLt' in data.columns:
+            if data.MaxSPLt.dtype == np.object_:
+                # There are noise-free days in this dataset
+                converted = pd.to_numeric(data[['MaxSPLt', 'SELt']], errors= "coerce")
+                noisefree = converted.isnull().all(axis= 1)
+                data.loc[noisefree, ["userName", "tagDate"]] = data.loc[noisefree, ['MaxSPLt', 'SELt']].values
+                data[['MaxSPLt', 'SELt']] = converted
+
+                nanCols = data.columns.difference(("userName", "tagDate"))
+                data.loc[ noisefree, nanCols ] = np.nan
+
+        # Parse tagDate to datetime (though old versions don't have tagDate)
+        if 'tagDate' in data.columns:
+            data.tagDate = pd.to_datetime(data.tagDate)
+
+        return data
+
+    def _join_srcID_rows(self, df):
+
+        '''
+        Join a sequence of SRCID-based spectrogram annotations into a single annotation.
+        '''
+
+        new_begin = df.head(1).index[0]
+        new_length = df['len'].sum()
+        new_srcID = df["srcID"].values[0]
+        new_L = df['Hz_L'].min()
+        new_U = df['Hz_U'].max()
+        new_MaxA = "{0:.01f}".format(df["MaxSPL"].max())
+
+        new_user = df.head(1)["userName"].values[0]
+        new_tagdate = df.tail(1)["tagDate"].values[0]
+
+        # because SEL values are already normalized you just logarithmically add them
+        # this gives the total energy dose
+        new_SELA = "{0:.01f}".format(10*np.log10(np.power(10, df["SEL"]/10).sum()))
+
+        # repeat for truncated values
+        # older SRCID files do not have these values, resulting in a KeyError, so we exept those cases
+        try:
+            new_MaxT = "{0:.01f}".format(df["MaxSPLt"].max())
+            new_SELT = "{0:.01f}".format(10*np.log10(np.power(10, df["SELt"]/10).sum()))
+
+            joined = pd.DataFrame([new_length, new_srcID, new_L, new_U, new_MaxA, new_SELA, new_MaxT, new_SELT, new_user, new_tagdate], 
+                        columns=[new_begin], index=df.columns[:-1]).T
+
+        except KeyError:
+            joined = pd.DataFrame([new_length, new_srcID, new_L, new_U, new_MaxA, new_SELA, new_user, new_tagdate], 
+                columns=[new_begin], index=df.columns[:-1]).T
+
+        return joined
+    
+    def _merge_SRCID(self, src):
+
+        '''
+        Find SRCID-based spectrogram annotations that break across hours, and join them to create a
+        final, merged SRCID for more accurate calculations.
+        '''
+
+        # these are only the events that end during the last second of the hour
+        end_at_hour = src.loc[((src.index + src["len"]).dt.minute==59)&
+                            ((src.index + src["len"]).dt.second==59)]
+
+        start_at_hour = src.loc[(src.index.minute==0)&(src.index.second==0)]
+
+        # these are only the events that start during the first second of the hour
+        starts_at_hour_break = src.index[(src.index.minute==0)&(src.index.second==0)].to_series()
+
+        # IMPORTANT: these are the starts where there is definitely an ending one second before
+        # conveniently the next two lines handle both (1) matching srcid values, 
+        # and (2) lots of back-to-back-to-back hour long annotations!
+        matches_end = start_at_hour.copy()
+        matches_end.index = (start_at_hour.index + start_at_hour["len"] + dt.timedelta(seconds=1))
+
+        # the .isin method is extremely helpful for working backwards to get the matched starts
+        matches_start = end_at_hour[(end_at_hour.index + end_at_hour["len"] + dt.timedelta(seconds=1)).isin(start_at_hour.index)].copy()
+
+        # these are the real break-point annotations
+        cons = pd.concat([matches_start, matches_end]).sort_index().dropna()
+        cons = cons.drop_duplicates(keep="first") # frankly, it doesn't matter
+
+        # assign groups to each set of consecutive annotations 
+        # it's a huge benefit to group by source type first!
+        group = 1
+        for srcID, source_group in cons.groupby("srcID"):
+
+            for ts, annotation in source_group.sort_index().iterrows():
+
+                ends = ts + annotation["len"]
+
+                if((ts.minute!=0)&(ts.second!=0)&
+                (ends.minute==59)&(ends.second==59)):
+
+                    group = group + 1
+                    cons.loc[ts, "group"] = group
+
+                elif((ts.minute==0)&(ts.second==0)&
+                (ends.minute!=59)&(ends.second!=59)):
+
+                    cons.loc[ts, "group"] = group
+                    group = group + 1
+
+                else:
+                    cons.loc[ts, "group"] = group
+
+            # at the end of the current source type, 
+            # "flush" the current group
+            group = group + 1
+
+        frames = []
+
+        # now we can actually perform the joining operations
+        for group_number, pieces in cons.groupby('group'):
+
+            if(len(pieces) < 2):
+                # this removes single values - they don't actually need to be merged
+                cons.drop(pieces.index, inplace=True)
+
+            else:
+                frames.append(self._join_srcID_rows(pieces))
+
+        # here are all the joined data
+        merged_breaks = pd.concat(frames)
+
+        # now that everything is neat and tidy, we can get the lines
+        # not representing true breaks
+        no_breaks = src.loc[~src.index.isin(cons.index)]
+
+        # final SRCID file with events across hour breaks merged
+        merged_src = pd.concat([merged_breaks, no_breaks])
+        merged_src = merged_src.sort_index()
+
+        return merged_src
+    
+    def get_observation_periods(self):
+        """
+        Get periods of time with an acoustic record (there may be gaps). Periods are separated by
+        the passing of at least a full day (midnight to midnight) without any SPLAT annotations.
+
+        Returns
+        -------
+        periods: np.ndarray
+            Numpy array of shape (# periods, 2) containing pairs of strings "yyyy-mm-dd" bounding each period.
+            The start and end dates are inclusive, meaning there are annotations on both of these dates.
+        """
+        annotated_dates = np.sort(np.unique(self.data.index.date))
+
+        # make np array of all dates
+        # add one extra day to end date for np.arange exclusive indexing
+        all_dates = np.arange(annotated_dates[0], annotated_dates[-1] + dt.timedelta(days=1))
+
+        # Get contiguous regions. Returns a numpy array of shape (len(all_dates), 2),
+        # containing indices of the beginning and end of each contiguous region (exclusive end index)
+        period_indices = contiguous_regions(np.isin(all_dates, annotated_dates))
+        # convert end indices to inclusive
+        period_indices[:,1] -= 1
+
+        # index into all dates and convert to strings
+        obs_periods = all_dates[period_indices]
+        return np.datetime_as_string(obs_periods, unit="D")

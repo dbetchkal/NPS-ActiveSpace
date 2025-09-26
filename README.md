@@ -25,7 +25,7 @@ This project is made up of four modules:
 
 [`audible-transits`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/README.md#audible-transits): geoprocess to construct the spatiotemporal intersections of a set of tracks with an active space.
 
-`geographic-metrics` Beta: tabulation of transits into a variety of acoustic and spatial metrics
+`generate-metrics` Beta: tabulation of transits into a variety of acoustic and spatial metrics
 
 [`utils`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/README.md#utils): diverse utilities - file I/O, geoprocessing, acoustic propagation modelling, and detection statistics
     
@@ -36,7 +36,7 @@ Also included are noise source [data](https://github.com/dbetchkal/NPS-ActiveSpa
 
 While each package can be used and run individually, the project was designed so that outputs of one package work seamlessly as the inputs for another. Packages were designed to be run in the following order:
 
-`ground-truthing` $\rightarrow$ `active-space` $\rightarrow$ `audible-transits` $\rightarrow$ `geographic-metrics`
+`ground-truthing` $\rightarrow$ `active-space` $\rightarrow$ `audible-transits` $\rightarrow$ `generate-metrics`
 
 ---
 
@@ -66,12 +66,12 @@ Detailed [CLI documentation is available to initialize the construction](https:/
 
 ---
 
-## geographic-metrics [beta]
+## generate-metrics [beta]
 
-The `geographic-metrics` module estimates what we hear. To do this, it collapses the set of `audible-transits` into a binary audibility sequence in time. 
+The `generate-metrics` module estimates what we hear. To do this, it collapses the set of `audible-transits` into a binary audibility sequence in time. 
 Then, from attributes of these *noise events* (or dualistically, *noise-free intervals*) a variety of acoustical and spatial metrics may be computed.
 
-At present, no CLI interface exists for `geographic-metrics`. Instead it has been designed to be imported into a more flexible IDE.
+At present, no CLI interface exists for `generate-metrics`. Instead it has been designed to be imported into a more flexible IDE.
 
 ---
 
