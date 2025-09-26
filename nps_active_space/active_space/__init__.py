@@ -506,7 +506,11 @@ class ActiveSpaceGenerator:
             f"{self.root_dir}/Output_Data/TIG_TIS/{job_name}.tis",
             crs
         )
-        print(new_audibility_pts)
+        
+        # combine with underground points that were marked inaudible
+        underground_gdf = gpd.GeoDataFrame(geometry=underground_pts)
+        underground_gdf["audible"] = 0
+        new_audibility_pts = pd.concat([new_audibility_pts, underground_gdf], ignore_index=True)
 
         return new_audibility_pts
 
