@@ -477,18 +477,33 @@ class ActiveSpaceGenerator:
         underground_pts = []  # underground or no DEM data
         with rasterio.open(self._dem_file) as dem:
             proj = Transformer.from_crs(crs, dem.crs, always_xy=True)
-            for pt in source_pts:
-                try:
-                    x, y = proj.transform(pt.x, pt.y)
-                    row, col = dem.index(x, y)
-                    elev = dem.read(1)[row, col]
-                    if elev == dem.nodata or elev is None or pt.z < elev:
-                        underground_pts.append(pt)
-                    else:
-                        aboveground_pts.append(pt)
-                except Exception as e:
-                    print(e)
-                    underground_pts.append(pt)
+            xs = [pt.x for pt in source_pts]
+            ys = [pt.y for pt in source_pts]
+            xs, ys = proj.transform(xs, ys)
+            proj_pts = [(xs[i], ys[i]) for i in range(len(source_pts))]
+            proj_pts = rasterio.sample.sort_xy(proj_pts) # sorting improves performance
+            elevs = list(dem.sample(proj_pts))
+            for i in range(len(source_pts)):
+                if source_pts[i].z < elevs[i]:
+                    underground_pts.append(source_pts[i])
+                else:
+                    aboveground_pts.append(source_pts[i])
+        
+        print(f"above {len(aboveground_pts)}")
+        print(f"below {len(underground_pts)}")
+
+            # for pt in source_pts:
+            #     try:
+            #         x, y = proj.transform(pt.x, pt.y)
+            #         row, col = dem.index(x, y)
+            #         elev = dem.read(1)[row, col]
+            #         if elev == dem.nodata or elev is None or pt.z < elev:
+            #             underground_pts.append(pt)
+            #         else:
+            #             aboveground_pts.append(pt)
+            #     except Exception as e:
+            #         print(e)
+            #         underground_pts.append(pt)
         
         print("Running NMSIM")
 
