@@ -600,6 +600,9 @@ class ActiveSpaceGenerator:
             source_pts = build_src_point_mesh(active_space, src_pt_density, altitude_m)
             # only query points inside the study area and far enough from the boundary; build_src_point_mesh uses the bounding box
             valid_source_pts = [pt for pt in source_pts if pt.within(valid_query_region)]
+            if len(valid_source_pts) == 0:
+                print(f"Mesh step j={j}: no source points, skipping")
+                break
             
             new_audibility_pts = self._run_nmsim(
                 f"{mic.name}_mesh{j + 1}",
@@ -631,6 +634,7 @@ class ActiveSpaceGenerator:
             # only query points inside the study area and far enough from the boundary; build_src_point_mesh uses the bounding box
             valid_source_pts = [pt for pt in source_pts if pt.within(valid_query_region)]
             if len(valid_source_pts) == 0:
+                print(f"Refine step k={k}: no source points, skipping")
                 break
             new_audibility_pts = self._run_nmsim(
                 f"{mic.name}_contour{k + 1}",
