@@ -492,45 +492,33 @@ class ActiveSpaceGenerator:
         print(f"above {len(aboveground_pts)}")
         print(f"below {len(underground_pts)}")
 
-            # for pt in source_pts:
-            #     try:
-            #         x, y = proj.transform(pt.x, pt.y)
-            #         row, col = dem.index(x, y)
-            #         elev = dem.read(1)[row, col]
-            #         if elev == dem.nodata or elev is None or pt.z < elev:
-            #             underground_pts.append(pt)
-            #         else:
-            #             aboveground_pts.append(pt)
-            #     except Exception as e:
-            #         print(e)
-            #         underground_pts.append(pt)
-        
+        # mark underground points as inaudible
+        audibility_pts = gpd.GeoDataFrame(geometry=underground_pts)
+        audibility_pts["audible"] = 0
+
         print("Running NMSIM")
 
-        trajectory_filename = self._create_trajectory_file(aboveground_pts, crs, job_name, heading)
-        batch_file = self._create_instruction_files(flt_file, site_file, trajectory_filename, omni_source)
+        if len(aboveground_pts) > 0:
+            trajectory_filename = self._create_trajectory_file(aboveground_pts, crs, job_name, heading)
+            batch_file = self._create_instruction_files(flt_file, site_file, trajectory_filename, omni_source)
 
-        # Run NMSIM.
-        process = subprocess.Popen([self.NMSIM, batch_file], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        stdout, stderr = process.communicate()
+            # Run NMSIM.
+            process = subprocess.Popen([self.NMSIM, batch_file], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            stdout, stderr = process.communicate()
 
-        if stderr:
-            for s in stderr.decode("utf-8").split("\r\n"):
-                print(s.strip())
+            if stderr:
+                for s in stderr.decode("utf-8").split("\r\n"):
+                    print(s.strip())
 
-        # Determine the audibility of points that were tested during the NMSIM run.
-        new_audibility_pts = self._find_audible_points(
-            trajectory_filename,
-            f"{self.root_dir}/Output_Data/TIG_TIS/{job_name}.tis",
-            crs
-        )
-        
-        # combine with underground points that were marked inaudible
-        underground_gdf = gpd.GeoDataFrame(geometry=underground_pts)
-        underground_gdf["audible"] = 0
-        new_audibility_pts = pd.concat([new_audibility_pts, underground_gdf], ignore_index=True)
+            # Determine the audibility of points that were tested during the NMSIM run.
+            nmsim_audibility_pts = self._find_audible_points(
+                trajectory_filename,
+                f"{self.root_dir}/Output_Data/TIG_TIS/{job_name}.tis",
+                crs
+            )
+            audibility_pts = pd.concat([audibility_pts, nmsim_audibility_pts], ignore_index=True)
 
-        return new_audibility_pts
+        return audibility_pts
 
     @staticmethod
     def _build_active_space(total_space: gpd.GeoDataFrame, crs: str) -> gpd.GeoDataFrame:
