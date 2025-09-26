@@ -484,7 +484,7 @@ class ActiveSpaceGenerator:
             proj_pts = rasterio.sample.sort_xy(proj_pts) # sorting improves performance
             elevs = list(dem.sample(proj_pts))
             for i in range(len(source_pts)):
-                if source_pts[i].z < elevs[i]:
+                if elevs[i] is None or elevs[i] == dem.nodata or source_pts[i].z < elevs[i]:
                     underground_pts.append(source_pts[i])
                 else:
                     aboveground_pts.append(source_pts[i])
