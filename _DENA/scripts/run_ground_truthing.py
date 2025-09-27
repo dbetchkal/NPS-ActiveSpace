@@ -5,6 +5,8 @@ import geopandas as gpd
 import os
 import sqlalchemy
 import sys
+import numpy as np
+import pandas as pd
 repo_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 config_dir = os.path.join(repo_dir, "_DENA")
 script_dir = os.path.join(repo_dir, "nps_active_space")
@@ -19,7 +21,8 @@ from nps_active_space.utils import Nvspl, Tracks
 import _DENA.resource.config as cfg
 from _DENA import DENA_DIR
 from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM
-from nps_active_space.utils import coords_to_utm
+from nps_active_space.utils.computation import coords_to_utm
+from nps_active_space.utils.clock_drift import correct_clock_drift
 
 
 if __name__ == '__main__':
@@ -49,16 +52,17 @@ if __name__ == '__main__':
 
     # Set the various path variables.
     archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
-    project_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
+    site_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
     faa_path = None
     faa_corrections_path = None
 
     # Load the microphone deployment site metadata and the study area shapefile.
     microphone = get_deployment(cfg.read('project', 'dir'), args.unit, args.site, args.year)
-    study_area = gpd.read_file(glob.glob(f"{project_dir}/*study*.shp")[0])  # In NAD83, epsg:4269
+    study_area = gpd.read_file(glob.glob(f"{site_dir}/*study*.shp")[0])  # In NAD83, epsg:4269
 
     # Retrieve the days for which at least some NVSPL data exist.
     nvspl_dates = sorted(set([f"{e.year}-{e.month}-{e.day}" for e in archive.nvspl(unit=args.unit, site=args.site, year=args.year)]))
+    assert len(nvspl_dates) > 0, f"No NVSPL data found in archive {cfg.read('data', 'nvspl_archive')}"
 
     # Query flight tracks from days there is NVSPL data for.
     logger.info("Querying tracks...")
@@ -70,30 +74,34 @@ if __name__ == '__main__':
             end_date=nvspl_dates[-1],
             mask=study_area
         )
-
-        raw_tracks["local_hourtime"] = raw_tracks["TIME"].apply(lambda t: t.replace(minute=0, second=0, microsecond=0))
         tracks = Tracks(raw_tracks, id_col='flight_id', datetime_col='TIME', z_col='altitude')
-        hourtimes = tracks.local_hourtime.astype(object).unique()
         faa_path = cfg.read('project', 'FAA_Releasable_db')
         faa_corrections_path = cfg.read('project', 'FAA_type_corrections')
 
     elif args.track_source == 'GPS':
         raw_tracks = query_tracks(engine=engine, start_date=nvspl_dates[0], end_date=nvspl_dates[-1], mask=study_area)
         tracks = Tracks(raw_tracks, 'flight_id', 'ak_datetime', 'altitude_m')
-        hourtimes = tracks.ak_hourtime.astype(object).unique()
         faa_path = cfg.read('project', 'FAA_Releasable_db')
         faa_corrections_path = cfg.read('project', 'FAA_type_corrections')
 
     else:
         raise NotImplementedError('Code for AIS is not ready yet.')
 
+    assert not tracks.empty, "No tracks loaded, is your track source correct?"
+    
+    # correct for clock drift
+    clock_drift_file = os.path.join(site_dir, f"{args.unit}{args.site}{args.year}_clock_drift_{args.track_source}.csv")
+    if os.path.exists(clock_drift_file):
+        print(f"Found clock drift correction file, using it: {os.path.basename(clock_drift_file)}")
+        correct_clock_drift(tracks, clock_drift_file, inplace=True)
+        
+    # Open NVSPL data files during hours in which there is flight data.
+    hourtimes = tracks["point_dt"].dt.floor("h").unique()
     track_hours = [{'year': hourtime.year,
                     'month': hourtime.month,
                     'day': hourtime.day,
                     'hour': hourtime.hour}
                    for hourtime in hourtimes]
-
-    # Open NVSPL data files during hours in which there is flight data.
     nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year), items=track_hours)]
     nvspl = Nvspl(nvspl_files)
 

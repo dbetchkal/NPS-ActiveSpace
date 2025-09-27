@@ -5,7 +5,7 @@ from abc import ABC
 from tkinter import filedialog, messagebox
 from typing import Any, List, Optional, Type, TYPE_CHECKING
 from functools import partial
-
+import warnings
 from time import sleep
 
 import contextily as cx
@@ -24,7 +24,7 @@ import rasterio
 import pyproj
 
 from nps_active_space import ACTIVE_SPACE_DIR
-from nps_active_space.utils import Annotations, audible_time_delay, interpolate_spline, expected_relative_Lp, FAAReleasable
+from nps_active_space.utils import Annotations, audible_time_delay, interpolate_spline, expected_Lp, FAAReleasable
 
 if TYPE_CHECKING:
     from nps_active_space.utils import Microphone, Nvspl, Tracks
@@ -89,13 +89,17 @@ class _App(tk.Tk):
         self.crs = crs
         self.mic = mic.to_crs(crs)
         self.study_area = study_area.to_crs(crs)
-        self.tracks = gpd.clip(tracks.to_crs(crs), self.study_area) if clip else tracks.to_crs(crs)
         self.nvspl = nvspl
         self.outfile = None
         self.database_type = database_type
         self.dem = dem
         self.faa_path = faa_path
         self.faa_corrections_path = faa_corrections_path
+
+        # clip and project tracks, and then add z coordinate into geometry so it gets saved to GEOJSON properly later
+        self.tracks = gpd.clip(tracks.to_crs(crs), self.study_area) if clip else tracks.to_crs(crs)
+        self.tracks.geometry = gpd.points_from_xy(
+            self.tracks.geometry.x, self.tracks.geometry.y, self.tracks.z)
 
         # Set app features.
         self.title('NPS Active Space: Ground Truthing Module')
@@ -616,6 +620,15 @@ class _GroundTruthingFrame(_AppFrame):
             font=('Avenir', 12),
             command=self._back
         )
+        self.next_annotated_button = tk.Button(
+            self,
+            text='Next Annotated >',
+            bg='ivory2',
+            fg='black',
+            width=15,
+            font=('Avenir', 12),
+            command=self._next_annotated
+        )
         self.next_unannotated_button = tk.Button(
             self,
             text='Next Unannotated >',
@@ -649,13 +662,14 @@ class _GroundTruthingFrame(_AppFrame):
         # Place widgets.
         self.grid_columnconfigure(0, weight=5)
         self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=2)
         self.grid_rowconfigure(1, weight=1)
-        self.grid_rowconfigure(2, weight=2)
-        self.grid_rowconfigure(3, weight=2)
+        self.grid_rowconfigure(2, weight=3)
+        self.grid_rowconfigure(3, weight=3)
         self.grid_rowconfigure(4, weight=1)
         self.grid_rowconfigure(5, weight=1)
         self.grid_rowconfigure(6, weight=1)
+        self.grid_rowconfigure(7, weight=1)
         self.progress_label.grid(row=0, column=1, sticky='ne', padx=10, pady=5)
         self.track_label.grid(row=0, column=1, pady=10)
         self.time_label.grid(row=1, column=1, pady=10)
@@ -666,9 +680,10 @@ class _GroundTruthingFrame(_AppFrame):
         self.back_button.pack(side=tk.LEFT, padx=10)
         self.next_button.pack(side=tk.LEFT, padx=10)
 
-        self.next_unannotated_button.grid(row=4, column=1, padx=10, pady=1)
-        self.next_identifier_button.grid(row=5, column=1, padx=10, pady=1)
-        self.last_annotated_button.grid(row=6, column=1, padx=10, pady=1)
+        self.next_annotated_button.grid(row=4, column=1, padx=10, pady=1)
+        self.next_unannotated_button.grid(row=5, column=1, padx=10, pady=1)
+        self.next_identifier_button.grid(row=6, column=1, padx=10, pady=1)
+        self.last_annotated_button.grid(row=7, column=1, padx=10, pady=1)
 
         self._load_index(0)
     
@@ -710,7 +725,7 @@ class _GroundTruthingFrame(_AppFrame):
                 icon='warning'
             )
             self._store_annotation(track_id, points, valid=False, note='Too few points')
-            # that called _next()
+            # self._store_annotation() advances to the next track
             return
 
         # load spectrogram
@@ -725,7 +740,7 @@ class _GroundTruthingFrame(_AppFrame):
                 icon='warning'
             )
             self._store_annotation(track_id, points, valid=False, note='No SPL data')
-            # that called _next()
+            # self._store_annotation() advances to the next track
             return
                 
         points.sort_values(by='point_dt', ascending=True, inplace=True)
@@ -734,7 +749,7 @@ class _GroundTruthingFrame(_AppFrame):
                           float(self.master.mic.y), 
                           float(self.master.mic.z))
         spline = audible_time_delay(spline, 'point_dt', mic_point)
-        spline = expected_relative_Lp(spline, mic_point)
+        spline = expected_Lp(spline, mic_point)
 
         # Determine the closest spline point to the mic.
         closest_point = spline[spline.distance_to_target == spline.distance_to_target.min()]
@@ -752,7 +767,7 @@ class _GroundTruthingFrame(_AppFrame):
                 icon='warning'
             )
             self._store_annotation(track_id, spline, valid=False, note='Crossed limit lines.')
-            # that called _next()
+            # self._store_annotation() advances to the next track
             return
         
         # load audible ranges - check for previous annotations
@@ -766,8 +781,24 @@ class _GroundTruthingFrame(_AppFrame):
             audible_ranges = []
             for _, a in annots[annots["valid"] & annots["audible"]].iterrows():
                 # note that invalid or fully inaudible annotations will result in no ranges, as desired
-                time_audible_start = spline[spline["point_dt"] == a["start_dt"]].iloc[0]["time_audible"]
-                time_audible_end = spline[spline["point_dt"] == a["end_dt"]].iloc[0]["time_audible"]
+
+                # GEOJSON doesn't save full time precision (up to millisecond it seems),
+                # so when trying to match an annotated start_dt or end_dt to a point's point_dt,
+                # we have to only check if they're close enough, not exactly equal.
+                # Also, if a clock drift file was changed slightly, the annotation start and end time
+                # may not match up perfectly (but will be close enough)
+                start_diff = (spline["point_dt"] - a["start_dt"]).abs()
+                end_diff = (spline["point_dt"] - a["end_dt"]).abs()
+                # warn if not close enough
+                tol = pd.Timedelta(seconds=1)
+                if start_diff.min() > tol:
+                    warnings.warn(f"Could not find a track point within {tol.total_seconds()} sec of annotation start")
+                    return
+                if end_diff.min() > tol:
+                    warnings.warn(f"Could not find a track point within {tol.total_seconds()} sec of annotation end")
+                    return
+                time_audible_start = spline.loc[start_diff.idxmin(), "time_audible"]
+                time_audible_end = spline.loc[end_diff.idxmin(), "time_audible"]
                 audible_ranges.append([time_audible_start, time_audible_end])
         
         # load FAA data if applicable
@@ -792,6 +823,7 @@ class _GroundTruthingFrame(_AppFrame):
         # nice to do this all at once to better keep track of these variables and not have only some of them update if we returned early
         self.track_id = track_id
         self.track_annotated = not annots.empty
+        self.valid = annots["valid"].all()  # if invalid should only be one row anyways
         self.points = points
         self.spectro = spectro
         self.audible_ranges = audible_ranges
@@ -829,6 +861,20 @@ class _GroundTruthingFrame(_AppFrame):
                 return
         # if all are annotated, we're done!
         self.master.switch_frame(_CompletionFrame)
+    
+    def _next_annotated(self):
+        i = self.i
+        while (i+1 < len(self.data)):
+            i += 1
+            track_id = self.data[i][0]
+            if str(track_id) in self.master.annotations._id.values:
+                self._load_index(i)
+                return
+        # if none are annotated, don't go anywhere
+        tk.messagebox.showinfo(
+            title='Info',
+            message=f"None annotated."
+        )
 
     def _next_identifier(self):
         """iterate self.i until we find a different vehicle identifier"""
@@ -1155,7 +1201,8 @@ class _GroundTruthingFrame(_AppFrame):
                                      f"Track Id: {self.track_id}\n" + \
                                      (f"{self.aircraft_help_text}\n" if self.aircraft_help_text is not None else "") + \
                                      (f"Aircraft Type: {self.aircraft_type}\n" if self.aircraft_type is not None else "") + \
-                                     f"\nAnnotated: {self.track_annotated}")
+                                     f"\nAnnotated: {self.track_annotated}" + \
+                                     f"\nValid: {self.valid}")
         self.progress_label.config(text=f"{self.i+1}/{self.master.tracks.track_id.nunique()}")
         self.submit_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, self.audible_ranges), state=tk.NORMAL)
         self.unknown_button.config(command=lambda: self._store_annotation(self.track_id, self.spline, valid=False), state=tk.NORMAL)

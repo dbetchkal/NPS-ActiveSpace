@@ -30,7 +30,7 @@ __all__ = [
     'contiguous_regions',
     'coords_to_utm',
     'create_overlapping_mesh',
-    'expected_relative_Lp',
+    'expected_Lp',
     'interpolate_spline',
     'NMSIM_bbox_utm',
     'normalize_point_density',
@@ -194,14 +194,13 @@ def audible_time_delay(points: gpd.GeoDataFrame, time_col: str, target: Point,
     points['time_audible'] = points.apply(lambda row: row[time_col] + dt.timedelta(seconds=row.audible_delay_sec), axis=1)
 
     if drop_cols:
-        points.drop(['distance_to_target', 'audible_delay_sec'], inplace=True)
+        points.drop(['distance_to_target', 'audible_delay_sec'], inplace=True, axis=1)
 
     return points
 
 
-def expected_relative_Lp(points: gpd.GeoDataFrame, target: Point):
+def expected_Lp(points: gpd.GeoDataFrame, target: Point, Lw: float = 140, atm_abs: float = -0.002, new_col_name: str = "Lp_est"):
     """Get expected Lp values for a set of points and a target observer location, using a crude acoustic propagation model.
-    Note that these are only relative Lp values, because an arbitrary speaker power is used.
     
     **IMPORTANT**: The points GeoDataFrame and the target Point should be in the same crs for accurate calculations.
 
@@ -211,17 +210,21 @@ def expected_relative_Lp(points: gpd.GeoDataFrame, target: Point):
         A gpd.GeoDataFrame of sound location points.
     target : Point
         The target point.
+    Lw : float
+        The broadband (12.5-20000Hz) power level of the source, in dB. Default 140 dB
+    atm_abs : float
+        The atmospheric absorption coefficient, in dB/m. Should be negative. Default -0.002 dB/m
+    new_col_name : str
+        What to call the added column containing Lp estimates. Default "Lp_est"
     
     Returns
     -------
     The points GeoDataFrame with added columns: Lp_est
-    """
+    """    
     distances = points.geometry.apply(lambda geom: target.distance(geom))
-    Lw = 150
-    atm_abs = -0.002
     A_geometric = 10*np.log10(1/(4*np.pi*np.power(distances,2)))
     A_atmosphere = np.array(distances)*atm_abs
-    points["Lp_est"] = Lw + A_geometric + A_atmosphere
+    points[new_col_name] = Lw + A_geometric + A_atmosphere
     return points
 
 
@@ -350,7 +353,8 @@ def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50,
     ambience_src : Nvspl
         An NVSPL object to calculate ambience from.
     quantile : int, default 50
-        This quantile of the data will be used to calculate the ambience.
+        This exceedance quantile of the data will be used to calculate the ambience.
+        For example, quantile=90 means we will use the 10% percentile of the sound level in each band.
     low_hz : float, default 12.5
         Lowest 1/3 octave band to include.
     high_hz : float, default 20000
@@ -428,6 +432,7 @@ def compute_fbeta(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame
 
     return fbeta, precision, recall, n_tot
 
+
 def contiguous_regions(condition):
 
     """
@@ -467,6 +472,7 @@ def contiguous_regions(condition):
     idx.shape = (-1,2)
 
     return idx
+
 
 def audibility_to_interval(aud, invert=False):
 
@@ -538,6 +544,7 @@ def audibility_to_interval(aud, invert=False):
     
     return noise_intervals, noise_free_intervals
 
+
 def calculate_duration_summary(noise_intervals):
 
     '''
@@ -580,6 +587,7 @@ def calculate_duration_summary(noise_intervals):
     duration_summary = (duration_list, mean, stdev, median, mad)
 
     return duration_summary
+
 
 def select_optimal(unit: str, site: str, year: int,
                    valid_points, active_space_polygons: list, beta_=1.0,
@@ -776,6 +784,7 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
 
     return points
 
+
 def barometric_pressure(h):
     """
     An implementation of the "first" barometric formula https://en.wikipedia.org/wiki/Barometric_formula#Derivation
@@ -792,7 +801,7 @@ def barometric_pressure(h):
 
     Returns
     -------
-    patm : numpy float64, the atmospheric pressure estimated at `h`, in Pascals (N/m^2)
+    patm : numpy float64, the atmospheric pressure estimated at `h`, in kilopascals
     """
 
     g = 9.80665 # m/s^2,  earth-surface gravitational acceleration
@@ -800,9 +809,47 @@ def barometric_pressure(h):
     M = 0.0289644 # kg/mol,  molar mass of dry air
     L = -0.0065 # K/m,  standard adiabatic temperature lapse rate 
     T_0 = 288.15 # K,  sea level standard temperature    
-    p_0 = 101325. # Pa,  sea level standard atmospheric pressure
+    p_0 = 101.325 # kPa  sea level standard atmospheric pressure
     
     # calculate air pressure at altitude using the Barometric Formula
     patm = p_0 * np.power((1 - (L * h / T_0)), (g * M) / (R * L))   # Pa
     
     return patm
+
+
+def atmospheric_absorption(frequency, atm_pressure, air_temp_celsius=25., percent_relative_humidity=75.):
+    """Calculate atmospheric acoustic absorption coefficient, in dB/m
+    
+    Parameters
+    ----------
+    frequency: float or np.ndarray
+        The sound frequency, in Hz
+    atm_pressure: float
+        The atmospheric pressure, in kPa
+    air_temp_celsius: float
+        The air temperature, in degrees Celsius. Defautl 25
+    percent_relative_humidity: float
+        The relative humidty. Should be between 0 and 100, inclusive. Default 75
+
+    Returns
+    -------
+    a: float or np.ndarray
+        The atmospheric absorption coefficient, in db/m. Will be positive.
+        Returns a float if frequency was a float, returns a numpy array if frequency was a numpy array.
+    """
+    T_K = air_temp_celsius + 273.15
+    psat = 101.325*math.pow(10, (-6.8346*math.pow(273.16/T_K, 1.261))+4.6151) # atmospheric saturation pressure
+    
+    x = 1/(10*math.log(math.pow(math.exp(1),2), 10))  # 'equation shortener #1'
+    h = percent_relative_humidity*(psat/atm_pressure)/100  # molar concentration of water vapor
+
+    frO = (atm_pressure/101.325)*(24 + (4.04*math.pow(10, 4)*h*((0.02 + h)/(0.391 + h)))) # oxygen relaxation frequency
+    frN = (atm_pressure/101.325)*math.pow(T_K/293.15, -0.5)*(9 + (280 *h*math.exp(-4.17*(-1*math.pow(T_K/293.15, -1/3))))) # nitrogen relaxation frequency
+
+    z = 0.1068*np.exp(-3352/T_K)*np.pow((frN+np.pow(frequency,2))/frN, -1) # 'equation shortener #2'
+    y = np.pow(T_K/293.15, -5/2)*((0.01275*np.exp(-2239.1/T_K)*np.pow((frO+np.pow(frequency,2))/frO, -1))+z) # 'equation shortener #3'
+
+    # here's the atmospheric absorption coefficient, itself:
+    a = 8.686*np.pow(frequency,2)*(1.84*np.pow(10., -11.)*np.pow(atm_pressure/101.325, -1)*np.pow(T_K/293.15,0.5)+y)
+
+    return a
