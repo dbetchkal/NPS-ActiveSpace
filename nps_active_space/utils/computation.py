@@ -22,7 +22,7 @@ __all__ = [
     'ambience_from_nvspl',
     'ambience_from_raster',
     'audible_time_delay',
-    'barometric_pressure'
+    'barometric_pressure',
     'build_src_point_mesh',
     'calculate_duration_summary',
     'climb_angle',
