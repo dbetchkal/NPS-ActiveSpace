@@ -316,7 +316,7 @@ def query_adsb(adsb_path: str,  start_date: str, end_date: str,
     return adsb
 
 
-def load_annotations(project_dir: str, unit: str, site: str, year: str):
+def load_annotations(project_dir: str, unit: str, site: str, year: str, only_valid: bool = True):
     """Utility for locating and loading ground-truthing annotation files in a directory.
     If multiple files exist, they are combined into one GeoDataFrame.
 
@@ -330,6 +330,8 @@ def load_annotations(project_dir: str, unit: str, site: str, year: str):
         Deployment site character code. E.g. 'TRLA', '009'
     year : int
         Deployment year. YYYY
+    only_valid : bool, default True
+        Whether to only load valid annotations.
     
     Returns
     -------
@@ -343,7 +345,7 @@ def load_annotations(project_dir: str, unit: str, site: str, year: str):
         return gpd.GeoDataFrame()
     annotations = []
     for file in tqdm(annotation_files, desc='Loading annotation files', unit='files', colour='white'):
-        annotations.append(Annotations(file, only_valid=True))
+        annotations.append(Annotations(file, only_valid=only_valid))
     return pd.concat(annotations, ignore_index=True)
 
 
