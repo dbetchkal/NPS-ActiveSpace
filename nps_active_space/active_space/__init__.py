@@ -12,6 +12,8 @@ import matplotlib as mpl
 import numpy as np
 import pandas as pd
 from osgeo import gdal
+from pyproj import Transformer
+import rasterio
 from shapely.geometry import Point, Polygon, box
 from shapely.validation import make_valid
 from tqdm import tqdm
@@ -469,25 +471,47 @@ class ActiveSpaceGenerator:
         """
         assert len(source_pts) > 0, "Trying to run NMSIM on zero source points"
 
-        trajectory_filename = self._create_trajectory_file(source_pts, crs, job_name, heading)
-        batch_file = self._create_instruction_files(flt_file, site_file, trajectory_filename, omni_source)
+        # Mark any underground points as inaudible and don't pass them to NMSIM
+        aboveground_pts = []
+        underground_pts = []  # underground or no DEM data
+        with rasterio.open(self._dem_file) as dem:
+            proj = Transformer.from_crs(crs, dem.crs, always_xy=True)
+            xs = [pt.x for pt in source_pts]
+            ys = [pt.y for pt in source_pts]
+            xs, ys = proj.transform(xs, ys)
+            proj_pts = [(xs[i], ys[i]) for i in range(len(source_pts))]
+            elevs = list(dem.sample(proj_pts))
+            for i in range(len(source_pts)):
+                if elevs[i] is None or elevs[i] == dem.nodata or source_pts[i].z < elevs[i]:
+                    underground_pts.append(source_pts[i])
+                else:
+                    aboveground_pts.append(source_pts[i])
 
-        # Run NMSIM.
-        process = subprocess.Popen([self.NMSIM, batch_file], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        stdout, stderr = process.communicate()
+        # mark underground points as inaudible
+        audibility_pts = gpd.GeoDataFrame(geometry=underground_pts)
+        audibility_pts["audible"] = 0
 
-        if stderr:
-            for s in stderr.decode("utf-8").split("\r\n"):
-                print(s.strip())
+        if len(aboveground_pts) > 0:
+            trajectory_filename = self._create_trajectory_file(aboveground_pts, crs, job_name, heading)
+            batch_file = self._create_instruction_files(flt_file, site_file, trajectory_filename, omni_source)
 
-        # Determine the audibility of points that were tested during the NMSIM run.
-        new_audibility_pts = self._find_audible_points(
-            trajectory_filename,
-            f"{self.root_dir}/Output_Data/TIG_TIS/{job_name}.tis",
-            crs
-        )
+            # Run NMSIM.
+            process = subprocess.Popen([self.NMSIM, batch_file], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            stdout, stderr = process.communicate()
 
-        return new_audibility_pts
+            if stderr:
+                for s in stderr.decode("utf-8").split("\r\n"):
+                    print(s.strip())
+
+            # Determine the audibility of points that were tested during the NMSIM run.
+            nmsim_audibility_pts = self._find_audible_points(
+                trajectory_filename,
+                f"{self.root_dir}/Output_Data/TIG_TIS/{job_name}.tis",
+                crs
+            )
+            audibility_pts = pd.concat([audibility_pts, nmsim_audibility_pts], ignore_index=True)
+
+        return audibility_pts
 
     @staticmethod
     def _build_active_space(total_space: gpd.GeoDataFrame, crs: str) -> gpd.GeoDataFrame:
@@ -576,6 +600,9 @@ class ActiveSpaceGenerator:
             source_pts = build_src_point_mesh(active_space, src_pt_density, altitude_m)
             # only query points inside the study area and far enough from the boundary; build_src_point_mesh uses the bounding box
             valid_source_pts = [pt for pt in source_pts if pt.within(valid_query_region)]
+            if len(valid_source_pts) == 0:
+                print(f"Mesh step j={j}: no source points, skipping")
+                break
             
             new_audibility_pts = self._run_nmsim(
                 f"{mic.name}_mesh{j + 1}",
@@ -607,6 +634,7 @@ class ActiveSpaceGenerator:
             # only query points inside the study area and far enough from the boundary; build_src_point_mesh uses the bounding box
             valid_source_pts = [pt for pt in source_pts if pt.within(valid_query_region)]
             if len(valid_source_pts) == 0:
+                print(f"Refine step k={k}: no source points, skipping")
                 break
             new_audibility_pts = self._run_nmsim(
                 f"{mic.name}_contour{k + 1}",
