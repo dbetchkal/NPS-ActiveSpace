@@ -228,12 +228,9 @@ def expected_Lp(points: gpd.GeoDataFrame, target: Point, Lw: float = 140, atm_ab
     return points
 
 
-def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Optional[int] = None,
-                         snap: bool = False) -> gpd.GeoDataFrame:
+def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Optional[int] = None) -> gpd.GeoDataFrame:
     """
     Given a polygon and a density, create a square mesh of evenly spaced points throughout the polygon.
-    The point coordinates are snapped to start and end at a whole number km, to increase the chance that
-    points from different runs overlap.
 
     Parameters
     ----------
@@ -243,8 +240,6 @@ def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Op
         The number of points along each mesh axis. The mesh will contain density x density points.
     altitude : int, default None
         A standard altitude to apply to every point in the mesh.
-    snap : bool, default False
-        If true, expand bounds to the nearest km, to make points more likely to line up with other runs.
 
     Returns
     -------
@@ -254,15 +249,8 @@ def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Op
 
     assert "UTM" in area.crs.name
 
+    # Start out with a grid of N = density x density points.
     minx, miny, maxx, maxy = area.total_bounds
-    if snap:
-        # expand bounds to nearest km, to make it more likely points line up
-        minx = np.floor(minx / 1000) * 1000
-        miny = np.floor(miny / 1000) * 1000
-        maxx = np.ceil(maxx / 1000) * 1000
-        maxy = np.ceil(maxy / 1000) * 1000
-
-    # Start out with a grid of N = density x density points. Polygon bounds:  (minx, miny, maxx, maxy)
     x = np.linspace(minx, maxx, density)
     y = np.linspace(miny, maxy, density)
     x_ind, y_ind = np.meshgrid(x, y)
