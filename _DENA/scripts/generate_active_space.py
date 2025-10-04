@@ -1,6 +1,7 @@
 import glob
 import multiprocessing as mp
 import os
+import re
 import numpy as np
 from argparse import ArgumentParser
 from copy import deepcopy
@@ -84,16 +85,18 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
     for heading in headings:
         predetermined_audibility_pts = None if pretested_pts_dict is None else pretested_pts_dict[heading]
 
-        if predetermined_audibility_pts is not None:
-            predetermined_audibility_pts.plot("audible", markersize=1, cmap="bwr_r")
-            plt.title(f"_run_active_space {mic_copy.name} heading={heading}")
-            plt.show()
+        # TODO remove
+        # if predetermined_audibility_pts is not None:
+        #     predetermined_audibility_pts.plot("audible", markersize=1, cmap="bwr_r")
+        #     plt.title(f"_run_active_space {mic_copy.name} heading={heading}")
+        #     plt.show()
 
         active_space, tested_pts = generator.generate(
             omni_source=omni_source,
             mic=mic_copy,
             heading=heading,
             altitude_m=altitude,
+            n_contour=0,
             predetermined_audibility_pts=predetermined_audibility_pts
         )
         active_space_list.append(active_space)
@@ -110,6 +113,38 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
         pickle.dump(tested_pts_dict, f)
 
     return Path(omni_source).stem, dissolved_active_space, tested_pts_dict
+
+
+def omni_to_gain(omni_source):
+    """
+    TODO - document
+    """
+    match = re.search(r"O_(....).src", omni_source)
+    return int(match.group(1)) / 10
+
+
+def sort_omni_sources(omnis):
+    """
+    TODO - document, and include rationale for this sorting scheme
+    """
+    gains = list(map(omni_to_gain, omnis))
+    series = pd.Series(index=gains, data=omnis)
+    series = series.sort_index()
+
+    order = []
+
+    def recurse(idxs):
+        if not idxs:
+            return
+        mid = len(idxs) // 2
+        order.append(idxs[mid])
+        recurse(idxs[:mid])   # left half
+        recurse(idxs[mid+1:]) # right half
+
+    recurse(series.index.tolist())
+
+    series = series.loc[order]
+    return series.values
 
 
 def get_pretested_pts(tested_pts_record, gain, headings):
@@ -279,8 +314,12 @@ if __name__ == '__main__':
     logger.info(f"Generating active spaces for: {args.unit}{args.site}{args.year}...")
     results = []
     tested_pts_record = {}
+    
+    # sort the order we process omni sources to best take advantage of not needing to recompute points
+    omni_sources = sort_omni_sources(omni_sources)
+
     for omni_source_ in tqdm(omni_sources, total=len(omni_sources)):
-        gain = int(Path(omni_source_).stem[2:]) / 10
+        gain = omni_to_gain(omni_source_)
         tqdm.write(f"gain {gain}")
         outfile_ = f'{site_dir}/{args.unit}{args.site}{args.year}_{Path(omni_source_).stem}.geojson'
 

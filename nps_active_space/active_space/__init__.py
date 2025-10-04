@@ -569,7 +569,6 @@ class ActiveSpaceGenerator:
 
         # Initialize a GeoDataFrame of source points that have gone through NMSIM
         if predetermined_audibility_pts is not None:
-            tqdm.write(f"_generate(), heading={heading}: predetermined_audibility_pts\n{predetermined_audibility_pts}")
             tested_space = predetermined_audibility_pts
         else:
             tested_space = gpd.GeoDataFrame(columns=['audible', 'geometry'], geometry='geometry', crs=crs)
@@ -578,6 +577,8 @@ class ActiveSpaceGenerator:
         # be the same as the study area, but will be refined.
         active_space = study_area.to_crs(crs)
         valid_query_region = study_area.to_crs(crs).union_all().buffer(-100)  # require points to not be right on the boundary
+        study_area_extent = ([active_space.total_bounds[0], active_space.total_bounds[2]],  # ([minx, maxx],
+                             [active_space.total_bounds[1], active_space.total_bounds[3]])  # [miny, maxy])
 
         if mic:
             mic.to_crs(crs, inplace=True)
@@ -615,6 +616,7 @@ class ActiveSpaceGenerator:
             # plt.show()
 
             # don't query points we already know the answer for
+            tqdm.write("filtering")
             source_pts = source_pts[~source_pts.geometry.isin(tested_space.geometry)]
             tqdm.write(f"j={j}, Avoided testing {(1 - (len(source_pts)/orig_len)):.3f} of points")
             # only query points inside the study area and far enough from the boundary;
@@ -644,8 +646,6 @@ class ActiveSpaceGenerator:
             xpad = 0.2 * (maxx - minx)  # pad extents by 20% on each side, 40% total.
             ypad = 0.2 * (maxy - miny)
             extent = ([minx - xpad, maxx + xpad], [miny - ypad, maxy + ypad])
-            study_area_extent = ([active_space.total_bounds[0], active_space.total_bounds[2]],  # ([minx, maxx],
-                             [active_space.total_bounds[1], active_space.total_bounds[3]])  # [miny, maxy])
             shrinkage = np.divide(np.diff(extent) - np.diff(study_area_extent), np.diff(study_area_extent))
             if min(shrinkage) > -0.30:
                 break
