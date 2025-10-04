@@ -668,16 +668,16 @@ class ActiveSpaceGenerator:
             tested_space = pd.concat([tested_space, new_audibility_pts], ignore_index=True) 
             active_space = tested_space[tested_space.audible == 1]
 
-            # Create a small buffer around the extent of audible points. If the padded active space is less than
-            #  30% smaller than the original study area before the for loop is completed, break out of the for
-            #  loop and proceed to the contouring step.
-            minx, miny, maxx, maxy = active_space.total_bounds
-            xpad = 0.2 * (maxx - minx)  # pad extents by 20% on each side, 40% total.
-            ypad = 0.2 * (maxy - miny)
-            extent = ([minx - xpad, maxx + xpad], [miny - ypad, maxy + ypad])
-            shrinkage = np.divide(np.diff(extent) - np.diff(study_area_extent), np.diff(study_area_extent))
-            if min(shrinkage) > -0.30:
-                break
+            # # Create a small buffer around the extent of audible points. If the padded active space is less than
+            # #  30% smaller than the original study area before the for loop is completed, break out of the for
+            # #  loop and proceed to the contouring step.
+            # minx, miny, maxx, maxy = active_space.total_bounds
+            # xpad = 0.2 * (maxx - minx)  # pad extents by 20% on each side, 40% total.
+            # ypad = 0.2 * (maxy - miny)
+            # extent = ([minx - xpad, maxx + xpad], [miny - ypad, maxy + ypad])
+            # shrinkage = np.divide(np.diff(extent) - np.diff(study_area_extent), np.diff(study_area_extent))
+            # if min(shrinkage) > -0.30:
+            #     break
 
         # Run triangulation n_contour times to refine the edges of the active space.
         for k in range(n_contour):
@@ -730,7 +730,7 @@ class ActiveSpaceGenerator:
         self._site_file = self._create_site_file(projected_mic, self._flt_file)
 
     def generate(self, omni_source: str, altitude_m: int = 3658, mic: Optional[Microphone] = None,
-                 heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 2,
+                 heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1,
                  predetermined_audibility_pts: Optional[gpd.GeoDataFrame] = None
                  )-> Union[gpd.GeoDataFrame, Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]]:
         """
