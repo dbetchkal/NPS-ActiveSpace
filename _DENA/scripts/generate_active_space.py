@@ -85,18 +85,11 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
     for heading in headings:
         predetermined_audibility_pts = None if pretested_pts_dict is None else pretested_pts_dict[heading]
 
-        # TODO remove
-        # if predetermined_audibility_pts is not None:
-        #     predetermined_audibility_pts.plot("audible", markersize=1, cmap="bwr_r")
-        #     plt.title(f"_run_active_space {mic_copy.name} heading={heading}")
-        #     plt.show()
-
         active_space, tested_pts = generator.generate(
             omni_source=omni_source,
             mic=mic_copy,
             heading=heading,
             altitude_m=altitude,
-            n_contour=0,
             predetermined_audibility_pts=predetermined_audibility_pts
         )
         active_space_list.append(active_space)
@@ -119,32 +112,33 @@ def omni_to_gain(omni_source):
     """
     TODO - document
     """
-    match = re.search(r"O_(....).src", omni_source)
+    match = re.search(r"O_(....)", omni_source)
     return int(match.group(1)) / 10
 
 
-def sort_omni_sources(omnis):
-    """
-    TODO - document, and include rationale for this sorting scheme
-    """
+def group_omni_sources(omnis):
     gains = list(map(omni_to_gain, omnis))
-    series = pd.Series(index=gains, data=omnis)
-    series = series.sort_index()
+    df = pd.DataFrame({"omni": omnis}, index=gains)
+    df = df.sort_index()
 
-    order = []
-
-    def recurse(idxs):
+    def recurse(idxs, group=0):
         if not idxs:
             return
         mid = len(idxs) // 2
-        order.append(idxs[mid])
-        recurse(idxs[:mid])   # left half
-        recurse(idxs[mid+1:]) # right half
+        df.loc[idxs[mid], "group"] = group
+        recurse(idxs[:mid], group+1)   # left half
+        recurse(idxs[mid+1:], group+1) # right half
 
-    recurse(series.index.tolist())
+    recurse(df.index.tolist())
 
-    series = series.loc[order]
-    return series.values
+    # collapse the early groups together, multiprocessing will be able to handle it
+    df.loc[df["group"] < 2, "group"] = 2
+
+    groups = []
+    for _, df_group in df.groupby("group"):
+        groups.append(df_group["omni"].tolist())
+
+    return groups
 
 
 def get_pretested_pts(tested_pts_record, gain, headings):
@@ -314,36 +308,36 @@ if __name__ == '__main__':
     logger.info(f"Generating active spaces for: {args.unit}{args.site}{args.year}...")
     results = []
     tested_pts_record = {}
+
+    _run = partial(_run_active_space, generator=generator_, headings=args.headings, microphone=mic_, altitude=altitude_)
     
-    # sort the order we process omni sources to best take advantage of not needing to recompute points
-    omni_sources = sort_omni_sources(omni_sources)
+    with mp.Pool(mp.cpu_count() - 1) as pool:
+        with tqdm(desc='Omni Sources', unit='omni source', colour='green', total=len(omni_sources)) as pbar:
+            _handle_error = lambda error: print(f'Error: {error}', flush=True)
+            _update_pbar = lambda _: pbar.update()
 
-    for omni_source_ in tqdm(omni_sources, total=len(omni_sources)):
-        gain = omni_to_gain(omni_source_)
-        tqdm.write(f"gain {gain}")
-        outfile_ = f'{site_dir}/{args.unit}{args.site}{args.year}_{Path(omni_source_).stem}.geojson'
+            for group in group_omni_sources(omni_sources):
+                tqdm.write(f"GROUP ({len(group)}) -------------------")
+                processes = []
+                for omni_source_ in group:
+                    gain = omni_to_gain(omni_source_)
+                    tqdm.write(f"gain {gain}")
+                    outfile_ = f'{site_dir}/{args.unit}{args.site}{args.year}_{Path(omni_source_).stem}.geojson'
+                    pretested_pts_dict = get_pretested_pts(tested_pts_record, gain, args.headings)
 
-        pretested_pts_dict = get_pretested_pts(tested_pts_record, gain, args.headings)
+                    processes.append(pool.apply_async(_run, callback=_update_pbar, error_callback=_handle_error,
+                                                      kwds={'outfile': outfile_, 'omni_source': omni_source_,
+                                                            'pretested_pts_dict': pretested_pts_dict}))
+                outputs = [p.get() for p in processes]
 
-        omni, active, tested_pts_dict = _run_active_space(
-            outfile=outfile_, omni_source=omni_source_, generator=generator_,
-            headings=args.headings, microphone=mic_, altitude=altitude_,
-            pretested_pts_dict=pretested_pts_dict)
-        
-        results.append((omni, active))
-        tested_pts_record[gain] = tested_pts_dict
-    
-    # _run = partial(_run_active_space, generator=generator_, headings=args.headings, microphone=mic_, altitude=altitude_)
-    # with mp.Pool(mp.cpu_count() - 1) as pool:
-    #     with tqdm(desc='Omni Sources', unit='omni source', colour='green', total=len(omni_sources), leave=True) as pbar:
-    #         processes = []
-    #         for omni_source_ in omni_sources:
-    #             outfile_ = f'{site_dir}/{args.unit}{args.site}{args.year}_{Path(omni_source_).stem}.geojson'
-    #             processes.append(pool.apply_async(_run, kwds={'outfile': outfile_, 'omni_source': omni_source_},
-    #                                               callback=_update_pbar, error_callback=_handle_error))
-    #         results = [p.get() for p in processes]
+                # process outputs
+                for output in outputs:
+                    if output is None:
+                        continue
+                    omni, active, tested_pts_dict = output
+                    results.append((omni, active))
+                    tested_pts_record[omni_to_gain(omni)] = tested_pts_dict
 
-    valid_results = [result for result in results if result is not None]
 
     # Clean up intermediary files if the user requests.
     if args.cleanup:

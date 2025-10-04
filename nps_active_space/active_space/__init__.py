@@ -598,9 +598,21 @@ class ActiveSpaceGenerator:
         flt_filename = self._flt_file or self._create_dem_flt(dem_filename)
         site_filename = self._site_file or self._create_site_file(mic, flt_filename)
 
+        # Prepare a coarse and fine grid to use for the 1st and 2nd point mesh steps
+        coarse_grid = build_src_point_mesh(active_space, src_pt_density, altitude_m)
+        fine_grid = build_src_point_mesh(active_space, 2*src_pt_density-1, altitude_m)
+
         # Run the point mesh step a maximum of two times.
         for j in range(2):
-            source_pts = build_src_point_mesh(active_space, src_pt_density, altitude_m, snap=True)
+            if j == 0:
+                source_pts = coarse_grid
+            elif j == 1:
+                active_zone = active_space.union_all().convex_hull.buffer(1000)
+                source_pts = fine_grid[fine_grid.within(active_zone)]
+                # if too many points for NMSIM, randomly downsample
+                if source_pts.shape[0] > 5184:
+                    source_pts = source_pts.sample(5184, random_state=5)
+
             # we end up rounding the source_pts coords to the nearest 0.001m later, so do this now
             # to make comparisons with the output of past runs work properly
             x = source_pts.geometry.x.round(3)
@@ -616,7 +628,6 @@ class ActiveSpaceGenerator:
             # plt.show()
 
             # don't query points we already know the answer for
-            tqdm.write("filtering")
             source_pts = source_pts[~source_pts.geometry.isin(tested_space.geometry)]
             tqdm.write(f"j={j}, Avoided testing {(1 - (len(source_pts)/orig_len)):.3f} of points")
             # only query points inside the study area and far enough from the boundary;
