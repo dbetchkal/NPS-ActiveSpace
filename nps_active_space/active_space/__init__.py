@@ -619,8 +619,8 @@ class ActiveSpaceGenerator:
                 # also use cap_style=3 for square buffers to further reduce memory load
                 audible_pts = gpd.sjoin(audible_pts, coarse_grid, how="inner", predicate='intersects')
                 inaudible_pts = gpd.sjoin(inaudible_pts, coarse_grid, how="inner", predicate='intersects')
-                # buffer by about 2 coarse grid cells
-                buffer_amt = 2 * np.diff(np.array(study_area_extent)).max() / src_pt_density
+                # buffer by about 1.5 coarse grid cells, emprically is enough
+                buffer_amt = 1.5 * np.diff(np.array(study_area_extent)).max() / src_pt_density
                 near_audible = audible_pts.union_all().buffer(buffer_amt, cap_style=3)
                 near_inaudible = inaudible_pts.union_all().buffer(buffer_amt, cap_style=3)
 
