@@ -606,9 +606,22 @@ class ActiveSpaceGenerator:
         for j in range(2):
             if j == 0:
                 source_pts = coarse_grid
+                # we know the coarse grid doesn't have too many points for NMSIM
             elif j == 1:
-                active_zone = active_space.union_all().convex_hull.buffer(1000)
+                # use the fine grid, but only near the boundary to be efficient.
+
+                # if you are within a short distance of an audible and an inaudible point,
+                # you are near the boundary - can use .buffer() to figure this out
+                audible_pts = tested_space[tested_space["audible"] == 1]
+                inaudible_pts = tested_space[tested_space["audible"] != 1]
+
+                # use cap_style=3 for square buffers, to avoid running out of memory with circle buffering
+                near_audible = audible_pts.union_all().buffer(1000, cap_style=3)
+                near_inaudible = inaudible_pts.union_all().buffer(1000, cap_style=3)
+
+                active_zone = near_audible.intersection(near_inaudible)
                 source_pts = fine_grid[fine_grid.within(active_zone)]
+                
                 # if too many points for NMSIM, randomly downsample
                 if source_pts.shape[0] > 5184:
                     source_pts = source_pts.sample(5184, random_state=5)
