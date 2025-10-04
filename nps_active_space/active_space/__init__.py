@@ -614,10 +614,15 @@ class ActiveSpaceGenerator:
                 # you are near the boundary - can use .buffer() to figure this out
                 audible_pts = tested_space[tested_space["audible"] == 1]
                 inaudible_pts = tested_space[tested_space["audible"] != 1]
-
-                # use cap_style=3 for square buffers, to avoid running out of memory with circle buffering
-                near_audible = audible_pts.union_all().buffer(1000, cap_style=3)
-                near_inaudible = inaudible_pts.union_all().buffer(1000, cap_style=3)
+                
+                # buffer - reduce the buffering memory load by only buffering from the coarse grid,
+                # also use cap_style=3 for square buffers to further reduce memory load
+                audible_pts = gpd.sjoin(audible_pts, coarse_grid, how="inner", predicate='intersects')
+                inaudible_pts = gpd.sjoin(inaudible_pts, coarse_grid, how="inner", predicate='intersects')
+                # buffer by about 2 coarse grid cells
+                buffer_amt = 2 * np.diff(np.array(study_area_extent)).max() / src_pt_density
+                near_audible = audible_pts.union_all().buffer(buffer_amt, cap_style=3)
+                near_inaudible = inaudible_pts.union_all().buffer(buffer_amt, cap_style=3)
 
                 active_zone = near_audible.intersection(near_inaudible)
                 source_pts = fine_grid[fine_grid.within(active_zone)]
@@ -625,7 +630,7 @@ class ActiveSpaceGenerator:
                 # if too many points for NMSIM, randomly downsample
                 if source_pts.shape[0] > 5184:
                     source_pts = source_pts.sample(5184, random_state=5)
-
+                
             # we end up rounding the source_pts coords to the nearest 0.001m later, so do this now
             # to make comparisons with the output of past runs work properly
             x = source_pts.geometry.x.round(3)

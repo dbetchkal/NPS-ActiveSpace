@@ -132,7 +132,7 @@ def group_omni_sources(omnis):
     recurse(df.index.tolist())
 
     # collapse the early groups together, multiprocessing will be able to handle it
-    df.loc[df["group"] < 2, "group"] = 2
+    df.loc[df["group"] < 3, "group"] = 3
 
     groups = []
     for _, df_group in df.groupby("group"):
