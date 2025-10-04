@@ -558,7 +558,8 @@ class ActiveSpaceGenerator:
 
     def _generate(self, study_area: gpd.GeoDataFrame, dem_file: str, omni_source: str, name: str = '',
                   mic: Optional[Microphone] = None, project_dem: bool = True, altitude_m: int = 3658,
-                  heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1
+                  heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1,
+                  predetermined_audibility_pts: Optional[gpd.GeoDataFrame] = None
                   ) -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
         """
         The main active space generating function. It has been separated from the other generate functions to allow
@@ -566,13 +567,17 @@ class ActiveSpaceGenerator:
         """
         crs = NMSIM_bbox_utm(study_area)  # Determine the UTM CRS on the western-most edge of the study area
 
-        # Initialize a GeoDataFrame of source points that have gone through NMSIM and a GeoDataFrame of the
-        #  current active space. The active space will initially be the same as the study area, but will be refined.
-        tested_space = gpd.GeoDataFrame(columns=['audible', 'geometry'], geometry='geometry', crs=crs)
+        # Initialize a GeoDataFrame of source points that have gone through NMSIM
+        if predetermined_audibility_pts is not None:
+            tqdm.write(f"_generate(), heading={heading}: predetermined_audibility_pts\n{predetermined_audibility_pts}")
+            tested_space = predetermined_audibility_pts
+        else:
+            tested_space = gpd.GeoDataFrame(columns=['audible', 'geometry'], geometry='geometry', crs=crs)
+
+        # Initialize a GeoDataFrame of the current active space. The active space will initially
+        # be the same as the study area, but will be refined.
         active_space = study_area.to_crs(crs)
         valid_query_region = study_area.to_crs(crs).union_all().buffer(-100)  # require points to not be right on the boundary
-        study_area_extent = ([active_space.total_bounds[0], active_space.total_bounds[2]],  # ([minx, maxx],
-                             [active_space.total_bounds[1], active_space.total_bounds[3]])  # [miny, maxy])
 
         if mic:
             mic.to_crs(crs, inplace=True)
@@ -595,6 +600,23 @@ class ActiveSpaceGenerator:
         # Run the point mesh step a maximum of two times.
         for j in range(2):
             source_pts = build_src_point_mesh(active_space, src_pt_density, altitude_m, snap=True)
+            # we end up rounding the source_pts coords to the nearest 0.001m later, so do this now
+            # to make comparisons with the output of past runs work properly
+            x = source_pts.geometry.x.round(3)
+            y = source_pts.geometry.y.round(3)
+            z = source_pts.geometry.z.round(3)
+            source_pts.geometry = gpd.points_from_xy(x, y, z)
+
+            orig_len = len(source_pts)
+            # fig, ax = plt.subplots()
+            # tested_space.plot(ax=ax, markersize=10, color="red")
+            # source_pts.plot(ax=ax, markersize=1, color="black")
+            # ax.set_title(f"heading={heading}, mesh j={j}")
+            # plt.show()
+
+            # don't query points we already know the answer for
+            source_pts = source_pts[~source_pts.geometry.isin(tested_space.geometry)]
+            tqdm.write(f"j={j}, Avoided testing {(1 - (len(source_pts)/orig_len)):.3f} of points")
             # only query points inside the study area and far enough from the boundary;
             # build_src_point_mesh uses the bounding box
             valid_source_pts = source_pts[source_pts.within(valid_query_region)]
@@ -622,6 +644,8 @@ class ActiveSpaceGenerator:
             xpad = 0.2 * (maxx - minx)  # pad extents by 20% on each side, 40% total.
             ypad = 0.2 * (maxy - miny)
             extent = ([minx - xpad, maxx + xpad], [miny - ypad, maxy + ypad])
+            study_area_extent = ([active_space.total_bounds[0], active_space.total_bounds[2]],  # ([minx, maxx],
+                             [active_space.total_bounds[1], active_space.total_bounds[3]])  # [miny, maxy])
             shrinkage = np.divide(np.diff(extent) - np.diff(study_area_extent), np.diff(study_area_extent))
             if min(shrinkage) > -0.30:
                 break
@@ -629,6 +653,8 @@ class ActiveSpaceGenerator:
         # Run triangulation n_contour times to refine the edges of the active space.
         for k in range(n_contour):
             source_pts = self._contour_active_space(tested_space, altitude_m)
+            # don't query points we already know the answer for
+            source_pts = source_pts[~source_pts.geometry.isin(tested_space.geometry)]
             # only query points inside the study area and far enough from the boundary
             valid_source_pts = source_pts[source_pts.within(valid_query_region)]
             if valid_source_pts.empty:
@@ -675,7 +701,8 @@ class ActiveSpaceGenerator:
         self._site_file = self._create_site_file(projected_mic, self._flt_file)
 
     def generate(self, omni_source: str, altitude_m: int = 3658, mic: Optional[Microphone] = None,
-                 heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 2
+                 heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 2,
+                 predetermined_audibility_pts: Optional[gpd.GeoDataFrame] = None
                  )-> Union[gpd.GeoDataFrame, Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]]:
         """
         Generate an active space for the study area.
@@ -697,14 +724,19 @@ class ActiveSpaceGenerator:
             have src_pt_density x src_point_density points.
         n_contour : int, default 1
             Number of rounds of contouring to perform after the two rounds of active space point meshing.
+        predetermined_audibility_pts: gpd.GeoDataFrame, default None
+            A GeoDataFrame of points we already know are audible/inaudible for this omni source and heading.
+            It's geometry is 3D points, and contains a boolean "audible" field.
+            Use case - if we previously tested a quieter omni source, anywhere it was audible will also be audible
+            for a louder omni source. A similar thing holds for louder sources being inaudible at certain points.
 
         Returns
         -------
         active_space : gpd.GeoDataFrame
             A GeoDataFrame of the generated active space polygon.
         tested_points : gpd.GeoDataFrame
-            A GeoDataFrame of points that were tested for audibility, along with whether they were determined
-            to be audible or not.
+            A GeoDataFrame of 3D points that were tested for audibility, with a boolean field "audible"
+            listing whether they were determined to be audible or not.
         """
         active_space = self._generate(
             study_area=self.study_area.iloc[[0]],   # Select the study area so that it's a 1 row GeoDataFrame.
@@ -716,6 +748,7 @@ class ActiveSpaceGenerator:
             heading=heading,
             src_pt_density=src_pt_density,
             n_contour=n_contour,
+            predetermined_audibility_pts=predetermined_audibility_pts
         )
         return active_space
 

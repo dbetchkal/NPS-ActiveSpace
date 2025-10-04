@@ -6,7 +6,7 @@ from argparse import ArgumentParser
 from copy import deepcopy
 from functools import partial
 from pathlib import Path
-from typing import List, Tuple, TYPE_CHECKING
+from typing import List, Optional, Tuple, TYPE_CHECKING
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -39,7 +39,8 @@ if TYPE_CHECKING:
 
 
 def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGenerator, headings: List[int],
-                      microphone: 'Microphone', altitude: int) -> Tuple[str, gpd.GeoDataFrame]:
+                      microphone: 'Microphone', altitude: int, pretested_pts_dict : Optional[dict] = None
+                      ) -> Tuple[str, gpd.GeoDataFrame, dict]:
     """
     Function to be multiprocessed to generate active spaces for multiple omni sources.
 
@@ -58,6 +59,10 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
         Location to generate the active space around.
     altitude : int
         Altitude (in meters) to generate the active space at.
+    pretested_pts_dict : dict, default None
+        Dictionary storing points we know are audible/inaudible already. This can happen when a quieter source
+        is determined to be audible somewhere; a louder source will still be audible there.
+        Keys are headings, values are GeoDataFrames of 3D points with a boolean "audible" field.
 
     Returns
     -------
@@ -65,30 +70,36 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
         The path to the omni source file that was used to create the active space.
     dissolved_active_space : gpd.GeoDataFrame
         The final generated active space for the given parameters.
+    tested_pts_dict : dict
+        Dictionary containing the points that were tested for audibility.
+        Keys are headings, values are GeoDataFrames of 3D points with a boolean "audible" field.
     """
     # NOTE: Since the microphone is being used in multiple processes and in those processes is altered, it's safer to
     #  make copies of the microphone with unique names to avoid any issues with shared resources.
     mic_copy = deepcopy(microphone)
     mic_copy.name = f"{microphone.name}{Path(omni_source).stem}"
 
-    gain = int(Path(omni_source).stem[2:]) / 10
-    tqdm.write(f"gain {gain}")
-
-    active_spaces = None
+    active_space_list = []
     tested_pts_dict = {}
     for heading in headings:
+        predetermined_audibility_pts = None if pretested_pts_dict is None else pretested_pts_dict[heading]
+
+        if predetermined_audibility_pts is not None:
+            predetermined_audibility_pts.plot("audible", markersize=1, cmap="bwr_r")
+            plt.title(f"_run_active_space {mic_copy.name} heading={heading}")
+            plt.show()
+
         active_space, tested_pts = generator.generate(
             omni_source=omni_source,
             mic=mic_copy,
             heading=heading,
-            altitude_m=altitude
+            altitude_m=altitude,
+            predetermined_audibility_pts=predetermined_audibility_pts
         )
+        active_space_list.append(active_space)
         tested_pts_dict[heading] = tested_pts
 
-        if active_spaces is None:
-            active_spaces = active_space
-        else:
-            active_spaces = pd.concat([active_spaces, active_space], ignore_index=True)
+    active_spaces = pd.concat(active_space_list, ignore_index=True)
 
     # Combine the active spaces from each heading into a single active space and write it to a geojson file.
     dissolved_active_space = active_spaces.dissolve()
@@ -98,7 +109,51 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
     with open(tested_pts_file, "wb") as f:
         pickle.dump(tested_pts_dict, f)
 
-    return Path(omni_source).stem, dissolved_active_space
+    return Path(omni_source).stem, dissolved_active_space, tested_pts_dict
+
+
+def get_pretested_pts(tested_pts_record, gain, headings):
+    """
+    TODO - document
+    """
+    # search for previous gain(s) most closely lower and upper bounding this gain
+
+    prev_gains = np.array(list(tested_pts_record.keys()))
+    
+    smaller_gain = None
+    smaller_gains = prev_gains[prev_gains < gain]
+    if smaller_gains.shape[0] > 0:
+        smaller_gain = smaller_gains.max()
+    
+    larger_gain = None
+    larger_gains = prev_gains[prev_gains > gain]
+    if larger_gains.shape[0] > 0:
+        larger_gain = larger_gains.min()
+
+    tqdm.write(f"smaller_gain: {smaller_gain}, larger_gain: {larger_gain}")
+
+    if smaller_gain is None and larger_gain is None:
+        return None
+
+    # see if we can predetermine any audibility points
+    pts_dict = {h: [] for h in headings}
+
+    # any audible points from a smaller gain will still be audible
+    if smaller_gain is not None:
+        for h in headings:
+            df = tested_pts_record[smaller_gain][h]
+            pts_dict[h].append(df[df["audible"] == 1])
+    
+    # any inaudible points from a larger gain will still be inaudible
+    if larger_gain is not None:
+        for h in headings:
+            df = tested_pts_record[larger_gain][h]
+            pts_dict[h].append(df[df["audible"] == 0])
+
+    for h in pts_dict:
+        pts_dict[h] = pd.concat(pts_dict[h], axis=0, ignore_index=True)
+    
+    return pts_dict
 
 
 if __name__ == '__main__':
@@ -223,11 +278,21 @@ if __name__ == '__main__':
     # Create active space for each omni source.
     logger.info(f"Generating active spaces for: {args.unit}{args.site}{args.year}...")
     results = []
+    tested_pts_record = {}
     for omni_source_ in tqdm(omni_sources, total=len(omni_sources)):
+        gain = int(Path(omni_source_).stem[2:]) / 10
+        tqdm.write(f"gain {gain}")
         outfile_ = f'{site_dir}/{args.unit}{args.site}{args.year}_{Path(omni_source_).stem}.geojson'
-        result = _run_active_space(outfile=outfile_, omni_source=omni_source_, generator=generator_,
-                                   headings=args.headings, microphone=mic_, altitude=altitude_)
-        results.append(result)
+
+        pretested_pts_dict = get_pretested_pts(tested_pts_record, gain, args.headings)
+
+        omni, active, tested_pts_dict = _run_active_space(
+            outfile=outfile_, omni_source=omni_source_, generator=generator_,
+            headings=args.headings, microphone=mic_, altitude=altitude_,
+            pretested_pts_dict=pretested_pts_dict)
+        
+        results.append((omni, active))
+        tested_pts_record[gain] = tested_pts_dict
     
     # _run = partial(_run_active_space, generator=generator_, headings=args.headings, microphone=mic_, altitude=altitude_)
     # with mp.Pool(mp.cpu_count() - 1) as pool:
