@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from shapely.geometry import Point
 from tqdm import tqdm
+import pickle
 
 # for some users relative imports are prohibitive
 # we simplify imports by adding three directories to the path environment variable
@@ -35,11 +36,6 @@ from nps_active_space.active_space import ActiveSpaceGenerator
 
 if TYPE_CHECKING:
     from nps_active_space.utils import Microphone
-
-
-# Callback functions for multiprocessing.
-_handle_error = lambda error: print(f'Error: {error}', flush=True)
-_update_pbar = lambda _: pbar.update()
 
 
 def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGenerator, headings: List[int],
@@ -75,14 +71,19 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
     mic_copy = deepcopy(microphone)
     mic_copy.name = f"{microphone.name}{Path(omni_source).stem}"
 
+    gain = int(Path(omni_source).stem[2:]) / 10
+    tqdm.write(f"gain {gain}")
+
     active_spaces = None
+    tested_pts_dict = {}
     for heading in headings:
-        active_space = generator.generate(
+        active_space, tested_pts = generator.generate(
             omni_source=omni_source,
             mic=mic_copy,
             heading=heading,
             altitude_m=altitude
         )
+        tested_pts_dict[heading] = tested_pts
 
         if active_spaces is None:
             active_spaces = active_space
@@ -92,6 +93,10 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
     # Combine the active spaces from each heading into a single active space and write it to a geojson file.
     dissolved_active_space = active_spaces.dissolve()
     dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
+
+    tested_pts_file = os.path.join(os.path.dirname(outfile), f"tested_pts_{Path(omni_source).stem}.pkl")
+    with open(tested_pts_file, "wb") as f:
+        pickle.dump(tested_pts_dict, f)
 
     return Path(omni_source).stem, dissolved_active_space
 
@@ -215,18 +220,24 @@ if __name__ == '__main__':
     logger.info('Setting dem...')
     generator_.set_dem(mic_)
 
-    # Create active space for each omni source. Active spaces are created in parallel asynchronously for maximum
-    #  speed benefits.
+    # Create active space for each omni source.
     logger.info(f"Generating active spaces for: {args.unit}{args.site}{args.year}...")
-    _run = partial(_run_active_space, generator=generator_, headings=args.headings, microphone=mic_, altitude=altitude_)
-    with mp.Pool(mp.cpu_count() - 1) as pool:
-        with tqdm(desc='Omni Sources', unit='omni source', colour='green', total=len(omni_sources), leave=True) as pbar:
-            processes = []
-            for omni_source_ in omni_sources:
-                outfile_ = f'{site_dir}/{args.unit}{args.site}{args.year}_{Path(omni_source_).stem}.geojson'
-                processes.append(pool.apply_async(_run, kwds={'outfile': outfile_, 'omni_source': omni_source_},
-                                                  callback=_update_pbar, error_callback=_handle_error))
-            results = [p.get() for p in processes]
+    results = []
+    for omni_source_ in tqdm(omni_sources, total=len(omni_sources)):
+        outfile_ = f'{site_dir}/{args.unit}{args.site}{args.year}_{Path(omni_source_).stem}.geojson'
+        result = _run_active_space(outfile=outfile_, omni_source=omni_source_, generator=generator_,
+                                   headings=args.headings, microphone=mic_, altitude=altitude_)
+        results.append(result)
+    
+    # _run = partial(_run_active_space, generator=generator_, headings=args.headings, microphone=mic_, altitude=altitude_)
+    # with mp.Pool(mp.cpu_count() - 1) as pool:
+    #     with tqdm(desc='Omni Sources', unit='omni source', colour='green', total=len(omni_sources), leave=True) as pbar:
+    #         processes = []
+    #         for omni_source_ in omni_sources:
+    #             outfile_ = f'{site_dir}/{args.unit}{args.site}{args.year}_{Path(omni_source_).stem}.geojson'
+    #             processes.append(pool.apply_async(_run, kwds={'outfile': outfile_, 'omni_source': omni_source_},
+    #                                               callback=_update_pbar, error_callback=_handle_error))
+    #         results = [p.get() for p in processes]
 
     valid_results = [result for result in results if result is not None]
 

@@ -228,9 +228,12 @@ def expected_Lp(points: gpd.GeoDataFrame, target: Point, Lw: float = 140, atm_ab
     return points
 
 
-def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Optional[int] = None) -> List[Point]:
+def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Optional[int] = None,
+                         snap: bool = False) -> gpd.GeoDataFrame:
     """
     Given a polygon and a density, create a square mesh of evenly spaced points throughout the polygon.
+    The point coordinates are snapped to start and end at a whole number km, to increase the chance that
+    points from different runs overlap.
 
     Parameters
     ----------
@@ -240,25 +243,36 @@ def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Op
         The number of points along each mesh axis. The mesh will contain density x density points.
     altitude : int, default None
         A standard altitude to apply to every point in the mesh.
+    snap : bool, default False
+        If true, expand bounds to the nearest km, to make points more likely to line up with other runs.
 
     Returns
     -------
-    mesh points : List[Point]
-        A list of shapely Points in the mesh.
+    mesh points : gpd.GeoDataFrame
+        A GeoDataFrame of points in the mesh.
     """
+
+    assert "UTM" in area.crs.name
+
+    minx, miny, maxx, maxy = area.total_bounds
+    if snap:
+        # expand bounds to nearest km, to make it more likely points line up
+        minx = np.floor(minx / 1000) * 1000
+        miny = np.floor(miny / 1000) * 1000
+        maxx = np.ceil(maxx / 1000) * 1000
+        maxy = np.ceil(maxy / 1000) * 1000
+
     # Start out with a grid of N = density x density points. Polygon bounds:  (minx, miny, maxx, maxy)
-    x = np.linspace(area.total_bounds[0], area.total_bounds[2], density)
-    y = np.linspace(area.total_bounds[1], area.total_bounds[3], density)
+    x = np.linspace(minx, maxx, density)
+    y = np.linspace(miny, maxy, density)
     x_ind, y_ind = np.meshgrid(x, y)
+    x_ind, y_ind = x_ind.ravel(), y_ind.ravel()
+    if altitude is not None:
+        geom = gpd.points_from_xy(x_ind.ravel(), y_ind.ravel(), altitude)
+    else:
+        geom = gpd.points_from_xy(x_ind.ravel(), y_ind.ravel())
 
-    # Create an array of mesh points. np.ravel linearly indexes an array into a row.
-    mesh_points = np.array([np.ravel(x_ind), np.ravel(y_ind)]).T
-
-    # Convert coordinate tuples into shapely points.
-    mesh_points = [Point(point[0], point[1]) if not altitude
-                   else Point(point[0], point[1], altitude) for point in mesh_points]
-
-    return mesh_points
+    return gpd.GeoDataFrame(geometry=geom, crs=area.crs)
 
 
 def create_overlapping_mesh(area: gpd.GeoDataFrame, spacing: int = 1,

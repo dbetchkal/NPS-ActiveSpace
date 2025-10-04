@@ -193,15 +193,15 @@ class ActiveSpaceGenerator:
 
         return flt_filename
 
-    def _create_trajectory_file(self, points: List['Point'], crs: str, filename: str,
+    def _create_trajectory_file(self, points: gpd.GeoDataFrame, crs: str, filename: str,
                                 heading: Optional[int] = None) -> str:
         """
         Create a trajectory file from a list of points.
 
         Parameters
         ----------
-        points : List of shapely Points
-            Trajectory points to be written and run through NMSIM.
+        points : gpd.GeoDataFrame
+            GeoDataFrame of trajectory points to be written and run through NMSIM.
         crs : str
             The crs the Points should be in before being written to the trajectory file.
         filename : str
@@ -216,7 +216,7 @@ class ActiveSpaceGenerator:
         """
         trajectory_filename = f"{self.root_dir}/Input_Data/03_TRAJECTORY/{filename}.trj"
 
-        trajectory = gpd.GeoDataFrame([], geometry=points, crs=crs)
+        trajectory = points.to_crs(crs)
         trajectory['heading'] = heading if heading is not None else np.random.choice(range(0, 360), size=len(points), replace=True)
         trajectory['climb_angle'] = 0
         trajectory['power'] = 95
@@ -401,7 +401,7 @@ class ActiveSpaceGenerator:
         return total_space
 
     @staticmethod
-    def _contour_active_space(total_space: gpd.GeoDataFrame, altitude: int, max_pts: int = 5184) -> List[Point]:
+    def _contour_active_space(total_space: gpd.GeoDataFrame, altitude: int, max_pts: int = 5184) -> gpd.GeoDataFrame:
         """
         Use triangulation to select points along the audible/inaudible line of the active space to more precisely
         define the boundaries.
@@ -417,33 +417,27 @@ class ActiveSpaceGenerator:
 
         Returns
         -------
-        List of Points to pass into NMSIM along the audible/inaudible line help define the active space edge.
+        points: gpd.GeoDataFrame
+            GeoDataFrame of points to pass into NMSIM along the audible/inaudible line.
         """
-        levels = np.linspace(0, 1, 10, endpoint=False)  # these are the contour levels to calculate
-        fig, ax = plt.subplots()
-
         # Uses Delaunay triangulation
+        fig, ax = plt.subplots()
         tri = mpl.tri.Triangulation(total_space.geometry.x.tolist(), total_space.geometry.y.tolist())
-        cs = ax.tricontour(tri, total_space.audible.tolist(), levels=levels)  # contour with arbitrary point cloud
+        cs = ax.tricontour(tri, total_space.audible.tolist(), levels=[0.5])  # contour with arbitrary point cloud
         plt.close('all')
 
-        # append all contour points to a new xy file
-        xyz = np.array([])
-        for l_, level in enumerate(levels): # iterate through the path at each level
-            contour_path = cs.get_paths()[l_]  
-            x = contour_path.vertices[:, 0]
-            y = contour_path.vertices[:, 1]
-            z = [altitude] * len(x)
-            xyz = np.array([x, y, z]).T if len(xyz) == 0 else np.append(xyz, np.array([x, y, z]).T, axis=0)
+        contour_path = cs.get_paths()[0]  
+        x = contour_path.vertices[:, 0]
+        y = contour_path.vertices[:, 1]
+        pts = gpd.GeoDataFrame(geometry=gpd.points_from_xy(x, y, altitude), crs=total_space.crs)
 
         # if we have more contour points than NMSim can handle, down-sample randomly
-        if xyz.shape[0] > max_pts:
-            random_inds = np.random.randint(0, xyz.shape[0], max_pts)
-            xyz = xyz[random_inds, :]
+        if pts.shape[0] > max_pts:
+            pts = pts.sample(max_pts, random_state=2)
 
-        return list(map(Point, xyz))
+        return pts
 
-    def _run_nmsim(self, job_name: str, source_pts: List[Point], crs: str, flt_file: str, site_file: str,
+    def _run_nmsim(self, job_name: str, source_pts: gpd.GeoDataFrame, crs: str, flt_file: str, site_file: str,
                    omni_source: str, heading: Optional[int] = None) -> gpd.GeoDataFrame:
         """
         Execute a single NMSIM job.
@@ -452,8 +446,8 @@ class ActiveSpaceGenerator:
         ----------
         job_name : str
             Name of this NMSIM run to use a suffix to input and output files.
-        source_pts : List[Point]
-            List of shapely Points to test the audibility of in NMSIM.
+        source_pts : gpd.GeoDataFrame
+            GeoDataFrame of points to test the audibility of in NMSIM.
         crs : str
             The crs of the points. Of the format 'epsg:XXXX..'
         flt_file : str
@@ -472,26 +466,28 @@ class ActiveSpaceGenerator:
         assert len(source_pts) > 0, "Trying to run NMSIM on zero source points"
 
         # Mark any underground points as inaudible and don't pass them to NMSIM
-        aboveground_pts = []
-        underground_pts = []  # underground or no DEM data
+        aboveground_indices = []
+        underground_indices = []  # underground or no DEM data
         with rasterio.open(self._dem_file) as dem:
             proj = Transformer.from_crs(crs, dem.crs, always_xy=True)
-            xs = [pt.x for pt in source_pts]
-            ys = [pt.y for pt in source_pts]
+            xs = source_pts.geometry.x
+            ys = source_pts.geometry.y
+            zs = source_pts.geometry.z
             xs, ys = proj.transform(xs, ys)
-            proj_pts = [(xs[i], ys[i]) for i in range(len(source_pts))]
+            proj_pts = np.stack([xs, ys], axis=1)
             elevs = list(dem.sample(proj_pts))
             for i in range(len(source_pts)):
-                if elevs[i] is None or elevs[i] == dem.nodata or source_pts[i].z < elevs[i]:
-                    underground_pts.append(source_pts[i])
+                if elevs[i] is None or elevs[i] == dem.nodata or zs.iloc[i] < elevs[i]:
+                    underground_indices.append(i)
                 else:
-                    aboveground_pts.append(source_pts[i])
+                    aboveground_indices.append(i)
 
         # mark underground points as inaudible
-        audibility_pts = gpd.GeoDataFrame(geometry=underground_pts)
+        audibility_pts = source_pts.iloc[underground_indices]
         audibility_pts["audible"] = 0
 
-        if len(aboveground_pts) > 0:
+        if len(aboveground_indices) > 0:
+            aboveground_pts = source_pts.iloc[aboveground_indices]
             trajectory_filename = self._create_trajectory_file(aboveground_pts, crs, job_name, heading)
             batch_file = self._create_instruction_files(flt_file, site_file, trajectory_filename, omni_source)
 
@@ -534,7 +530,7 @@ class ActiveSpaceGenerator:
         minx, miny, maxx, maxy = total_space.total_bounds
         region = gpd.GeoDataFrame({"geometry": [box(minx, miny, maxx, maxy)]}, crs=total_space.crs)
         region.geometry = region.buffer(100)  # small buffer so that the active space boundary occurs just outside the study area
-        new_points = gpd.GeoDataFrame(geometry=build_src_point_mesh(region), crs=region.crs)
+        new_points = build_src_point_mesh(region)
         new_points = new_points[~new_points.geometry.within(region.union_all())]
         new_points["audible"] = 0
         total_space = pd.concat([total_space, new_points], ignore_index=True)
@@ -562,7 +558,8 @@ class ActiveSpaceGenerator:
 
     def _generate(self, study_area: gpd.GeoDataFrame, dem_file: str, omni_source: str, name: str = '',
                   mic: Optional[Microphone] = None, project_dem: bool = True, altitude_m: int = 3658,
-                  heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1) -> gpd.GeoDataFrame:
+                  heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1
+                  ) -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
         """
         The main active space generating function. It has been separated from the other generate functions to allow
         for multiprocessing when creating an active space mesh.
@@ -597,10 +594,11 @@ class ActiveSpaceGenerator:
 
         # Run the point mesh step a maximum of two times.
         for j in range(2):
-            source_pts = build_src_point_mesh(active_space, src_pt_density, altitude_m)
-            # only query points inside the study area and far enough from the boundary; build_src_point_mesh uses the bounding box
-            valid_source_pts = [pt for pt in source_pts if pt.within(valid_query_region)]
-            if len(valid_source_pts) == 0:
+            source_pts = build_src_point_mesh(active_space, src_pt_density, altitude_m, snap=True)
+            # only query points inside the study area and far enough from the boundary;
+            # build_src_point_mesh uses the bounding box
+            valid_source_pts = source_pts[source_pts.within(valid_query_region)]
+            if valid_source_pts.empty:
                 print(f"Mesh step j={j}: no source points, skipping")
                 break
             
@@ -631,9 +629,9 @@ class ActiveSpaceGenerator:
         # Run triangulation n_contour times to refine the edges of the active space.
         for k in range(n_contour):
             source_pts = self._contour_active_space(tested_space, altitude_m)
-            # only query points inside the study area and far enough from the boundary; build_src_point_mesh uses the bounding box
-            valid_source_pts = [pt for pt in source_pts if pt.within(valid_query_region)]
-            if len(valid_source_pts) == 0:
+            # only query points inside the study area and far enough from the boundary
+            valid_source_pts = source_pts[source_pts.within(valid_query_region)]
+            if valid_source_pts.empty:
                 print(f"Refine step k={k}: no source points, skipping")
                 break
             new_audibility_pts = self._run_nmsim(
@@ -651,7 +649,7 @@ class ActiveSpaceGenerator:
         active_space['altitude_m'] = altitude_m
         active_space['mic_name'] = mic.name
 
-        return active_space
+        return active_space, tested_space
 
     def set_dem(self, mic: Microphone):
         """
@@ -677,7 +675,8 @@ class ActiveSpaceGenerator:
         self._site_file = self._create_site_file(projected_mic, self._flt_file)
 
     def generate(self, omni_source: str, altitude_m: int = 3658, mic: Optional[Microphone] = None,
-                 heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 2) -> gpd.GeoDataFrame:
+                 heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 2
+                 )-> Union[gpd.GeoDataFrame, Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]]:
         """
         Generate an active space for the study area.
 
@@ -703,6 +702,9 @@ class ActiveSpaceGenerator:
         -------
         active_space : gpd.GeoDataFrame
             A GeoDataFrame of the generated active space polygon.
+        tested_points : gpd.GeoDataFrame
+            A GeoDataFrame of points that were tested for audibility, along with whether they were determined
+            to be audible or not.
         """
         active_space = self._generate(
             study_area=self.study_area.iloc[[0]],   # Select the study area so that it's a 1 row GeoDataFrame.
