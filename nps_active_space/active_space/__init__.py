@@ -650,16 +650,8 @@ class ActiveSpaceGenerator:
             z = source_pts.geometry.z.round(3)
             source_pts.geometry = gpd.points_from_xy(x, y, z)
 
-            orig_len = len(source_pts)
-            # fig, ax = plt.subplots()
-            # tested_space.plot(ax=ax, markersize=10, color="red")
-            # source_pts.plot(ax=ax, markersize=1, color="black")
-            # ax.set_title(f"heading={heading}, mesh j={j}")
-            # plt.show()
-
             # don't query points we already know the answer for
             source_pts = source_pts[~source_pts.geometry.isin(tested_space.geometry)]
-            tqdm.write(f"j={j}, Avoided testing {(1 - (len(source_pts)/orig_len)):.3f} of points")
             # only query points inside the study area and far enough from the boundary;
             # build_src_point_mesh uses the bounding box
             valid_source_pts = source_pts[source_pts.within(valid_query_region)]

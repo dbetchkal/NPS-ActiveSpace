@@ -166,8 +166,6 @@ def get_pretested_pts(tested_pts_record, gain, headings):
     if larger_gains.shape[0] > 0:
         larger_gain = larger_gains.min()
 
-    tqdm.write(f"smaller_gain: {smaller_gain}, larger_gain: {larger_gain}")
-
     if smaller_gain is None and larger_gain is None:
         return None
 
@@ -330,12 +328,9 @@ if __name__ == '__main__':
             _update_pbar = lambda _: pbar.update()
 
             for group in group_omni_sources(omni_sources):
-                tqdm.write(f"GROUP ({len(group)}) -------------------")
                 processes = []
                 for omni_source_ in group:
                     gain = omni_to_gain(omni_source_)
-                    tqdm.write(f"gain {gain}")
-
                     name = f"{args.unit}{args.site}{args.year}_{Path(omni_source_).stem}"
                     kwds = {
                         'omni_source': omni_source_,
