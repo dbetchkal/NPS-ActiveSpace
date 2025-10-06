@@ -550,11 +550,23 @@ class ActiveSpaceGenerator:
         contour_path = cs.get_paths()[level_ind] # in recent versions of `matplotlib` there is 1:1 correspondence `cs.levels` : `Path`
         polygons = [Polygon(P) for P in contour_path.to_polygons()] # convert to `shapely.Polygon`
 
-        active_space_poly = [make_valid(poly) if not poly.is_valid else poly for poly in polygons] # ensure valid geometries
+        # ensure valid geometries
+        polygons = [make_valid(poly) if not poly.is_valid else poly for poly in polygons]
 
-        active_space_polys_gdf = gpd.GeoDataFrame(data={'geometry': active_space_poly}, geometry='geometry', crs=crs)
+        # mark inner polygons as holes - otherwise when we dissolve or union_all(), they will disappear
+        outer_polys = []
+        for i, outer in enumerate(polygons):
+            # skip if this is contained in another polygon
+            if any(outer.within(other) for j, other in enumerate(polygons) if i != j):
+                continue
+            # find polygons inside this one
+            inner_polys = [inner for j, inner in enumerate(polygons) if j != i and inner.within(outer)]
+            holes = [inner.exterior.coords for inner in inner_polys]
+            # construct polygon with holes
+            poly = Polygon(shell=outer.exterior.coords, holes=holes)
+            outer_polys.append(poly)
 
-        return active_space_polys_gdf
+        return gpd.GeoDataFrame(data={'geometry': outer_polys}, geometry='geometry', crs=crs)
 
     def _generate(self, study_area: gpd.GeoDataFrame, dem_file: str, omni_source: str, name: str = '',
                   mic: Optional[Microphone] = None, project_dem: bool = True, altitude_m: int = 3658,
