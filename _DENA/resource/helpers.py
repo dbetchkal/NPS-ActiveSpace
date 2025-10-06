@@ -68,8 +68,8 @@ def load_activespace(project_dir, unit, site, year, gain, third_octave=True, crs
 
     sign = "-" if gain < 0 else "+"
     gain_string = str(np.abs(int(10*gain))).zfill(3)
-    path = os.path.join(project_dir, unit + site, unit + site + str(year) +
-                        '_O_' + sign + gain_string + '.geojson')
+    path = os.path.join(project_dir, unit + site, "Output_Data", "ACTIVESPACES",
+                        unit + site + str(year) + '_O_' + sign + gain_string + '.geojson')
     active_space = gpd.read_file(path)
 
     if crs is not None:

@@ -40,8 +40,8 @@ if TYPE_CHECKING:
 
 
 def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGenerator, headings: List[int],
-                      microphone: 'Microphone', altitude: int, pretested_pts_dict : Optional[dict] = None
-                      ) -> Tuple[str, gpd.GeoDataFrame, dict]:
+                      microphone: 'Microphone', altitude: int, tested_pts_outfile: Optional[str] = None,
+                      pretested_pts_dict : Optional[dict] = None) -> Tuple[str, gpd.GeoDataFrame, dict]:
     """
     Function to be multiprocessed to generate active spaces for multiple omni sources.
 
@@ -60,6 +60,8 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
         Location to generate the active space around.
     altitude : int
         Altitude (in meters) to generate the active space at.
+    tested_pts_outfile : str, default None
+        If provided, name of the .pkl file to save tested points to.
     pretested_pts_dict : dict, default None
         Dictionary storing points we know are audible/inaudible already. This can happen when a quieter source
         is determined to be audible somewhere; a louder source will still be audible there.
@@ -75,6 +77,9 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
         Dictionary containing the points that were tested for audibility.
         Keys are headings, values are GeoDataFrames of 3D points with a boolean "audible" field.
     """
+    assert outfile.endswith(".geojson")
+    assert tested_pts_outfile is None or tested_pts_outfile.endswith(".pkl")
+
     # NOTE: Since the microphone is being used in multiple processes and in those processes is altered, it's safer to
     #  make copies of the microphone with unique names to avoid any issues with shared resources.
     mic_copy = deepcopy(microphone)
@@ -101,18 +106,20 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
     dissolved_active_space = active_spaces.dissolve()
     dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
 
-    tested_pts_file = os.path.join(os.path.dirname(outfile), f"tested_pts_{Path(omni_source).stem}.pkl")
-    with open(tested_pts_file, "wb") as f:
-        pickle.dump(tested_pts_dict, f)
+    # Save the points we sampled and whether they were audible. This is useful for debugging and presentations.
+    if tested_pts_outfile is not None:
+        with open(tested_pts_outfile, "wb") as f:
+            pickle.dump(tested_pts_dict, f)
 
     return Path(omni_source).stem, dissolved_active_space, tested_pts_dict
 
 
-def omni_to_gain(omni_source):
+def omni_to_gain(omni_source: str):
     """
-    TODO - document
+    Converts an omni source name to the corresponding gain.
+    Pure omni strings ("O_+125") or paths "directory/O_+125.src" can be passed, since regex is used.
     """
-    match = re.search(r"O_(....)", omni_source)
+    match = re.search(r"O_([+-]\d\d\d)", omni_source)
     return int(match.group(1)) / 10
 
 
@@ -305,10 +312,16 @@ if __name__ == '__main__':
     generator_.set_dem(mic_)
 
     # Create active space for each omni source.
+
     logger.info(f"Generating active spaces for: {args.unit}{args.site}{args.year}...")
+
+    active_savedir = os.path.join(site_dir, "Output_Data", "ACTIVESPACES")
+    tested_pts_savedir = os.path.join(site_dir, "Output_Data", "TESTED_POINTS")
+    os.makedirs(active_savedir, exist_ok=True)
+    os.makedirs(tested_pts_savedir, exist_ok=True)
+
     results = []
     tested_pts_record = {}
-
     _run = partial(_run_active_space, generator=generator_, headings=args.headings, microphone=mic_, altitude=altitude_)
     
     with mp.Pool(mp.cpu_count() - 1) as pool:
@@ -322,15 +335,19 @@ if __name__ == '__main__':
                 for omni_source_ in group:
                     gain = omni_to_gain(omni_source_)
                     tqdm.write(f"gain {gain}")
-                    outfile_ = f'{site_dir}/{args.unit}{args.site}{args.year}_{Path(omni_source_).stem}.geojson'
-                    pretested_pts_dict = get_pretested_pts(tested_pts_record, gain, args.headings)
 
-                    processes.append(pool.apply_async(_run, callback=_update_pbar, error_callback=_handle_error,
-                                                      kwds={'outfile': outfile_, 'omni_source': omni_source_,
-                                                            'pretested_pts_dict': pretested_pts_dict}))
-                outputs = [p.get() for p in processes]
-
-                # process outputs
+                    name = f"{args.unit}{args.site}{args.year}_{Path(omni_source_).stem}"
+                    kwds = {
+                        'omni_source': omni_source_,
+                        'outfile': f'{active_savedir}/{name}.geojson',
+                        'tested_pts_outfile': f'{tested_pts_savedir}/{name}.pkl',
+                        'pretested_pts_dict': get_pretested_pts(tested_pts_record, gain, args.headings)
+                    }
+                    processes.append(pool.apply_async(
+                        _run, callback=_update_pbar, error_callback=_handle_error, kwds=kwds))
+                    
+                # record outputs
+                outputs = [p.get() for p in processes]  # wait for all processes in this group to finish
                 for output in outputs:
                     if output is None:
                         continue

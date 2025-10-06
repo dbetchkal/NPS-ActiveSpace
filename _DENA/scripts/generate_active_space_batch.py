@@ -200,7 +200,9 @@ def copy_output_files(option_str, savedir, designator):
 
     # Get filenames we wish to copy
     activespace_files = glob.glob(os.path.join(
-        site_dir, f"{deployment}_O_*.geojson"))
+        site_dir, "Output_Data", "ACTIVESPACES", f"{deployment}_O_*.geojson"))
+    tested_pt_files = glob.glob(os.path.join(
+        site_dir, "Output_Data", "TESTED_POINTS", f"{deployment}_O_*.pkl"))
     pr_plots = glob.glob(os.path.join(
         site_dir, f"PrecisionRecallPlot_{deployment}*.png"))
     # If a custom annotation file was used, copy that.
@@ -212,7 +214,7 @@ def copy_output_files(option_str, savedir, designator):
             site_dir, f"{args.unit}{args.site}{args.year}*saved_annotations*.geojson"))
 
     # Copy files
-    for src_path in activespace_files + pr_plots + annotation_files:
+    for src_path in activespace_files + tested_pt_files + pr_plots + annotation_files:
         basename = os.path.basename(src_path)
         dst_path = os.path.join(dst_dir, basename)
         shutil.copy2(src_path, dst_path)  # copy2 to preserve metadata
