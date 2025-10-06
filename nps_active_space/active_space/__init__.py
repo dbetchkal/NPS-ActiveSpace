@@ -550,9 +550,6 @@ class ActiveSpaceGenerator:
         contour_path = cs.get_paths()[level_ind] # in recent versions of `matplotlib` there is 1:1 correspondence `cs.levels` : `Path`
         polygons = [Polygon(P) for P in contour_path.to_polygons()] # convert to `shapely.Polygon`
 
-        # ensure valid geometries
-        polygons = [make_valid(poly) if not poly.is_valid else poly for poly in polygons]
-
         # mark inner polygons as holes - otherwise when we dissolve or union_all(), they will disappear
         outer_polys = []
         for i, outer in enumerate(polygons):
@@ -565,6 +562,9 @@ class ActiveSpaceGenerator:
             # construct polygon with holes
             poly = Polygon(shell=outer.exterior.coords, holes=holes)
             outer_polys.append(poly)
+        
+        # ensure valid geometries
+        outer_polys = [make_valid(poly) if not poly.is_valid else poly for poly in outer_polys]
 
         return gpd.GeoDataFrame(data={'geometry': outer_polys}, geometry='geometry', crs=crs)
 
