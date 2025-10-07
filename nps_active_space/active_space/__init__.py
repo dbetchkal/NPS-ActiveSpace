@@ -45,6 +45,7 @@ class ActiveSpaceGenerator:
         A gpd.GeoDataFrame of polygon(s) that make up the study area.
     root_dir : str
         Absolute path to a directory where all generated files required for running NMSIM can be stored.
+        This directory is specific to a single microphone location.
     dem_src : str
         Path to a DEM raster file to be used as NMSIM input.
     ambience : float or pd.Series[float]
