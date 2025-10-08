@@ -29,6 +29,15 @@ from nps_active_space.utils import (
     project_raster
 )
 
+# dB threshold of human hearing at each 1/3 octave band, from ISO 226:2003
+human_hearing_threshold = pd.Series({
+    "20": 78.5, "25": 68.7, "31.5": 59.5, "40": 51.1, "50": 44.0, "63": 37.5, "80": 31.5,
+    "100": 26.5, "125": 22.1, "160": 17.9, "200": 14.4, "250": 11.4, "315": 8.6, "400": 6.2,
+    "500": 4.4, "630": 3.0, "800": 2.2, "1000": 2.4, "1250": 3.5, "1600": 1.7, "2000": -1.3,
+    "2500": -4.2, "3150": -6.0, "4000": -5.4, "5000": -1.5, "6300": 6.0, "8000": 12.6,
+    "10000": 13.9, "12500": 12.3
+})
+
 class PolygonCreationError(Exception):
     pass
 
@@ -377,12 +386,14 @@ class ActiveSpaceGenerator:
             audible_times = tis_df.loc[:, "A"] > self.ambience
         else:
             # spectral ambience
-            audible_times = (tis_df.loc[:, "12.5":"12500"] > self.ambience["12.5":"12500"].values).sum(axis=1)
-            
+            # the audibility threshold is the maximum of ambience and the limit of human hearing
+            # we only have human hearing threshold in bands 20-12500, so just use those
+            threshold = np.maximum(self.ambience.loc["20":"12500"], human_hearing_threshold)
+            audible_times = (tis_df.loc[:, "20":"12500"] > threshold.values).any(axis=1)
 
         # Determine which aircraft locations produce or do not produce audible sounds.
-        audible_pts = (trajectory_df.loc[tis_df[audible_times > 0].index, ["Xpos", "Ypos", "Zpos"]])
-        inaudible_pts = (trajectory_df.loc[tis_df[audible_times == 0].index, ["Xpos", "Ypos", "Zpos"]])
+        audible_pts = (trajectory_df.loc[tis_df[audible_times].index, ["Xpos", "Ypos", "Zpos"]])
+        inaudible_pts = (trajectory_df.loc[tis_df[~audible_times].index, ["Xpos", "Ypos", "Zpos"]])
         audible_pts["audible"] = 1
         inaudible_pts["audible"] = 0
 
@@ -619,17 +630,15 @@ class ActiveSpaceGenerator:
         for j in range(2):
             if j == 0:
                 source_pts = coarse_grid
-                # we know the coarse grid doesn't have too many points for NMSIM
             elif j == 1:
                 # use the fine grid, but only near the boundary to be efficient.
-
                 # if you are within a short distance of an audible and an inaudible point,
                 # you are near the boundary - can use .buffer() to figure this out
                 audible_pts = tested_space[tested_space["audible"] == 1]
                 inaudible_pts = tested_space[tested_space["audible"] != 1]
-                
-                # buffer - reduce the buffering memory load by only buffering from the coarse grid,
-                # also use cap_style=3 for square buffers to further reduce memory load
+                # Buffer - reduce the buffering memory load by only buffering from the coarse grid.
+                # Also use cap_style=3 for square buffers to further reduce memory load.
+                # Not reducing memory load can cause out-of-memory crashes
                 audible_pts = gpd.sjoin(audible_pts, coarse_grid, how="inner", predicate='intersects')
                 inaudible_pts = gpd.sjoin(inaudible_pts, coarse_grid, how="inner", predicate='intersects')
                 # buffer by about 1.5 coarse grid cells, emprically is enough
@@ -637,12 +646,12 @@ class ActiveSpaceGenerator:
                 near_audible = audible_pts.union_all().buffer(buffer_amt, cap_style=3)
                 near_inaudible = inaudible_pts.union_all().buffer(buffer_amt, cap_style=3)
 
-                active_zone = near_audible.intersection(near_inaudible)
-                source_pts = fine_grid[fine_grid.within(active_zone)]
+                boundary_zone = near_audible.intersection(near_inaudible)
+                source_pts = fine_grid[fine_grid.within(boundary_zone)]
                 
-                # if too many points for NMSIM, randomly downsample
-                if source_pts.shape[0] > 5184:
-                    source_pts = source_pts.sample(5184, random_state=5)
+            # if too many points for NMSIM, randomly downsample
+            if source_pts.shape[0] > 5184:
+                source_pts = source_pts.sample(5184, random_state=5)
                 
             # we end up rounding the source_pts coords to the nearest 0.001m later, so do this now
             # to make comparisons with the output of past runs work properly
@@ -653,15 +662,14 @@ class ActiveSpaceGenerator:
 
             # don't query points we already know the answer for
             source_pts = source_pts[~source_pts.geometry.isin(tested_space.geometry)]
-            # only query points inside the study area and far enough from the boundary;
-            # build_src_point_mesh uses the bounding box
+            # only query points inside the study area and far enough from the study area boundary
             valid_source_pts = source_pts[source_pts.within(valid_query_region)]
             if valid_source_pts.empty:
                 print(f"Mesh step j={j}: no source points, skipping")
                 break
             
             new_audibility_pts = self._run_nmsim(
-                f"{mic.name}_mesh{j + 1}",
+                f"{mic.name}_{altitude_m}m_mesh{j + 1}",
                 valid_source_pts,
                 crs,
                 flt_filename,
@@ -673,29 +681,25 @@ class ActiveSpaceGenerator:
             tested_space = pd.concat([tested_space, new_audibility_pts], ignore_index=True) 
             active_space = tested_space[tested_space.audible == 1]
 
-            # # Create a small buffer around the extent of audible points. If the padded active space is less than
-            # #  30% smaller than the original study area before the for loop is completed, break out of the for
-            # #  loop and proceed to the contouring step.
-            # minx, miny, maxx, maxy = active_space.total_bounds
-            # xpad = 0.2 * (maxx - minx)  # pad extents by 20% on each side, 40% total.
-            # ypad = 0.2 * (maxy - miny)
-            # extent = ([minx - xpad, maxx + xpad], [miny - ypad, maxy + ypad])
-            # shrinkage = np.divide(np.diff(extent) - np.diff(study_area_extent), np.diff(study_area_extent))
-            # if min(shrinkage) > -0.30:
-            #     break
-
         # Run triangulation n_contour times to refine the edges of the active space.
         for k in range(n_contour):
             source_pts = self._contour_active_space(tested_space, altitude_m)
+            # we end up rounding the source_pts coords to the nearest 0.001m later, so do this now
+            # to make comparisons with the output of past runs work properly
+            x = source_pts.geometry.x.round(3)
+            y = source_pts.geometry.y.round(3)
+            z = source_pts.geometry.z.round(3)
+            source_pts.geometry = gpd.points_from_xy(x, y, z)
+
             # don't query points we already know the answer for
             source_pts = source_pts[~source_pts.geometry.isin(tested_space.geometry)]
-            # only query points inside the study area and far enough from the boundary
+            # only query points inside the study area and far enough from the study area boundary
             valid_source_pts = source_pts[source_pts.within(valid_query_region)]
             if valid_source_pts.empty:
                 print(f"Refine step k={k}: no source points, skipping")
                 break
             new_audibility_pts = self._run_nmsim(
-                f"{mic.name}_contour{k + 1}",
+                f"{mic.name}_{altitude_m}m_contour{k + 1}",
                 valid_source_pts,
                 crs,
                 flt_filename,
