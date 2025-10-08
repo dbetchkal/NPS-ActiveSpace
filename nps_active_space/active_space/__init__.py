@@ -775,7 +775,7 @@ class ActiveSpaceGenerator:
             Number of rounds of contouring to perform after the two rounds of active space point meshing.
         predetermined_audibility_pts: gpd.GeoDataFrame, default None
             A GeoDataFrame of points we already know are audible/inaudible for this omni source and heading.
-            It's geometry is 3D points, and contains a boolean "audible" field.
+            It's geometry is 3D points, and contains an "audible" field = 0 or 1.
             Use case - if we previously tested a quieter omni source, anywhere it was audible will also be audible
             for a louder omni source. A similar thing holds for louder sources being inaudible at certain points.
 
@@ -784,7 +784,7 @@ class ActiveSpaceGenerator:
         active_space : gpd.GeoDataFrame
             A GeoDataFrame of the generated active space polygon.
         tested_points : gpd.GeoDataFrame
-            A GeoDataFrame of 3D points that were tested for audibility, with a boolean field "audible"
+            A GeoDataFrame of 3D points that were tested for audibility, with an "audible" field (0 or 1)
             listing whether they were determined to be audible or not.
         """
         active_space = self._generate(

@@ -65,7 +65,7 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
     pretested_pts_dict : dict, default None
         Dictionary storing points we know are audible/inaudible already. This can happen when a quieter source
         is determined to be audible somewhere; a louder source will still be audible there.
-        Keys are headings, values are GeoDataFrames of 3D points with a boolean "audible" field.
+        Keys are headings, values are GeoDataFrames of 3D points with an "audible" field = 0 or 1.
 
     Returns
     -------
@@ -75,7 +75,7 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
         The final generated active space for the given parameters.
     tested_pts_dict : dict
         Dictionary containing the points that were tested for audibility.
-        Keys are headings, values are GeoDataFrames of 3D points with a boolean "audible" field.
+        Keys are headings, values are GeoDataFrames of 3D points with an "audible" field = 0 or 1.
     """
     assert outfile.endswith(".geojson")
     assert tested_pts_outfile is None or tested_pts_outfile.endswith(".pkl")
