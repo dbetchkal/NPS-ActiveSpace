@@ -580,6 +580,42 @@ class ActiveSpaceGenerator:
 
         return gpd.GeoDataFrame(data={'geometry': outer_polys}, geometry='geometry', crs=crs)
 
+    def _preprocess_source_points(self, source_pts: gpd.GeoDataFrame,
+                                  valid_query_region: gpd.GeoDataFrame, tested_space: gpd.GeoDataFrame):
+        """        
+        Filter a set of source points, removing points that:
+        1) Are outside the valid query region - meaning outside the study area, or too close
+           to the study area boundary (since DEM info isn't present outside the study area)
+        2) We already know are audible / inaudible
+        3) More than what NMSIM can handle (5184 points at once)
+
+        Also, round the points to the nearest 0.001m, so that when saved to a .trj file and reloaded,
+        they retain the same precision and we can do equality checks.
+
+        Parameters
+        ----------
+        TODO
+        """
+
+        # only query points inside the study area and far enough from the study area boundary
+        source_pts = source_pts[source_pts.within(valid_query_region)]
+
+        # don't query points we already know the answer for
+        source_pts = source_pts[~source_pts.geometry.isin(tested_space.geometry)]
+
+        # if too many points for NMSIM, randomly downsample
+        if source_pts.shape[0] > 5184:
+            source_pts = source_pts.sample(5184, random_state=5)
+            
+        # we end up rounding the source_pts coords to the nearest 0.001m later, so do this now
+        # to make comparisons with the output of past runs work properly
+        x = source_pts.geometry.x.round(3)
+        y = source_pts.geometry.y.round(3)
+        z = source_pts.geometry.z.round(3)
+        source_pts.geometry = gpd.points_from_xy(x, y, z)
+
+        return source_pts
+        
     def _generate(self, study_area: gpd.GeoDataFrame, dem_file: str, omni_source: str, name: str = '',
                   mic: Optional[Microphone] = None, project_dem: bool = True, altitude_m: int = 3658,
                   heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1,
@@ -648,59 +684,34 @@ class ActiveSpaceGenerator:
 
                 boundary_zone = near_audible.intersection(near_inaudible)
                 source_pts = fine_grid[fine_grid.within(boundary_zone)]
-                
-            # if too many points for NMSIM, randomly downsample
-            if source_pts.shape[0] > 5184:
-                source_pts = source_pts.sample(5184, random_state=5)
-                
-            # we end up rounding the source_pts coords to the nearest 0.001m later, so do this now
-            # to make comparisons with the output of past runs work properly
-            x = source_pts.geometry.x.round(3)
-            y = source_pts.geometry.y.round(3)
-            z = source_pts.geometry.z.round(3)
-            source_pts.geometry = gpd.points_from_xy(x, y, z)
-
-            # don't query points we already know the answer for
-            source_pts = source_pts[~source_pts.geometry.isin(tested_space.geometry)]
-            # only query points inside the study area and far enough from the study area boundary
-            valid_source_pts = source_pts[source_pts.within(valid_query_region)]
-            if valid_source_pts.empty:
-                print(f"Mesh step j={j}: no source points, skipping")
+            
+            source_pts = self._preprocess_source_points(source_pts, valid_query_region, tested_space)
+            if source_pts.empty:
+                # print(f"Mesh step j={j}: no source points, skipping")
                 break
             
             new_audibility_pts = self._run_nmsim(
                 f"{mic.name}_{altitude_m}m_mesh{j + 1}",
-                valid_source_pts,
+                source_pts,
                 crs,
                 flt_filename,
                 site_filename,
                 omni_source,
                 heading
             )
-
             tested_space = pd.concat([tested_space, new_audibility_pts], ignore_index=True) 
             active_space = tested_space[tested_space.audible == 1]
 
         # Run triangulation n_contour times to refine the edges of the active space.
         for k in range(n_contour):
             source_pts = self._contour_active_space(tested_space, altitude_m)
-            # we end up rounding the source_pts coords to the nearest 0.001m later, so do this now
-            # to make comparisons with the output of past runs work properly
-            x = source_pts.geometry.x.round(3)
-            y = source_pts.geometry.y.round(3)
-            z = source_pts.geometry.z.round(3)
-            source_pts.geometry = gpd.points_from_xy(x, y, z)
-
-            # don't query points we already know the answer for
-            source_pts = source_pts[~source_pts.geometry.isin(tested_space.geometry)]
-            # only query points inside the study area and far enough from the study area boundary
-            valid_source_pts = source_pts[source_pts.within(valid_query_region)]
-            if valid_source_pts.empty:
-                print(f"Refine step k={k}: no source points, skipping")
+            source_pts = self._preprocess_source_points(source_pts, valid_query_region, tested_space)
+            if source_pts.empty:
+                # print(f"Refine step k={k}: no source points, skipping")
                 break
             new_audibility_pts = self._run_nmsim(
                 f"{mic.name}_{altitude_m}m_contour{k + 1}",
-                valid_source_pts,
+                source_pts,
                 crs,
                 flt_filename,
                 site_filename,

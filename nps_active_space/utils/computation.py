@@ -427,10 +427,14 @@ def compute_fbeta(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame
     FP = np.all([in_AS, ~audible], axis=0).sum()
     FN = np.all([~in_AS, audible], axis=0).sum()
     n_tot = len(valid_points)
-
-    precision = TP / (TP + FP)  # specificity... if a flight enters the active space, is it actually audible?
-    recall = TP / (TP + FN)  # sensitivity... if a flight is audible, does it enter the active space?
-    fbeta = (1 + np.power(beta, 2)) * ((precision * recall) / ((np.power(beta, 2) * precision) + recall))
+    if TP == 0:  # will cause divide by zero if not handled
+        precision = 0.0
+        recall = 0.0
+        fbeta = 0.0
+    else:
+        precision = TP / (TP + FP)  # specificity... if a flight enters the active space, is it actually audible?
+        recall = TP / (TP + FN)  # sensitivity... if a flight is audible, does it enter the active space?
+        fbeta = (1 + np.power(beta, 2)) * ((precision * recall) / ((np.power(beta, 2) * precision) + recall))
 
     return fbeta, precision, recall, n_tot
 
@@ -648,8 +652,8 @@ def select_optimal(unit: str, site: str, year: int,
     f_betas = []
     max_fbeta = 0
     best_omni = None
-    best_recall = None
-    best_precision = None
+    best_recall = 0
+    best_precision = 0
     for omni, res in active_space_polygons:
 
         # it is convenient to store the gain in a simple, numeric representation

@@ -147,8 +147,12 @@ def parse_output(s, designator):
 
     best_f1_match = re.search(
         r"The best performing omni source for F-1.0 is: O_(....) \(fbeta: (.+)\)", s)
-    gain = int(best_f1_match.group(1)) / 10
-    f1 = float(best_f1_match.group(2))
+    if best_f1_match is not None:
+        gain = int(best_f1_match.group(1)) / 10
+        f1 = float(best_f1_match.group(2))
+    else:
+        gain = None
+        f1 = None
 
     return pd.Series({
         "Designator": designator,
