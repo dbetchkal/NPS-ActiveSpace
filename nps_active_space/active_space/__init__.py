@@ -19,14 +19,14 @@ from shapely.validation import make_valid
 from tqdm import tqdm
 
 from nps_active_space import ACTIVE_SPACE_DIR
-from nps_active_space.utils import (
+from nps_active_space.utils.models import Microphone
+from nps_active_space.utils.computation import (
     build_src_point_mesh,
     coords_to_utm,
     create_overlapping_mesh,
-    Microphone,
     NMSIM_bbox_utm,
-    Nvspl,
-    project_raster
+    project_raster,
+    round_points
 )
 
 # dB threshold of human hearing at each 1/3 octave band, from ISO 226:2003
@@ -494,7 +494,6 @@ class ActiveSpaceGenerator:
         new_audibility_pts : gpd.GeoDataFrame
             A GeoDataFrame of points tested during the NMSIM run and their audibility.
         """
-        print(f" {job_name}")
         assert len(source_pts) > 0, "Trying to run NMSIM on zero source points"
         source_pts = source_pts.drop_duplicates("geometry")
         crs = source_pts.crs.to_string().lower()
@@ -543,7 +542,7 @@ class ActiveSpaceGenerator:
             prev_df_idx = pd.MultiIndex.from_frame(prev_df[["Xpos", "Ypos"]])
             prev_df_relevant = prev_df[prev_df_idx.isin(aboveground_pts_idx)].drop_duplicates(["Xpos", "Ypos"])
             new_pts = aboveground_pts[~aboveground_pts_idx.isin(prev_df_idx)].drop_duplicates("geometry")
-            print(f" {job_name} n={len(aboveground_pts)}, old={len(prev_df_relevant)}, new={len(new_pts)}")
+            tqdm.write(f"{job_name} n={len(aboveground_pts)}, old={len(prev_df_relevant)}, new={len(new_pts)}")
             # each aboveground pt should be represented by a row in either new_pts or prev_df_relevant
             assert len(new_pts) + len(prev_df_relevant) == len(aboveground_pts)
 
@@ -653,14 +652,10 @@ class ActiveSpaceGenerator:
         2) We already know are audible / inaudible
         3) More than what NMSIM can handle (5184 points at once)
 
-        Also, round the points to the nearest 0.001m, so that when saved to a .trj file and reloaded,
-        they retain the same precision and we can do equality checks.
-
         Parameters
         ----------
         TODO
         """
-
         # only query points inside the study area and far enough from the study area boundary
         source_pts = source_pts[source_pts.within(valid_query_region)]
 
@@ -669,16 +664,10 @@ class ActiveSpaceGenerator:
 
         # if too many points for NMSIM, randomly downsample
         if source_pts.shape[0] > 5184:
-            source_pts = source_pts.sample(5184, random_state=5)
-            
-        # we end up rounding the source_pts coords to the nearest 0.001m later, so do this now
-        # to make comparisons with the output of past runs work properly
-        x = source_pts.geometry.x.round(3)
-        y = source_pts.geometry.y.round(3)
-        z = source_pts.geometry.z.round(3)
-        source_pts.geometry = gpd.points_from_xy(x, y, z)
+            source_pts = source_pts.sample(5184, random_state=5)       
 
         return source_pts
+    
         
     def _generate(self, study_area: gpd.GeoDataFrame, dem_file: str, omni_source: str, name: str = '',
                   mic: Optional[Microphone] = None, project_dem: bool = True, altitude_m: int = 3658,
@@ -723,8 +712,12 @@ class ActiveSpaceGenerator:
         site_filename = self._site_file or self._create_site_file(mic, flt_filename)
 
         # Prepare a coarse and fine grid to use for the 1st and 2nd point mesh steps
+        # we end up rounding the source_pts coords to the nearest 0.001m later, so do this now
+        # to make comparisons with the output of past runs work properly
         coarse_grid = build_src_point_mesh(active_space, src_pt_density, altitude_m)
         fine_grid = build_src_point_mesh(active_space, 2*src_pt_density-1, altitude_m)
+        round_points(coarse_grid, 3)
+        round_points(fine_grid, 3)
 
         # Run the point mesh step a maximum of two times.
         for j in range(2):
@@ -769,6 +762,9 @@ class ActiveSpaceGenerator:
         # Run triangulation n_contour times to refine the edges of the active space.
         for k in range(n_contour):
             source_pts = self._contour_active_space(tested_space, altitude_m)
+            # we end up rounding the source_pts coords to the nearest 0.001m later, so do this now
+            # to make comparisons with the output of past runs work properly
+            round_points(source_pts, 3)
             source_pts = self._preprocess_source_points(source_pts, valid_query_region, tested_space)
             if source_pts.empty:
                 # print(f"Refine step {k+1}: no source points, skipping")

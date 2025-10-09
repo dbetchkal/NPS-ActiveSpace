@@ -34,7 +34,8 @@ __all__ = [
     'interpolate_spline',
     'NMSIM_bbox_utm',
     'normalize_point_density',
-    'project_raster'
+    'project_raster',
+    'round_points'
 ]
 
 
@@ -227,6 +228,16 @@ def expected_Lp(points: gpd.GeoDataFrame, target: Point, Lw: float = 140, atm_ab
     points[new_col_name] = Lw + A_geometric + A_atmosphere
     return points
 
+
+def round_points(points: gpd.GeoDataFrame, precision: int):
+    """Rounds the coordinates of a GeoDataFrame of points to a certain precision, in place."""
+    x = points.geometry.x.round(3)
+    y = points.geometry.y.round(3)
+    if points.geometry.has_z.all():
+        z = points.geometry.z.round(3)
+        points.geometry = gpd.points_from_xy(x, y, z)
+    else:
+        points.geometry = gpd.points_from_xy(x, y)
 
 def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Optional[int] = None) -> gpd.GeoDataFrame:
     """
