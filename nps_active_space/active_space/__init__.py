@@ -347,16 +347,62 @@ class ActiveSpaceGenerator:
 
         return batch_file
 
-    def _find_audible_points(self, trajectory_file: str, tis_file: str, crs: str) -> gpd.GeoDataFrame:
+    def _postprocess_trj_tis(self, trajectory_file, tis_file, cleanup: bool = True):
+        """
+        Combine relevant parts of this run's input .trj and output .tis files into an easy-to-parse CSV.
+        This provides an easier way to examine NMSIM outputs, and is important for the following use case:
+        
+        Use case: Consider a future run with different ambience, 75% of the points we want to query were previously queried.
+        In this case, we want to load in the relevant prior NMSIM spectrum predictions and just compute the additional
+        25% needed. We then want to append the new 25% without overwriting what exists already, so the combined results
+        can be used by further runs. It's hard to cleanly implement this appending behavior with .trj/.tis files.
+
+        Parameters
+        ----------
+        trajectory_file: str
+        tis_file: str
+        cleanup: bool, default True
+            If True, delete the .trj and .tis files after creating the CSV, since they have duplicate information.
+
+        Returns
+        -------
+        new_rows: pd.DataFrame
+        """
+        # Read in the trajectory input file.
+        traj_df = pd.read_fwf(trajectory_file, header=14, widths=[16, 14] + [15]*7)
+        # drop irrelevant or constant fields
+        traj_df = traj_df.drop(["time(s)", "climbANG", "Vel", "power", "rol"], axis=1)
+
+        # Read in the tis NMSIM output file.
+        tis_df = pd.read_fwf(tis_file, header=15, skipfooter=1, widths=[4, 12] + [5]*35)
+        tis_df.drop(['SP#', 'F', '42'], axis=1, inplace=True)  # Drop the sensitivity index column
+        tis_df.drop(tis_df.head(2).index, inplace=True)        # Drop dividing *****, and unneeded AMBIENT row
+        tis_df.reset_index(drop=True, inplace=True)
+        tis_df.columns = ["TIME", "A", "10", "12.5", "15.8", "20", "25", "31.5", "40", "50", "63",
+                            "80", "100", "125", "160", "200", "250", "315", "400", "500", "630", "800", "1000",
+                            "1250", "1600", "2000", "2500", "3150", "4000", "5000", "6300", "8000", "10000", "12500"]
+        tis_df = tis_df.drop("TIME", axis=1)  # not used
+        # convert centibels (cB) to decibels (dB) and round to remove floating point precision errors
+        # file is less precise than 6 decimal places, so rounding just removes floating point issues
+        tis_df = (tis_df.astype(float) * 0.1).round(6)
+
+        assert len(traj_df) == len(tis_df)
+        new_rows = pd.concat([traj_df, tis_df], axis=1)
+        
+        if cleanup:
+            os.remove(trajectory_file)
+            os.remove(tis_file)
+        
+        return new_rows
+
+    def _find_audible_points(self, nmsim_df: pd.DataFrame, crs: str) -> gpd.GeoDataFrame:
         """
         Determine which points from a trajectory file are audible given the corresponding NMSIM tis output.
 
         Parameters
         ----------
-        trajectory_file : str
-            Absolute path to the trajectory file.
-        tis_file : str
-            Absolute path to the corresponding tis file.
+        nmsim_df: pd.DataFrame
+            TODO
         crs : str
             crs of the trajectory file and of the output GeoDataFrame. In the format 'epsg:XXXX'
 
@@ -366,51 +412,22 @@ class ActiveSpaceGenerator:
             A GeoDataFrame of the NMSIM tested points from the trajectory file with an 'audible' column set to 0 or 1
             depending on the point's audibility.
         """
-        # Read in the trajectory input file.
-        trajectory_df = pd.read_fwf(trajectory_file, header=14, widths=[16, 14] + [15]*7)
-        # trajectory_df = pd.read_fwf(trajectory_file, header=15, widths=[16, 14] + [15]*7)
-
-        # Read in the tis NMSIM output file.
-        tis_df = pd.read_fwf(tis_file, header=15, skipfooter=1, widths=[4, 12] + [5]*35)
-        tis_df.drop(['SP#', 'F', '42'], axis=1, inplace=True)  # Drop the sensitivity index column
-        tis_df.drop(tis_df.head(2).index, inplace=True)        # Drop dividing *****, and unneeded AMBIENT row
-        tis_df.reset_index(drop=True, inplace=True)
-        tis_df.columns = ["TIME", "A", "10", "12.5", "15.8", "20", "25", "31.5", "40", "50", "63",
-                          "80", "100", "125", "160", "200", "250", "315", "400", "500", "630", "800", "1000",
-                          "1250", "1600", "2000", "2500", "3150", "4000", "5000", "6300", "8000", "10000", "12500"]
-        tis_df.loc[:, 'A':'12500'] = tis_df.loc[:, 'A':'12500'].astype(float) * 0.1  # centibels (cB) to decibels (dB)
-
         # Check to see if any of the frequency bands are louder than the ambient levels.
         if type(self.ambience) == float:
             # broadband ambience
-            audible_times = tis_df.loc[:, "A"] > self.ambience
+            audible = nmsim_df.loc[:, "A"] > self.ambience
         else:
             # spectral ambience
             # the audibility threshold is the maximum of ambience and the limit of human hearing
             # we only have human hearing threshold in bands 20-12500, so just use those
             threshold = np.maximum(self.ambience.loc["20":"12500"], human_hearing_threshold)
-            audible_times = (tis_df.loc[:, "20":"12500"] > threshold.values).any(axis=1)
+            audible = (nmsim_df.loc[:, "20":"12500"] > threshold.values).any(axis=1)
 
-        # Determine which aircraft locations produce or do not produce audible sounds.
-        audible_pts = (trajectory_df.loc[tis_df[audible_times].index, ["Xpos", "Ypos", "Zpos"]])
-        inaudible_pts = (trajectory_df.loc[tis_df[~audible_times].index, ["Xpos", "Ypos", "Zpos"]])
-        audible_pts["audible"] = 1
-        inaudible_pts["audible"] = 0
-
-        active_space = gpd.GeoDataFrame(
-            audible_pts,
+        return gpd.GeoDataFrame(
+            {"audible": audible.astype(int)},
             crs=crs,
-            geometry=gpd.points_from_xy(x=audible_pts.Xpos, y=audible_pts.Ypos, z=audible_pts.Zpos)
+            geometry=gpd.points_from_xy(nmsim_df["Xpos"], nmsim_df["Ypos"], nmsim_df["Zpos"])
         )
-        null_space = gpd.GeoDataFrame(
-            inaudible_pts,
-            crs=crs,
-            geometry=gpd.points_from_xy(x=inaudible_pts.Xpos, y=inaudible_pts.Ypos, z=inaudible_pts.Zpos)
-        )
-
-        total_space = pd.concat([active_space, null_space], ignore_index=True)
- 
-        return total_space
 
     @staticmethod
     def _contour_active_space(total_space: gpd.GeoDataFrame, altitude: int, max_pts: int = 5184) -> gpd.GeoDataFrame:
@@ -449,8 +466,8 @@ class ActiveSpaceGenerator:
 
         return pts
 
-    def _run_nmsim(self, job_name: str, source_pts: gpd.GeoDataFrame, crs: str, flt_file: str, site_file: str,
-                   omni_source: str, heading: Optional[int] = None) -> gpd.GeoDataFrame:
+    def _run_nmsim(self, job_name: str, source_pts: gpd.GeoDataFrame, flt_file: str, site_file: str,
+                   omni_source: str, altitude_m: int, heading: Optional[int] = None) -> gpd.GeoDataFrame:
         """
         Execute a single NMSIM job.
 
@@ -460,12 +477,14 @@ class ActiveSpaceGenerator:
             Name of this NMSIM run to use a suffix to input and output files.
         source_pts : gpd.GeoDataFrame
             GeoDataFrame of points to test the audibility of in NMSIM.
-        crs : str
-            The crs of the points. Of the format 'epsg:XXXX..'
         flt_file : str
             Absolute path to the .flt DEM file required to run NMSIM.
         site_file : str
             Absolute path to the .sit file of the receiver point required to run NMSIM.
+        omni_source : str
+            Absolute path to the omni source file to use.
+        altitude_m : int
+            The altitude of the source points, in meters.
         heading : int, default None
             The heading (yaw) to use for all points in the trajectory file. If None, a random heading will be used
             for each point.
@@ -475,9 +494,12 @@ class ActiveSpaceGenerator:
         new_audibility_pts : gpd.GeoDataFrame
             A GeoDataFrame of points tested during the NMSIM run and their audibility.
         """
+        print(f" {job_name}")
         assert len(source_pts) > 0, "Trying to run NMSIM on zero source points"
+        source_pts = source_pts.drop_duplicates("geometry")
+        crs = source_pts.crs.to_string().lower()
 
-        # Mark any underground points as inaudible and don't pass them to NMSIM
+        # Mark any underground points as inaudible and don't pass them to NMSIM - TODO abstract this logic
         aboveground_indices = []
         underground_indices = []  # underground or no DEM data
         with rasterio.open(self._dem_file) as dem:
@@ -497,27 +519,69 @@ class ActiveSpaceGenerator:
         # mark underground points as inaudible
         audibility_pts = source_pts.iloc[underground_indices]
         audibility_pts["audible"] = 0
+        if len(aboveground_indices) == 0:
+            return audibility_pts
+        
+        aboveground_pts = source_pts.iloc[aboveground_indices]
 
-        if len(aboveground_indices) > 0:
-            aboveground_pts = source_pts.iloc[aboveground_indices]
-            trajectory_filename = self._create_trajectory_file(aboveground_pts, crs, job_name, heading)
+        # Check if we've run any of the aboveground points through NMSIM before
+        # The csv filename is important - we assume all gains, altitudes, and headings in a csv are the same
+        omni_str = os.path.splitext(os.path.basename(omni_source))[0]
+        csv_filename = f"{self.root_dir}/Output_Data/TIG_TIS/{altitude_m}m_{omni_str}_{heading}deg.csv"
+        if not os.path.exists(csv_filename):
+            prev_df = None
+            prev_df_relevant = None
+            new_pts = aboveground_pts
+        else:
+            prev_df = pd.read_csv(csv_filename)   
+            # build two multi-indices to quickly determine which points we've run before
+            # only need to check x and y, since z and heading are constant within the csv
+            aboveground_pts_idx = pd.MultiIndex.from_frame(pd.DataFrame({
+                "Xpos": aboveground_pts.geometry.x,
+                "Ypos": aboveground_pts.geometry.y,
+            }))
+            prev_df_idx = pd.MultiIndex.from_frame(prev_df[["Xpos", "Ypos"]])
+            prev_df_relevant = prev_df[prev_df_idx.isin(aboveground_pts_idx)].drop_duplicates(["Xpos", "Ypos"])
+            new_pts = aboveground_pts[~aboveground_pts_idx.isin(prev_df_idx)].drop_duplicates("geometry")
+            print(f" {job_name} n={len(aboveground_pts)}, old={len(prev_df_relevant)}, new={len(new_pts)}")
+            # each aboveground pt should be represented by a row in either new_pts or prev_df_relevant
+            assert len(new_pts) + len(prev_df_relevant) == len(aboveground_pts)
+
+        if len(new_pts) == 0:
+            nmsim_df = prev_df_relevant
+        else:
+            # Prepare NMSIM instruction files
+            trajectory_filename = self._create_trajectory_file(new_pts, crs, job_name, heading)
             batch_file = self._create_instruction_files(flt_file, site_file, trajectory_filename, omni_source)
 
             # Run NMSIM.
             process = subprocess.Popen([self.NMSIM, batch_file], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             stdout, stderr = process.communicate()
-
             if stderr:
                 for s in stderr.decode("utf-8").split("\r\n"):
                     print(s.strip())
 
-            # Determine the audibility of points that were tested during the NMSIM run.
-            nmsim_audibility_pts = self._find_audible_points(
+            # Read NMSIM outputs and remove unneeded .trj and .tis file
+            nmsim_df = self._postprocess_trj_tis(
                 trajectory_filename,
                 f"{self.root_dir}/Output_Data/TIG_TIS/{job_name}.tis",
-                crs
-            )
-            audibility_pts = pd.concat([audibility_pts, nmsim_audibility_pts], ignore_index=True)
+                cleanup=True)
+        
+            # Combine with results from previous NMSIM runs if applicable
+            if prev_df_relevant is not None:
+                nmsim_df = pd.concat([prev_df_relevant, nmsim_df], ignore_index=True)
+        
+        # Determine the audibility of points that were tested.
+        nmsim_audibility_pts = self._find_audible_points(nmsim_df, crs)
+        audibility_pts = pd.concat([audibility_pts, nmsim_audibility_pts], ignore_index=True)
+        
+        # Combine NMSIM predictions with previous predictions and save
+        if prev_df is not None:
+            combined_df = pd.concat([prev_df, nmsim_df], axis=0, ignore_index=True)
+            combined_df = combined_df.drop_duplicates(subset=["Xpos", "Ypos"])
+        else:
+            combined_df = nmsim_df
+        combined_df.to_csv(csv_filename, index=False)
 
         return audibility_pts
 
@@ -652,7 +716,7 @@ class ActiveSpaceGenerator:
                 z=1.60,  # m, average height of human ear
                 crs=crs
             )
-
+        
         # If no dem file has been set, create the DEM file now. Also create the flt and site files needed by NMSIM.
         dem_filename = self._dem_file or self._mask_dem_file(dem_file, study_area=study_area, project=project_dem, suffix=f'_{mic.name}')
         flt_filename = self._flt_file or self._create_dem_flt(dem_filename)
@@ -687,16 +751,16 @@ class ActiveSpaceGenerator:
             
             source_pts = self._preprocess_source_points(source_pts, valid_query_region, tested_space)
             if source_pts.empty:
-                # print(f"Mesh step j={j}: no source points, skipping")
+                print(f"Mesh step {j+1}: no source points, skipping")
                 break
             
             new_audibility_pts = self._run_nmsim(
                 f"{mic.name}_{altitude_m}m_mesh{j + 1}",
                 source_pts,
-                crs,
                 flt_filename,
                 site_filename,
                 omni_source,
+                altitude_m,
                 heading
             )
             tested_space = pd.concat([tested_space, new_audibility_pts], ignore_index=True) 
@@ -707,15 +771,15 @@ class ActiveSpaceGenerator:
             source_pts = self._contour_active_space(tested_space, altitude_m)
             source_pts = self._preprocess_source_points(source_pts, valid_query_region, tested_space)
             if source_pts.empty:
-                # print(f"Refine step k={k}: no source points, skipping")
+                # print(f"Refine step {k+1}: no source points, skipping")
                 break
             new_audibility_pts = self._run_nmsim(
                 f"{mic.name}_{altitude_m}m_contour{k + 1}",
                 source_pts,
-                crs,
                 flt_filename,
                 site_filename,
                 omni_source,
+                altitude_m,
                 heading
             )
             tested_space = pd.concat([tested_space, new_audibility_pts], ignore_index=True)
