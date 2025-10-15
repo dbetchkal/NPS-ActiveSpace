@@ -356,24 +356,23 @@ class ActiveSpaceGenerator:
 
     def _postprocess_trj_tis(self, trajectory_file, tis_file, cleanup: bool = True):
         """
-        Combine relevant parts of this run's input .trj and output .tis files into an easy-to-parse CSV.
-        This provides an easier way to examine NMSIM outputs, and is important for the following use case:
-        
-        Use case: Consider a future run with different ambience, 75% of the points we want to query were previously queried.
-        In this case, we want to load in the relevant prior NMSIM spectrum predictions and just compute the additional
-        25% needed. We then want to append the new 25% without overwriting what exists already, so the combined results
-        can be used by further runs. It's hard to cleanly implement this appending behavior with .trj/.tis files.
+        Reads a job's input trajectory file and output TIS file, and combines them into a DataFrame.
+        Optionally removes the .trj and .tis files after doing so.
 
         Parameters
         ----------
         trajectory_file: str
+            Absolute path to the job's trajectory file.
         tis_file: str
+            Absolute path to the job's output TIS file.
         cleanup: bool, default True
-            If True, delete the .trj and .tis files after creating the CSV, since they have duplicate information.
+            If True, delete the .trj and .tis files after extracting their data.
 
         Returns
         -------
-        new_rows: pd.DataFrame
+        nmsim_df: pd.DataFrame
+            DataFrame representing tested point audibility. Has the columns:
+            Xpos, Ypos, Zpos, 
         """
         # Read in the trajectory input file.
         traj_df = pd.read_fwf(trajectory_file, header=14, widths=[16, 14] + [15]*7)
@@ -527,6 +526,16 @@ class ActiveSpaceGenerator:
             return audibility_pts
         
         aboveground_pts = source_pts.iloc[aboveground_indices]
+
+        """
+        Combine relevant parts of this run's input .trj and output .tis files into an easy-to-parse CSV.
+        This provides an easier way to examine NMSIM outputs, and is important for the following use case:
+        
+        Use case: Consider a future run with different ambience, 75% of the points we want to query were previously queried.
+        In this case, we want to load in the relevant prior NMSIM spectrum predictions and just compute the additional
+        25% needed. We then want to append the new 25% without overwriting what exists already, so the combined results
+        can be used by further runs. It's hard to cleanly implement this appending behavior with .trj/.tis files.
+        """
 
         # Check if we've run any of the aboveground points through NMSIM before
         # The csv filename is important - we assume all gains, altitudes, and headings in a csv are the same,

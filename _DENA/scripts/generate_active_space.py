@@ -2,6 +2,8 @@ import glob
 import multiprocessing as mp
 import os
 import re
+import signal
+import time
 import numpy as np
 from argparse import ArgumentParser
 from copy import deepcopy
@@ -12,6 +14,7 @@ from typing import List, Optional, Tuple, TYPE_CHECKING
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import pandas as pd
+import psutil
 from shapely.geometry import Point
 from tqdm import tqdm
 import pickle
@@ -246,6 +249,31 @@ def get_pretested_pts(tested_pts_record: dict, gain: float, headings: List[int])
     return pts_dict
 
 
+def cleanup(site_dir, max_tries=5):
+    """Remove batch, control, trajectory, and TIS files from site directory.
+    If this fails because NMSIM is still shutting down, tries again in a second."""
+    try:
+        for file in glob.glob(f"{site_dir}/control*"):
+            os.remove(file)
+        for file in glob.glob(f"{site_dir}/batch*"):
+            os.remove(file)
+        for file in glob.glob(f"{site_dir}/Input_Data/03_TRAJECTORY/*.trj"):
+            os.remove(file)
+        for file in glob.glob(f"{site_dir}/Output_Data/TIG_TIS/*.tis"):
+            os.remove(file)
+    except:
+        if max_tries > 0:
+            time.sleep(1)
+            cleanup(site_dir, max_tries-1)
+
+
+def init_worker():
+    """Worker initializer to allow clean Ctrl+C of multiprocessing.
+    This makes workers ignore Ctrl+C so that pool.terminate() can take care
+    of cleanly terminating the multiprocess workers."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
 if __name__ == '__main__':
 
     argparse = ArgumentParser()
@@ -377,8 +405,8 @@ if __name__ == '__main__':
     results = []
     tested_pts_record = {}
     _run = partial(_run_active_space, generator=generator_, headings=args.headings, microphone=mic_, altitude=altitude_)
-    
-    with mp.Pool(mp.cpu_count() - 1) as pool:
+
+    with mp.Pool(mp.cpu_count() - 1, init_worker) as pool:
         with tqdm(desc='Omni Sources', unit='omni source', colour='green', total=len(omni_sources)) as pbar:
             _handle_error = lambda error: print(f'Error: {error}', flush=True)
             _update_pbar = lambda _: pbar.update()
@@ -396,23 +424,29 @@ if __name__ == '__main__':
                     }
                     processes.append(pool.apply_async(
                         _run, callback=_update_pbar, error_callback=_handle_error, kwds=kwds))
-                    
-                # record outputs
-                outputs = [p.get() for p in processes]  # wait for all processes in this group to finish
-                for output in outputs:
-                    if output is None:
-                        continue
-                    omni, active, tested_pts_dict = output
-                    results.append((omni, active))
-                    tested_pts_record[omni_to_gain(omni)] = tested_pts_dict
+                
+                # try/except to handle keyboard interrupts during multiprocess
+                try:
+                    # record outputs
+                    outputs = [p.get() for p in processes]  # wait for all processes in this group to finish
+                    for output in outputs:
+                        if output is None:
+                            continue
+                        omni, active, tested_pts_dict = output
+                        results.append((omni, active))
+                        tested_pts_record[omni_to_gain(omni)] = tested_pts_dict
+
+                except KeyboardInterrupt as e:
+                    pool.terminate()
+                    pool.join()
+                    if args.cleanup:
+                        cleanup(site_dir)
+                    sys.exit(1)
 
 
     # Clean up intermediary files if the user requests.
     if args.cleanup:
-        for file in glob.glob(f"{site_dir}/control*"):
-            os.remove(file)
-        for file in glob.glob(f"{site_dir}/batch*"):
-            os.remove(file)
+        cleanup(site_dir)
 
     # --------------- ANALYSIS --------------- #
 
