@@ -409,6 +409,7 @@ if __name__ == '__main__':
             _handle_error = lambda error: print(f'Error: {error}', flush=True)
             _update_pbar = lambda _: pbar.update()
 
+            # multiprocess one group at a time - see group_omni_sources() docstring for more details
             for group in group_omni_sources(omni_sources):
                 processes = []
                 for omni_source_ in group:

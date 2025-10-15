@@ -470,6 +470,117 @@ class ActiveSpaceGenerator:
 
         return pts
 
+    def _determine_underground_pts(self, source_pts: gpd.GeoDataFrame) -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+        """Determines which source points are aboveground / underground.
+        
+        Parameters
+        ----------
+        source_pts: gpd.GeoDataFrame
+            GeoDataFrame of 3D points.
+        
+        Returns
+        -------
+        aboveground_pts: gpd.GeoDataFrame
+            Subset of source_pts that are above ground.
+        underground_pts: gpd.GeoDataFrame
+            Subset of source_pts that are below ground.
+        """
+        crs = source_pts.crs.to_string().lower()
+
+        aboveground_indices = []
+        underground_indices = []  # underground or no DEM data
+        with rasterio.open(self._dem_file) as dem:
+            proj = Transformer.from_crs(crs, dem.crs, always_xy=True)
+            xs = source_pts.geometry.x
+            ys = source_pts.geometry.y
+            zs = source_pts.geometry.z
+            xs, ys = proj.transform(xs, ys)
+            proj_pts = np.stack([xs, ys], axis=1)
+            elevs = list(dem.sample(proj_pts))
+            for i in range(len(source_pts)):
+                if elevs[i] is None or elevs[i] == dem.nodata or zs.iloc[i] < elevs[i]:
+                    underground_indices.append(i)
+                else:
+                    aboveground_indices.append(i)
+        
+        return source_pts.iloc[aboveground_indices], source_pts.iloc[underground_indices]
+
+    def _load_prev_nmsim_predictions(self, source_pts: gpd.GeoDataFrame, csv_filename: str, altitude_m: int
+                                     ) -> Tuple[pd.DataFrame, pd.DataFrame, gpd.GeoDataFrame]:
+        """
+        Loads previous NMSIM predictions and compares them against source points we want to compute
+        to see if any have been previously computed.
+
+        Parameters
+        ----------
+        source_pts: gpd.GeoDataFrame
+            GeoDataFrame of 3D source points we wish to get NMSIM predictions for.
+        csv_filename: str
+            Path to CSV file containing previous NMSIM predictions.
+        altitude_m: int
+            Altitude of the points in the CSV file.
+
+        Returns
+        -------
+        nmsim_df_all: pd.DataFrame
+            DataFrame containing all past NMSIM predictions.
+        nmsim_df: pd.DataFrame
+            DataFrame containing past NMSIM predictions that correspond to a source point.
+        new_pts: gpd.GeoDataFrame
+            Subset of source_pts containing only the points we don't have previous results for.
+        """
+        if not os.path.exists(csv_filename):
+            # no previous predictions, return empty dataframes
+            nmsim_df_all = pd.DataFrame()
+            nmsim_df = pd.DataFrame()
+            new_pts = source_pts
+        else:
+            # read in previous CSV
+            # note: to save disk space / file read-write time, we used NA to represent no sound aka -99.9dB,
+            # and stored centibels not decibels to avoid writing the decimal point. So, convert back.
+            # Also add back in Zpos field, which we didn't store since it is constant within the file.
+            nmsim_df_all = pd.read_csv(csv_filename).fillna(-999).astype("float64")
+            nmsim_df_all.loc[:,"A":"12500"] /= 10
+            nmsim_df_all["Zpos"] = altitude_m
+            # build two multi-indices to quickly determine which points we've run before
+            source_idx = pd.MultiIndex.from_frame(pd.DataFrame({
+                "Xpos": source_pts.geometry.x,
+                "Ypos": source_pts.geometry.y,
+            }))
+            prev_idx = pd.MultiIndex.from_frame(nmsim_df_all[["Xpos", "Ypos"]])
+            nmsim_df = nmsim_df_all[prev_idx.isin(source_idx)].drop_duplicates(["Xpos", "Ypos"])
+            new_pts = source_pts[~source_idx.isin(prev_idx)].drop_duplicates("geometry")
+            # each source pt should be represented by a row in either new_pts or nmsim_df
+            assert len(new_pts) + len(nmsim_df) == len(source_pts)
+        
+        return nmsim_df_all, nmsim_df, new_pts
+
+
+    def _save_nmsim_predictions(self, nmsim_df_all: pd.DataFrame, csv_filename: str):
+        """
+        Saves NMSIM predictions to a CSV file for future reference.
+        Compresses the data somewhat for better read-write performance and disk space usage.
+
+        Parameters
+        ----------
+        nmsim_df_all: pd.DataFrame
+            DataFrame of NMSIM predictions. Should contain columns Xpos, Ypos, Zpos (optional), A, and 1/3 octave bands
+        csv_filename: str
+            Path to CSV file to store NMSIM predictions in.
+        """
+        # remove duplicate points, this can happen sometimes I think and cause counting weirdness
+        nmsim_df_all = nmsim_df_all.drop_duplicates(subset=["Xpos", "Ypos"])
+
+        # Save to CSV, saving disk space and read-write time by:
+        # - using centibels to avoid writing the decimal point
+        # - storing no sound (-99.9dB) as NA
+        # - omitting the constant-valued Zpos field
+        dB_cols = nmsim_df_all.loc[:,"A":"12500"].columns
+        nmsim_df_all[dB_cols] = (nmsim_df_all[dB_cols] * 10).astype("Int64").replace(-999, pd.NA)
+        nmsim_df_all.drop("Zpos", axis=1, inplace=True, errors="ignore")
+        nmsim_df_all.to_csv(csv_filename, index=False)
+
+
     def _run_nmsim(self, job_name: str, source_pts: gpd.GeoDataFrame, flt_file: str, site_file: str,
                    omni_source: str, altitude_m: int, heading: Optional[int] = None) -> gpd.GeoDataFrame:
         """
@@ -502,72 +613,26 @@ class ActiveSpaceGenerator:
         source_pts = source_pts.drop_duplicates("geometry")
         crs = source_pts.crs.to_string().lower()
 
-        # Mark any underground points as inaudible and don't pass them to NMSIM - TODO abstract this logic
-        aboveground_indices = []
-        underground_indices = []  # underground or no DEM data
-        with rasterio.open(self._dem_file) as dem:
-            proj = Transformer.from_crs(crs, dem.crs, always_xy=True)
-            xs = source_pts.geometry.x
-            ys = source_pts.geometry.y
-            zs = source_pts.geometry.z
-            xs, ys = proj.transform(xs, ys)
-            proj_pts = np.stack([xs, ys], axis=1)
-            elevs = list(dem.sample(proj_pts))
-            for i in range(len(source_pts)):
-                if elevs[i] is None or elevs[i] == dem.nodata or zs.iloc[i] < elevs[i]:
-                    underground_indices.append(i)
-                else:
-                    aboveground_indices.append(i)
-
+        # Mark any underground points as inaudible and don't pass them to NMSIM
+        aboveground_pts, underground_pts = self._determine_underground_pts(source_pts)
+        
         # mark underground points as inaudible
-        audibility_pts = source_pts.iloc[underground_indices]
+        audibility_pts = underground_pts
         audibility_pts["audible"] = 0
-        if len(aboveground_indices) == 0:
+        if len(aboveground_pts) == 0:
             return audibility_pts
-        
-        aboveground_pts = source_pts.iloc[aboveground_indices]
-
-        """
-        Combine relevant parts of this run's input .trj and output .tis files into an easy-to-parse CSV.
-        This provides an easier way to examine NMSIM outputs, and is important for the following use case:
-        
-        Use case: Consider a future run with different ambience, 75% of the points we want to query were previously queried.
-        In this case, we want to load in the relevant prior NMSIM spectrum predictions and just compute the additional
-        25% needed. We then want to append the new 25% without overwriting what exists already, so the combined results
-        can be used by further runs. It's hard to cleanly implement this appending behavior with .trj/.tis files.
-        """
 
         # Check if we've run any of the aboveground points through NMSIM before
         # The csv filename is important - we assume all gains, altitudes, and headings in a csv are the same,
         # and so omit this information inside the csv to save space / read-write time
         omni_str = os.path.splitext(os.path.basename(omni_source))[0]
         csv_filename = f"{self.root_dir}/Output_Data/TIG_TIS/{altitude_m}m_{omni_str}_{heading}deg.csv"
-        if not os.path.exists(csv_filename):
-            prev_df = None
-            prev_df_matching = None
-            new_pts = aboveground_pts
-        else:
-            # read in previous CSV
-            # note: to save disk space / file read-write time, we used NA to represent no sound aka -99.9dB,
-            # and stored centibels not decibels to avoid writing the decimal point. So, convert back.
-            # Also add back in Zpos field, which we didn't store since it is constant within the file.
-            prev_df = pd.read_csv(csv_filename).fillna(-999).astype("float64")
-            prev_df.loc[:,"A":"12500"] /= 10
-            prev_df["Zpos"] = altitude_m
-            # build two multi-indices to quickly determine which points we've run before
-            aboveground_pts_idx = pd.MultiIndex.from_frame(pd.DataFrame({
-                "Xpos": aboveground_pts.geometry.x,
-                "Ypos": aboveground_pts.geometry.y,
-            }))
-            prev_df_idx = pd.MultiIndex.from_frame(prev_df[["Xpos", "Ypos"]])
-            prev_df_matching = prev_df[prev_df_idx.isin(aboveground_pts_idx)].drop_duplicates(["Xpos", "Ypos"])
-            new_pts = aboveground_pts[~aboveground_pts_idx.isin(prev_df_idx)].drop_duplicates("geometry")
-            # print(f"{job_name} n={len(aboveground_pts)}, old={len(prev_df_matching)}, new={len(new_pts)}")
-            # each aboveground pt should be represented by a row in either new_pts or prev_df_matching
-            assert len(new_pts) + len(prev_df_matching) == len(aboveground_pts)
+        nmsim_df_all, nmsim_df, new_pts = self._load_prev_nmsim_predictions(aboveground_pts, csv_filename, altitude_m)
+        # print(f"{job_name} n={len(aboveground_pts)}, old={len(nmsim_df)}, new={len(new_pts)}")
 
         if len(new_pts) == 0:
-            nmsim_df = prev_df_matching
+            # no need to run NMSIM, we have all the predictions already
+            new_nmsim_df = pd.DataFrame()
         else:
             # Prepare NMSIM instruction files
             trajectory_filename = self._create_trajectory_file(new_pts, crs, job_name, heading)
@@ -581,33 +646,23 @@ class ActiveSpaceGenerator:
                     print(s.strip())
 
             # Read NMSIM outputs and remove unneeded .trj and .tis file
-            nmsim_df = self._postprocess_trj_tis(
+            new_nmsim_df = self._postprocess_trj_tis(
                 trajectory_filename,
                 f"{self.root_dir}/Output_Data/TIG_TIS/{job_name}.tis",
                 cleanup=True)
         
-            # Combine with results from previous NMSIM runs if applicable
-            if prev_df_matching is not None:
-                nmsim_df = pd.concat([prev_df_matching, nmsim_df], ignore_index=True)
+            # Combine with results from previous NMSIM runs
+            nmsim_df = pd.concat([nmsim_df, new_nmsim_df], ignore_index=True)
+            nmsim_df = nmsim_df.drop_duplicates(subset=["Xpos", "Ypos"])
         
+        # Combine new NMSIM predictions with ALL previous predictions (not just ones matching source_pts),
+        # and save back to the csv file
+        nmsim_df_all = pd.concat([nmsim_df_all, new_nmsim_df], ignore_index=True)
+        self._save_nmsim_predictions(nmsim_df_all, csv_filename)
+
         # Determine the audibility of points that were tested.
         nmsim_audibility_pts = self._find_audible_points(nmsim_df, crs)
         audibility_pts = pd.concat([audibility_pts, nmsim_audibility_pts], ignore_index=True)
-        
-        # Combine NMSIM predictions with previous predictions and save
-        if prev_df is not None:
-            combined_df = pd.concat([prev_df, nmsim_df], axis=0, ignore_index=True)
-            combined_df = combined_df.drop_duplicates(subset=["Xpos", "Ypos"])
-        else:
-            combined_df = nmsim_df
-        # Save to CSV, saving disk space and read-write time by:
-        # - using centibels to avoid writing the decimal point
-        # - storing no sound (-99.9dB) as NA
-        # - omitting the constant-valued Zpos field
-        dB_cols = combined_df.loc[:,"A":"12500"].columns
-        combined_df[dB_cols] = (combined_df[dB_cols] * 10).astype("Int64").replace(-999, pd.NA)
-        combined_df.drop("Zpos", axis=1, inplace=True, errors="ignore")
-        combined_df.to_csv(csv_filename, index=False)
 
         return audibility_pts
 
