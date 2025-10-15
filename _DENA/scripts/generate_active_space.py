@@ -12,9 +12,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple, TYPE_CHECKING
 
 import geopandas as gpd
-import matplotlib.pyplot as plt
 import pandas as pd
-import psutil
 from shapely.geometry import Point
 from tqdm import tqdm
 import pickle
