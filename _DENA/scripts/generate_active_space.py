@@ -114,7 +114,7 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
     return Path(omni_source).stem, dissolved_active_space, tested_pts_dict
 
 
-def omni_to_gain(omni_source: str):
+def omni_to_gain(omni_source: str) -> float:
     """
     Converts an omni source name to the corresponding gain.
     Pure omni strings ("O_+125") or paths "directory/O_+125.src" can be passed, since regex is used.
@@ -123,11 +123,42 @@ def omni_to_gain(omni_source: str):
     return int(match.group(1)) / 10
 
 
-def group_omni_sources(omnis):
+def group_omni_sources(omnis: List[str]) -> List[List[str]]:
+    """
+    Sort and order omni sources into groups, to get maximum benefit from get_pretested_pts().
+
+    Rationale:
+    Ideally, we want previous gains to closely bound new gains, so that most of the space can
+    be predetermined as audible or inaudible based on previous results (see get_pretested_pts()).
+    So instead of calculating gains in increasing order, it makes sense to first calculate the middle gain,
+    then the gains at the middle of the upper half and lower half of gains, etc. This quickly ensures
+    that any future gain we want to test will have close lower and upper bounds.
+
+    To make this work with multiprocessing, we compute active space gains in groups, where each group
+    is multiprocessed. Future groups can make use of past groups' results. So to follow the above rationale,
+    the first group is the gain in the middle, the next group is the two gains dividing the upper/lower halves, etc.
+    So group size goes 1, 2, 4, 8, etc. However, starting with very small groups doesn't utilize the CPU well
+    when multiprocessing, and this is more important than benefitting from previous results. So we collapse the
+    first several groups together to improve this.
+
+    Parameters
+    ----------
+    omnis: List[str]
+        List of absolute paths to omni source files, with names like O_+125.src
+    
+    Returns
+    -------
+    groups: List[List[str]]
+        A list of omni source groups, in the order we should compute them. Each group is a list of
+        absolute paths to omni source files.
+    """
+    # store omni source filename indexed by the corresponding gain
     gains = list(map(omni_to_gain, omnis))
     df = pd.DataFrame({"omni": omnis}, index=gains)
     df = df.sort_index()
 
+    # define recursive function that will look for the halfway gain recursively and assign group numbers
+    # the group number will be equivalent to the recursion depth; this matches the rationale in the docstring
     def recurse(idxs, group=0):
         if not idxs:
             return
@@ -136,11 +167,14 @@ def group_omni_sources(omnis):
         recurse(idxs[:mid], group+1)   # left half
         recurse(idxs[mid+1:], group+1) # right half
 
+    # run recursion on the list of gain indices
     recurse(df.index.tolist())
 
-    # collapse the early groups together, multiprocessing will be able to handle it
+    # collapse the early groups together so that we can make good use of the CPU
+    # in the first round of multiprocessing. 3 is empirically chosen to utilize the CPU well.
     df.loc[df["group"] < 3, "group"] = 3
 
+    # create list of groups
     groups = []
     for _, df_group in df.groupby("group"):
         groups.append(df_group["omni"].tolist())
@@ -148,11 +182,32 @@ def group_omni_sources(omnis):
     return groups
 
 
-def get_pretested_pts(tested_pts_record, gain, headings):
+def get_pretested_pts(tested_pts_record: dict, gain: float, headings: List[int]) -> dict:
     """
-    TODO - document
+    Get points that we already know audibility/inaudibility for, given previous results.
+    This is based on the principle that if a point is audible and you increase the gain,
+    it will remain audible. Similarly, if a point is inaudible and you decrease the gain,
+    it will still be inaudible.
+
+    Parameters
+    ----------
+    tested_pts_record: dict
+        Dictionary storing the history of tested points and their audibility.
+        Keys are gains, values are the dictionary "tested_pts_dict" returned by _run_active_space(),
+        which has keys for each heading, and values are GeoDataFrames of 3D points with an "audible" field = 0 or 1.
+    gain: float
+        The active space gain we wish to compute next, that we are interested in pretested points for.
+    headings: List[int]
+        A list of headings that we want pretested points for.
+    
+    Returns
+    -------
+    pts_dict: dict
+        A dictionary containing points with their expected audibility based on past results.
+        Keys are headings, values are GeoDataFrames of 3D points with an "audible" field = 0 or 1.
     """
-    # search for previous gain(s) most closely lower and upper bounding this gain
+    # search for previous gain(s) that most closely lower and upper bound this gain
+    # these will restrict the space we need to test the most, providing maximum speed benefits
 
     prev_gains = np.array(list(tested_pts_record.keys()))
     
@@ -184,6 +239,7 @@ def get_pretested_pts(tested_pts_record, gain, headings):
             df = tested_pts_record[larger_gain][h]
             pts_dict[h].append(df[df["audible"] == 0])
 
+    # combine audible and inaudible points into a single GeoDataFrame for each heading
     for h in pts_dict:
         pts_dict[h] = pd.concat(pts_dict[h], axis=0, ignore_index=True)
     

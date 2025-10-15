@@ -17,6 +17,7 @@ import rasterio
 from shapely.geometry import Point, Polygon, box
 from shapely.validation import make_valid
 from tqdm import tqdm
+from warnings import warn
 
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.utils.models import Microphone
@@ -65,7 +66,13 @@ class ActiveSpaceGenerator:
     def __init__(self, NMSIM: str, study_area: gpd.GeoDataFrame, root_dir: str, dem_src: str,
                  ambience: Union[float, pd.Series]):
 
+        assert os.path.exists(NMSIM), "NMSIM not found"
+        assert os.path.exists(dem_src), "DEM not found"
+        assert os.path.exists(root_dir), "Root directory not found"
         assert (type(ambience) == float) or isinstance(ambience, pd.Series), "Improper ambience input"
+        if type(ambience) == float:
+            warn("Using broadband ambience. This feature has not been maintained and has possible buggy, incorrect, "
+                 "or unexpected behavior. Only use if you know what you are doing.", UserWarning)
 
         self.study_area = study_area.to_crs('epsg:4269')
         self.root_dir = root_dir
@@ -404,7 +411,9 @@ class ActiveSpaceGenerator:
         Parameters
         ----------
         nmsim_df: pd.DataFrame
-            TODO
+            DataFrame listing source point coordinates and NMSIM's predictions in dB of the sound level
+            at the microphone for each band. Contains at least columns "Xpos", "Ypos", "Zpos", "A",
+            and 1/3 octave bands "20" through "12500", in order.
         crs : str
             crs of the trajectory file and of the output GeoDataFrame. In the format 'epsg:XXXX'
 
@@ -663,7 +672,26 @@ class ActiveSpaceGenerator:
 
         Parameters
         ----------
-        TODO
+        source_pts: gpd.GeoDataFrame
+            GeoDataFrame of 3D points.
+        valid_query_region: gpd.GeoDataFrame
+            GeoDataFrame containing geometry that defines the valid query region. Any source points outside
+            of this region will be filtered out and not tested. The valid query region is the study area,
+            minus a padding region around the edge so that points are tested too close to where DEM data is missing.
+        tested_space: gpd.GeoDataFrame
+            A GeoDataFrame of 3D points, with a field "audible" = 0 or 1, representing points that have been
+            tested already by NMSIM. There is no need to retest a point that has already been tested.
+        max_pts: int, default 4000
+            The maximum number of source points to give to NMSIM in one trajectory file. If len(source_pts)
+            exceeds this, points will be dropped at random (but with a fixed seed) to match this.
+            Reason: If too many points are given to NMSIM, NMSIM won't calculate anything and will leave
+            the output TIS file blank. Annoyingly, this behavior is not deterministic / there is not a hard threshold;
+            it becomes more likely with more points (potentially a memory allocation thing that fails silently?).
+        
+        Returns
+        -------
+        source_pts: gpd.GeoDataFrame
+            A copy of source_pts filtered appropriately.
         """
         # only query points inside the study area and far enough from the study area boundary
         source_pts = source_pts[source_pts.within(valid_query_region)]
