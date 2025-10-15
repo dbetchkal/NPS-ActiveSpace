@@ -370,6 +370,7 @@ if __name__ == '__main__':
                                                                                               active_space_polygons=results,
                                                                                               beta_=beta_,
                                                                                               plot=True,
-                                                                                              plot_savepath=plot_savepath)
+                                                                                              plot_savepath=plot_savepath,
+                                                                                              verbose=False)
 
         logger.info(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta})")

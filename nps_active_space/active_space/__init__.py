@@ -370,8 +370,8 @@ class ActiveSpaceGenerator:
         """
         # Read in the trajectory input file.
         traj_df = pd.read_fwf(trajectory_file, header=14, widths=[16, 14] + [15]*7)
-        # drop irrelevant or constant fields
-        traj_df = traj_df.drop(["time(s)", "climbANG", "Vel", "power", "rol"], axis=1)
+        # drop unneeded fields
+        traj_df = traj_df.drop(["time(s)", "heading", "climbANG", "Vel", "power", "rol"], axis=1)
 
         # Read in the tis NMSIM output file.
         tis_df = pd.read_fwf(tis_file, header=15, skipfooter=1, widths=[4, 12] + [5]*35)
@@ -381,12 +381,14 @@ class ActiveSpaceGenerator:
         tis_df.columns = ["TIME", "A", "10", "12.5", "15.8", "20", "25", "31.5", "40", "50", "63",
                             "80", "100", "125", "160", "200", "250", "315", "400", "500", "630", "800", "1000",
                             "1250", "1600", "2000", "2500", "3150", "4000", "5000", "6300", "8000", "10000", "12500"]
-        tis_df = tis_df.drop("TIME", axis=1)  # not used
+        tis_df = tis_df.drop("TIME", axis=1)
         # convert centibels (cB) to decibels (dB) and round to remove floating point precision errors
         # file is less precise than 6 decimal places, so rounding just removes floating point issues
+        # all columns are sound levels now so can apply this to the whole df
         tis_df = (tis_df.astype(float) * 0.1).round(6)
 
-        assert len(traj_df) == len(tis_df)
+        assert not tis_df.empty, "NMSIM didn't run, try reducing max_pts in _preprocess_source_pts() and try again"
+        assert len(traj_df) == len(tis_df), f"# trajectory points ({len(traj_df)}) is not equal to # tis points ({len(tis_df)})"
         new_rows = pd.concat([traj_df, tis_df], axis=1)
         
         if cleanup:
@@ -430,7 +432,7 @@ class ActiveSpaceGenerator:
         )
 
     @staticmethod
-    def _contour_active_space(total_space: gpd.GeoDataFrame, altitude: int, max_pts: int = 5184) -> gpd.GeoDataFrame:
+    def _contour_active_space(total_space: gpd.GeoDataFrame, altitude: int) -> gpd.GeoDataFrame:
         """
         Use triangulation to select points along the audible/inaudible line of the active space to more precisely
         define the boundaries.
@@ -441,8 +443,6 @@ class ActiveSpaceGenerator:
             All points that have been tested for audibility so far -- both audible and inaudible.
         altitude : int
             The altitude (in meters) we are calculating the active space at.
-        max_pts : int, default 5184
-            The number of points to use for triangulation.
 
         Returns
         -------
@@ -459,10 +459,6 @@ class ActiveSpaceGenerator:
         x = contour_path.vertices[:, 0]
         y = contour_path.vertices[:, 1]
         pts = gpd.GeoDataFrame(geometry=gpd.points_from_xy(x, y, altitude), crs=total_space.crs)
-
-        # if we have more contour points than NMSim can handle, down-sample randomly
-        if pts.shape[0] > max_pts:
-            pts = pts.sample(max_pts, random_state=2)
 
         return pts
 
@@ -524,30 +520,36 @@ class ActiveSpaceGenerator:
         aboveground_pts = source_pts.iloc[aboveground_indices]
 
         # Check if we've run any of the aboveground points through NMSIM before
-        # The csv filename is important - we assume all gains, altitudes, and headings in a csv are the same
+        # The csv filename is important - we assume all gains, altitudes, and headings in a csv are the same,
+        # and so omit this information inside the csv to save space / read-write time
         omni_str = os.path.splitext(os.path.basename(omni_source))[0]
         csv_filename = f"{self.root_dir}/Output_Data/TIG_TIS/{altitude_m}m_{omni_str}_{heading}deg.csv"
         if not os.path.exists(csv_filename):
             prev_df = None
-            prev_df_relevant = None
+            prev_df_matching = None
             new_pts = aboveground_pts
         else:
-            prev_df = pd.read_csv(csv_filename)   
+            # read in previous CSV
+            # note: to save disk space / file read-write time, we used NA to represent no sound aka -99.9dB,
+            # and stored centibels not decibels to avoid writing the decimal point. So, convert back.
+            # Also add back in Zpos field, which we didn't store since it is constant within the file.
+            prev_df = pd.read_csv(csv_filename).fillna(-999).astype("float64")
+            prev_df.loc[:,"A":"12500"] /= 10
+            prev_df["Zpos"] = altitude_m
             # build two multi-indices to quickly determine which points we've run before
-            # only need to check x and y, since z and heading are constant within the csv
             aboveground_pts_idx = pd.MultiIndex.from_frame(pd.DataFrame({
                 "Xpos": aboveground_pts.geometry.x,
                 "Ypos": aboveground_pts.geometry.y,
             }))
             prev_df_idx = pd.MultiIndex.from_frame(prev_df[["Xpos", "Ypos"]])
-            prev_df_relevant = prev_df[prev_df_idx.isin(aboveground_pts_idx)].drop_duplicates(["Xpos", "Ypos"])
+            prev_df_matching = prev_df[prev_df_idx.isin(aboveground_pts_idx)].drop_duplicates(["Xpos", "Ypos"])
             new_pts = aboveground_pts[~aboveground_pts_idx.isin(prev_df_idx)].drop_duplicates("geometry")
-            tqdm.write(f"{job_name} n={len(aboveground_pts)}, old={len(prev_df_relevant)}, new={len(new_pts)}")
-            # each aboveground pt should be represented by a row in either new_pts or prev_df_relevant
-            assert len(new_pts) + len(prev_df_relevant) == len(aboveground_pts)
+            # print(f"{job_name} n={len(aboveground_pts)}, old={len(prev_df_matching)}, new={len(new_pts)}")
+            # each aboveground pt should be represented by a row in either new_pts or prev_df_matching
+            assert len(new_pts) + len(prev_df_matching) == len(aboveground_pts)
 
         if len(new_pts) == 0:
-            nmsim_df = prev_df_relevant
+            nmsim_df = prev_df_matching
         else:
             # Prepare NMSIM instruction files
             trajectory_filename = self._create_trajectory_file(new_pts, crs, job_name, heading)
@@ -567,8 +569,8 @@ class ActiveSpaceGenerator:
                 cleanup=True)
         
             # Combine with results from previous NMSIM runs if applicable
-            if prev_df_relevant is not None:
-                nmsim_df = pd.concat([prev_df_relevant, nmsim_df], ignore_index=True)
+            if prev_df_matching is not None:
+                nmsim_df = pd.concat([prev_df_matching, nmsim_df], ignore_index=True)
         
         # Determine the audibility of points that were tested.
         nmsim_audibility_pts = self._find_audible_points(nmsim_df, crs)
@@ -580,6 +582,13 @@ class ActiveSpaceGenerator:
             combined_df = combined_df.drop_duplicates(subset=["Xpos", "Ypos"])
         else:
             combined_df = nmsim_df
+        # Save to CSV, saving disk space and read-write time by:
+        # - using centibels to avoid writing the decimal point
+        # - storing no sound (-99.9dB) as NA
+        # - omitting the constant-valued Zpos field
+        dB_cols = combined_df.loc[:,"A":"12500"].columns
+        combined_df[dB_cols] = (combined_df[dB_cols] * 10).astype("Int64").replace(-999, pd.NA)
+        combined_df.drop("Zpos", axis=1, inplace=True, errors="ignore")
         combined_df.to_csv(csv_filename, index=False)
 
         return audibility_pts
@@ -643,14 +652,14 @@ class ActiveSpaceGenerator:
 
         return gpd.GeoDataFrame(data={'geometry': outer_polys}, geometry='geometry', crs=crs)
 
-    def _preprocess_source_points(self, source_pts: gpd.GeoDataFrame,
-                                  valid_query_region: gpd.GeoDataFrame, tested_space: gpd.GeoDataFrame):
+    def _preprocess_source_points(self, source_pts: gpd.GeoDataFrame, valid_query_region: gpd.GeoDataFrame,
+                                  tested_space: gpd.GeoDataFrame, max_pts: int = 4000):
         """        
         Filter a set of source points, removing points that:
         1) Are outside the valid query region - meaning outside the study area, or too close
            to the study area boundary (since DEM info isn't present outside the study area)
         2) We already know are audible / inaudible
-        3) More than what NMSIM can handle (5184 points at once)
+        3) More than what NMSIM can handle (~4000 points at once)
 
         Parameters
         ----------
@@ -663,8 +672,8 @@ class ActiveSpaceGenerator:
         source_pts = source_pts[~source_pts.geometry.isin(tested_space.geometry)]
 
         # if too many points for NMSIM, randomly downsample
-        if source_pts.shape[0] > 5184:
-            source_pts = source_pts.sample(5184, random_state=5)       
+        if source_pts.shape[0] > max_pts:
+            source_pts = source_pts.sample(max_pts, random_state=5)       
 
         return source_pts
     
