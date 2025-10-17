@@ -461,7 +461,7 @@ class ActiveSpaceGenerator:
         fig, ax = plt.subplots()
         tri = mpl.tri.Triangulation(total_space.geometry.x.tolist(), total_space.geometry.y.tolist())
         cs = ax.tricontour(tri, total_space.audible.tolist(), levels=[0.5])  # contour with arbitrary point cloud
-        plt.close('all')
+        plt.close(fig)
 
         contour_path = cs.get_paths()[0]  
         x = contour_path.vertices[:, 0]
@@ -703,7 +703,7 @@ class ActiveSpaceGenerator:
 
         # pick some contour level to choose as the active space boundary... 0.5 is somewhat arbitrary
         level_ind = np.where(cs.levels == 0.5)[0][0]
-        plt.close('all')  # close triangulation figure
+        plt.close(fig)  # close triangulation figure
 
         # iterate through all contour paths in the `TriContourSet` at level_ind
         # https://matplotlib.org/stable/api/tri_api.html#matplotlib.tri.TriContourSet
