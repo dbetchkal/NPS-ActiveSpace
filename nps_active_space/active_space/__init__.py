@@ -505,11 +505,13 @@ class ActiveSpaceGenerator:
         
         return source_pts.iloc[aboveground_indices], source_pts.iloc[underground_indices]
 
-    def _load_prev_nmsim_predictions(self, source_pts: gpd.GeoDataFrame, csv_filename: str, altitude_m: int
+    @staticmethod
+    def load_prev_nmsim_predictions(source_pts: gpd.GeoDataFrame, csv_filename: str, altitude_m: int
                                      ) -> Tuple[pd.DataFrame, pd.DataFrame, gpd.GeoDataFrame]:
         """
         Loads previous NMSIM predictions and compares them against source points we want to compute
-        to see if any have been previously computed.
+        to see if any have been previously computed. This method is static so external scripts can use
+        it to examine NMSIM predictions easily.
 
         Parameters
         ----------
@@ -555,8 +557,8 @@ class ActiveSpaceGenerator:
         
         return nmsim_df_all, nmsim_df, new_pts
 
-
-    def _save_nmsim_predictions(self, nmsim_df_all: pd.DataFrame, csv_filename: str):
+    @staticmethod
+    def save_nmsim_predictions(nmsim_df_all: pd.DataFrame, csv_filename: str):
         """
         Saves NMSIM predictions to a CSV file for future reference.
         Compresses the data somewhat for better read-write performance and disk space usage.
@@ -627,7 +629,8 @@ class ActiveSpaceGenerator:
         # and so omit this information inside the csv to save space / read-write time
         omni_str = os.path.splitext(os.path.basename(omni_source))[0]
         csv_filename = f"{self.root_dir}/Output_Data/TIG_TIS/{altitude_m}m_{omni_str}_{heading}deg.csv"
-        nmsim_df_all, nmsim_df, new_pts = self._load_prev_nmsim_predictions(aboveground_pts, csv_filename, altitude_m)
+        nmsim_df_all, nmsim_df, new_pts = ActiveSpaceGenerator.load_prev_nmsim_predictions(
+            aboveground_pts, csv_filename, altitude_m)
         # print(f"{job_name} n={len(aboveground_pts)}, old={len(nmsim_df)}, new={len(new_pts)}")
 
         if len(new_pts) == 0:
@@ -658,7 +661,7 @@ class ActiveSpaceGenerator:
         # Combine new NMSIM predictions with ALL previous predictions (not just ones matching source_pts),
         # and save back to the csv file
         nmsim_df_all = pd.concat([nmsim_df_all, new_nmsim_df], ignore_index=True)
-        self._save_nmsim_predictions(nmsim_df_all, csv_filename)
+        ActiveSpaceGenerator.save_nmsim_predictions(nmsim_df_all, csv_filename)
 
         # Determine the audibility of points that were tested.
         nmsim_audibility_pts = self._find_audible_points(nmsim_df, crs)
