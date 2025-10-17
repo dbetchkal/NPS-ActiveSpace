@@ -288,9 +288,9 @@ if __name__ == '__main__':
                           help="What type of ambience to use in NMSIM calculations. Choose from ['nvspl', 'mennitt', or a path to an ambience .pkl file]")
     argparse.add_argument('--headings', nargs='+', type=int, default=[0, 120, 240],
                           help="Headings of active spaces to dissolve. Accepts one or more values.")
-    argparse.add_argument('--omni-min', type=float, default=-20,
+    argparse.add_argument('--omni-min', type=float, default=0,
                           help="The minimum omni source to run the mesh for.")
-    argparse.add_argument('--omni-max', type=float, default=30,
+    argparse.add_argument('--omni-max', type=float, default=40,
                           help="The maximum omni source to run the mesh for.")
     argparse.add_argument('-l', '--altitude', type=int, required=False,
                           help="Altitude to run NSMIM with in meters.")
