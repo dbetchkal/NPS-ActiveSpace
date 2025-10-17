@@ -110,6 +110,8 @@ Please note that the Precision-Recall plot that is shown at the end of a run is 
 | `-l`, `--altitude`    | Use this flag to generate the active spaces at a particular altitude (in meters). *Ex*: `-l 1524` generates active spaces at 1524 meters or 5000 feet.<br/>If not passed, the average altitude of the valid, audible ground-truthed tracks will be calculated and used. |
 | `-b`, `--beta`        | ***default 1.0***<br/>the beta value to use when calculating the f-beta for each active space.<br/>https://en.wikipedia.org/wiki/F-score#F%CE%B2_score)                                                                                                                                                                          |
 | `--cleanup`           | If this flag is added, all intermediary control and batch files will be deleted upon script completion.                                                                                                                                                                 |
+| `--annotation-file` | If provided, basename of GEOJSON annotations file to use instead of the default. File should be in the site directory. |
+
 
 Example executions:
 

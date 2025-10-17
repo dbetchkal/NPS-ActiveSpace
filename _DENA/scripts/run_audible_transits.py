@@ -21,7 +21,7 @@ import json
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser
 import shapely
-from shapely.geometry import Point, MultiPoint, LineString, Polygon, box, GeometryCollection
+from shapely.geometry import Point, MultiPoint, LineString, Polygon, box, GeometryCollection, MultiLineString, MultiPolygon
 import rasterio.plot
 import rasterio
 import geopy as geopy
@@ -114,28 +114,38 @@ def coords_equal(a, b, tol=1e-4):
 
 def complex_split(geom: LineString, splitter):
     """
-    Function to split linestrings without self intersection issues.
-    Solution comes from here: https://github.com/shapely/shapely/issues/1068#issuecomment-770296614
+    Function to split linestrings along a polygon boundary without self intersection issues.
+    Solution based on this: https://github.com/shapely/shapely/issues/1068#issuecomment-770296614
     Note that this will fail to fully split the geom if the splitter intersects the geometry at a self-intersection point.
     This can likely be fixed by calling this function again on the split results, but not sure.
     """
-    if geom.is_simple:
-        return shapely.ops.split(geom, splitter)
-    
-    if isinstance(splitter, Polygon):
-        splitter = splitter.exterior
-    
-    # Ensure that intersection exists and is zero dimensional.
-    relate_str = geom.relate(splitter)
-    if relate_str[0] == '1':
-        raise ValueError('Cannot split LineString by a geometry which intersects a '
-                         'continuous portion of the LineString.')
-    if not (relate_str[0] == '0' or relate_str[1] == '0'):
-        return GeometryCollection((geom,))
+    # convert splitter to a linestring, so that the intersection is only computed
+    # along the boundary of the polygon / multipolygon
+    if type(splitter) in [Polygon, MultiPolygon]:
+        splitter = splitter.boundary
+    assert type(splitter) in [LineString, MultiLineString]
 
-    intersection_points = geom.intersection(splitter)
-    snapped_geom = shapely.snap(geom, intersection_points, tolerance=1.0e-4)
-    return shapely.ops.split(snapped_geom, intersection_points)
+    # find intersection of splitter and geom, if empty just return geom
+    intersection = geom.intersection(splitter)
+    if intersection.is_empty:
+        return GeometryCollection((geom,))
+    
+    # Get intersection points to use for splitting.
+    # It's possible that the intersection contains linestrings, in that case
+    # just take the first point of each linestring as the split point
+    intersection_pts = []
+    # get an iterable of the intersection geometries - the intersection may have multiple or a single geometry
+    intersect_geoms = intersection.geoms if hasattr(intersection, "geoms") else [intersection]
+    for g in intersect_geoms:
+        if isinstance(g, LineString):
+            g = Point(g.coords[0])
+        assert isinstance(g, Point)
+        intersection_pts.append(g)
+    intersection_pts = MultiPoint(intersection_pts)
+    
+    # snap geom to the intersection points so that we can split w/o floating point issues
+    snapped_geom = shapely.snap(geom, intersection_pts, tolerance=1.0e-4)
+    return shapely.ops.split(snapped_geom, intersection_pts)
 
 
 class AudibleTransits(ABC):

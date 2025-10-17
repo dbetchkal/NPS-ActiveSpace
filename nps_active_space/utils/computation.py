@@ -734,7 +734,8 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
     # convert to UTM because we are doing distance-based processing
     orig_crs = points.crs  # remember this so we can project back later
     crs = NMSIM_bbox_utm(study_area)
-    points = points.to_crs(crs)
+    if points.crs != crs:
+        points = points.to_crs(crs)
     
     # clip to study area to reduce the amount of grid cells needed, since the KDEpy grid needs to include all points
     # also those points can be safely excluded from consideration when fitting the active space
@@ -797,7 +798,8 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
         plt.show()
 
     # convert points back to the original crs
-    points = points.to_crs(orig_crs)
+    if points.crs != orig_crs:
+        points = points.to_crs(orig_crs)
 
     return points
 
