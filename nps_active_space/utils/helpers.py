@@ -1,9 +1,7 @@
-import shutil
 import glob
 import logging
 import os
 from typing import List, Optional, TYPE_CHECKING, Union
-import json
 import pandas as pd
 import matplotlib.pyplot as plt
 
