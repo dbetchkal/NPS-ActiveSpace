@@ -247,8 +247,8 @@ class AudibleTransits(ABC):
         self.split_paused_tracks()
         self.extract_aircraft_info()
         self.remove_jets()
-        self.convert_tracks_to_utm()
-        self.convert_active_to_utm()
+        self.tracks = self.tracks.to_crs(self.utm_zone)
+        self.active = self.active.to_crs(self.utm_zone)
         self.create_segments()
 
         # self.raw_tracks = self.tracks.copy()  # FYI this more than doubles storage space of this object later
@@ -369,53 +369,6 @@ class AudibleTransits(ABC):
             A dataframe containing all tracks in the buffered active space with standardized column names
         '''
         pass
-
-    def convert_tracks_to_utm(self, tracks='self'):
-        '''
-        Convert tracks to UTM zone. The attribute `AudibleTransits.utm_zone` must already be 
-        determined using `AudibleTransits.init_spatial_data`.
-
-        Parameters
-        ----------
-        tracks : `gpd.GeoDataFrame` (or string 'self')
-            Default is 'self', which uses `self.tracks`. 
-            Otherwise, `gpd.Geodataframe` containing all tracks (as points).
-        '''
-
-        assert hasattr(self, "utm_zone"), "Need to determine the UTM zone before converting tracks to UTM"
-
-        if type(tracks) is str:
-            assert tracks == 'self'
-            tracks = self.tracks
-            self_flag = True
-        else:
-            self_flag = False
-
-        # Various track data are logged in the World Geodetic System.
-        # https://en.wikipedia.org/wiki/World_Geodetic_System
-        tracks = tracks.set_crs('WGS84')
-
-        # Convert to the equal area UTM zone, as determined previously and saved as the attribute `self.utm_zone`.
-        utm_tracks = tracks.to_crs(self.utm_zone)
-
-        # Create `shapely.geometry.Point` objects for each geometry using the previously saved xy points and altitude MSL.
-        utm_tracks.geometry = gpd.points_from_xy(
-            utm_tracks.geometry.x, utm_tracks.geometry.y, utm_tracks.z)
-
-        if self_flag:
-            self.tracks = utm_tracks.copy()
-
-        return utm_tracks
-
-    def convert_active_to_utm(self):
-        '''
-        Convert an active space from an arbitrary spatial reference into UTM.
-        '''
-
-        utm_active = self.active.to_crs(self.utm_zone)
-        self.active = utm_active.copy()
-
-        return utm_active
 
     def create_segments(self, radius=400000, z_min=0, z_max=15000):
         '''
