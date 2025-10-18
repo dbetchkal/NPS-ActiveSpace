@@ -99,7 +99,7 @@ logger, log_buffer = get_logger("AUDIBLE-TRANSITS", make_log_buffer=True)
 
 # Same thing for verbose_tqdm bars; don't want to show all of them if the user runs the pipeline with verbose=False
 # We make a verbose_tqdm utility for keeping the code in this file clean
-hide_progress_bars = False
+hide_progress_bars = True  # gets updated based on verbose argument to run_pipeline()
 def verbose_tqdm(iterable, *args, **kwargs):
     if hide_progress_bars:
         return iterable
@@ -405,7 +405,7 @@ class AudibleTransits(ABC):
         z_adj_count = 0
         track_list = []
         # Loop through each flight (track points grouped by flight ID)
-        for track_id, group in verbose_tqdm(grouped_track_pts, unit='tracks'):
+        for track_id, group in verbose_tqdm(grouped_track_pts, unit=' tracks'):
             if len(group) >= 2:
                 group = group.sort_values('point_dt')
                 n_number = group.n_number.iloc[0]
