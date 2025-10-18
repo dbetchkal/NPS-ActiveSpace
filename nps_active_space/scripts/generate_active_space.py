@@ -19,7 +19,7 @@ import sys
 import iyore
 
 import nps_active_space.utils.config as cfg
-from nps_active_space.utils.helpers import get_deployment, get_logger, get_omni_sources, load_annotations
+from nps_active_space.utils.helpers import get_deployment, get_logger, get_omni_sources, load_annotations, omni_to_gain
 from nps_active_space.utils.models import Annotations, Nvspl
 from nps_active_space.utils.computation import select_optimal, ambience_from_nvspl, ambience_from_raster, normalize_point_density
 from nps_active_space.active_space import ActiveSpaceGenerator
@@ -101,15 +101,6 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
             pickle.dump(tested_pts_dict, f)
 
     return Path(omni_source).stem, dissolved_active_space, tested_pts_dict
-
-
-def omni_to_gain(omni_source: str) -> float:
-    """
-    Converts an omni source name to the corresponding gain.
-    Pure omni strings ("O_+125") or paths "directory/O_+125.src" can be passed, since regex is used.
-    """
-    match = re.search(r"O_([+-]\d\d\d)", omni_source)
-    return int(match.group(1)) / 10
 
 
 def group_omni_sources(omnis: List[str]) -> List[List[str]]:
@@ -383,8 +374,10 @@ if __name__ == '__main__':
 
     logger.info(f"Generating active spaces for: {args.unit}{args.site}{args.year}...")
 
-    active_savedir = os.path.join(site_dir, "Output_Data", "ACTIVESPACES")
-    tested_pts_savedir = os.path.join(site_dir, "Output_Data", "TESTED_POINTS")
+    active_savedir = os.path.join(
+        site_dir, "Output_Data", "ACTIVESPACES", f"{args.unit}{args.site}{args.year}_{altitude_}m")
+    tested_pts_savedir = os.path.join(
+        site_dir, "Output_Data", "TESTED_POINTS", f"{args.unit}{args.site}{args.year}_{altitude_}m")
     os.makedirs(active_savedir, exist_ok=True)
     os.makedirs(tested_pts_savedir, exist_ok=True)
 
@@ -438,16 +431,17 @@ if __name__ == '__main__':
     # --------------- ANALYSIS --------------- #
 
     for beta_ in args.beta:
-
-        plot_savepath = f'{site_dir}/PrecisionRecallPlot_{args.unit}{args.site}{args.year}_{str(beta_).replace(".","p")}.png'
-        best_omni, max_fbeta, best_precision, best_recall, detection_results = select_optimal(unit=args.unit,
-                                                                                              site=args.site,
-                                                                                              year=args.year,
-                                                                                              valid_points=valid_points,
-                                                                                              active_space_polygons=results,
-                                                                                              beta_=beta_,
-                                                                                              plot=True,
-                                                                                              plot_savepath=plot_savepath,
-                                                                                              verbose=False)
+        usy = f"{args.unit}{args.site}{args.year}"
+        plotname = f"PrecisionRecallPlot_{usy}_{altitude_}m_{str(beta_).replace(".","p")}.png'"
+        plot_savepath = f'{site_dir}/Output_Data/PRECISION_RECALL/{plotname}'
+        best_omni, max_fbeta, _, _, _ = select_optimal(unit=args.unit,
+                                                       site=args.site,
+                                                       year=args.year,
+                                                       valid_points=valid_points,
+                                                       active_space_polygons=results,
+                                                       beta_=beta_,
+                                                       plot=True,
+                                                       plot_savepath=plot_savepath,
+                                                       verbose=False)
 
         logger.info(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta})")

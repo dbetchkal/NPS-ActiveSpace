@@ -1,4 +1,5 @@
 import nps_active_space.utils.config as cfg
+from nps_active_space import ACTIVE_SPACE_DIR
 import subprocess
 import os
 import sys
@@ -230,9 +231,9 @@ if __name__ == "__main__":
                                         "whitespace, then followed by the options for the generate_active_space.py script."
                                         "An example line is this: DENATRLA2025  -e DENA_streamline -u DENA -s TRLA -y 2025 --cleanup")
     argparse.add_argument("-o", "--output", help="Path to output .csv file")
-    argparse.add_argument("-s", "--savedir", help="Parent directory to copy the output files to. Output files are the active spaces,"
-                                                  "the annotations used, and the precision-recall plot. A subdirectory named with"
-                                                  "the designator will contain the files.")
+    # argparse.add_argument("-s", "--savedir", help="Parent directory to copy the output files to. Output files are the active spaces,"
+    #                                               "the annotations used, and the precision-recall plot. A subdirectory named with"
+    #                                               "the designator will contain the files.")
     args = argparse.parse_args()
 
     if args.output is None:
@@ -242,8 +243,6 @@ if __name__ == "__main__":
 
     assert args.input.endswith(".txt")
     assert args.output.endswith(".csv")
-    assert os.getcwd().endswith(
-        "NPS-ActiveSpace"), "Script needs to be run from root of NPS-ActiveSpace repository"
 
     # initialize output dataframe / load existing results
     output_df = pd.DataFrame()
@@ -267,7 +266,7 @@ if __name__ == "__main__":
             continue
 
         # assemble and run the command
-        cmd = Rf"python -u -W ignore 'nps_active_space\scripts\generate_active_space.py' {options}"
+        cmd = Rf"python -u -W ignore '{ACTIVE_SPACE_DIR}\scripts\generate_active_space.py' {options}"
         result_series = run_deployment(designator, cmd)
         # if it ran with no errors, save the results
         if result_series is not None:
@@ -275,5 +274,5 @@ if __name__ == "__main__":
                 [output_df, result_series.to_frame().T], ignore_index=True)
             output_df.to_csv(args.output, index=False)
 
-        if args.savedir is not None:
-            copy_output_files(options, args.savedir, designator)
+        # if args.savedir is not None:
+        #     copy_output_files(options, args.savedir, designator)

@@ -10,6 +10,7 @@ and used by others. However, these scripts can serve as examples of how the NPS-
 
 ```bash
 git clone https://github.com/dbetchkal/NPS-ActiveSpace.git
+cd NPS-ActiveSpace
 ```
 
 2. Install project dependencies.
@@ -20,11 +21,12 @@ number specified in `requirements.txt` and that matches the python version you w
 with. For example `Fiona‑1.8.21‑cp310‑cp310‑win_amd64.whl` is Fiona version 1.8.21 for python 3.10. Save all three files in
 the same location.
 
-Then, run the following commands:
+Then, run the following commands to install dependencies and NPS-ActiveSpace:
 
 ```bash
 $ python -m pip install --upgrade pip
 $ pip install --find-links </path/to/binaries> -r requirements.txt
+$ pip install -e .
 ```
 
 3. Create config files.

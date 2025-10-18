@@ -1,1 +1,2 @@
-from active_space_generator import ActiveSpaceGenerator, human_hearing_threshold
+from nps_active_space.active_space.active_space_generator import ActiveSpaceGenerator, human_hearing_threshold
+from nps_active_space.active_space.layered_active_space import LayeredActiveSpace
