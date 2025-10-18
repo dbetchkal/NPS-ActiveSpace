@@ -29,9 +29,8 @@ sys.path.append(script_dir)
 
 import iyore
 
-import _DENA.resource.config as cfg
-from _DENA import DENA_DIR
-from _DENA.resource.helpers import get_deployment, get_logger, get_omni_sources, load_annotations
+import nps_active_space.utils.config as cfg
+from nps_active_space.utils.helpers import get_deployment, get_logger, get_omni_sources, load_annotations
 from nps_active_space.utils import Annotations, Nvspl
 from nps_active_space.utils.computation import select_optimal, ambience_from_nvspl, ambience_from_raster, normalize_point_density
 from nps_active_space.active_space import ActiveSpaceGenerator
@@ -306,7 +305,7 @@ if __name__ == '__main__':
 
     # --------------- INIT --------------- #
 
-    cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
+    cfg.initialize(environment=args.environment)
     site_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
     logger = get_logger(f"ACTIVE-SPACE: {args.unit}{args.site}{args.year}")
 

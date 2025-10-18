@@ -18,9 +18,8 @@ import iyore
 import nps_active_space.ground_truthing as app
 from nps_active_space.utils import Nvspl, Tracks
 
-import _DENA.resource.config as cfg
-from _DENA import DENA_DIR
-from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM
+import nps_active_space.utils.config as cfg
+from nps_active_space.utils.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM
 from nps_active_space.utils.computation import coords_to_utm
 from nps_active_space.utils.clock_drift import correct_clock_drift
 
@@ -42,7 +41,7 @@ if __name__ == '__main__':
 
     args = argparse.parse_args()
 
-    cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
+    cfg.initialize(environment=args.environment)
     logger = get_logger('GROUND-TRUTHING')
     engine = sqlalchemy.create_engine(
         'postgresql://{username}:{password}@{host}:{port}/{name}'.format(**cfg.read('database:overflights'))

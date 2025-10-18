@@ -20,4 +20,4 @@ maintainers = [
 repository = "https://github.com/dbetchkal/NPS-ActiveSpace"
 
 [tool.setuptools]
-py-modules = ['nps_active_space', '_DENA']
+py-modules = ['nps_active_space']

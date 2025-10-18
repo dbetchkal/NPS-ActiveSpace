@@ -28,9 +28,8 @@ import geopy as geopy
 import geopandas as gpd
 from tqdm import tqdm
 import warnings
-import _DENA.resource.config as cfg
-from _DENA import DENA_DIR
-from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM, load_activespace
+import nps_active_space.utils.config as cfg
+from nps_active_space.utils.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM, load_activespace
 from nps_active_space.utils.computation import coords_to_utm, interpolate_spline
 from nps_active_space.utils.models import Tracks, FAAReleasable
 
@@ -53,13 +52,15 @@ def init_audible_transits(metadata, paths, raw_tracks = None):
         - "study start": date represented as a string of format yyyy-mm-dd, inclusive
         - "study end": date represented as a string of format yyyy-mm-dd, inclusive
         - "database type": type of database. Can be one of "ADSB", "GPS", "AIS". Note that AIS functionality is not yet implemented.
+        - "env" (optional): config file name (e.g. "DENA_streamline"). Required if the database type is "GPS". Also, this will be used to fill in defaults for required paths (e.g. "project") that weren't specified by the user.
     paths: dict
-        A dictionary containing paths to the project directory and data files. Should have the following keys:
+        A dictionary containing paths to the project directory and data files.
+        Should have the following keys (if the "env" key was provided in metadata, the config file will be used
+        to fill in missing paths):
         - "project": directory containing subfolders for each site, each named [unit][site] (e.g. DENATRLA/)
         - "FAA": path to MASTER.txt file provided by the FAA
         - "aircraft corrections" (optional): path to FAA_AircraftCorrections.json file provided by the FAA
         - "ADSB" (optional): directory containing ADSB files in the tab-separated-values (.TSV) format. Required if the database type is "ADSB"
-        - "config" (optional): path to a config file. Required if the database type is "GPS". Also, this will be used to fill in defaults for required paths (e.g. "project") that weren't specified by the user.
     raw_tracks: gpd.GeoDataFrame, default None
         A GeoDataFrame containing raw tracks. If provided, will use this instead of loading tracks from the database.
         The format of the tracks should be the same as returned from AudibleTransits.load_tracks_from_database().
@@ -182,9 +183,8 @@ class AudibleTransits(ABC):
             self.tracks = None
 
         # if config exists, init it and fill in missing paths
-        if "config" in self.paths:
-            cfg_dir, cfg_file = os.path.split(self.paths["config"])
-            cfg.initialize(cfg_dir, os.path.splitext(cfg_file)[0])
+        if "env" in self.metadata:
+            cfg.initialize(self.metadata["env"])
 
             if not "project" in self.paths:
                 print("Using project dir path from config file")
@@ -2438,9 +2438,10 @@ if __name__ == '__main__':
                 "gain": args.gain,
                 "study start": args.begintracks,
                 "study end": args.endtracks,
-                "database type": args.database_type}
-
-    paths = {"config": os.path.join(DENA_DIR, "config", args.environment + ".config")}
+                "database type": args.database_type,
+                "env": args.environment
+                }
+    paths = {}
 
     listener = init_audible_transits(metadata, paths)
     listener.run_pipeline(verbose=args.verbose)

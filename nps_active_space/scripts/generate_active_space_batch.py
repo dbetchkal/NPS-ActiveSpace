@@ -1,5 +1,4 @@
-from _DENA import DENA_DIR
-import _DENA.resource.config as cfg
+import nps_active_space.utils.config as cfg
 import subprocess
 import os
 import sys
@@ -198,7 +197,7 @@ def copy_output_files(option_str, savedir, designator):
     # shlex avoids splitting on spaces that are inside quotes
     args, _ = argparse.parse_known_args(shlex.split(option_str))
 
-    cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
+    cfg.initialize(environment=args.environment)
     site_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
     deployment = f"{args.unit}{args.site}{args.year}"
 

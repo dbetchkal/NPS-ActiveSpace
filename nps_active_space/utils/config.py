@@ -1,5 +1,7 @@
 from configparser import ConfigParser
 from typing import Any, Dict, Optional, Union
+from nps_active_space import ACTIVE_SPACE_DIR
+import os
 
 __all__ = [
     'initialize',
@@ -9,26 +11,24 @@ __all__ = [
 _config = None
 
 
-def initialize(config_dir: str, environment: str):
+def initialize(environment: str):
     """
     Initialize a connection to a configuration file.
 
     Parameters
     ----------
-    config_dir : str
-        The name of the directory where the config file is stored.
     environment : str
         The name of the environment of the configuration file to read.
 
     Example
     -------
-    import _DENA.resource.config as cfg
+    import nps_active_space.utils.config as cfg
 
-    cfg.initialize('../', 'production')
+    cfg.initialize('production')
     """
     global _config
 
-    config_file = f"{config_dir}/{environment}.config"
+    config_file = os.path.join(ACTIVE_SPACE_DIR, "config", f"{environment}.config")
     _config = ConfigParser()
     _config.read(config_file)
 
@@ -56,7 +56,7 @@ def read(section: str, option: Optional[str] = None) -> Union[Dict, Any]:
 
     Example
     -------
-    import _DENA.resource.config as cfg
+    import nps_active_space.utils.config as cfg
 
     cfg.initialize('../', 'production')
     user = cfg.read('database', 'username')

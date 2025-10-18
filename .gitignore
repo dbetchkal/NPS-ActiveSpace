@@ -15,5 +15,5 @@
 *.egg-info/
 
 # config files
-_DENA/config/*
-!_DENA/config/template.config
+nps_active_space/config/*
+!nps_active_space/config/template.config
