@@ -10,33 +10,22 @@ from copy import deepcopy
 from functools import partial
 from pathlib import Path
 from typing import List, Optional, Tuple, TYPE_CHECKING
-
 import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Point
 from tqdm import tqdm
 import pickle
-
-# for some users relative imports are prohibitive
-# we simplify imports by adding three directories to the path environment variable
 import sys
-repo_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-config_dir = os.path.join(repo_dir, "_DENA")
-script_dir = os.path.join(repo_dir, "nps_active_space")
-sys.path.append(repo_dir)
-sys.path.append(config_dir)
-sys.path.append(script_dir)
-
 import iyore
 
 import nps_active_space.utils.config as cfg
 from nps_active_space.utils.helpers import get_deployment, get_logger, get_omni_sources, load_annotations
-from nps_active_space.utils import Annotations, Nvspl
+from nps_active_space.utils.models import Annotations, Nvspl
 from nps_active_space.utils.computation import select_optimal, ambience_from_nvspl, ambience_from_raster, normalize_point_density
 from nps_active_space.active_space import ActiveSpaceGenerator
 
 if TYPE_CHECKING:
-    from nps_active_space.utils import Microphone
+    from nps_active_space.utils.models import Microphone
 
 
 def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGenerator, headings: List[int],

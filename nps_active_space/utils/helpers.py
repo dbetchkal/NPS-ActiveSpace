@@ -17,7 +17,7 @@ from pyproj import Transformer
 from shapely.geometry import box
 
 from nps_active_space import ACTIVE_SPACE_DIR
-from nps_active_space.utils import Adsb, EarlyAdsb, Microphone, Annotations
+from nps_active_space.utils.models import Adsb, EarlyAdsb, Microphone, Annotations
 from nps_active_space.utils.computation import NMSIM_bbox_utm
 
 if TYPE_CHECKING:

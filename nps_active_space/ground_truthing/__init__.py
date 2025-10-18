@@ -24,10 +24,11 @@ import rasterio
 import pyproj
 
 from nps_active_space import ACTIVE_SPACE_DIR
-from nps_active_space.utils import Annotations, audible_time_delay, interpolate_spline, expected_Lp, FAAReleasable
+from nps_active_space.utils.models import Annotations, FAAReleasable
+from nps_active_space.utils.computation import audible_time_delay, interpolate_spline, expected_Lp
 
 if TYPE_CHECKING:
-    from nps_active_space.utils import Microphone, Nvspl, Tracks
+    from nps_active_space.utils.models import Microphone, Nvspl, Tracks
 
 _app = None
 

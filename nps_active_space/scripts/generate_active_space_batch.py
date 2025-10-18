@@ -40,7 +40,7 @@ def run_deployment(designator, cmd):
     designator: str
         Unique designator identifying this run. Included in the returned series.
     cmd: str
-        Command line command to run, e.g. "python -u -W ignore _DENA/scripts/generate_active_space.py -e DENA_streamline ..."
+        Command line command to run, e.g. "python -u -W ignore nps_active_space/scripts/generate_active_space.py -e DENA_streamline ..."
 
     Returns
     -------
@@ -267,7 +267,7 @@ if __name__ == "__main__":
             continue
 
         # assemble and run the command
-        cmd = Rf"python -u -W ignore '_DENA\scripts\generate_active_space.py' {options}"
+        cmd = Rf"python -u -W ignore 'nps_active_space\scripts\generate_active_space.py' {options}"
         result_series = run_deployment(designator, cmd)
         # if it ran with no errors, save the results
         if result_series is not None:

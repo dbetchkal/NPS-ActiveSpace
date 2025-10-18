@@ -1,13 +1,4 @@
-import sys
 import os
-repo_dir = os.path.dirname(os.path.dirname(
-    os.path.dirname(__file__)))  # relative paths
-config_dir = os.path.join(repo_dir, "_DENA")
-script_dir = os.path.join(repo_dir, "nps_active_space")
-sys.path.append(repo_dir)
-sys.path.append(config_dir)
-sys.path.append(script_dir)
-
 import copy
 import sqlalchemy
 from scipy.ndimage import median_filter
