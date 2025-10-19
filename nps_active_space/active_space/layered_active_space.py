@@ -24,7 +24,8 @@ class LayeredActiveSpace():
 
         # determine min and max gain - import here to avoid circular import
         from nps_active_space.utils.helpers import omni_to_gain
-        active_names = os.listdir(list(self.layer_dirs.values())[0])
+        first_layer_dir = list(self.layer_dirs.values())[0]
+        active_names = glob.glob(os.path.join(first_layer_dir, "*_O_*.geojson"))
         gains = list(map(lambda f: omni_to_gain(f), active_names))
         self.min_gain = min(gains)
         self.max_gain = max(gains)
