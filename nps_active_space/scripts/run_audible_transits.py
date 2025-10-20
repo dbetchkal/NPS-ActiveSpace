@@ -238,8 +238,8 @@ class AudibleTransits(ABC):
         logger.info("\n=========  NPS-ActiveSpace Audible Transits module  ==========\n")
         logger.info(f"3D run" if self.three_dimensional_run else f"2D run at altitude={self.altitude_m}")
         for k in self.metadata.keys():
-            logger.debug(f"{k}: {getattr(self, k)}")
-        logger.debug("paths: " + json.dumps(self.paths) + "\n")
+            logger.debug(f"{k}: {self.metadata[k]}")
+        logger.debug("paths: " + json.dumps(self.paths, indent=2) + "\n")
 
         logger.info("[1] Parsing geospatial data inputs...")
         self.init_spatial_data()
