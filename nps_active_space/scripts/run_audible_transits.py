@@ -1365,7 +1365,8 @@ class AudibleTransits(ABC):
         NEW COLUMNS: starts_inside and ends_inside specifies which end(s) of the tracks may need extrapolation. Usable downstream in extrapolation, but mainly
         necessary for detection of takeoffs and landings.
 
-        conditions for requiring extrapolation: entry or exit position are not on the active space border
+        Conditions for requiring extrapolation: entry or exit position are not on the active space border
+        (we assume tracks have been clipped and so endpoints are either are near the border, or inside)
 
         Parameters
         ----------
@@ -1381,23 +1382,36 @@ class AudibleTransits(ABC):
         -------
         new_tracks: `gpd.GeoDataFrame`
         """
-        # TODO fix this function for the 3D case
-
         # we want to detect if points are meaningfully inside the active space
-        # consider being within > 2 sampling points to count as "meaningfully within"
-        sample_dist = tracks["avg_speed"].median() / tracks["sampling_interval"].median()
-        buffer = 2 * sample_dist
+        # i.e., multiple sample points worth of distance inside
+        # 150 meters is typical for a couple sampling points worth of distance
+        buffer = 150
 
         # check if start or end point is meaningfully inside the active space for each track
+        # IMPORTANT - we assume tracks have been clipped, so endpoints can only be near the border
+        # or inside, not outside. Same logic is used in 3D and 2D case, the 3D case is just more complicated
         if self.three_dimensional_run:
             start_pts = gpd.GeoDataFrame(geometry=tracks["entry_position"], crs=tracks.crs)
+            start_pts = self.active_3d.assign_layers(start_pts)
+            starts_inside = pd.Series(False, index=start_pts.index)
+            for altitude, group in start_pts.groupby("layer"):
+                active_layer_boundary = self.active_3d.activespaces[altitude].geometry.iloc[0].boundary
+                buffered = group.buffer(buffer)
+                starts_inside.loc[group.index] = ~buffered.intersects(active_layer_boundary)
+            
             end_pts = gpd.GeoDataFrame(geometry=tracks["exit_position"], crs=tracks.crs)
-            starts_inside = self.active_3d.predict(start_pts, -buffer)
-            ends_inside = self.active_3d.predict(end_pts, -buffer)
+            end_pts = self.active_3d.assign_layers(end_pts)
+            ends_inside = pd.Series(False, index=start_pts.index)
+            for altitude, group in end_pts.groupby("layer"):
+                active_layer_boundary = self.active_3d.activespaces[altitude].geometry.iloc[0].boundary
+                buffered = group.buffer(buffer)
+                ends_inside.loc[group.index] = ~buffered.intersects(active_layer_boundary)
+
         else:
-            mask = self.active_layer.buffer(-buffer).union_all()
-            starts_inside = tracks["entry_position"].within(mask)
-            ends_inside = tracks["exit_position"].within(mask)
+            starts_inside = ~(tracks['entry_position'].buffer(
+                buffer).intersects(self.active_layer.geometry.iloc[0].boundary))
+            ends_inside = ~(tracks['exit_position'].buffer(
+                buffer).intersects(self.active_layer.geometry.iloc[0].boundary))
 
         needs_extrapolation = starts_inside | ends_inside
 

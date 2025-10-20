@@ -155,17 +155,8 @@ class LayeredActiveSpace():
         return points
 
 
-    def predict(self, points, buffer=0):
-        """Give a GeoDataFrame of points, predict whether they are audible.
-
-        Parameters
-        ----------
-        points: gpd.GeoDataFrame
-            GeoDataFrame of 3D points
-        buffer: int, default 0
-            How much in meters to buffer the active space layers before predicting. A buffer > 0 grows the active space,
-            a buffer < 0 shrinks it. This is useful for answering queries such as "are these points within 100 m of the
-            active space boundary?"
+    def predict(self, points):
+        """Given a GeoDataFrame of 3D points, predict whether they are audible.
         
         Returns
         -------
@@ -185,7 +176,7 @@ class LayeredActiveSpace():
             if self.fit_pbar is not None:
                 self.fit_pbar.set_description(f"{desc:<25}")
             layer_mask = points["layer"] == altitude
-            in_AS_gdf = gpd.clip(points[layer_mask], activespace.buffer(buffer))
+            in_AS_gdf = gpd.clip(points[layer_mask], activespace)
             points.loc[in_AS_gdf.index, "in_AS"] = True
 
         return points["in_AS"]
