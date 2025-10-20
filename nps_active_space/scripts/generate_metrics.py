@@ -14,9 +14,8 @@ import warnings
 __all__ = [
     'clip_events_to_time_period',
     'clip_srcid_to_time_period',
-    'tracks2events',
-    'NFI_list',
-    'get_all_stats',
+    'get_noise_events',
+    'get_all_geo_stats',
     'get_all_srcid_stats',
     'calculate_spatial_stats',
     'plot_events',
@@ -27,6 +26,8 @@ __all__ = [
 ]
 
 ## ========================================== STATISTICS/METRICS ======================================== ##
+
+# SHARED - ACOUSTIC AND GEOGRAPHIC ---------------------------------------
 
 def clip_events_to_time_period(df, start_col, end_col, start_dt, end_dt, months=list(range(1,13))):
     """Clips events to only fall within a time period and within ceratin months.
@@ -63,38 +64,10 @@ def clip_events_to_time_period(df, start_col, end_col, start_dt, end_dt, months=
     return df
 
 
-def clip_srcid_to_time_period(src_data, start_dt, end_dt, months=list(range(1,13))):
-    """A wrapper function around `clip_events_to_time_period` to clip SRCID data.
+def get_noise_events(df, start_col, end_col, start_date, end_date, min_dur=10, min_gap_dur=30):
     """
-
-    # we'll filter an uninformative performance warning
-    warnings.filterwarnings("ignore", 
-                            message=".*Adding/subtracting object-dtype array to DatetimeArray not vectorized.*")
-
-    # the clipping function expects start and end datetimes, so we add two columns...
-    src_data["start_time"] = pd.to_datetime(src_data.index.to_series())
-    src_data["end_time"]   = pd.to_datetime(src_data["start_time"] + src_data["len"])
-    
-    src_clipped = clip_events_to_time_period(src_data,
-                                             start_col = "start_time",
-                                             end_col = "end_time",
-                                             start_dt=np.datetime64(start_dt),
-                                             end_dt=np.datetime64(end_dt),
-                                             months=months)
-
-    # just in case, we update the SRCID datetime information to match
-    src_clipped.index = src_clipped["start_time"]
-    src_clipped.len = src_clipped["end_time"] - src_clipped["start_time"]
-    
-    return src_clipped
-
-
-def tracks2events(tracks, start_date, end_date, min_dur=10, min_gap_dur=30):
-    """
-    Performs audibility binarization on outputs of the `NPS-ActiveSpace.audible_transits` module. 
-    
-    This function collapses a set of audible transits spanning a certain time period into 
-    unique noise events, which may contain multiple overlapping transits.
+    Converts a set of events that might overlap into a sequence of non-overlapping events,
+    separated by a minimum separation duration. Also filters out short events.
     
     The two output event dataframes capture alternating periods of time: 
         (0)  Noise Events (e.g., 'Noisy intervals')
@@ -102,18 +75,23 @@ def tracks2events(tracks, start_date, end_date, min_dur=10, min_gap_dur=30):
     
     Parameters
     ----------
-    tracks : GeoDataFrame
-        A GeoDataFrame containing the fully interpolated, cleaned, clipped, and extrapolated tracks
-        resembling those produced by `NPS-ActiveSpace.audible_transits`. Only requires columns 'entry_time' and 'exit_time'
+    df: pd.DataFrame
+        DataFrame containing events, represented by start time and end time columns.
+    start_col: str
+        The name of the column representing event start times.
+    end_col: str
+        The name of the column representing event end times.
     start_date : string
-        The initial date of tracks to include, formatted as 'yyyy-mm-dd'. Note that midnight at the beginning of this day should fall within the monitoring period (not before).
+        The initial date to include, formatted as 'yyyy-mm-dd'.
+        Note that midnight at the beginning of this day should fall within the monitoring period (not before).
     end_date : string
-        The last date of tracks to include, formatted as 'yyyy-mm-dd'. Note that midnight/23:59 at the end of this day should fall within the monitoring period (not after).
-    min_dur : float, default 30
+        The last date to include, formatted as 'yyyy-mm-dd'.
+        Note that midnight/23:59 at the end of this day should fall within the monitoring period (not after).
+    min_dur : float, default 10
         The minimum event duration to include, in seconds
     min_gap_dur : float, default 30
-        The minimum period of time (in seconds) between tracks for them to be considered separate events.
-        Tracks separated by less time than this will be considered part of the same event.
+        The minimum period of time (in seconds) between events for them to be considered separate.
+        Events separated by less time than this will be considered part of the same event.
         
     Returns
     -------
@@ -126,25 +104,22 @@ def tracks2events(tracks, start_date, end_date, min_dur=10, min_gap_dur=30):
     TA : float
         Total % of time audible. Ranges from 0 to 100.
     """
-
-    print("Combining audible transits into a binary event time series.")
     
-    min_gap_dur = np.timedelta64(min_gap_dur, 's') # Max number of seconds between tracks in order to combine
+    min_gap_dur = np.timedelta64(min_gap_dur, 's') # Max number of seconds between events in order to combine
     
     start_dt = np.datetime64(start_date)  # Convert to datetime64
     end_dt = np.datetime64(end_date) + np.timedelta64(1, "D")  # Convert to datetime64, should be midnight at the END of end_date
 
-    tracks = clip_events_to_time_period(tracks, "entry_time", "exit_time", start_dt, end_dt)
+    df = clip_events_to_time_period(df, start_col, end_col, start_dt, end_dt)
 
-    if tracks.empty:
+    if df.empty:
         event_df = pd.DataFrame(columns=["start_time", "end_time", "duration"])
         NFI_df = pd.DataFrame(columns=["start_time", "end_time", "duration"])
         return event_df, NFI_df, 0.0
     
-    tracks.sort_values(by=['entry_time'], inplace=True)
-    entry_times = np.asarray(tracks.entry_time) # datetime format
-    exit_times = np.asarray(tracks.exit_time)   # datetime format
-    elapsed_times = exit_times - entry_times    # timedelta64 format
+    df.sort_values(by=[start_col], inplace=True)
+    entry_times = np.asarray(df[start_col]) # datetime format
+    exit_times = np.asarray(df[end_col])   # datetime format
     
     # Make copies of the entry and exit times arrays for calculation, 
     # we may want to use the originals later
@@ -170,8 +145,8 @@ def tracks2events(tracks, start_date, end_date, min_dur=10, min_gap_dur=30):
         # entry time stays the same, set new exit time
         exit_times_cp[i] = event_end
 
-        # Get rid of all the tracks that were blobbed together with the first one (e.g., i). 
-        # the 'j' increment tells us how many tracks we combined
+        # Get rid of all the events that were blobbed together with the first one (e.g., i). 
+        # the 'j' increment tells us how many events we combined
         exit_times_cp = np.delete(exit_times_cp, slice(i+1, i+j+1))
         entry_times_cp = np.delete(entry_times_cp, slice(i+1, i+j+1))
         i += 1
@@ -320,73 +295,14 @@ class Quantile:
         return series.quantile(self.q)
 
 
-def NFI_list(srcid, source = "all", unit="hours"): 
-    """
-    Returns a DataFrame of all Noise Free Intervals for selected source type(s).
+# GEOGRAPHIC --------------------------------------------------------------
 
-    Parameters
-    ----------
-    srcid: pandas dataframe representing NPS NSNSD srcid file, formatted by soundDB library.
-    source: str or list of floats, optional.  Which subset of srcid codes to summarize - choose either "all", "air", or specify a list of srcID codes as float.  Defaults to "all" if unspecified.
-    unit: str, a value that indicates the units desired for the output value.  Defaults to "hours".
-
-    Returns
-    -------
-    pandas Series of floating-point times
-    """
-
-    # 'look-up' dictionary to translate time unit from string to integer (in seconds)
-    unitDict = {"seconds":1, "minutes":60, "hours":3600, "days":86400}
-
-    # because NFI depends on event timing, 
-    # it is critical to first sort chronologically
-    srcid.sort_index(inplace=True)
-
-    # two of the source categories are built-in as strings ("all", "air")
-    if(type(source) == str):
-        if(source.lower() == "all"):  
-
-            # difference the starting datetime indices to create a list of timedeltas
-            NFIlst = srcid.index.to_series().diff()
-
-        elif(source.lower() == "air"):
-
-            # aviation sources have source ID codes starting with 1: (1., 1.1, 1.2, 1.3, etc.)
-            srcid = srcid.loc[(srcid.srcID > 0) & (srcid.srcID < 2.), :]
-
-            # difference the starting datetime indices to create a list of timedeltas
-            NFIlst = srcid.index.to_series().diff()
-    else: 
-
-        # select only the source ID code of interest
-        srcid = srcid.loc[srcid.srcID.isin(source), :]
-
-        # difference the starting datetime indices to create a list of timedeltas
-        NFIlst = srcid.index.to_series().diff()
-
-    valid_NFIs = NFIlst[NFIlst > "00:00:00"]
-    NFI_df = pd.DataFrame([])
-    NFI_durations = pd.Series(np.array([m.total_seconds() for m in valid_NFIs])/unitDict[unit])
-    NFI_df["duration"] = NFI_durations
-    NFI_df["start_time"] = valid_NFIs.index
-    NFI_df["end_time"] = NFI_df["start_time"] + valid_NFIs.values
-    NFI_df.index = valid_NFIs.index
-    NFI_df = NFI_df.dropna()
-    
-    return NFI_df
-
-
-def get_all_stats(event_df, NFI_df, periods, months=list(range(1,13)), quantiles=.5):
-    """Calculates all event statistics, given a set of events and corresponding noise free intervals (NFIs).
+def get_all_geo_stats(tracks, periods, months=list(range(1,13)), quantiles=.5):
+    """Calculates all event statistics, given tracks from the Audible Transits module.
     
     Parameters
     ----------
-    event_df: pd.DataFrame
-        A DataFrame containing events, such as those returned by tracks2events(). Looks like:
-            start_time (datetime) | end_time (datetime) | duration (# secs as ints)
-    NFI_df: pd.DataFrame
-        A DataFrame containing noise free intervals, such as those returned by tracks2events(). Looks like:
-            start_time (datetime) | end_time (datetime) | duration (# secs as ints)
+    tracks: gpd.GeoDataFrame
     periods: array-like of shape [# periods, 2]
         List/array of time periods to include when calculating stats. Each time period is a list/array of length 2,
         containing a start and end date string formatted 'yyyy-mm-dd'. The start and end dates are included in the period.
@@ -424,6 +340,10 @@ def get_all_stats(event_df, NFI_df, periods, months=list(range(1,13)), quantiles
         if (month < 1) | (month > 12):
             print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
             months=list(range(1,13))
+    
+    # get events and NFIs for the whole study time
+    # will get clipped precisely to periods later
+    event_df, NFI_df, TA = get_noise_events(tracks, "entry_time", "exit_time", periods[0][0], periods[-1][1])
     
     # prepare the values we want statistics for
     values = {
@@ -475,6 +395,74 @@ def get_all_stats(event_df, NFI_df, periods, months=list(range(1,13)), quantiles
     return pd.DataFrame(statistics), pd.DataFrame(conf_intervals), values    
 
 
+def calculate_spatial_stats(tracks, active):
+    '''
+    Calculates spatial statistics on audible transits through a given active space. 
+    On an event-wise basis, the displacement distance that could render the track inaudible:
+                                                                            - mean
+                                                                            - maximum
+    In aggregate:
+                                                                             - min
+                                                                             - max
+                                                                             - mean
+                                                                             - median
+
+                                                    
+    Parameters
+    ----------
+    tracks : gpd.GeoDataFrame
+        GeoDataFrame containing the audible transit flight tracks. Need to have geometry column.
+    active : gpd.GeoDataFrame
+        GeoDataFrame containing the active space geometries.
+
+    Returns
+    -------
+    distance_from_audibility_stats : gpd.GeoDataFrame
+        GeoDataFrame of overall stats containing the min, max, mean, and median for:
+            mean distance from inaudibility and max distance from inaudibility
+
+    '''
+    boundary = np.asarray(active.iloc[0].exterior.coords)
+    
+    # Calculate distance between each line point and active space
+    distances = tracks.geometry.apply([lambda line: cdist(np.asarray(line.coords)[:,:2], boundary).min(axis=1)])
+    
+    # Calculate mean of these distances for each track
+    tracks['mean_distance_from_inaudibility'] = distances.apply([lambda dists: dists.mean()])
+    
+    # Calculate max of these distances for each track
+    tracks['max_distance_from_inaudibility'] = distances.apply([lambda dists: dists.max()])
+    
+    # Create statistics dataframe consisting of min, max, mean, and median for each
+    distance_from_inaudibility_stats = tracks.agg({'max_distance_from_inaudibility':['min', 'max', 'mean', 'median'], 'mean_distance_from_inaudibility':['min', 'max', 'mean', 'median']})
+    
+    return distance_from_inaudibility_stats
+
+
+# ACOUSTIC ----------------------------------------------------------------
+
+def clip_srcid_to_time_period(src_data, start_dt, end_dt, months=list(range(1,13))):
+    """A wrapper function around `clip_events_to_time_period` to clip SRCID data.
+    Requires src_data to have fields "start_time" and "end_time"
+    """
+
+    assert "start_time" in src_data.columns
+    assert "end_time" in src_data.columns
+    
+    src_clipped = clip_events_to_time_period(src_data,
+                                             start_col = "start_time",
+                                             end_col = "end_time",
+                                             start_dt=np.datetime64(start_dt),
+                                             end_dt=np.datetime64(end_dt),
+                                             months=months)
+
+    # just in case, we update the SRCID datetime information to match
+    src_clipped.index = src_clipped["start_time"]
+    src_clipped.len = src_clipped["end_time"] - src_clipped["start_time"]
+    
+    return src_clipped
+
+
 def get_all_srcid_stats(src_data, periods, months=list(range(1,13)), quantiles=.5, src_list=[1.2]):
     """Calculates all event statistics, given a set of events and corresponding noise free intervals (NFIs).
     
@@ -523,8 +511,19 @@ def get_all_srcid_stats(src_data, periods, months=list(range(1,13)), quantiles=.
             print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
             months=list(range(1,13))
 
-    src_filtered = src_data.loc[src_data.srcID.isin(src_list), :]
+    # add start and end time fields
+    src_data = src_data.copy()
+    src_data["start_time"] = src_data.index
+    src_data["end_time"] = src_data.index + src_data.len
 
+    # filter by source type
+    src_data = src_data.loc[src_data.srcID.isin(src_list), :]
+
+    # get events and NFIs for the whole study time
+    # will get clipped precisely to periods later
+    event_df, NFI_df, TA = get_noise_events(src_data, "start_time", "end_time", periods[0][0], periods[-1][1])
+
+    # prepare the values we want statistics for
     values = {
         "event_duration": [],
         "NFI_duration": [],
@@ -542,27 +541,28 @@ def get_all_srcid_stats(src_data, periods, months=list(range(1,13)), quantiles=.
         start_dt = np.datetime64(start_date)  # Convert to datetime64
         end_dt = np.datetime64(end_date) + np.timedelta64(1, "D")  # Convert to datetime64, should be midnight at the END of end_date
 
-        # notably, this function adds two columns "start_time" and "end_time"
-        # which are necessary to use the functions `NFI_list` and `_time_binned_df`
-        src_clip = clip_srcid_to_time_period(src_filtered, start_dt, end_dt, months)
-
-        src_clip["duration"] = src_clip["len"].apply(lambda t: float(t.total_seconds()))
-        NFI_df = NFI_list(src_clip, source = "all", unit="seconds")
+        # clip noise events, noise intervals, and srcid to this time period
+        event_df_clipped = clip_events_to_time_period(event_df, "start_time", "end_time", start_dt, end_dt, months)
+        NFI_df_clipped = clip_events_to_time_period(NFI_df, "start_time", "end_time", start_dt, end_dt, months)
+        # note that src_clip can contain overlapping events - this is okay, we are trying to get statistics
+        # like SPL and SEL which aren't affected by overlapping behavior in the way noise events and NFIs are
+        src_clip = clip_srcid_to_time_period(src_data, start_dt, end_dt, months)
 
         # append to values, make sure we have data during this time period
-        if not NFI_df.empty:
-            values["NFI_duration"].append(NFI_df["duration"])
+        if not NFI_df_clipped.empty:
+            values["NFI_duration"].append(NFI_df_clipped["duration"])
+        if not event_df_clipped.empty:
+            values["event_duration"].append(event_df_clipped["duration"])
+            # include time audible and event count, binned by hour and by day
+            for freq in ['d', 'h']:
+                binned_df = _time_binned_df(event_df_clipped, start_dt, end_dt, months, freq)
+                for col in binned_df.columns:
+                    values[col].append(binned_df[col])
         if not src_clip.empty:
-            values["event_duration"].append(src_clip["duration"])
             values["SEL_A"].append(src_clip["SEL"])
             values["SEL_T"].append(src_clip["SELt"])
             values["LAmax"].append(src_clip["MaxSPL"])
             values["LTmax"].append(src_clip["MaxSPLt"])
-            # include time audible and event count, binned by hour and by day
-            for freq in ['d', 'h']:
-                binned_df = _time_binned_df(src_clip, start_dt, end_dt, months, freq)
-                for col in binned_df.columns:
-                    values[col].append(binned_df[col])
     
     # consolidate values into individual series
     for col, series_list in values.items():
@@ -580,50 +580,6 @@ def get_all_srcid_stats(src_data, periods, months=list(range(1,13)), quantiles=.
         conf_intervals[col] = _agg_conf_intervals(series, conf_int_stats)
     
     return pd.DataFrame(statistics), pd.DataFrame(conf_intervals), values  
-
-
-def calculate_spatial_stats(tracks, active):
-    '''
-    Calculates spatial statistics on audible transits through a given active space. 
-    On an event-wise basis, the displacement distance that could render the track inaudible:
-                                                                            - mean
-                                                                            - maximum
-    In aggregate:
-                                                                             - min
-                                                                             - max
-                                                                             - mean
-                                                                             - median
-
-                                                    
-    Parameters
-    ----------
-    tracks : gpd.GeoDataFrame
-        GeoDataFrame containing the audible transit flight tracks. Need to have geometry column.
-    active : gpd.GeoDataFrame
-        GeoDataFrame containing the active space geometries.
-
-    Returns
-    -------
-    distance_from_audibility_stats : gpd.GeoDataFrame
-        GeoDataFrame of overall stats containing the min, max, mean, and median for:
-            mean distance from inaudibility and max distance from inaudibility
-
-    '''
-    boundary = np.asarray(active.iloc[0].exterior.coords)
-    
-    # Calculate distance between each line point and active space
-    distances = tracks.geometry.apply([lambda line: cdist(np.asarray(line.coords)[:,:2], boundary).min(axis=1)])
-    
-    # Calculate mean of these distances for each track
-    tracks['mean_distance_from_inaudibility'] = distances.apply([lambda dists: dists.mean()])
-    
-    # Calculate max of these distances for each track
-    tracks['max_distance_from_inaudibility'] = distances.apply([lambda dists: dists.max()])
-    
-    # Create statistics dataframe consisting of min, max, mean, and median for each
-    distance_from_inaudibility_stats = tracks.agg({'max_distance_from_inaudibility':['min', 'max', 'mean', 'median'], 'mean_distance_from_inaudibility':['min', 'max', 'mean', 'median']})
-    
-    return distance_from_inaudibility_stats
 
 
 ## ========================================== VISUALIZATION =============================================== ##
@@ -695,6 +651,7 @@ def plot_events(start_times, end_times, title="Events", colors=None, labels=Fals
         plt.close()
     else:
         plt.show()
+
 
 ## ========================================== STEREOTYPICAL TRACKS ======================================== ##
 
