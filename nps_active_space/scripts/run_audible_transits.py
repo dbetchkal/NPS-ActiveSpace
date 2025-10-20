@@ -165,6 +165,9 @@ class AudibleTransits(ABC):
         ----------
         See init_audible_transits() in this module for more details.
         '''
+        self.metadata = metadata.copy()
+        self.paths = paths.copy()
+
         self.unit = metadata["unit"]
         self.site = metadata["site"]
         self.activespace_year = str(metadata["activespace year"])
@@ -177,8 +180,6 @@ class AudibleTransits(ABC):
         if "2D" in metadata and metadata["2D"] == True:
             self.three_dimensional_run = False
         self.altitude_m = metadata["altitude"] if "altitude" in metadata else None
-
-        self.paths = paths.copy()
 
         if raw_tracks is not None:
             self.tracks = raw_tracks
@@ -236,8 +237,8 @@ class AudibleTransits(ABC):
 
         logger.info("\n=========  NPS-ActiveSpace Audible Transits module  ==========\n")
         logger.info(f"3D run" if self.three_dimensional_run else f"2D run at altitude={self.altitude_m}")
-        for x in ["unit", "site", "activespace_year", "gain", "study_start", "study_end", "database_type"]:
-            logger.debug(f"{x}: {getattr(self, x)}")
+        for k in self.metadata.keys():
+            logger.debug(f"{k}: {getattr(self, k)}")
         logger.debug("paths: " + json.dumps(self.paths) + "\n")
 
         logger.info("[1] Parsing geospatial data inputs...")
@@ -274,8 +275,9 @@ class AudibleTransits(ABC):
         self.interpolate_tracks()
         self.update_track_parameters()
 
-        self.overflights_fig = self.visualize_tracks(
-                show_DEM=True, title=f"{self.unit}{self.site} Nearby Overflights\n{self.study_start} to {self.study_end}", show_plot=False)
+        overflights_title = f"{self.unit}{self.site} Nearby Overflights\n{self.study_start} to {self.study_end}, " \
+                            f"Active Space Layer at {self.altitude_m}m"
+        self.overflights_fig = self.visualize_tracks(show_DEM=True, title=overflights_title, show_plot=False)
         if verbose:
             plt.show()
 
@@ -330,6 +332,8 @@ class AudibleTransits(ABC):
         self.active_layer = load_activespace(
             self.paths["project"], self.unit, self.site, self.activespace_year, self.gain,
             self.altitude_m, crs=self.utm_zone)
+        if self.altitude_m is None:
+            self.altitude_m = self.active_layer.iloc[0]["altitude_m"].item()
         
         if self.three_dimensional_run:
             self.active_3d = load_layered_activespace(
@@ -964,19 +968,25 @@ class AudibleTransits(ABC):
         """
         clipped_track_list = []
 
-        # clip tracks one at a time
-        for track_id, track in tqdm(tracks.iterrows(), desc="Clipping tracks", total=len(tracks)):
-
-            # convert to point geodataframe and predict audibility of each point
-            point_list = []
+        # Convert tracks to points and predict audibility.
+        # It is WAY faster to just make one call to self.active_3d.predict() for all points,
+        # as opposed to doing it for each track.
+        logger.debug("Predicting track audibility")
+        point_list = []
+        for track_id, track in verbose_tqdm(tracks.iterrows(), desc="Extracting Points", total=len(tracks)):
             for time, coords in zip(track["interp_point_dt"], track["interp_geometry"].coords):
                 row = {
+                    "track_id": track_id,
                     "interp_point_dt": time,
                     "interp_geometry": Point(coords)
                 }
                 point_list.append(row)
-            pts = gpd.GeoDataFrame(point_list, geometry="interp_geometry", crs=tracks.crs)
-            pts["inside_AS"] = self.active_3d.predict(pts)
+        all_pts = gpd.GeoDataFrame(point_list, geometry="interp_geometry", crs=tracks.crs)
+        all_pts["inside_AS"] = self.active_3d.predict(all_pts)
+
+        # clip tracks one at a time
+        for track_id, track in tqdm(tracks.iterrows(), desc="Clipping tracks", total=len(tracks)):
+            pts = all_pts[all_pts["track_id"] == track_id]
 
             # collapse gaps between in-active-space segments, that are shorter than min_gap_dur
             enter_exit_indices = contiguous_regions(pts["inside_AS"].values)
@@ -1229,7 +1239,7 @@ class AudibleTransits(ABC):
     def visualize_tracks(self, tracks_to_view='self', show_DEM=False, crs='self',
                         show_active=True, show_mic=True, show_endpoints=False,
                         title='default', alpha='auto', fig='none', ax='none',
-                        savepath=None, show_plot=True):
+                        show_plot=True):
         '''
         A method for visualizing tracks of any type, with or without the active space, microphone location, track endpoints, and DEM.
         Also includes options to pass a title, fig, and ax.
@@ -1343,7 +1353,8 @@ class AudibleTransits(ABC):
                                 color='r', alpha=alpha, ax=ax, zorder=5)
 
         if title == 'default':
-            title = f"{self.unit}{self.site} Audible Transits\n{self.study_start} to {self.study_end}"
+            title = f"{self.unit}{self.site} Audible Transits\n{self.study_start} to {self.study_end}, " \
+                    f"Active Space Layer at {self.altitude_m}m"
 
         ax.set_title(title)
 
@@ -2196,7 +2207,6 @@ class AudibleTransitsADSB(AudibleTransits):
             columns={'flight_id': 'track_id', 'TIME': 'point_dt', 'altitude': 'z'})
         # The CRS of the loaded tracks will be in standard lon/lat geographic crs
         loaded_track_pts.set_crs('WGS84', inplace=True)
-        loaded_track_pts.z = loaded_track_pts.z * 0.3048   # Convert from ft to meters
 
         # Create 3D points using the 2D points and altitidue above MSL
         loaded_track_pts.geometry = gpd.points_from_xy(
