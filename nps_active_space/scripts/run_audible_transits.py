@@ -468,39 +468,39 @@ class AudibleTransits(ABC):
 
         # Simplify active space boundary perimeter within a certain tolerance.
         # The tolerance is a somewhat arbitrary parameter, but this step helps prevent overly-fragmented audible transits.
-        active_ea_simple = self.active_layer.simplify(100)
+        active_simple = self.active_layer.simplify(100)
 
         # If the active space is `shapely.geomtry.MultiPolygon`, we further simplify by:
         #   (1) selecting only the largest `.Polygon` for downstream analysis
         #   (2) removing small interior rings on a proprotional basis
-        if active_ea_simple.geometry.iloc[0].geom_type == 'MultiPolygon':
-            polygons = list(active_ea_simple.geometry.iloc[0].geoms)
-            active_ea_simple = gpd.GeoSeries(polygons[np.argmax(
+        if active_simple.geometry.iloc[0].geom_type == 'MultiPolygon':
+            polygons = list(active_simple.geometry.iloc[0].geoms)
+            active_simple = gpd.GeoSeries(polygons[np.argmax(
                 # select largest polygon
                 [poly.area for poly in polygons])], crs=self.active_layer.crs)
             logger.debug("\t\tLargest active space polygon has been selected.")
 
-        if len(active_ea_simple.interiors[0]) > 0:
-            new_interiors = [i for i in active_ea_simple.interiors[0] if Polygon(
-                i).area/active_ea_simple.area[0] >= interior_area_thresh]
-            active_ea_simple = gpd.GeoSeries(
-                Polygon(active_ea_simple.exterior[0], new_interiors), crs=self.active_layer.crs)
+        if len(active_simple.interiors[0]) > 0:
+            new_interiors = [i for i in active_simple.interiors[0] if Polygon(
+                i).area/active_simple.area[0] >= interior_area_thresh]
+            active_simple = gpd.GeoSeries(
+                Polygon(active_simple.exterior[0], new_interiors), crs=self.active_layer.crs)
             logger.debug("\t\tSmall interior rings have been removed.")
 
         # An optional plot to review any active space simplifications.
         if (visualize):
             fig, ax = plt.subplots(1, 1, figsize=(6, 6))
             self.active_layer.boundary.plot(color='k', ax=ax, label='original')
-            active_ea_simple.boundary.plot(
+            active_simple.boundary.plot(
                 color='r', ax=ax, label='simplified')
             ax.legend()
             ax.set_title("Simplified active space")
             plt.show()
 
         if (inplace):
-            self.active_layer = active_ea_simple.copy()
+            self.active_layer = active_simple.copy()
         else:
-            return active_ea_simple
+            return active_simple
 
     def update_trackQC(self, tracks='self', max_distance=500, min_speed=1, max_speed=100):
         '''
@@ -535,12 +535,7 @@ class AudibleTransits(ABC):
             assert tracks == 'self'
             tracks = self.tracks
 
-        active_for_extrapolation = self.active_layer
-        if self.three_dimensional_run:
-            # use union of all active space layers
-            active_for_extrapolation = pd.concat(list(self.active_3d.activespaces.values())).dissolve()
-
-        AudibleTransits.needs_extrapolation(tracks, active_for_extrapolation)
+        self.needs_extrapolation(tracks)
         AudibleTransits.find_short_tracks(tracks, max_distance=max_distance)
         AudibleTransits.find_err_flight_speeds(
             tracks, min_speed=min_speed, max_speed=max_speed)
@@ -1364,8 +1359,7 @@ class AudibleTransits(ABC):
         return fig
 
     # ========================================== DATA QC + DETECTION ===================================================
-    @staticmethod
-    def needs_extrapolation(tracks, active, buffer=10, inplace=True):
+    def needs_extrapolation(self, tracks, inplace=True):
         """
         Identifies tracks that end or begin inside of the active space; adds a corresponding boolean column 'needs_extrapolation' to the input dataframe.
         NEW COLUMNS: starts_inside and ends_inside specifies which end(s) of the tracks may need extrapolation. Usable downstream in extrapolation, but mainly
@@ -1379,13 +1373,6 @@ class AudibleTransits(ABC):
             A dataframe containing flight tracks. Must have the following columns in order to compute:
             index(unlabeled) | track_id | entry_position | exit_position 
 
-        active_ea: `gpd.GeoDataFrame`
-            A dataframe containing the active space being studied. Should contain a Polygon or MultiPolygon geometry
-
-        buffer: int (in meters)
-            Defaults to 10 m, can be used to avoid unnecessarily extrapolating tracks that are very close to the border. 
-            Might be worth considering if we should just set to 1 and extrapolate no matter what.
-
         inplace: boolean
             Whether to modify the input dataframe as part of the process. Defaults to True.
             If False, returns a new dataframe instead of a reference to the original.
@@ -1396,11 +1383,22 @@ class AudibleTransits(ABC):
         """
         # TODO fix this function for the 3D case
 
-        # note logic here assumes tracks have already been clipped to the active space
-        starts_inside = ~(tracks['entry_position'].buffer(
-            buffer).intersects(active.geometry.iloc[0].boundary))
-        ends_inside = ~(tracks['exit_position'].buffer(
-            buffer).intersects(active.geometry.iloc[0].boundary))
+        # we want to detect if points are meaningfully inside the active space
+        # consider being within > 2 sampling points to count as "meaningfully within"
+        sample_dist = tracks["avg_speed"].median() / tracks["sampling_interval"].median()
+        buffer = 2 * sample_dist
+
+        # check if start or end point is meaningfully inside the active space for each track
+        if self.three_dimensional_run:
+            start_pts = gpd.GeoDataFrame(geometry=tracks["entry_position"], crs=tracks.crs)
+            end_pts = gpd.GeoDataFrame(geometry=tracks["exit_position"], crs=tracks.crs)
+            starts_inside = self.active_3d.predict(start_pts, -buffer)
+            ends_inside = self.active_3d.predict(end_pts, -buffer)
+        else:
+            mask = self.active_layer.buffer(-buffer).union_all()
+            starts_inside = tracks["entry_position"].within(mask)
+            ends_inside = tracks["exit_position"].within(mask)
+
         needs_extrapolation = starts_inside | ends_inside
 
         # Add column if inplace==True, create new GDF if inplace==False
@@ -1753,7 +1751,8 @@ class AudibleTransits(ABC):
         if export_garbage:
             self.export_garbage_summary(output_dir)
         
-        log_buffer.save(os.path.join(output_dir, "log.log"))
+        transit_year = pd.Timestamp(self.study_start).year
+        log_buffer.save(os.path.join(output_dir, f"{self.unit}{self.site}_transit{transit_year}.log"))
 
         print(f"Saved results to '{os.path.abspath(output_dir)}'")
 
@@ -2044,17 +2043,19 @@ class AudibleTransitsGPS(AudibleTransits):
                     takeoffs.append(True)
                     ht += 1
                 # Obvious takeoffs: high-res data that starts in the middle of the active space (only other option is initial system failure)
-                elif (track.sampling_interval <= interval_thresh2) & (track.num_points >= point_thresh2):
-                    takeoffs.append(True)
-                    hires += 1
+                # THIS IS A BUG - passing interpolated tracks to this condition will always result in True
+                # elif (track.sampling_interval <= interval_thresh2) & (track.num_points >= point_thresh2):
+                #     takeoffs.append(True)
+                #     hires += 1
                 # Sinuous tracks (curvy); simple transits through an area are usually very close to 1, i.e., straight lines
                 elif (sinuosity >= 1.1):
                     takeoffs.append(True)
                     sinu += 1
                 # Physics check: is the aircraft moving fast enough to leave the study area within two consecutive samples? Depends heavily on sampling interval
-                elif (Vxy <= 25000/track.sampling_interval):
-                    takeoffs.append(True)
-                    phys += 1
+                # THIS IS A BUG - passing interpolated tracks to this condition will always result in True
+                # elif (Vxy <= 25000/track.sampling_interval):
+                #     takeoffs.append(True)
+                #     phys += 1
                 else:
                     takeoffs.append(False)
             else:
@@ -2074,23 +2075,25 @@ class AudibleTransitsGPS(AudibleTransits):
                 # Get velocity in the xy plane (exclude z, as takeoff could have lots of upward velocity)
                 Vxy = np.linalg.norm(dldt[0:2])
                 final_speeds.append(Vxy)
-                # CHECK FOR TAKEOFFS
+                # CHECK FOR LANDINGS
                 # Track ends below the Above Ground Level threshold (last 10 samples). Checks for erroneous altitudes (less than -200m)
                 if (min(track.AGL[-10:]) <= AGL_thresh) & (min(track.AGL[-10:]) >= -200):
                     landings.append(True)
                     ht += 1
-                # Obvious takeoffs: high-res data that stops in the middle of the active space (only other option is system failure)
-                elif (track.sampling_interval <= interval_thresh2) & (track.num_points >= point_thresh2):
-                    landings.append(True)
-                    hires += 1
+                # Obvious landings: high-res data that stops in the middle of the active space (only other option is system failure)
+                # THIS IS A BUG - passing interpolated tracks to this condition will always result in True
+                # elif (track.sampling_interval <= interval_thresh2) & (track.num_points >= point_thresh2):
+                #     landings.append(True)
+                #     hires += 1
                 # Sinuous tracks (curvy); simple transits through an area are usually very close to 1, i.e., straight lines
                 elif (sinuosity >= 1.1):
                     landings.append(True)
                     sinu += 1
                 # Physics check: is the aircraft moving fast enough to leave the study area within two consecutive samples? Depends heavily on sampling interval
-                elif (Vxy <= 25000/track.sampling_interval):
-                    landings.append(True)
-                    phys += 1
+                # THIS IS A BUG - passing interpolated tracks to this condition will always result in True
+                # elif (Vxy <= 25000/track.sampling_interval):
+                #     landings.append(True)
+                #     phys += 1
                 else:
                     landings.append(False)
             else:
@@ -2108,9 +2111,9 @@ class AudibleTransitsGPS(AudibleTransits):
         logger.debug(f"\tPotential takeoffs identified: {sum(takeoffs)}")
         logger.debug(f"\tPotential landings identified: {sum(landings)}")
         logger.debug(f"\tLow AGL takeoffs/landings: {ht}")
-        logger.debug(f"\tHigh res takeoffs/landings: {hires}")
+        # logger.debug(f"\tHigh res takeoffs/landings: {hires}")  # BUG
         logger.debug(f"\tSinuosity>=1.1 takeoffs/landings: {sinu}")
-        logger.debug(f"\tPhysics-based takeoffs/landings {phys}")
+        # logger.debug(f"\tPhysics-based takeoffs/landings {phys}")  # BUG
 
         tracks['takeoff'] = takeoffs
         tracks['landing'] = landings
