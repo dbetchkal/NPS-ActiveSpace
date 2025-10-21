@@ -9,14 +9,20 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 import matplotlib.patches as patches
+import glob
+import os
+from nps_active_space.utils.computation import contiguous_regions
+from nps_active_space.utils.models import Srcid
+import iyore
 import warnings
 
 __all__ = [
     'clip_events_to_time_period',
     'clip_srcid_to_time_period',
-    'get_noise_events',
     'get_all_geo_stats',
     'get_all_srcid_stats',
+    'get_noise_events',
+    'get_obs_periods',
     'calculate_spatial_stats',
     'plot_events',
     'circular_sliding_avg',
@@ -28,6 +34,84 @@ __all__ = [
 ## ========================================== STATISTICS/METRICS ======================================== ##
 
 # SHARED - ACOUSTIC AND GEOGRAPHIC ---------------------------------------
+
+def get_obs_periods(unit, site, year, nvspl_archive, adsb_dir=None):
+    """
+    Get periods of time in which we have overlapping acoustic and causal observations.
+    A full day with no SPLAT annotations is considered acoustic data missing.
+    These periods are intended to be used when computing metrics, since if we want to compare
+    acoustic and geographic metrics, they should be during the same block(s) of time.
+
+    Parameters
+    ----------
+    unit: str
+        NPS unit code, e.g. "DENA"
+    site: str
+        Monitoring site code, e.g. "TRLA"
+    year: str
+        Deployment year
+    nvspl_archive: str
+        Path the the nvspl archive. Should contain a .structure file for use with iyore.
+    adsb_dir: str, default None
+        If provided, the path to the directory containing ADSB TSV files for this year / site.
+        If not provided, casual data is assumed to be GPS. Since we assume GPS doesn't have
+        any gaps of no-data, this function just computes the periods of time with acoustic data.
+    
+    Returns
+    -------
+    obs_periods: np.array of shape (# periods, 2)
+        Periods with both acoustic and causal data. Each row is a period containing a start and end date,
+        formatted "YYYY-MM-DD", where both the start and end date are included in the period.
+    """
+
+    # load acoustic record periods
+    ds = iyore.Dataset(nvspl_archive)
+    paths = [e.path for e in ds.srcid(unit=unit, site=site, year=year)]
+    assert len(paths) > 0, "No SPLAT annotation data"
+    src_obj = Srcid(paths[0])
+    src_obs_periods = src_obj.get_observation_periods()
+
+    if adsb_dir is None:
+        # assume GPS, and assume GPS covers the whole year, so only acoustic record is limiting
+        return src_obs_periods
+    
+    # load adsb periods
+
+    tsv_files = glob.glob(os.path.join(adsb_dir, "*.tsv"))
+    adsb_dates = []
+    for file in tsv_files:
+        f = os.path.basename(file)
+        date = f"{f[:4]}-{f[4:6]}-{f[6:8]}"
+        adsb_dates.append(np.datetime64(date))
+    adsb_dates = np.array(adsb_dates)
+    gaps = np.diff(adsb_dates) > np.timedelta64(1, "D")
+    gap_after = np.concat([gaps, [False]])
+    gap_before = np.concat([[False], gaps])
+    full_adsb_day = (~gap_after) & (~gap_before)
+    full_adsb_day[[0,-1]] = False
+    
+    # get which adsb days were during the acoustic record
+    during_acoustic = np.full(adsb_dates.shape, False)
+    for start, end in src_obs_periods.astype("datetime64[D]"):
+        during_acoustic |= (adsb_dates >= start) & (adsb_dates <= end)
+    
+    # get np array of dates with overlapping ADSB and acoustic
+    dates = adsb_dates[full_adsb_day & during_acoustic]
+
+    # make np array of days spanning the full range
+    # add one extra day to end date for np.arange exclusive indexing
+    all_dates = np.arange(dates[0], dates[-1] + np.timedelta64(1, "D"))
+
+    # Get contiguous regions. Returns a numpy array of shape (len(all_dates), 2),
+    # containing indices of the beginning and end of each contiguous region (exclusive end index)
+    period_indices = contiguous_regions(np.isin(all_dates, dates))
+    # convert end indices to inclusive
+    period_indices[:,1] -= 1
+
+    # index into all dates and convert to strings
+    obs_periods = all_dates[period_indices]
+    return np.datetime_as_string(obs_periods, unit="D")
+
 
 def clip_events_to_time_period(df, start_col, end_col, start_dt, end_dt, months=list(range(1,13))):
     """Clips events to only fall within a time period and within ceratin months.
@@ -315,20 +399,19 @@ def get_all_geo_stats(tracks, periods, months=list(range(1,13)), quantiles=.5):
     
     Returns
     -------
-    Tuple of (statistics, confidence_intervals, data)
-        statistics: pd.DataFrame.
-            DataFrame containing computed statistics.
-            Columns represent the metrics that statistics are computed for: event_duration, NFI_duration, daily_time_audible, daily_event_count, hourly_time_audible, hourly_event_count
-            Rows represent the statistic: mean, quantiles, min, max, std, median_abs_deviation 
+    statistics: pd.DataFrame.
+        DataFrame containing computed statistics.
+        Columns represent the metrics that statistics are computed for: event_duration, NFI_duration, daily_time_audible, daily_event_count, hourly_time_audible, hourly_event_count
+        Rows represent the statistic: mean, quantiles, min, max, std, median_abs_deviation 
 
-        confidence_intervals: pd.DataFrame.
-            DataFrame containing 95% percentile confidence intervals for the mean and quantiles, computed using bootstrapping.
-            Columns are metric names, rows are statistic names.
-            Entries in the DataFrame are tuples representing the confidence intervals. Note that tuples may contain nan if the statistic
-            distribution was degenerate (always the same value when performing bootstrapping).
+    confidence_intervals: pd.DataFrame.
+        DataFrame containing 95% percentile confidence intervals for the mean and quantiles, computed using bootstrapping.
+        Columns are metric names, rows are statistic names.
+        Entries in the DataFrame are tuples representing the confidence intervals. Note that tuples may contain nan if the statistic
+        distribution was degenerate (always the same value when performing bootstrapping).
 
-        data: dict
-            A dictionary where keys are metric names, and values are pd.Series representing the data.
+    data: dict
+        A dictionary where keys are metric names, and values are pd.Series representing the data.
     """
 
     # Input validation. Both 'quantiles' and 'months' paramters must be converted to lists
@@ -485,20 +568,20 @@ def get_all_srcid_stats(src_data, periods, months=list(range(1,13)), quantiles=.
     
     Returns
     -------
-    Tuple of (statistics, confidence_intervals, data)
-        statistics: pd.DataFrame.
-            DataFrame containing computed statistics.
-            Columns represent the metrics that statistics are computed for: event_duration, NFI_duration, daily_time_audible, daily_event_count, hourly_time_audible, hourly_event_count
-            Rows represent the statistic: mean, quantiles, min, max, std, median_abs_deviation 
+    statistics: pd.DataFrame.
+        DataFrame containing computed statistics.
+        Columns represent the metrics that statistics are computed for:
+        event_duration, NFI_duration, daily_time_audible, daily_event_count, hourly_time_audible, hourly_event_count, SEL_A, SEL_T, LAmax, LTmax.
+        Rows represent the statistic: mean, quantiles, min, max, std, median_abs_deviation 
 
-        confidence_intervals: pd.DataFrame.
-            DataFrame containing 95% percentile confidence intervals for the mean and quantiles, computed using bootstrapping.
-            Columns are metric names, rows are statistic names.
-            Entries in the DataFrame are tuples representing the confidence intervals. Note that tuples may contain nan if the statistic
-            distribution was degenerate (always the same value when performing bootstrapping).
+    confidence_intervals: pd.DataFrame.
+        DataFrame containing 95% percentile confidence intervals for the mean and quantiles, computed using bootstrapping.
+        Columns are metric names, rows are statistic names.
+        Entries in the DataFrame are tuples representing the confidence intervals. Note that tuples may contain nan if the statistic
+        distribution was degenerate (always the same value when performing bootstrapping).
 
-        data: dict
-            A dictionary where keys are metric names, and values are pd.Series representing the data.
+    data: dict
+        A dictionary where keys are metric names, and values are pd.Series representing the data.
     """
 
     # Input validation. Both 'quantiles' and 'months' paramters must be converted to lists
