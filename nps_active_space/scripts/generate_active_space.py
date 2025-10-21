@@ -432,7 +432,7 @@ if __name__ == '__main__':
 
     for beta_ in args.beta:
         usy = f"{args.unit}{args.site}{args.year}"
-        plotname = f"PrecisionRecallPlot_{usy}_{altitude_}m_{str(beta_).replace(".","p")}.png'"
+        plotname = f"PrecisionRecallPlot_{usy}_{altitude_}m_{str(beta_).replace(".","p")}.png"
         plot_savepath = f'{site_dir}/Output_Data/PRECISION_RECALL/{plotname}'
         best_omni, max_fbeta, _, _, _ = select_optimal(unit=args.unit,
                                                        site=args.site,
