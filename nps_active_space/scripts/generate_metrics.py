@@ -67,50 +67,67 @@ def get_obs_periods(unit, site, year, nvspl_archive, adsb_dir=None):
     # load acoustic record periods
     ds = iyore.Dataset(nvspl_archive)
     paths = [e.path for e in ds.srcid(unit=unit, site=site, year=year)]
-    assert len(paths) > 0, "No SPLAT annotation data"
-    src_obj = Srcid(paths[0])
-    src_obs_periods = src_obj.get_observation_periods()
+    if len(paths) > 0:
+        src_obj = Srcid(paths[0])
+        src_obs_periods = src_obj.get_observation_periods()
+    else:
+        print("No SPLAT annotation data")
+        src_obs_periods = None
 
+    # load ADSB record periods if applicable
+    if adsb_dir is not None:
+        tsv_files = glob.glob(os.path.join(adsb_dir, "*.tsv"))
+        adsb_dates = []
+        for file in tsv_files:
+            f = os.path.basename(file)
+            date = f"{f[:4]}-{f[4:6]}-{f[6:8]}"
+            adsb_dates.append(np.datetime64(date))
+        adsb_dates = np.array(adsb_dates)
+        gaps = np.diff(adsb_dates) > np.timedelta64(1, "D")
+        gap_after = np.concat([gaps, [False]])
+        gap_before = np.concat([[False], gaps])
+        full_adsb_day = (~gap_after) & (~gap_before)
+        # first and last days aren't full days, since monitoring started/stopped during them
+        full_adsb_day[[0,-1]] = False
+
+    # several possibilities for what data we have - GPS vs. ADSB, and may or may not have SPLAT
     if adsb_dir is None:
-        # assume GPS, and assume GPS covers the whole year, so only acoustic record is limiting
-        return src_obs_periods
-    
-    # load adsb periods
+        if src_obs_periods is None:
+            # GPS + no SPLAT
+            # assume GPS covers the whole year
+            return np.array([[f"{year}-01-01", f"{year}-12-31"]])
+        else:
+            # GPS + SPLAT
+            # assume GPS covers the whole year, so only acoustic record is limiting
+            return src_obs_periods
+    else:
+        if src_obs_periods is None:
+            # ADSB + No SPLAT
+            dates = adsb_dates[full_adsb_day]
+        else:
+            # ADSB + SPLAT
+            # get which adsb days were during the acoustic record
+            during_acoustic = np.full(adsb_dates.shape, False)
+            for start, end in src_obs_periods.astype("datetime64[D]"):
+                during_acoustic |= (adsb_dates >= start) & (adsb_dates <= end)
+            # get np array of dates with overlapping ADSB and acoustic
+            dates = adsb_dates[full_adsb_day & during_acoustic]
 
-    tsv_files = glob.glob(os.path.join(adsb_dir, "*.tsv"))
-    adsb_dates = []
-    for file in tsv_files:
-        f = os.path.basename(file)
-        date = f"{f[:4]}-{f[4:6]}-{f[6:8]}"
-        adsb_dates.append(np.datetime64(date))
-    adsb_dates = np.array(adsb_dates)
-    gaps = np.diff(adsb_dates) > np.timedelta64(1, "D")
-    gap_after = np.concat([gaps, [False]])
-    gap_before = np.concat([[False], gaps])
-    full_adsb_day = (~gap_after) & (~gap_before)
-    full_adsb_day[[0,-1]] = False
-    
-    # get which adsb days were during the acoustic record
-    during_acoustic = np.full(adsb_dates.shape, False)
-    for start, end in src_obs_periods.astype("datetime64[D]"):
-        during_acoustic |= (adsb_dates >= start) & (adsb_dates <= end)
-    
-    # get np array of dates with overlapping ADSB and acoustic
-    dates = adsb_dates[full_adsb_day & during_acoustic]
+        # make np array of days spanning the full range
+        # add one extra day to end date for np.arange exclusive indexing
+        all_dates = np.arange(dates[0], dates[-1] + np.timedelta64(1, "D"))
 
-    # make np array of days spanning the full range
-    # add one extra day to end date for np.arange exclusive indexing
-    all_dates = np.arange(dates[0], dates[-1] + np.timedelta64(1, "D"))
+        # Get contiguous regions. Returns a numpy array of shape (len(all_dates), 2),
+        # containing indices of the beginning and end of each contiguous region (exclusive end index)
+        period_indices = contiguous_regions(np.isin(all_dates, dates))
+        # convert end indices to inclusive
+        period_indices[:,1] -= 1
 
-    # Get contiguous regions. Returns a numpy array of shape (len(all_dates), 2),
-    # containing indices of the beginning and end of each contiguous region (exclusive end index)
-    period_indices = contiguous_regions(np.isin(all_dates, dates))
-    # convert end indices to inclusive
-    period_indices[:,1] -= 1
-
-    # index into all dates and convert to strings
-    obs_periods = all_dates[period_indices]
-    return np.datetime_as_string(obs_periods, unit="D")
+        # index into all dates and convert to strings
+        obs_periods = all_dates[period_indices]
+        return np.datetime_as_string(obs_periods, unit="D")
+            
+            
 
 
 def clip_events_to_time_period(df, start_col, end_col, start_dt, end_dt, months=list(range(1,13))):

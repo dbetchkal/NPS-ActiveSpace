@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import rasterio
+import os
 from osgeo import gdal
 from scipy import interpolate
 from scipy.spatial import KDTree
@@ -702,6 +703,7 @@ def select_optimal(unit: str, site: str, year: int,
         if plot_savepath is None:
             plt.show()
         else:
+            os.makedirs(os.path.dirname(plot_savepath), exist_ok=True)
             plt.savefig(plot_savepath)
 
     return best_omni, max_fbeta, best_precision, best_recall, detection_results
