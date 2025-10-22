@@ -232,10 +232,10 @@ def expected_Lp(points: gpd.GeoDataFrame, target: Point, Lw: float = 140, atm_ab
 
 def round_points(points: gpd.GeoDataFrame, precision: int):
     """Rounds the coordinates of a GeoDataFrame of points to a certain precision, in place."""
-    x = points.geometry.x.round(3)
-    y = points.geometry.y.round(3)
+    x = points.geometry.x.round(precision)
+    y = points.geometry.y.round(precision)
     if points.geometry.has_z.all():
-        z = points.geometry.z.round(3)
+        z = points.geometry.z.round(precision)
         points.geometry = gpd.points_from_xy(x, y, z)
     else:
         points.geometry = gpd.points_from_xy(x, y)
