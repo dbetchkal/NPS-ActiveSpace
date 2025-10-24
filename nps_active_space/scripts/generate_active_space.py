@@ -77,6 +77,7 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
     active_space_list = []
     tested_pts_dict = {}
     for heading in headings:
+        # get the predetermined points corresponding to this heading if they exist
         predetermined_audibility_pts = None if pretested_pts_dict is None else pretested_pts_dict[heading]
 
         active_space, tested_pts = generator.generate(
@@ -89,9 +90,8 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
         active_space_list.append(active_space)
         tested_pts_dict[heading] = tested_pts
 
-    active_spaces = pd.concat(active_space_list, ignore_index=True)
-
     # Combine the active spaces from each heading into a single active space and write it to a geojson file.
+    active_spaces = pd.concat(active_space_list, ignore_index=True)
     dissolved_active_space = active_spaces.dissolve()
     dissolved_active_space.to_file(outfile, driver='GeoJSON', mode='w', index=False)
 
@@ -119,7 +119,7 @@ def group_omni_sources(omnis: List[str]) -> List[List[str]]:
     the first group is the gain in the middle, the next group is the two gains dividing the upper/lower halves, etc.
     So group size goes 1, 2, 4, 8, etc. However, starting with very small groups doesn't utilize the CPU well
     when multiprocessing, and this is more important than benefitting from previous results. So we collapse the
-    first several groups together to improve this.
+    first several groups into a single group to improve this.
 
     Parameters
     ----------

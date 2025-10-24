@@ -26,7 +26,7 @@ from nps_active_space.utils.models import Tracks, FAAReleasable
 
 pd.set_option('future.no_silent_downcasting', True)
 
-def init_audible_transits(metadata, paths, raw_tracks = None):
+def init_audible_transits(metadata, paths={}, raw_tracks = None):
     '''
     Main function for initialization. Decides which AudibleTransits subclass to initialize based on the metadata provided.
 
@@ -43,10 +43,11 @@ def init_audible_transits(metadata, paths, raw_tracks = None):
         - "study start": date represented as a string of format yyyy-mm-dd, inclusive
         - "study end": date represented as a string of format yyyy-mm-dd, inclusive
         - "database type": type of database. Can be one of "ADSB", "GPS", "AIS". Note that AIS functionality is not yet implemented.
-        - "env" (optional): config file name (e.g. "DENA_streamline"). Required if the database type is "GPS". Also, this will be used to fill in defaults for required paths (e.g. "project") that weren't specified by the user.
+        - "env" (optional): config file name (e.g. "DENA_streamline"). Required if the database type is "GPS". Also, this will be used to fill in missing values for required paths (e.g. "project") that weren't specified by the user.
         
-        - "2D" (optional): If set to True, run a 2D active
-        - "altitude" (optonal): If specified, integer specifying which altitude (in meters) active space layer will be used.
+        - "2D" (optional): Not required to be in metadata. If set to True, run a 2D active space
+        - "altitude" (optonal): Not required to be in metadata.
+                                If specified, integer specifying which altitude (in meters) active space layer will be used.
                                 If omitted, the middle of existing altitudes is used. In a 3D run, this affects only
                                 which active space layer is used in making plots.
             
@@ -994,8 +995,10 @@ class AudibleTransits(ABC):
                 enter_time = pts["interp_point_dt"].iloc[enter_exit_indices[i][0]]
                 gap_time = enter_time - prev_exit_time
                 if gap_time > np.timedelta64(min_gap_dur, 's'):
+                    # add this as a new segment
                     ungapped_indices.append([enter_exit_indices[i][0], enter_exit_indices[i][1]])
                 else:
+                    # overwrite previous exit time index with this segment's exit time index
                     ungapped_indices[-1][1] = enter_exit_indices[i][1]
             
             # convert audible segments into linestrings

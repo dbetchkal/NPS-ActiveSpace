@@ -463,7 +463,7 @@ class ActiveSpaceGenerator:
         cs = ax.tricontour(tri, total_space.audible.tolist(), levels=[0.5])  # contour with arbitrary point cloud
         plt.close(fig)
 
-        contour_path = cs.get_paths()[0]  
+        contour_path = cs.get_paths()[0]
         x = contour_path.vertices[:, 0]
         y = contour_path.vertices[:, 1]
         pts = gpd.GeoDataFrame(geometry=gpd.points_from_xy(x, y, altitude), crs=total_space.crs)
@@ -527,7 +527,7 @@ class ActiveSpaceGenerator:
         nmsim_df_all: pd.DataFrame
             DataFrame containing all past NMSIM predictions.
         nmsim_df: pd.DataFrame
-            DataFrame containing past NMSIM predictions that correspond to a source point.
+            DataFrame containing past NMSIM predictions that correspond to some source point.
         new_pts: gpd.GeoDataFrame
             Subset of source_pts containing only the points we don't have previous results for.
         """
@@ -544,12 +544,14 @@ class ActiveSpaceGenerator:
             nmsim_df_all = pd.read_csv(csv_filename).fillna(-999).astype("float64")
             nmsim_df_all.loc[:,"A":"12500"] /= 10
             nmsim_df_all["Zpos"] = altitude_m
+            
             # build two multi-indices to quickly determine which points we've run before
             source_idx = pd.MultiIndex.from_frame(pd.DataFrame({
                 "Xpos": source_pts.geometry.x,
                 "Ypos": source_pts.geometry.y,
             }))
             prev_idx = pd.MultiIndex.from_frame(nmsim_df_all[["Xpos", "Ypos"]])
+
             nmsim_df = nmsim_df_all[prev_idx.isin(source_idx)].drop_duplicates(["Xpos", "Ypos"])
             new_pts = source_pts[~source_idx.isin(prev_idx)].drop_duplicates("geometry")
             # each source pt should be represented by a row in either new_pts or nmsim_df
@@ -582,7 +584,6 @@ class ActiveSpaceGenerator:
         nmsim_df_all.drop("Zpos", axis=1, inplace=True, errors="ignore")
         nmsim_df_all.to_csv(csv_filename, index=False)
 
-
     def _run_nmsim(self, job_name: str, source_pts: gpd.GeoDataFrame, flt_file: str, site_file: str,
                    omni_source: str, altitude_m: int, heading: Optional[int] = None) -> gpd.GeoDataFrame:
         """
@@ -612,7 +613,7 @@ class ActiveSpaceGenerator:
             A GeoDataFrame of points tested during the NMSIM run and their audibility.
         """
         assert len(source_pts) > 0, "Trying to run NMSIM on zero source points"
-        source_pts = source_pts.drop_duplicates("geometry")
+        source_pts = source_pts.drop_duplicates("geometry")  # duplicates cause problems when storing prev nmsim predictions
         crs = source_pts.crs.to_string().lower()
 
         # Mark any underground points as inaudible and don't pass them to NMSIM
@@ -729,7 +730,7 @@ class ActiveSpaceGenerator:
         return gpd.GeoDataFrame(data={'geometry': outer_polys}, geometry='geometry', crs=crs)
 
     def _preprocess_source_points(self, source_pts: gpd.GeoDataFrame, valid_query_region: gpd.GeoDataFrame,
-                                  tested_space: gpd.GeoDataFrame, max_pts: int = 4000):
+                                  tested_pts: gpd.GeoDataFrame, max_pts: int = 4000):
         """        
         Filter a set of source points, removing points that:
         1) Are outside the valid query region - meaning outside the study area, or too close
@@ -745,7 +746,7 @@ class ActiveSpaceGenerator:
             GeoDataFrame containing geometry that defines the valid query region. Any source points outside
             of this region will be filtered out and not tested. The valid query region is the study area,
             minus a padding region around the edge so that points are tested too close to where DEM data is missing.
-        tested_space: gpd.GeoDataFrame
+        tested_pts: gpd.GeoDataFrame
             A GeoDataFrame of 3D points, with a field "audible" = 0 or 1, representing points that have been
             tested already by NMSIM. There is no need to retest a point that has already been tested.
         max_pts: int, default 4000
@@ -764,7 +765,7 @@ class ActiveSpaceGenerator:
         source_pts = source_pts[source_pts.within(valid_query_region)]
 
         # don't query points we already know the answer for
-        source_pts = source_pts[~source_pts.geometry.isin(tested_space.geometry)]
+        source_pts = source_pts[~source_pts.geometry.isin(tested_pts.geometry)]
 
         # if too many points for NMSIM, randomly downsample
         if source_pts.shape[0] > max_pts:
@@ -772,7 +773,6 @@ class ActiveSpaceGenerator:
 
         return source_pts
     
-        
     def _generate(self, study_area: gpd.GeoDataFrame, dem_file: str, omni_source: str, name: str = '',
                   mic: Optional[Microphone] = None, project_dem: bool = True, altitude_m: int = 3658,
                   heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1,
@@ -786,16 +786,17 @@ class ActiveSpaceGenerator:
 
         # Initialize a GeoDataFrame of source points that have gone through NMSIM
         if predetermined_audibility_pts is not None:
-            tested_space = predetermined_audibility_pts
+            tested_pts = predetermined_audibility_pts
         else:
-            tested_space = gpd.GeoDataFrame(columns=['audible', 'geometry'], geometry='geometry', crs=crs)
+            # start with empty tested space
+            tested_pts = gpd.GeoDataFrame(columns=['audible', 'geometry'], geometry='geometry', crs=crs)
 
         # Initialize a GeoDataFrame of the current active space. The active space will initially
         # be the same as the study area, but will be refined.
-        active_space = study_area.to_crs(crs)
+        study_area = study_area.to_crs(crs)
         valid_query_region = study_area.to_crs(crs).union_all().buffer(-100)  # require points to not be right on the boundary
-        study_area_extent = ([active_space.total_bounds[0], active_space.total_bounds[2]],  # ([minx, maxx],
-                             [active_space.total_bounds[1], active_space.total_bounds[3]])  # [miny, maxy])
+        study_area_extent = ([study_area.total_bounds[0], study_area.total_bounds[2]],  # ([minx, maxx],
+                             [study_area.total_bounds[1], study_area.total_bounds[3]])  # [miny, maxy])
 
         if mic:
             mic.to_crs(crs, inplace=True)
@@ -818,12 +819,12 @@ class ActiveSpaceGenerator:
         # Prepare a coarse and fine grid to use for the 1st and 2nd point mesh steps
         # we end up rounding the source_pts coords to the nearest 0.001m later, so do this now
         # to make comparisons with the output of past runs work properly
-        coarse_grid = build_src_point_mesh(active_space, src_pt_density, altitude_m)
-        fine_grid = build_src_point_mesh(active_space, 2*src_pt_density-1, altitude_m)
+        coarse_grid = build_src_point_mesh(study_area, src_pt_density, altitude_m)
+        fine_grid = build_src_point_mesh(study_area, 2*src_pt_density-1, altitude_m)
         round_points(coarse_grid, 3)
         round_points(fine_grid, 3)
 
-        # Run the point mesh step a maximum of two times.
+        # Run the point mesh step two times.
         for j in range(2):
             if j == 0:
                 source_pts = coarse_grid
@@ -831,22 +832,22 @@ class ActiveSpaceGenerator:
                 # use the fine grid, but only near the boundary to be efficient.
                 # if you are within a short distance of an audible and an inaudible point,
                 # you are near the boundary - can use .buffer() to figure this out
-                audible_pts = tested_space[tested_space["audible"] == 1]
-                inaudible_pts = tested_space[tested_space["audible"] != 1]
+                audible_pts = tested_pts[tested_pts["audible"] == 1]
+                inaudible_pts = tested_pts[tested_pts["audible"] != 1]
                 # Buffer - reduce the buffering memory load by only buffering from the coarse grid.
-                # Also use cap_style=3 for square buffers to further reduce memory load.
                 # Not reducing memory load can cause out-of-memory crashes
                 audible_pts = gpd.sjoin(audible_pts, coarse_grid, how="inner", predicate='intersects')
                 inaudible_pts = gpd.sjoin(inaudible_pts, coarse_grid, how="inner", predicate='intersects')
                 # buffer by about 1.5 coarse grid cells, emprically is enough
                 buffer_amt = 1.5 * np.diff(np.array(study_area_extent)).max() / src_pt_density
+                # Also use cap_style=3 for square buffers to further reduce memory load.
                 near_audible = audible_pts.union_all().buffer(buffer_amt, cap_style=3)
                 near_inaudible = inaudible_pts.union_all().buffer(buffer_amt, cap_style=3)
 
                 boundary_zone = near_audible.intersection(near_inaudible)
                 source_pts = fine_grid[fine_grid.within(boundary_zone)]
             
-            source_pts = self._preprocess_source_points(source_pts, valid_query_region, tested_space)
+            source_pts = self._preprocess_source_points(source_pts, valid_query_region, tested_pts)
             if source_pts.empty:
                 print(f"Mesh step {j+1}: no source points, skipping")
                 break
@@ -860,16 +861,15 @@ class ActiveSpaceGenerator:
                 altitude_m,
                 heading
             )
-            tested_space = pd.concat([tested_space, new_audibility_pts], ignore_index=True) 
-            active_space = tested_space[tested_space.audible == 1]
+            tested_pts = pd.concat([tested_pts, new_audibility_pts], ignore_index=True) 
 
         # Run triangulation n_contour times to refine the edges of the active space.
         for k in range(n_contour):
-            source_pts = self._contour_active_space(tested_space, altitude_m)
+            source_pts = self._contour_active_space(tested_pts, altitude_m)
             # we end up rounding the source_pts coords to the nearest 0.001m later, so do this now
             # to make comparisons with the output of past runs work properly
             round_points(source_pts, 3)
-            source_pts = self._preprocess_source_points(source_pts, valid_query_region, tested_space)
+            source_pts = self._preprocess_source_points(source_pts, valid_query_region, tested_pts)
             if source_pts.empty:
                 # print(f"Refine step {k+1}: no source points, skipping")
                 break
@@ -882,13 +882,13 @@ class ActiveSpaceGenerator:
                 altitude_m,
                 heading
             )
-            tested_space = pd.concat([tested_space, new_audibility_pts], ignore_index=True)
+            tested_pts = pd.concat([tested_pts, new_audibility_pts], ignore_index=True)
 
-        active_space = self._build_active_space(tested_space, crs)
+        active_space = self._build_active_space(tested_pts, crs)
         active_space['altitude_m'] = altitude_m
         active_space['mic_name'] = mic.name
 
-        return active_space, tested_space
+        return active_space, tested_pts
 
     def set_dem(self, mic: Microphone):
         """

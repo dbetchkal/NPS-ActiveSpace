@@ -126,8 +126,6 @@ def get_obs_periods(unit, site, year, nvspl_archive, adsb_dir=None):
         # index into all dates and convert to strings
         obs_periods = all_dates[period_indices]
         return np.datetime_as_string(obs_periods, unit="D")
-            
-            
 
 
 def clip_events_to_time_period(df, start_col, end_col, start_dt, end_dt, months=list(range(1,13))):
