@@ -10,8 +10,8 @@ import nps_active_space.utils.config as cfg
 from nps_active_space.utils.helpers import get_logger, get_omni_sources
 from nps_active_space.active_space import ActiveSpaceGenerator
 
-
 if __name__ == '__main__':
+    print("WARNING - this script is out of date, and may not work as expected")
 
     argparse = ArgumentParser()
 
