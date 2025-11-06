@@ -2,10 +2,15 @@ import os
 import pandas as pd
 from nps_active_space.utils.helpers import load_layered_activespace, load_annotations
 import nps_active_space.utils.config as cfg
-import argparse
+from argparse import ArgumentParser
+
+"""
+This script fits the gain for a 3D active space, assuming that active space layers
+have already been generated using generate_active_space_batch.py or generate_active_space.py
+"""
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = ArgumentParser()
     parser.add_argument("unit", help="Four letter unit code. E.g. DENA")
     parser.add_argument("site", help="Four letter site code. E.g. TRLA")
     parser.add_argument("year", help="Four digit year. E.g. 2018")
