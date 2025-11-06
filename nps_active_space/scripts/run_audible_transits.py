@@ -1806,7 +1806,13 @@ class AudibleTransits(ABC):
             warnings.warn(
                 "Failed to load from pickle file. Make sure you have imported the class you are trying to load (e.g. AudibleTransitsADSB)")
             raise AttributeError(e)
-        obj.DEM = load_DEM(obj.paths["project"], obj.unit, obj.site)
+        
+        try:
+            obj.DEM = load_DEM(obj.paths["project"], obj.unit, obj.site)
+        except IndexError:
+            warnings.warn("Failed to load DEM into reconstructed AudibleTransits object. " \
+                          "This is likely because the DEM's absolute path has changed. " \
+                          "The tracks dataframe can still be used normally.")
         return obj
 
     def export_garbage_summary(self, path):
