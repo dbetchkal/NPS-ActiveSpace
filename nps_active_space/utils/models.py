@@ -134,19 +134,26 @@ class Nvspl(pd.DataFrame):
     octave_regex = re.compile(r"^H[0-9]+$|^H[0-9]+p[0-9]$")
 
     def __init__(self, filepaths_or_data: Union[List[str], str, pd.DataFrame]):
+        if isinstance(filepaths_or_data, list) and len(filepaths_or_data) == 0:
+            raise ValueError("No NVSPL files found")
         data = self._read(filepaths_or_data)
         super().__init__(data=data)
 
     def parseNvspl(self, nvsplFileEntry, state=(None, None, 1)):
-
         timestamps, columns, index_index = state
 
-        df = pd.read_csv(str(nvsplFileEntry),
-                         engine='c',
-                         parse_dates=True,
-                         index_col=index_index,
-                         usecols=columns
-                         )
+        # occasionally NVSPL files can get corrupted when copying, etc.
+        # when this happens, it's nice to know which one had the issue
+        try:
+            df = pd.read_csv(str(nvsplFileEntry),
+                            engine='c',
+                            parse_dates=True,
+                            index_col=index_index,
+                            usecols=columns
+                            )
+        except Exception as e:
+            print(f" (!!!) Error occurred reading {nvsplFileEntry}")
+            raise e
 
         # Make column names slightly nicer
         df.index.name = "date"

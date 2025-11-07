@@ -11,9 +11,9 @@ have already been generated using generate_active_space_batch.py or generate_act
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("unit", help="Four letter unit code. E.g. DENA")
-    parser.add_argument("site", help="Four letter site code. E.g. TRLA")
-    parser.add_argument("year", help="Four digit year. E.g. 2018")
+    parser.add_argument("-u", "--unit", required=True, help="Four letter unit code. E.g. DENA")
+    parser.add_argument("-s", "--site", required=True, help="Four letter site code. E.g. TRLA")
+    parser.add_argument("-y", "--year", required=True, help="Four digit year. E.g. 2018")
     parser.add_argument("-e", "--environment", required=True,
                         help="The configuration environment to run the script in.")
     args = parser.parse_args()
