@@ -32,7 +32,7 @@ if __name__ == "__main__":
                           help="Stop after creating the commands file; don't run generate_active_space_batch.py. " \
                                "This is useful if you want to combine several command files into a single one to run at once, e.g. overnight.")
 
-    # generate_active_space.py arguments
+    # generate_active_space.py arguments that this script needs to know about
     parser.add_argument('-e', '--environment', required=True,
                           help="The configuration environment to run the script in.")
     parser.add_argument('-u', '--unit', required=True,
