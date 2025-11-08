@@ -9,9 +9,9 @@ from nps_active_space.utils.computation import ambience_from_nvspl
 import nps_active_space.utils.config as cfg
 
 """
-This script creates an active space batch commands file for use with generate_active_space_batch.py,
-containing commands for each active space layer. It then uses generate_active_space_batch.py to run the commands 
-(this can be disabled with an option).
+This script creates a commands file for use with generate_active_space_batch.py, containing commands
+for each active space layer. It then uses generate_active_space_batch.py to run the commands 
+(this can be disabled with an argument).
 
 Before making a commands file, it also precomputes ambience from NVSPL. This saves a lot of time
 since ambience doesn't have to be recomputed for each active space layer.
@@ -103,8 +103,8 @@ if __name__ == "__main__":
             parts += extra_args
 
             # use precomputed ambience if nvspl
-            # put ambience arg at the end of the line because the pkl path is often long
-            # and makes the commands file hard to read if put earlier
+            # put ambience arg at the end because the pkl path is often long
+            # and this makes the commands file easier to read when opened
             if args.ambience == "nvspl":
                 parts += ["-a", ambience_pkl_path]
             else:
@@ -116,11 +116,19 @@ if __name__ == "__main__":
 
             f.write(f"{line}\n")
     
-    # run generate_active_space_batch.py if requested (default behavior)
+    # if we're not only prepping a commands file, run generate_active_space_batch.py
+    # and then fit the active space
     if not args.only_prep:
         print("Running generate_active_space_batch.py on the commands file\n")
         batch_script = os.path.join(os.path.dirname(__file__), "generate_active_space_batch.py")
         process = subprocess.Popen(
             ["python", batch_script, cmds_file]
+        )
+        process.wait()
+
+        print("\nRunning fit_3d_active_space.py to fit the active space\n")
+        fit_script = os.path.join(os.path.dirname(__file__), "fit_3d_active_space.py")
+        process = subprocess.Popen(
+            ["python", fit_script, "-e", args.environment, "-u", args.unit, "-s", args.site, "-y", str(args.year)]
         )
         process.wait()

@@ -1,7 +1,6 @@
 import glob
 import multiprocessing as mp
 import os
-import re
 import signal
 import time
 import numpy as np
@@ -273,7 +272,7 @@ if __name__ == '__main__':
                           help="The maximum omni source to run the mesh for.")
     argparse.add_argument('-l', '--altitude', type=int, required=False,
                           help="Altitude to run NSMIM with in meters.")
-    argparse.add_argument('-b', '--beta', nargs='+', type=float, default=[1.0, 2.0], 
+    argparse.add_argument('-b', '--beta', nargs='+', type=float, default=[1.0], 
                           help="Beta value(s) to use when calculating fbeta. Accepts one or more values.")
     argparse.add_argument('--cleanup', action='store_true',
                           help="Remove intermediary control and batch files.")
@@ -432,7 +431,7 @@ if __name__ == '__main__':
 
     for beta_ in args.beta:
         usy = f"{args.unit}{args.site}{args.year}"
-        plotname = f"PrecisionRecallPlot_{usy}_{altitude_}m_{str(beta_).replace(".","p")}.png"
+        plotname = f"PrecisionRecallPlot_{usy}_{altitude_}m_{str(beta_).replace('.','p')}.png"
         plot_savepath = f'{site_dir}/Output_Data/PRECISION_RECALL/{plotname}'
         best_omni, max_fbeta, _, _, _ = select_optimal(unit=args.unit,
                                                        site=args.site,
