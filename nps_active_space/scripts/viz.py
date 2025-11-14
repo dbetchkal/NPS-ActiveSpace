@@ -392,32 +392,35 @@ class Visualizer():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+
     # required args
     # we pass deployment as a single positional arg instead of -u DENA -s TRLA -y 2024,
     # because it saves a lot of keystrokes, and this script is often used frequently
     parser.add_argument("deployment", help="Deployment name, e.g. DENATRLA2024")
-    parser.add_argument("-e", "--environment", required=True,
-                        help="Config environment name, e.g. DENA_streamline")
+    parser.add_argument("-e", "--environment", default="DENA_streamline",
+                        help="Config environment name, e.g. DENA_streamline. Default is 'DENA_streamline'")
 
     # common args
     parser.add_argument("-s", "--active-space", action="store_true",
                         help="If included, load and plot the active space.")
+    parser.add_argument("-g", "--gain", type=float, help="Active space gain, if not the default.")
     parser.add_argument("-a", "--annotations", action="store_true",
                         help="If included, load and plot annotations")
     parser.add_argument("-t", "--audible-transits", action="store_true",
                         help="If included, load and plot audible transits")
-    parser.add_argument("-g", "--gain", type=float, help="Active space gain, if not the default.")
-    parser.add_argument("--all", action="store_true", help="Load everything, shorthand for --active-space --annotations --audible-transits")
+    parser.add_argument("--all", action="store_true",
+                        help="Load everything, shorthand for --active-space --annotations --audible-transits")
 
     # uncommon / special use case args
-    parser.add_argument("--annotation-file", help=".geojson file to load annotations from, if not the default.")
-    parser.add_argument("--transits-pkl", help=".pkl file to load audible transits from, if not the default.")
+    parser.add_argument("-m", "--max-tracks", default=500,
+                        help="Maximum number of annotation tracks or audible transits to show.")
+    parser.add_argument("--annotation-file", help="Path to .geojson file to load annotations from, if not the default.")
+    parser.add_argument("--transits-pkl", help="Path to .pkl file to load audible transits from, if not the default.")
     parser.add_argument("--terraced", action="store_true",
                         help="If included, render the active space as the terraced surface instead of contours.")
     parser.add_argument("--fill-layers", action="store_true",
                         help="If included, fill the interior of each active space contour polygon.")
-    parser.add_argument("-m", "--max-tracks", default=500,
-                        help="Maximum number of annotation tracks or audible transits to show.")
+    
     args = parser.parse_args()
 
     usy = args.deployment
