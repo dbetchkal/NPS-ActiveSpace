@@ -24,8 +24,14 @@ def get_acoustic_metrics(unit, site, year, env, track_source):
     track_source: str
         'GPS', 'ADSB', or 'AIS'. Metrics will only be calculated for
         time periods with overlapping acoustic and track data.
+    
+    Returns
+    -------
+    Tuple (stats, CIs, data, obs_periods)
+        What is stored in the output .pkl file. See get_all_srcid_stats() and get_obs_periods() for documentation.
     """
     assert track_source in ["GPS", "ADSB", "AIS"], "Invalid track source"
+    year = str(year)
     print(unit + site + year)
 
     cfg.initialize(env)
@@ -56,11 +62,13 @@ def get_acoustic_metrics(unit, site, year, env, track_source):
 
     # save output
     savedir = os.path.join(project_dir, unit+site, "Output_Data", "METRICS")
-    pkl_file = os.path.join(savedir, f"acoustic_metrics_{unit}{site}{year}.pkl")
     os.makedirs(savedir, exist_ok=True)
+    pkl_file = os.path.join(savedir, f"acoustic_metrics_{unit}{site}{year}.pkl")
     with open(pkl_file, "wb") as f:
         pickle.dump((src_stats, src_CIs, src_data, obs_periods), f)
     print(f"Saved tuple (stats, conf intervals, data, observation periods) to {pkl_file}")
+
+    return src_stats, src_CIs, src_data, obs_periods
 
 
 if __name__ == "__main__":
