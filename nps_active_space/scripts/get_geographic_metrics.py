@@ -4,7 +4,7 @@ from argparse import ArgumentParser
 import matplotlib.pyplot as plt
 import pickle
 from nps_active_space.scripts.run_audible_transits import init_audible_transits, AudibleTransits, AudibleTransitsADSB, AudibleTransitsGPS
-from nps_active_space.scripts.generate_metrics import get_obs_periods, get_all_geo_stats
+from nps_active_space.utils.metrics import get_obs_periods, get_all_geo_stats
 import nps_active_space.utils.config as cfg
 
 
