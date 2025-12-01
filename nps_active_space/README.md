@@ -54,7 +54,7 @@ From the repository's root directory, inside the virtual environment:
 pip install -e .
 ```
 
-Try running importing a python module to make sure this install worked, e.g. in a python file:
+Try importing a python module to make sure this install worked, e.g. in a python file:
 
 ```
 from nps_active_space.active_space import ActiveSpaceGenerator
