@@ -97,7 +97,7 @@ if __name__ == "__main__":
     parser.add_argument("-e", "--environment", required=True,
                         help="The configuration environment to run the script in.")
     parser.add_argument("-u", "--unit", help="Four letter unit code. E.g. DENA")
-    parser.add_argument("-s", "--site", help="Four letter site code. E.g. TRLA")
+    parser.add_argument("-s", "--site", help="Site code. E.g. TRLA")
     parser.add_argument("-y", "--year",  help="Four digit year. E.g. 2018")
     parser.add_argument("-a", "--all", action="store_true",
                         help="If provided, plot altitude histograms for all sites in the project directory." \

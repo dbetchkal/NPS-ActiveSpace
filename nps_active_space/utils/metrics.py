@@ -2,19 +2,18 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 from scipy import stats
-from scipy.spatial.distance import directed_hausdorff, cdist
+from scipy.spatial.distance import cdist
 from scipy.signal import find_peaks
 from shapely.geometry import Point, LineString
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
+from datetime import timedelta
 import matplotlib.patches as patches
 import glob
 import os
 from nps_active_space.utils.computation import contiguous_regions
 from nps_active_space.utils.models import Srcid
 import iyore
-import warnings
 
 __all__ = [
     'clip_events_to_time_period',
