@@ -2,22 +2,26 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 from scipy import stats
-from scipy.spatial.distance import directed_hausdorff, cdist
+from scipy.spatial.distance import cdist
 from scipy.signal import find_peaks
 from shapely.geometry import Point, LineString
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
+from datetime import timedelta
 import matplotlib.patches as patches
-import warnings
+import glob
+import os
+from nps_active_space.utils.computation import contiguous_regions
+from nps_active_space.utils.models import Srcid
+import iyore
 
 __all__ = [
     'clip_events_to_time_period',
     'clip_srcid_to_time_period',
-    'tracks2events',
-    'NFI_list',
-    'get_all_stats',
+    'get_all_geo_stats',
     'get_all_srcid_stats',
+    'get_noise_events',
+    'get_obs_periods',
     'calculate_spatial_stats',
     'plot_events',
     'circular_sliding_avg',
@@ -27,6 +31,101 @@ __all__ = [
 ]
 
 ## ========================================== STATISTICS/METRICS ======================================== ##
+
+# SHARED - ACOUSTIC AND GEOGRAPHIC ---------------------------------------
+
+def get_obs_periods(unit, site, year, nvspl_archive, adsb_dir=None):
+    """
+    Get periods of time in which we have overlapping acoustic and causal observations.
+    A full day with no SPLAT annotations is considered acoustic data missing.
+    These periods are intended to be used when computing metrics, since if we want to compare
+    acoustic and geographic metrics, they should be during the same block(s) of time.
+
+    Parameters
+    ----------
+    unit: str
+        NPS unit code, e.g. "DENA"
+    site: str
+        Monitoring site code, e.g. "TRLA"
+    year: str
+        Deployment year
+    nvspl_archive: str
+        Path the the nvspl archive. Should contain a .structure file for use with iyore.
+    adsb_dir: str, default None
+        If provided, the path to the directory containing ADSB TSV files for this year / site.
+        If not provided, casual data is assumed to be GPS. Since we assume GPS doesn't have
+        any gaps of no-data, this function just computes the periods of time with acoustic data.
+    
+    Returns
+    -------
+    obs_periods: np.array of shape (# periods, 2)
+        Periods with both acoustic and causal data. Each row is a period containing a start and end date,
+        formatted "YYYY-MM-DD", where both the start and end date are included in the period.
+    """
+
+    # load acoustic record periods
+    ds = iyore.Dataset(nvspl_archive)
+    paths = [e.path for e in ds.srcid(unit=unit, site=site, year=year)]
+    if len(paths) > 0:
+        src_obj = Srcid(paths[0])
+        src_obs_periods = src_obj.get_observation_periods()
+    else:
+        print("No SPLAT annotation data")
+        src_obs_periods = None
+
+    # load ADSB record periods if applicable
+    if adsb_dir is not None:
+        tsv_files = glob.glob(os.path.join(adsb_dir, "*.tsv"))
+        adsb_dates = []
+        for file in tsv_files:
+            f = os.path.basename(file)
+            date = f"{f[:4]}-{f[4:6]}-{f[6:8]}"
+            adsb_dates.append(np.datetime64(date))
+        adsb_dates = np.array(adsb_dates)
+        gaps = np.diff(adsb_dates) > np.timedelta64(1, "D")
+        gap_after = np.concat([gaps, [False]])
+        gap_before = np.concat([[False], gaps])
+        full_adsb_day = (~gap_after) & (~gap_before)
+        # first and last days aren't full days, since monitoring started/stopped during them
+        full_adsb_day[[0,-1]] = False
+
+    # several possibilities for what data we have - GPS vs. ADSB, and may or may not have SPLAT
+    if adsb_dir is None:
+        if src_obs_periods is None:
+            # GPS + no SPLAT
+            # assume GPS covers the whole year
+            return np.array([[f"{year}-01-01", f"{year}-12-31"]])
+        else:
+            # GPS + SPLAT
+            # assume GPS covers the whole year, so only acoustic record is limiting
+            return src_obs_periods
+    else:
+        if src_obs_periods is None:
+            # ADSB + No SPLAT
+            dates = adsb_dates[full_adsb_day]
+        else:
+            # ADSB + SPLAT
+            # get which adsb days were during the acoustic record
+            during_acoustic = np.full(adsb_dates.shape, False)
+            for start, end in src_obs_periods.astype("datetime64[D]"):
+                during_acoustic |= (adsb_dates >= start) & (adsb_dates <= end)
+            # get np array of dates with overlapping ADSB and acoustic
+            dates = adsb_dates[full_adsb_day & during_acoustic]
+
+        # make np array of days spanning the full range
+        # add one extra day to end date for np.arange exclusive indexing
+        all_dates = np.arange(dates[0], dates[-1] + np.timedelta64(1, "D"))
+
+        # Get contiguous regions. Returns a numpy array of shape (len(all_dates), 2),
+        # containing indices of the beginning and end of each contiguous region (exclusive end index)
+        period_indices = contiguous_regions(np.isin(all_dates, dates))
+        # convert end indices to inclusive
+        period_indices[:,1] -= 1
+
+        # index into all dates and convert to strings
+        obs_periods = all_dates[period_indices]
+        return np.datetime_as_string(obs_periods, unit="D")
+
 
 def clip_events_to_time_period(df, start_col, end_col, start_dt, end_dt, months=list(range(1,13))):
     """Clips events to only fall within a time period and within ceratin months.
@@ -63,38 +162,10 @@ def clip_events_to_time_period(df, start_col, end_col, start_dt, end_dt, months=
     return df
 
 
-def clip_srcid_to_time_period(src_data, start_dt, end_dt, months=list(range(1,13))):
-    """A wrapper function around `clip_events_to_time_period` to clip SRCID data.
+def get_noise_events(df, start_col, end_col, start_date, end_date, min_dur=10, min_gap_dur=30):
     """
-
-    # we'll filter an uninformative performance warning
-    warnings.filterwarnings("ignore", 
-                            message=".*Adding/subtracting object-dtype array to DatetimeArray not vectorized.*")
-
-    # the clipping function expects start and end datetimes, so we add two columns...
-    src_data["start_time"] = pd.to_datetime(src_data.index.to_series())
-    src_data["end_time"]   = pd.to_datetime(src_data["start_time"] + src_data["len"])
-    
-    src_clipped = clip_events_to_time_period(src_data,
-                                             start_col = "start_time",
-                                             end_col = "end_time",
-                                             start_dt=np.datetime64(start_dt),
-                                             end_dt=np.datetime64(end_dt),
-                                             months=months)
-
-    # just in case, we update the SRCID datetime information to match
-    src_clipped.index = src_clipped["start_time"]
-    src_clipped.len = src_clipped["end_time"] - src_clipped["start_time"]
-    
-    return src_clipped
-
-
-def tracks2events(tracks, start_date, end_date, min_dur=10, min_gap_dur=30):
-    """
-    Performs audibility binarization on outputs of the `NPS-ActiveSpace.audible_transits` module. 
-    
-    This function collapses a set of audible transits spanning a certain time period into 
-    unique noise events, which may contain multiple overlapping transits.
+    Converts a set of events that might overlap into a sequence of non-overlapping events,
+    separated by a minimum separation duration. Also filters out short events.
     
     The two output event dataframes capture alternating periods of time: 
         (0)  Noise Events (e.g., 'Noisy intervals')
@@ -102,18 +173,23 @@ def tracks2events(tracks, start_date, end_date, min_dur=10, min_gap_dur=30):
     
     Parameters
     ----------
-    tracks : GeoDataFrame
-        A GeoDataFrame containing the fully interpolated, cleaned, clipped, and extrapolated tracks
-        resembling those produced by `NPS-ActiveSpace.audible_transits`. Only requires columns 'entry_time' and 'exit_time'
+    df: pd.DataFrame
+        DataFrame containing events, represented by start time and end time columns.
+    start_col: str
+        The name of the column representing event start times.
+    end_col: str
+        The name of the column representing event end times.
     start_date : string
-        The initial date of tracks to include, formatted as 'yyyy-mm-dd'. Note that midnight at the beginning of this day should fall within the monitoring period (not before).
+        The initial date to include, formatted as 'yyyy-mm-dd'.
+        Note that midnight at the beginning of this day should fall within the monitoring period (not before).
     end_date : string
-        The last date of tracks to include, formatted as 'yyyy-mm-dd'. Note that midnight/23:59 at the end of this day should fall within the monitoring period (not after).
-    min_dur : float, default 30
+        The last date to include, formatted as 'yyyy-mm-dd'.
+        Note that midnight/23:59 at the end of this day should fall within the monitoring period (not after).
+    min_dur : float, default 10
         The minimum event duration to include, in seconds
     min_gap_dur : float, default 30
-        The minimum period of time (in seconds) between tracks for them to be considered separate events.
-        Tracks separated by less time than this will be considered part of the same event.
+        The minimum period of time (in seconds) between events for them to be considered separate.
+        Events separated by less time than this will be considered part of the same event.
         
     Returns
     -------
@@ -126,25 +202,22 @@ def tracks2events(tracks, start_date, end_date, min_dur=10, min_gap_dur=30):
     TA : float
         Total % of time audible. Ranges from 0 to 100.
     """
-
-    print("Combining audible transits into a binary event time series.")
     
-    min_gap_dur = np.timedelta64(min_gap_dur, 's') # Max number of seconds between tracks in order to combine
+    min_gap_dur = np.timedelta64(min_gap_dur, 's') # Max number of seconds between events in order to combine
     
     start_dt = np.datetime64(start_date)  # Convert to datetime64
     end_dt = np.datetime64(end_date) + np.timedelta64(1, "D")  # Convert to datetime64, should be midnight at the END of end_date
 
-    tracks = clip_events_to_time_period(tracks, "entry_time", "exit_time", start_dt, end_dt)
+    df = clip_events_to_time_period(df, start_col, end_col, start_dt, end_dt)
 
-    if tracks.empty:
+    if df.empty:
         event_df = pd.DataFrame(columns=["start_time", "end_time", "duration"])
         NFI_df = pd.DataFrame(columns=["start_time", "end_time", "duration"])
         return event_df, NFI_df, 0.0
     
-    tracks.sort_values(by=['entry_time'], inplace=True)
-    entry_times = np.asarray(tracks.entry_time) # datetime format
-    exit_times = np.asarray(tracks.exit_time)   # datetime format
-    elapsed_times = exit_times - entry_times    # timedelta64 format
+    df.sort_values(by=[start_col], inplace=True)
+    entry_times = np.asarray(df[start_col]) # datetime format
+    exit_times = np.asarray(df[end_col])   # datetime format
     
     # Make copies of the entry and exit times arrays for calculation, 
     # we may want to use the originals later
@@ -170,8 +243,8 @@ def tracks2events(tracks, start_date, end_date, min_dur=10, min_gap_dur=30):
         # entry time stays the same, set new exit time
         exit_times_cp[i] = event_end
 
-        # Get rid of all the tracks that were blobbed together with the first one (e.g., i). 
-        # the 'j' increment tells us how many tracks we combined
+        # Get rid of all the events that were blobbed together with the first one (e.g., i). 
+        # the 'j' increment tells us how many events we combined
         exit_times_cp = np.delete(exit_times_cp, slice(i+1, i+j+1))
         entry_times_cp = np.delete(entry_times_cp, slice(i+1, i+j+1))
         i += 1
@@ -320,73 +393,14 @@ class Quantile:
         return series.quantile(self.q)
 
 
-def NFI_list(srcid, source = "all", unit="hours"): 
-    """
-    Returns a DataFrame of all Noise Free Intervals for selected source type(s).
+# GEOGRAPHIC --------------------------------------------------------------
 
-    Parameters
-    ----------
-    srcid: pandas dataframe representing NPS NSNSD srcid file, formatted by soundDB library.
-    source: str or list of floats, optional.  Which subset of srcid codes to summarize - choose either "all", "air", or specify a list of srcID codes as float.  Defaults to "all" if unspecified.
-    unit: str, a value that indicates the units desired for the output value.  Defaults to "hours".
-
-    Returns
-    -------
-    pandas Series of floating-point times
-    """
-
-    # 'look-up' dictionary to translate time unit from string to integer (in seconds)
-    unitDict = {"seconds":1, "minutes":60, "hours":3600, "days":86400}
-
-    # because NFI depends on event timing, 
-    # it is critical to first sort chronologically
-    srcid.sort_index(inplace=True)
-
-    # two of the source categories are built-in as strings ("all", "air")
-    if(type(source) == str):
-        if(source.lower() == "all"):  
-
-            # difference the starting datetime indices to create a list of timedeltas
-            NFIlst = srcid.index.to_series().diff()
-
-        elif(source.lower() == "air"):
-
-            # aviation sources have source ID codes starting with 1: (1., 1.1, 1.2, 1.3, etc.)
-            srcid = srcid.loc[(srcid.srcID > 0) & (srcid.srcID < 2.), :]
-
-            # difference the starting datetime indices to create a list of timedeltas
-            NFIlst = srcid.index.to_series().diff()
-    else: 
-
-        # select only the source ID code of interest
-        srcid = srcid.loc[srcid.srcID.isin(source), :]
-
-        # difference the starting datetime indices to create a list of timedeltas
-        NFIlst = srcid.index.to_series().diff()
-
-    valid_NFIs = NFIlst[NFIlst > "00:00:00"]
-    NFI_df = pd.DataFrame([])
-    NFI_durations = pd.Series(np.array([m.total_seconds() for m in valid_NFIs])/unitDict[unit])
-    NFI_df["duration"] = NFI_durations
-    NFI_df["start_time"] = valid_NFIs.index
-    NFI_df["end_time"] = NFI_df["start_time"] + valid_NFIs.values
-    NFI_df.index = valid_NFIs.index
-    NFI_df = NFI_df.dropna()
-    
-    return NFI_df
-
-
-def get_all_stats(event_df, NFI_df, periods, months=list(range(1,13)), quantiles=.5):
-    """Calculates all event statistics, given a set of events and corresponding noise free intervals (NFIs).
+def get_all_geo_stats(tracks, periods, months=list(range(1,13)), quantiles=.5):
+    """Calculates all event statistics, given tracks from the Audible Transits module.
     
     Parameters
     ----------
-    event_df: pd.DataFrame
-        A DataFrame containing events, such as those returned by tracks2events(). Looks like:
-            start_time (datetime) | end_time (datetime) | duration (# secs as ints)
-    NFI_df: pd.DataFrame
-        A DataFrame containing noise free intervals, such as those returned by tracks2events(). Looks like:
-            start_time (datetime) | end_time (datetime) | duration (# secs as ints)
+    tracks: gpd.GeoDataFrame
     periods: array-like of shape [# periods, 2]
         List/array of time periods to include when calculating stats. Each time period is a list/array of length 2,
         containing a start and end date string formatted 'yyyy-mm-dd'. The start and end dates are included in the period.
@@ -399,20 +413,19 @@ def get_all_stats(event_df, NFI_df, periods, months=list(range(1,13)), quantiles
     
     Returns
     -------
-    Tuple of (statistics, confidence_intervals, data)
-        statistics: pd.DataFrame.
-            DataFrame containing computed statistics.
-            Columns represent the metrics that statistics are computed for: event_duration, NFI_duration, daily_time_audible, daily_event_count, hourly_time_audible, hourly_event_count
-            Rows represent the statistic: mean, quantiles, min, max, std, median_abs_deviation 
+    statistics: pd.DataFrame.
+        DataFrame containing computed statistics.
+        Columns represent the metrics that statistics are computed for: event_duration, NFI_duration, daily_time_audible, daily_event_count, hourly_time_audible, hourly_event_count
+        Rows represent the statistic: mean, quantiles, min, max, std, median_abs_deviation 
 
-        confidence_intervals: pd.DataFrame.
-            DataFrame containing 95% percentile confidence intervals for the mean and quantiles, computed using bootstrapping.
-            Columns are metric names, rows are statistic names.
-            Entries in the DataFrame are tuples representing the confidence intervals. Note that tuples may contain nan if the statistic
-            distribution was degenerate (always the same value when performing bootstrapping).
+    confidence_intervals: pd.DataFrame.
+        DataFrame containing 95% percentile confidence intervals for the mean and quantiles, computed using bootstrapping.
+        Columns are metric names, rows are statistic names.
+        Entries in the DataFrame are tuples representing the confidence intervals. Note that tuples may contain nan if the statistic
+        distribution was degenerate (always the same value when performing bootstrapping).
 
-        data: dict
-            A dictionary where keys are metric names, and values are pd.Series representing the data.
+    data: dict
+        A dictionary where keys are metric names, and values are pd.Series representing the data.
     """
 
     # Input validation. Both 'quantiles' and 'months' paramters must be converted to lists
@@ -424,6 +437,10 @@ def get_all_stats(event_df, NFI_df, periods, months=list(range(1,13)), quantiles
         if (month < 1) | (month > 12):
             print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
             months=list(range(1,13))
+    
+    # get events and NFIs for the whole study time
+    # will get clipped precisely to periods later
+    event_df, NFI_df, TA = get_noise_events(tracks, "entry_time", "exit_time", periods[0][0], periods[-1][1])
     
     # prepare the values we want statistics for
     values = {
@@ -475,113 +492,6 @@ def get_all_stats(event_df, NFI_df, periods, months=list(range(1,13)), quantiles
     return pd.DataFrame(statistics), pd.DataFrame(conf_intervals), values    
 
 
-def get_all_srcid_stats(src_data, periods, months=list(range(1,13)), quantiles=.5, src_list=[1.2]):
-    """Calculates all event statistics, given a set of events and corresponding noise free intervals (NFIs).
-    
-    Parameters
-    ----------
-    src_data: pd.DataFrame
-        A DataFrame containing canonical source identification data as returned by the Srcid().data attribute. 
-    periods: array-like of shape [# periods, 2]
-        List/array of time periods to include when calculating stats. Each time period is a list/array of length 2,
-        containing a start and end date string formatted 'yyyy-mm-dd'. The start and end dates are included in the period.
-        This is important for stats like NFI and time audible.
-    months : int or list of ints (between 1 and 12)
-        Default is the full year, an optional input to specify the months of interest as a list of integers, 1-12. 
-        This is helpful for highly seasonal flight patterns, such as Denali's summer vs winter splits.
-    quantiles : float or list of floats (between 0 and 1)
-        Default is .5 (the median), specifies which quantiles to output. E.g., [.1, .5., .9] will output 10th, 50th, and 90th quantiles
-    src_list : list of floats
-        Default is [1.2], which includes propeller aircraft (1.2). Any source identification code may be used.
-        E.g., for vessels [3.0], for jets [1.1], etc.
-    
-    Returns
-    -------
-    Tuple of (statistics, confidence_intervals, data)
-        statistics: pd.DataFrame.
-            DataFrame containing computed statistics.
-            Columns represent the metrics that statistics are computed for: event_duration, NFI_duration, daily_time_audible, daily_event_count, hourly_time_audible, hourly_event_count
-            Rows represent the statistic: mean, quantiles, min, max, std, median_abs_deviation 
-
-        confidence_intervals: pd.DataFrame.
-            DataFrame containing 95% percentile confidence intervals for the mean and quantiles, computed using bootstrapping.
-            Columns are metric names, rows are statistic names.
-            Entries in the DataFrame are tuples representing the confidence intervals. Note that tuples may contain nan if the statistic
-            distribution was degenerate (always the same value when performing bootstrapping).
-
-        data: dict
-            A dictionary where keys are metric names, and values are pd.Series representing the data.
-    """
-
-    # Input validation. Both 'quantiles' and 'months' paramters must be converted to lists
-    quantiles = [quantiles] if type(quantiles)!=type([]) else quantiles
-    months = [months] if type(months)!=type([]) else months
-
-    # Make sure months are between 1 and 12
-    for month in months:
-        if (month < 1) | (month > 12):
-            print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
-            months=list(range(1,13))
-
-    src_filtered = src_data.loc[src_data.srcID.isin(src_list), :]
-
-    values = {
-        "event_duration": [],
-        "NFI_duration": [],
-        "SEL_A": [],
-        "SEL_T": [],
-        "LAmax": [],
-        "LTmax": [],
-        "daily_time_audible": [],
-        "hourly_time_audible": [],
-        "daily_event_count": [],
-        "hourly_event_count": []
-    }
-    for start_date, end_date in periods:
-
-        start_dt = np.datetime64(start_date)  # Convert to datetime64
-        end_dt = np.datetime64(end_date) + np.timedelta64(1, "D")  # Convert to datetime64, should be midnight at the END of end_date
-
-        # notably, this function adds two columns "start_time" and "end_time"
-        # which are necessary to use the functions `NFI_list` and `_time_binned_df`
-        src_clip = clip_srcid_to_time_period(src_filtered, start_dt, end_dt, months)
-
-        src_clip["duration"] = src_clip["len"].apply(lambda t: float(t.total_seconds()))
-        NFI_df = NFI_list(src_clip, source = "all", unit="seconds")
-
-        # append to values, make sure we have data during this time period
-        if not NFI_df.empty:
-            values["NFI_duration"].append(NFI_df["duration"])
-        if not src_clip.empty:
-            values["event_duration"].append(src_clip["duration"])
-            values["SEL_A"].append(src_clip["SEL"])
-            values["SEL_T"].append(src_clip["SELt"])
-            values["LAmax"].append(src_clip["MaxSPL"])
-            values["LTmax"].append(src_clip["MaxSPLt"])
-            # include time audible and event count, binned by hour and by day
-            for freq in ['d', 'h']:
-                binned_df = _time_binned_df(src_clip, start_dt, end_dt, months, freq)
-                for col in binned_df.columns:
-                    values[col].append(binned_df[col])
-    
-    # consolidate values into individual series
-    for col, series_list in values.items():
-        values[col] = pd.concat(series_list)
-    
-    # prepare the statistics we want
-    agg_stats = ["mean"] + [Quantile(q) for q in quantiles] + ["min", "max", "std", stats.median_abs_deviation]
-    conf_int_stats = [np.mean] + [Quantile(q) for q in quantiles]
-
-    # compute statistics
-    statistics = {}
-    conf_intervals = {}
-    for col, series in values.items():
-        statistics[col] = series.agg(agg_stats)
-        conf_intervals[col] = _agg_conf_intervals(series, conf_int_stats)
-    
-    return pd.DataFrame(statistics), pd.DataFrame(conf_intervals), values  
-
-
 def calculate_spatial_stats(tracks, active):
     '''
     Calculates spatial statistics on audible transits through a given active space. 
@@ -624,6 +534,149 @@ def calculate_spatial_stats(tracks, active):
     distance_from_inaudibility_stats = tracks.agg({'max_distance_from_inaudibility':['min', 'max', 'mean', 'median'], 'mean_distance_from_inaudibility':['min', 'max', 'mean', 'median']})
     
     return distance_from_inaudibility_stats
+
+
+# ACOUSTIC ----------------------------------------------------------------
+
+def clip_srcid_to_time_period(src_data, start_dt, end_dt, months=list(range(1,13))):
+    """A wrapper function around `clip_events_to_time_period` to clip SRCID data.
+    Requires src_data to have fields "start_time" and "end_time"
+    """
+
+    assert "start_time" in src_data.columns
+    assert "end_time" in src_data.columns
+    
+    src_clipped = clip_events_to_time_period(src_data,
+                                             start_col = "start_time",
+                                             end_col = "end_time",
+                                             start_dt=np.datetime64(start_dt),
+                                             end_dt=np.datetime64(end_dt),
+                                             months=months)
+
+    # just in case, we update the SRCID datetime information to match
+    src_clipped.index = src_clipped["start_time"]
+    src_clipped.len = src_clipped["end_time"] - src_clipped["start_time"]
+    
+    return src_clipped
+
+
+def get_all_srcid_stats(src_data, periods, months=list(range(1,13)), quantiles=.5, src_list=[1.2]):
+    """Calculates all event statistics, given a set of events and corresponding noise free intervals (NFIs).
+    
+    Parameters
+    ----------
+    src_data: pd.DataFrame
+        A DataFrame containing canonical source identification data as returned by the Srcid().data attribute. 
+    periods: array-like of shape [# periods, 2]
+        List/array of time periods to include when calculating stats. Each time period is a list/array of length 2,
+        containing a start and end date string formatted 'yyyy-mm-dd'. The start and end dates are included in the period.
+        This is important for stats like NFI and time audible.
+    months : int or list of ints (between 1 and 12)
+        Default is the full year, an optional input to specify the months of interest as a list of integers, 1-12. 
+        This is helpful for highly seasonal flight patterns, such as Denali's summer vs winter splits.
+    quantiles : float or list of floats (between 0 and 1)
+        Default is .5 (the median), specifies which quantiles to output. E.g., [.1, .5., .9] will output 10th, 50th, and 90th quantiles
+    src_list : list of floats
+        Default is [1.2], which includes propeller aircraft (1.2). Any source identification code may be used.
+        E.g., for vessels [3.0], for jets [1.1], etc.
+    
+    Returns
+    -------
+    statistics: pd.DataFrame.
+        DataFrame containing computed statistics.
+        Columns represent the metrics that statistics are computed for:
+        event_duration, NFI_duration, daily_time_audible, daily_event_count, hourly_time_audible, hourly_event_count, SEL_A, SEL_T, LAmax, LTmax.
+        Rows represent the statistic: mean, quantiles, min, max, std, median_abs_deviation 
+
+    confidence_intervals: pd.DataFrame.
+        DataFrame containing 95% percentile confidence intervals for the mean and quantiles, computed using bootstrapping.
+        Columns are metric names, rows are statistic names.
+        Entries in the DataFrame are tuples representing the confidence intervals. Note that tuples may contain nan if the statistic
+        distribution was degenerate (always the same value when performing bootstrapping).
+
+    data: dict
+        A dictionary where keys are metric names, and values are pd.Series representing the data.
+    """
+
+    # Input validation. Both 'quantiles' and 'months' paramters must be converted to lists
+    quantiles = [quantiles] if type(quantiles)!=type([]) else quantiles
+    months = [months] if type(months)!=type([]) else months
+
+    # Make sure months are between 1 and 12
+    for month in months:
+        if (month < 1) | (month > 12):
+            print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
+            months=list(range(1,13))
+
+    # add start and end time fields
+    src_data = src_data.copy()
+    src_data["start_time"] = src_data.index
+    src_data["end_time"] = src_data.index + src_data.len
+
+    # filter by source type
+    src_data = src_data.loc[src_data.srcID.isin(src_list), :]
+
+    # get events and NFIs for the whole study time
+    # will get clipped precisely to periods later
+    event_df, NFI_df, TA = get_noise_events(src_data, "start_time", "end_time", periods[0][0], periods[-1][1])
+
+    # prepare the values we want statistics for
+    values = {
+        "event_duration": [],
+        "NFI_duration": [],
+        "SEL_A": [],
+        "SEL_T": [],
+        "LAmax": [],
+        "LTmax": [],
+        "daily_time_audible": [],
+        "hourly_time_audible": [],
+        "daily_event_count": [],
+        "hourly_event_count": []
+    }
+    for start_date, end_date in periods:
+
+        start_dt = np.datetime64(start_date)  # Convert to datetime64
+        end_dt = np.datetime64(end_date) + np.timedelta64(1, "D")  # Convert to datetime64, should be midnight at the END of end_date
+
+        # clip noise events, noise intervals, and srcid to this time period
+        event_df_clipped = clip_events_to_time_period(event_df, "start_time", "end_time", start_dt, end_dt, months)
+        NFI_df_clipped = clip_events_to_time_period(NFI_df, "start_time", "end_time", start_dt, end_dt, months)
+        # note that src_clip can contain overlapping events - this is okay, we are trying to get statistics
+        # like SPL and SEL which aren't affected by overlapping behavior in the way noise events and NFIs are
+        src_clip = clip_srcid_to_time_period(src_data, start_dt, end_dt, months)
+
+        # append to values, make sure we have data during this time period
+        if not NFI_df_clipped.empty:
+            values["NFI_duration"].append(NFI_df_clipped["duration"])
+        if not event_df_clipped.empty:
+            values["event_duration"].append(event_df_clipped["duration"])
+            # include time audible and event count, binned by hour and by day
+            for freq in ['d', 'h']:
+                binned_df = _time_binned_df(event_df_clipped, start_dt, end_dt, months, freq)
+                for col in binned_df.columns:
+                    values[col].append(binned_df[col])
+        if not src_clip.empty:
+            values["SEL_A"].append(src_clip["SEL"])
+            values["SEL_T"].append(src_clip["SELt"])
+            values["LAmax"].append(src_clip["MaxSPL"])
+            values["LTmax"].append(src_clip["MaxSPLt"])
+    
+    # consolidate values into individual series
+    for col, series_list in values.items():
+        values[col] = pd.concat(series_list)
+    
+    # prepare the statistics we want
+    agg_stats = ["mean"] + [Quantile(q) for q in quantiles] + ["min", "max", "std", stats.median_abs_deviation]
+    conf_int_stats = [np.mean] + [Quantile(q) for q in quantiles]
+
+    # compute statistics
+    statistics = {}
+    conf_intervals = {}
+    for col, series in values.items():
+        statistics[col] = series.agg(agg_stats)
+        conf_intervals[col] = _agg_conf_intervals(series, conf_int_stats)
+    
+    return pd.DataFrame(statistics), pd.DataFrame(conf_intervals), values  
 
 
 ## ========================================== VISUALIZATION =============================================== ##
@@ -695,6 +748,7 @@ def plot_events(start_times, end_times, title="Events", colors=None, labels=Fals
         plt.close()
     else:
         plt.show()
+
 
 ## ========================================== STEREOTYPICAL TRACKS ======================================== ##
 

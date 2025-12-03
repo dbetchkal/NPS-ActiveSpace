@@ -46,9 +46,8 @@ from time import mktime, sleep
 from tqdm import tqdm
 import warnings
 
-import _DENA.resource.config as cfg
-from _DENA import DENA_DIR
-from _DENA.resource.helpers import get_deployment, get_logger, query_adsb, query_tracks
+import nps_active_space.utils.config as cfg
+from nps_active_space.utils.helpers import get_deployment, get_logger, query_adsb, query_tracks
 from nps_active_space.utils.computation import coords_to_utm, interpolate_spline
 from nps_active_space.utils.models import Tracks, Adsb
 
@@ -2510,7 +2509,7 @@ if __name__ == '__main__':
 
     args = argparse.parse_args()
 
-    cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
+    cfg.initialize(environment=args.environment)
     project_dir = f"{cfg.read('project', 'dir')}\{args.unit}{args.site}"
     FAAReleasable_path = f"{cfg.read('project', 'FAA_Releasable_db')}"
     FAAType_corrections = f"{cfg.read('project', 'FAA_type_corrections')}"

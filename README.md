@@ -1,21 +1,25 @@
 [![DOI](https://zenodo.org/badge/389775527.svg)](https://zenodo.org/badge/latestdoi/389775527)
+
 # NPS-ActiveSpace
 
-An ***active space*** is a well-known sensory concept from bioacoustics ([Marten and Marler 1977](https://www.jstor.org/stable/pdf/4599136.pdf), [Gabriele et al. 2018](https://www.frontiersin.org/articles/10.3389/fmars.2018.00270/full)). It represents a geographic volume whose radii correspond to the limit of audibility for a specific signal in each direction. In other words, an active space provides an answer to the question, *"how far can you hear a certain sound source from a specific location on the Earth's surface?"*
+An **_active space_** is a well-known sensory concept from bioacoustics ([Marten and Marler 1977](https://www.jstor.org/stable/pdf/4599136.pdf), [Gabriele et al. 2018](https://www.frontiersin.org/articles/10.3389/fmars.2018.00270/full)). It represents a geographic volume whose radii correspond to the limit of audibility for a specific signal in each direction. In other words, an active space provides an answer to the question, _"how far can you hear a certain sound source from a specific location on the Earth's surface?"_
 
-This repository is designed to estimate active spaces for motorized noise sources transiting the U.S. National Park System. Aircraft are powerful noise sources audible over vast areas. Thus [considerable NPS management efforts have focused on protecting natural quietude from aviation noise intrusions](https://www.nps.gov/subjects/sound/overflights.htm). For coastal parks, vessels are similarly powerful noise sources of concern. For both transportation modalities `NPS-ActiveSpace` provides meaningful, quantitative spatial guides for noise mitigation and subsequent monitoring. 
+This repository is designed to estimate active spaces for motorized noise sources transiting the U.S. National Park System. Aircraft are powerful noise sources audible over vast areas. Thus [considerable NPS management efforts have focused on protecting natural quietude from aviation noise intrusions](https://www.nps.gov/subjects/sound/overflights.htm). For coastal parks, vessels are similarly powerful noise sources of concern. For both transportation modalities `NPS-ActiveSpace` provides meaningful, quantitative spatial guides for noise mitigation and subsequent monitoring.
 
 ## Example
 
-Consider an example active space, below. It was computed using data from a long term acoustic monitoring site in Denali National Park, DENAUWBT Upper West Branch Toklat ([Withers 2012](https://irma.nps.gov/DataStore/Reference/Profile/2184396)). The bold black polygon delineates an active space estimate for flights at 3000 meters altitude. Points interior to the polygon are predicted to be audible, those exterior, inaudible. <br> 
+Consider an example active space, below. It was computed using data from a long term acoustic monitoring site in Denali National Park, DENAUWBT Upper West Branch Toklat ([Withers 2012](https://irma.nps.gov/DataStore/Reference/Profile/2184396)). The bold black polygon delineates an active space estimate for flights at 3000 meters altitude. Points interior to the polygon are predicted to be audible, those exterior, inaudible. <br>
 
 Superposed over the polygon are colored flight track polylines. `NPS-ActiveSpace` includes an application that leverages the acoustic record to ground-truth audibility of co-variate vehicle tracks from GPS databases. Ground-truthing is used to "tune" an active space to the appropriate geographic extent via mathematical optimization.<br>
 
 <br>
 <img src="https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/nps_active_space/img/NPS-ActiveSpace_example.png" alt="active space polygon example" width="200">
 
+# Information below this is out of date - TODO
 
 ## Packages
+
+TODO - text like `ground-truthing` implies there is an actual file / code with the exact name `ground-truthing`, which isn't the case. Clarify this.
 
 This project is made up of four modules:
 
@@ -28,9 +32,8 @@ This project is made up of four modules:
 `generate-metrics` Beta: tabulation of transits into a variety of acoustic and spatial metrics
 
 [`utils`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/README.md#utils): diverse utilities - file I/O, geoprocessing, acoustic propagation modelling, and detection statistics
-    
-Also included are noise source [data](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space/data) for tuning active space polygons.
 
+Also included are noise source [data](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space/data) for tuning active space polygons.
 
 ## Order of Operations
 
@@ -39,6 +42,8 @@ While each package can be used and run individually, the project was designed so
 `ground-truthing` $\rightarrow$ `active-space` $\rightarrow$ `audible-transits` $\rightarrow$ `generate-metrics`
 
 ---
+
+TODO - README links are broken
 
 ## ground-truthing
 
@@ -52,7 +57,7 @@ The module is initialized in the Command Line Interface (CLI). Detailed [CLI doc
 
 ## active-space
 
-The `active-space` module is a CLI implementation of observer-based audibility modelling procedures. It produces an active space estimate through synthesis. This module exists primarially as a wrapper for the `FORTRAN`-based physics engine `Nord2000` as implemented in `NMSIM`. Previously-saved `ground-truthing.Annotations` files are required as an input. Diverse spatial and sound source inputs are also required to stage the `NMSIM` simulation (see [Ikelheimer and Plotkin 2005](https://github.com/dbetchkal/NMSIM-Python/blob/main/NMSIM/Manual/NMSim%20Manual.pdf)). 
+The `active-space` module is a CLI implementation of observer-based audibility modelling procedures. It produces an active space estimate through synthesis. This module exists primarially as a wrapper for the `FORTRAN`-based physics engine `Nord2000` as implemented in `NMSIM`. Previously-saved `ground-truthing.Annotations` files are required as an input. Diverse spatial and sound source inputs are also required to stage the `NMSIM` simulation (see [Ikelheimer and Plotkin 2005](https://github.com/dbetchkal/NMSIM-Python/blob/main/NMSIM/Manual/NMSim%20Manual.pdf)).
 
 Detailed [CLI documentation is available to configure a synthesis](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/_DENA/README.md#generate-active-space) of the optimal active space estimate for a park listener in a specific location.
 
@@ -68,8 +73,8 @@ Detailed [CLI documentation is available to initialize the construction](https:/
 
 ## generate-metrics [beta]
 
-The `generate-metrics` module estimates what we hear. To do this, it collapses the set of `audible-transits` into a binary audibility sequence in time. 
-Then, from attributes of these *noise events* (or dualistically, *noise-free intervals*) a variety of acoustical and spatial metrics may be computed.
+The `generate-metrics` module estimates what we hear. To do this, it collapses the set of `audible-transits` into a binary audibility sequence in time.
+Then, from attributes of these _noise events_ (or dualistically, _noise-free intervals_) a variety of acoustical and spatial metrics may be computed.
 
 At present, no CLI interface exists for `generate-metrics`. Instead it has been designed to be imported into a more flexible IDE.
 
@@ -78,7 +83,9 @@ At present, no CLI interface exists for `generate-metrics`. Instead it has been 
 ## utils
 
 The utilities module `utils` contains two sub-modules:
+
 1. `computation` for tasks related to:
+
    - geoprocessing
      - `.build_src_point_mesh()`
      - `.climb_angle()`
@@ -96,20 +103,20 @@ The utilities module `utils` contains two sub-modules:
      - `.calculate_duration_summary()`
      - `.compute_fbeta()`
 
-2.  and `models` containing classes which parse various forms of input data:
-    - **Automatic Dependent Surveillance–Broadcast (ADS-B)** broacasts from aircraft
-      - `.Adsb()`
-      - `.EarlyAdsb()`
-    - **Automatic Identification System (AIS)** broadcasts from ships
-      - `.Ais()`
-    - human **spectrogram annotations** from the `NPS-ActiveSpace.ground_truthing` module as
-      - `.Annotations()`
-    - descriptions of canonical NPS Type-1 acoustic monitoring **Deployments**
-      - `.Microphone()`
-    - an **acoustic record** as 1/3rd-octave band spectral sound levels from a Deployment
-      - `.Nvspl()` 
-    - generalized
-      - `.Tracks()`
+2. and `models` containing classes which parse various forms of input data:
+   - **Automatic Dependent Surveillance–Broadcast (ADS-B)** broacasts from aircraft
+     - `.Adsb()`
+     - `.EarlyAdsb()`
+   - **Automatic Identification System (AIS)** broadcasts from ships
+     - `.Ais()`
+   - human **spectrogram annotations** from the `NPS-ActiveSpace.ground_truthing` module as
+     - `.Annotations()`
+   - descriptions of canonical NPS Type-1 acoustic monitoring **Deployments**
+     - `.Microphone()`
+   - an **acoustic record** as 1/3rd-octave band spectral sound levels from a Deployment
+     - `.Nvspl()`
+   - generalized
+     - `.Tracks()`
 
 Most users should not need to use `utils` directly, but the data parsing classes may have use to other transportation geography projects.
 
@@ -132,4 +139,4 @@ This project is in the worldwide [public domain](LICENSE.md):
 
 Publications about `NPS-ActiveSpace`:
 
->Betchkal, D.H., J.A. Beeco, S.J. Anderson, B.A. Peterson, and D. Joyce. 2023. Using Aircraft Tracking Data to Estimate the Geographic Scope of Noise Impacts from Low-Level Overflights Above Parks and Protected Areas. Journal of Environmental Management 348(15): 119201 https://doi.org/10.1016/j.jenvman.2023.119201
+> Betchkal, D.H., J.A. Beeco, S.J. Anderson, B.A. Peterson, and D. Joyce. 2023. Using Aircraft Tracking Data to Estimate the Geographic Scope of Noise Impacts from Low-Level Overflights Above Parks and Protected Areas. Journal of Environmental Management 348(15): 119201 https://doi.org/10.1016/j.jenvman.2023.119201

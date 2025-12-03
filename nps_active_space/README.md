@@ -1,25 +1,107 @@
-# Utils
+# Installation
 
-## About
+### Clone the NPS-ActiveSpace repository.
 
-## Installation
-
-1. Clone the NPS-ActiveSpace repository.
-```bash
+```
 git clone https://github.com/dbetchkal/NPS-ActiveSpace.git
+cd NPS-ActiveSpace
 ```
 
-2. Install project dependencies.
+### Set Up a Virtual Environment.
 
-Three dependencies, GDAL, Fiona, and rasterio need to be installed from `.whl` files. Please 
-[download](https://www.lfd.uci.edu/~gohlke/pythonlibs/) a GDAL, Fiona, and rastertio binary that matches the version 
-number specified in `pyproject.toml` and that matches the python version you will be running the NPS-ActiveSpace code 
-with. For example `Fiona‑1.8.21‑cp310‑cp310‑win_amd64.whl` is Fiona version 1.8.21 for python 3.10. Save all three files in 
-the same location.
+Install Python, either via Anaconda/Miniconda, or directly. The repository has been tested with Python version 3.13.5.
 
-Then, run the following commands:
+You can use a Conda environment if you want, but all installation is managed by pip.
 
-```bash
-$ python -m pip install --upgrade pip
-$ pip install --find-links </path/to/binaries> -e .[<module>]
+With Conda:
+
 ```
+conda create --name active python=3.13.5
+conda activate active
+```
+
+With venv in a Git Bash terminal:
+
+```
+python -m venv .venv
+source .venv/bin/activate
+```
+
+With venv in a Windows Command Prompt terminal:
+
+```
+python -m venv .venv
+source .venv\Scripts\activate.bat
+```
+
+### Install Dependencies
+
+Make sure you are inside your virtual environment, then:
+
+```
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Historical note:
+The GDAL dependency comes from a `.whl` file published [here](https://github.com/cgohlke/geospatial-wheels/releases). If the Python version is updated, the GDAL wheel URL in `requirements.txt` may need to be changed to reflect the updated version. For example, `gdal-3.11.1-cp313-cp313-win_amd64.whl` is GDAL version 3.11.1 for Python 3.13.
+
+### Install NPS-ActiveSpace
+
+From the repository's root directory, inside the virtual environment:
+
+```
+pip install -e .
+```
+
+Try importing a python module to make sure this install worked, e.g. in a python file:
+
+```
+from nps_active_space.active_space import ActiveSpaceGenerator
+```
+
+### Create Config File
+
+All scripts require a configuration file saved in the config directory `nps_active_space/config`. Please copy the template config file, fill in the values required for the script(s) you will be running, and save it to the config directory as `<environment name>.config`. For example, a DENA configuration file might be named `dena.config` while a HAVO configuration file might be named `havo.config` and have a different value for where the DEM file is stored than `dena.config`
+
+Currently, the template config file has the following data:
+
+TODO - check this / update this for new scripts. Explaining which scripts require what is a bit messy, especially with all the new scripts we added. Consider a better way to document this.
+
+```text
+[database:overflights] - Values required if pulling tracks from the database in run_ground_truthing.py or run_audible_transits.py
+name = Database name.
+username = Database credentials username.
+password = Database credentials password.
+port = Database port.
+host = Database host.
+
+[data]
+site_metadata = Absolute path to the the file containing site metadata. Value required for all run_ground_truthing.py and generate_active_space.py
+nvspl_archive = Absolute path to the directory where all NVSPL sound data is stored. Value required for all run_ground_truthing.py and generate_active_space.py
+adsb = Absolute path to the directory where ADSB track data is stored.  Value required if pulling ADSB tracks in run_ground_truthing.py or run_audible_transits.py
+dem = Absolute path to the DEM tif file to use for active space generation. Value required for generate_active_space.py and generate_active_space_mesh.py
+mennitt = Absolute path to the mennitt ambience tif. Value required for generate_active_space.py and generate_active_space_mesh.py
+
+[project]
+dir = Absolute path to the directory where all NPS-ActiveSpace files are stored. Required for all scripts.
+nmsim = Absolute path to the NMSIM Nord2000batch.exe file. Value required for generate_active_space.py and generate_active_space_mesh.py
+FAA_Releasable_db = Absolute path to the FAA MASTER.txt database file downloaded from the [FAA website](https://www.faa.gov/licenses_certificates/aircraft_certification/aircraft_registry/releasable_aircraft_download). Required for run_audible_transits.py
+FAA_type_corrections = Absolute path to a json file for correcting aircraft types in the FAA database. Keys are ICAO addresses, values are correct aircraft type. Required for run_ground_truthing.py and run_audible_transits.py
+```
+
+# Data and File Directory Setup
+
+TODO
+
+Define "project directory" as the directory containing the site folders. This is consistent with how the code defines it.
+
+Please document:
+
+- acoustic data (NVSPL, SPLAT)
+- ADSB data
+- GPS data (database setup and usage via config file)
+- project directory
+- site directories, including minimal manual setup steps (what directories the user needs to make vs. what's made automatically by the code)
+  - mention that annotation files and clock drift correction files go in here
+- NMSIM

@@ -66,7 +66,7 @@ def load_activespace(u, s, y, gain, third_octave=True, crs=None, PROJ_DIR=r"V:\N
     else:
         gain_string = str(imports.np.abs(int(10*gain)))
 
-    path = PROJ_DIR + imports.os.sep + u+s + imports.os.sep + u+s+str(y) + '_O_' + sign + gain_string + ".geojson"
+    path = imports.os.path.join(PROJ_DIR, u+s, "Output_Data", "ACTIVESPACES", u+s+str(y) + '_O_' + sign + gain_string + ".geojson")
     active_space = imports.gpd.read_file(path)
     
     if crs is not None:
@@ -77,7 +77,7 @@ def load_activespace(u, s, y, gain, third_octave=True, crs=None, PROJ_DIR=r"V:\N
 def load_studyarea(u, s, y, crs=None, PROJ_DIR=r"V:\NMSim\01 SITES"):
 
     # load in the study area as well
-    study_area_path = imports.glob.glob(PROJ_DIR + os.sep + u+s + imports.os.sep + u+s + '*study*area*.shp')[0]
+    study_area_path = imports.glob.glob(PROJ_DIR + imports.os.sep + u+s + imports.os.sep + u+s + '*study*area*.shp')[0]
     study_area = imports.gpd.read_file(study_area_path)
     
     if crs is not None:

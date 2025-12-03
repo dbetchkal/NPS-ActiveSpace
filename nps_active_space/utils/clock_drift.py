@@ -13,7 +13,7 @@ from shapely.geometry import Point
 
 from nps_active_space.utils.models import FAAReleasable, Nvspl, Tracks
 from nps_active_space.utils.computation import expected_Lp, NMSIM_bbox_utm, audible_time_delay, ambience_from_nvspl, interpolate_spline
-from _DENA.resource.helpers import load_studyarea, get_deployment
+from nps_active_space.utils.helpers import load_studyarea, get_deployment
     
 
 def logsum(df, axis=1):

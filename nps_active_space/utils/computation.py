@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import rasterio
+import os
 from osgeo import gdal
 from scipy import interpolate
 from scipy.spatial import KDTree
@@ -34,7 +35,8 @@ __all__ = [
     'interpolate_spline',
     'NMSIM_bbox_utm',
     'normalize_point_density',
-    'project_raster'
+    'project_raster',
+    'round_points'
 ]
 
 
@@ -228,7 +230,17 @@ def expected_Lp(points: gpd.GeoDataFrame, target: Point, Lw: float = 140, atm_ab
     return points
 
 
-def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Optional[int] = None) -> List[Point]:
+def round_points(points: gpd.GeoDataFrame, precision: int):
+    """Rounds the coordinates of a GeoDataFrame of points to a certain precision, in place."""
+    x = points.geometry.x.round(precision)
+    y = points.geometry.y.round(precision)
+    if points.geometry.has_z.all():
+        z = points.geometry.z.round(precision)
+        points.geometry = gpd.points_from_xy(x, y, z)
+    else:
+        points.geometry = gpd.points_from_xy(x, y)
+
+def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Optional[int] = None) -> gpd.GeoDataFrame:
     """
     Given a polygon and a density, create a square mesh of evenly spaced points throughout the polygon.
 
@@ -243,22 +255,24 @@ def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Op
 
     Returns
     -------
-    mesh points : List[Point]
-        A list of shapely Points in the mesh.
+    mesh points : gpd.GeoDataFrame
+        A GeoDataFrame of points in the mesh.
     """
-    # Start out with a grid of N = density x density points. Polygon bounds:  (minx, miny, maxx, maxy)
-    x = np.linspace(area.total_bounds[0], area.total_bounds[2], density)
-    y = np.linspace(area.total_bounds[1], area.total_bounds[3], density)
+
+    assert "UTM" in area.crs.name
+
+    # Start out with a grid of N = density x density points.
+    minx, miny, maxx, maxy = area.total_bounds
+    x = np.linspace(minx, maxx, density)
+    y = np.linspace(miny, maxy, density)
     x_ind, y_ind = np.meshgrid(x, y)
+    x_ind, y_ind = x_ind.ravel(), y_ind.ravel()
+    if altitude is not None:
+        geom = gpd.points_from_xy(x_ind.ravel(), y_ind.ravel(), altitude)
+    else:
+        geom = gpd.points_from_xy(x_ind.ravel(), y_ind.ravel())
 
-    # Create an array of mesh points. np.ravel linearly indexes an array into a row.
-    mesh_points = np.array([np.ravel(x_ind), np.ravel(y_ind)]).T
-
-    # Convert coordinate tuples into shapely points.
-    mesh_points = [Point(point[0], point[1]) if not altitude
-                   else Point(point[0], point[1], altitude) for point in mesh_points]
-
-    return mesh_points
+    return gpd.GeoDataFrame(geometry=geom, crs=area.crs)
 
 
 def create_overlapping_mesh(area: gpd.GeoDataFrame, spacing: int = 1,
@@ -425,10 +439,14 @@ def compute_fbeta(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame
     FP = np.all([in_AS, ~audible], axis=0).sum()
     FN = np.all([~in_AS, audible], axis=0).sum()
     n_tot = len(valid_points)
-
-    precision = TP / (TP + FP)  # specificity... if a flight enters the active space, is it actually audible?
-    recall = TP / (TP + FN)  # sensitivity... if a flight is audible, does it enter the active space?
-    fbeta = (1 + np.power(beta, 2)) * ((precision * recall) / ((np.power(beta, 2) * precision) + recall))
+    if TP == 0:  # will cause divide by zero if not handled
+        precision = 0.0
+        recall = 0.0
+        fbeta = 0.0
+    else:
+        precision = TP / (TP + FP)  # specificity... if a flight enters the active space, is it actually audible?
+        recall = TP / (TP + FN)  # sensitivity... if a flight is audible, does it enter the active space?
+        fbeta = (1 + np.power(beta, 2)) * ((precision * recall) / ((np.power(beta, 2) * precision) + recall))
 
     return fbeta, precision, recall, n_tot
 
@@ -646,8 +664,8 @@ def select_optimal(unit: str, site: str, year: int,
     f_betas = []
     max_fbeta = 0
     best_omni = None
-    best_recall = None
-    best_precision = None
+    best_recall = 0
+    best_precision = 0
     for omni, res in active_space_polygons:
 
         # it is convenient to store the gain in a simple, numeric representation
@@ -685,6 +703,7 @@ def select_optimal(unit: str, site: str, year: int,
         if plot_savepath is None:
             plt.show()
         else:
+            os.makedirs(os.path.dirname(plot_savepath), exist_ok=True)
             plt.savefig(plot_savepath)
 
     return best_omni, max_fbeta, best_precision, best_recall, detection_results
@@ -717,7 +736,8 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
     # convert to UTM because we are doing distance-based processing
     orig_crs = points.crs  # remember this so we can project back later
     crs = NMSIM_bbox_utm(study_area)
-    points = points.to_crs(crs)
+    if points.crs != crs:
+        points = points.to_crs(crs)
     
     # clip to study area to reduce the amount of grid cells needed, since the KDEpy grid needs to include all points
     # also those points can be safely excluded from consideration when fitting the active space
@@ -780,7 +800,8 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
         plt.show()
 
     # convert points back to the original crs
-    points = points.to_crs(orig_crs)
+    if points.crs != orig_crs:
+        points = points.to_crs(orig_crs)
 
     return points
 

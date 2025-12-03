@@ -6,23 +6,12 @@ from pathlib import Path
 import geopandas as gpd
 from tqdm import tqdm
 
-# for some users relative imports are prohibitive
-# we simplify imports by adding three directories to the path environment variable
-import sys
-repo_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-config_dir = os.path.join(repo_dir, "_DENA")
-script_dir = os.path.join(repo_dir, "nps_active_space")
-sys.path.append(repo_dir)
-sys.path.append(config_dir)
-sys.path.append(script_dir)
-
-import _DENA.resource.config as cfg
-from _DENA import DENA_DIR
-from _DENA.resource.helpers import get_logger, get_omni_sources
+import nps_active_space.utils.config as cfg
+from nps_active_space.utils.helpers import get_logger, get_omni_sources
 from nps_active_space.active_space import ActiveSpaceGenerator
 
-
 if __name__ == '__main__':
+    print("WARNING - this script is out of date, and may not work as expected")
 
     argparse = ArgumentParser()
 
@@ -46,7 +35,7 @@ if __name__ == '__main__':
                           help="Remove intermediary control and batch files.")
     args = argparse.parse_args()
 
-    cfg.initialize(f"{DENA_DIR}/config", environment=args.environment)
+    cfg.initialize(environment=args.environment)
     project_dir = f"{cfg.read('project', 'dir')}/{args.name}"
     logger = get_logger(f"ACTIVE-SPACE: {args.name}")
 
