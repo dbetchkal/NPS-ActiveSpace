@@ -4,19 +4,18 @@ This directory contains scripts that can be run from the command line, and is th
 
 ## Use Cases
 
-These are the steps for the primary use case of generating a 3D active space and using that to predict metrics like # daily noise events.
-
 **3D Active Space**
+
+These are the steps for the primary use case of generating a 3D active space and using that to predict metrics like # daily noise events.
 
 1. Follow installation and data setup steps [here](../README.md).
 2. Use `run_ground_truthing.py` to annotate audible track segments.
 3. Use `plot_altitudes.py` to get a sense of the altitudes spanned by typical traffic.
-4. Use `generate_3d_active_space.py` to automatically create a batch commands file based on the altitude range, generate active space layers, and fit the optimal gain.
+4. Use `generate_3d_active_space.py` to automatically create a batch commands file based on the altitude range, generate active space layers, and fit the optimal gain. The fit results will be stored in `fits.csv` in the project directory.
 5. Use `run_audible_transits.py` to predict audible transits based on the active space.
 6. Use `get_geographic_metrics.py` to predict metrics based on audible transits.
 7. [Optional] Annotate the acoustic record using the SPLAT software, then use `get_acoustic_metrics.py` to get the true acoustic metrics, and compare these with the predicted geographic metrics.
-
-Some other use cases:
+8. [Optional] Use `check_study_duration_robustness.py` to evaluate whether there was enough track data for a stable fit.
 
 **3D Visualization**
 
@@ -36,10 +35,10 @@ Make sure the data you want to visualize exists beforehand. The script won't loo
 
 1. Follow installation and data setup steps [here](../README.md).
 2. Use `run_ground_truthing.py` to annotate audible track segments.
-3. Use `generate_active_space.py` to generate candidates for a single active space layer at a fixed altitude. This also fits the optimal gain.
-4. We can make use of the 3D code to process a 2D active space, since a 2D active space is equivalent to a 3D one with a single layer. Make sure only a single layer of active spaces has been generated (check Output_Data/ACTIVESPACES). Then use `fit_3d_active_space.py` to fit the gain in a way the rest of the 3D code expects (storing it in the `fits.csv` file). Then follow steps 5-6 of the typical 3D active space workflow.
+3. Use `generate_active_space.py` to generate candidates for a single active space layer at a fixed altitude, and also fit the optimal gain.
+4. We can make use of the 3D code to process a 2D active space, since a 2D active space is equivalent to a 3D one with a single layer. Make sure only a single layer of active spaces has been generated (check Output_Data/ACTIVESPACES). Then use `fit_3d_active_space.py` to fit the gain in a way the rest of the 3D code expects (storing it in the `fits.csv` file in the project directory). Then follow steps 5-6 of the typical 3D active space workflow.
 
-Alternative: 2D audible transits supports more precise track clipping. If you want this (or if there are multiple layers in Output_Data/ACTIVESPACES), then use `run_audible_transits.py` with an argument specifying you're doing 2D, and then adapt `get_geographic_metrics.py` to use the correct 2D gain and 2D metadata for loading audible transits.
+Alternative: 2D audible transits supports more precise track clipping. If you want this, then use `run_audible_transits.py` with an argument specifying you're doing 2D, and then adapt `get_geographic_metrics.py` to use the correct 2D gain and 2D metadata for loading audible transits.
 
 **Batch Generation**
 
@@ -48,23 +47,23 @@ If you want to generate many active spaces at the same time, you can leverate th
 **Batch 3D Active Space**
 
 1. Follow installation and data setup steps [here](../README.md).
-2. For each site:
+2. For each deployment:
    1. Use `run_ground_truthing.py` to annotate audible track segments.
    2. Use `plot_altitudes.py` to get a sense of the altitudes spanned by typical traffic.
    3. Use `generate_3d_active_space.py` with the `--only-prep` flag to automatically create a batch commands file based on the altitudes range, but not execute the commands.
-3. Concatenate all the commands files into one large text file.
+3. Concatenate all the command files into one large text file.
 4. Use `generate_active_space_batch.py` to execute the concatenated commands file.
-5. For each site:
-   1. Use `fit_3d_active_space.py` to fit the optimal gain.
+5. For each deployment:
+   1. Use `fit_3d_active_space.py` to fit the optimal gain. The fit results will be stored in `fits.csv` in the project directory.
    2. Complete steps 5-6 of the normal 3D active space workflow.
 
 **Batch 2D Active Space**
 
 1. Follow installation and data setup steps [here](../README.md).
-2. For each site, use `run_ground_truthing.py` to annotate audible track segments.
+2. For each deployment, use `run_ground_truthing.py` to annotate audible track segments.
 3. Manually prepare a commands file containing the arguments for each run, see [below](#batch-commands-file-format).
 4. Use `generate_active_space_batch.py` to execute the concatenated commands file.
-5. For each site, complete step 4 of the normal 2D active space workflow.
+5. For each deployment, complete step 4 of the normal 2D active space workflow.
 
 **Mesh Generation**
 
@@ -72,7 +71,7 @@ TODO
 
 # Script Usage
 
-TODO - complete missing tables. Make sure that each table's arguments and help string matches the argparse definitions in each script.
+TODO - complete missing tables. Make sure that existing tables' arguments and help string matches the argparse definitions in each script.
 
 ### Viz
 
@@ -195,6 +194,10 @@ $ python _DENA/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 
 TODO
 
 ### Get Acoustic Metrics
+
+TODO
+
+### Check Study Duration Robustness
 
 TODO
 
