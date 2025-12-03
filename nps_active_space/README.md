@@ -62,11 +62,11 @@ from nps_active_space.active_space import ActiveSpaceGenerator
 
 ### Create Config File
 
-All scripts in this directory require a configuration file saved in the config directory `nps_active_space/config`. Please copy the template config file, fill in the values required for the script(s) you will be running, and save it to the config directory as `<environment name>.config`. For example, a DENA configuration file might be named `dena.config` while a HAVO configuration file might be named `havo.config` and have a different value for where the DEM file is stored than `dena.config`
+All scripts require a configuration file saved in the config directory `nps_active_space/config`. Please copy the template config file, fill in the values required for the script(s) you will be running, and save it to the config directory as `<environment name>.config`. For example, a DENA configuration file might be named `dena.config` while a HAVO configuration file might be named `havo.config` and have a different value for where the DEM file is stored than `dena.config`
 
 Currently, the template config file has the following data:
 
-TODO - check this / update this
+TODO - check this / update this for new scripts. Explaining which scripts require what is a bit messy, especially with all the new scripts we added. Consider a better way to document this.
 
 ```text
 [database:overflights] - Values required if pulling tracks from the database in run_ground_truthing.py or run_audible_transits.py
