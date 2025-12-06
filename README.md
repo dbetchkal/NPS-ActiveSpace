@@ -2,6 +2,8 @@
 
 # NPS-ActiveSpace
 
+## What is active space?
+
 An **_active space_** is a well-known sensory concept from bioacoustics ([Marten and Marler 1977](https://www.jstor.org/stable/pdf/4599136.pdf), [Gabriele et al. 2018](https://www.frontiersin.org/articles/10.3389/fmars.2018.00270/full)). It represents a geographic volume whose radii correspond to the limit of audibility for a specific signal in each direction. In other words, an active space provides an answer to the question, _"how far can you hear a certain sound source from a specific location on the Earth's surface?"_
 
 This repository is designed to estimate active spaces for motorized noise sources transiting the U.S. National Park System. Aircraft are powerful noise sources audible over vast areas. Thus [considerable NPS management efforts have focused on protecting natural quietude from aviation noise intrusions](https://www.nps.gov/subjects/sound/overflights.htm). For coastal parks, vessels are similarly powerful noise sources of concern. For both transportation modalities `NPS-ActiveSpace` provides meaningful, quantitative spatial guides for noise mitigation and subsequent monitoring.
@@ -10,58 +12,97 @@ This repository is designed to estimate active spaces for motorized noise source
 
 Consider an example active space, below. It was computed using data from a long term acoustic monitoring site in Denali National Park, DENAUWBT Upper West Branch Toklat ([Withers 2012](https://irma.nps.gov/DataStore/Reference/Profile/2184396)). The bold black polygon delineates an active space estimate for flights at 3000 meters altitude. Points interior to the polygon are predicted to be audible, those exterior, inaudible. <br>
 
-Superposed over the polygon are colored flight track polylines. `NPS-ActiveSpace` includes an application that leverages the acoustic record to ground-truth audibility of co-variate vehicle tracks from GPS databases. Ground-truthing is used to "tune" an active space to the appropriate geographic extent via mathematical optimization.<br>
+Superposed over the polygon are colored flight track polylines. `nps_active_space` includes an application that leverages the acoustic record to ground-truth audibility of co-variate vehicle tracks from GPS databases. Ground-truthing is used to "tune" an active space to the appropriate geographic extent via mathematical optimization.<br>
 
 <br>
 <img src="https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/nps_active_space/img/NPS-ActiveSpace_example.png" alt="active space polygon example" width="200">
 
-# Information below this is out of date - TODO
+## Architecture
 
-## Packages
+### The Synthesis
 
-TODO - text like `ground-truthing` implies there is an actual file / code with the exact name `ground-truthing`, which isn't the case. Clarify this.
+At it's heart, this repository structures a two-step **scientific synthesis**:
 
-This project is made up of four modules:
+1) A GUI-based audibility measurement tool (`.ground_truthing`) to spatio-temporally $\text{JOIN}$ cause and effect.
+2) A geoprocess to $\text{ENCLOSE}$ the listener and user observations within an optimal 3-dimensional active space (`.active_space`). 
 
-[`ground-truthing`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/README.md#ground-truthing): a `tkinter`-based interactive GUI app for the annotation of georeferenced sound events.
+A user progresses the synthesis using scripts (`.scripts`). A script tool is also provided to assist in the validation of syntheses (`.validate`). [Control script documentation](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space/scripts#scripts).
 
-[`active-space`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/README.md#active-space): observer-based audibility modelling procedures that produce an optimized active space estimate through synthesis.
+### Foundations
 
-[`audible-transits`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/README.md#audible-transits): geoprocess to construct the spatiotemporal intersections of a set of tracks with an active space.
+To enable scenario planning, global repository inputs are all structured together in a configuration file (`.config`).
 
-`generate-metrics` Beta: tabulation of transits into a variety of acoustic and spatial metrics
+Internally, the toolkit requires sound source and weather data to operate. Provided (`.data`) are a widely applicable example: a fixed-wing propeller aircraft source and a standard "acoustician's atmosphere" with dry adiabatic lapse conditions. Utilities implement both data structure models and diverse computation tasks (`.utils`).
 
-[`utils`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/README.md#utils): diverse utilities - file I/O, geoprocessing, acoustic propagation modelling, and detection statistics
+```mermaid
+graph LR
 
-Also included are noise source [data](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space/data) for tuning active space polygons.
+    %% Groups
+    subgraph Scripts
+        scripts[(scripts/)]
+    end
 
-## Order of Operations
+    subgraph Synthesis
+        active_space[(active_space/)]
+        ground_truthing[(ground_truthing/)]
+         validation[(validation/)]
+    end
 
-While each package can be used and run individually, the project was designed so that outputs of one package work seamlessly as the inputs for another. Packages were designed to be run in the following order:
+    subgraph Foundations
+        config[(config/)]
+        data[(data/)]
+        utils[(utils/)]
+    end
 
-`ground-truthing` $\rightarrow$ `active-space` $\rightarrow$ `audible-transits` $\rightarrow$ `generate-metrics`
+    %% Flow: scripts → core → analysis
+    config --> scripts
+    data --> scripts
+    utils --> scripts
+    scripts --> active_space
+    scripts --> ground_truthing
+    scripts --> validation
 
----
+    %% Foundations feed core
+    config --> active_space
+    data --> active_space
+    utils --> active_space
 
-TODO - README links are broken
+    %% Foundations feed analysis modules
+    data --> ground_truthing
+    utils --> ground_truthing
 
-## ground-truthing
+    ground_truthing --> active_space
+    active_space --> validation
+    utils --> validation
+```
+
+
+
+### Scripted Control
+
+### Synthesis Modules
+
+### `ground_truthing`
 
 <img src="https://ars.els-cdn.com/content/image/1-s2.0-S0301479723019898-gr2.jpg" alt="The provided `NPS-ActiveSpace.ground_truthing` module `tkinter`-based app. Reproduced from Betchkal et al. 2023, Fig. 2. A view of the NPS-ActiveSpace ground-truthing application with a completed spectrogram annotation for an audible helicopter overflying HAVO009A. The upper map frame shows ADS-B data (brown points) in the xy-plane and the user-estimated spatial extent of audibility (cyan highlight). The lower spectrogram frame includes the noise event as contrasted against the natural residual ambience. It also provides the user a cue: the timestamp corresponding to the most proximal ADS-B point (vertical green line). Audible extent was then estimated by adjusting the temporal boundary (cyan slider)." width="700">
 
-The `ground-truthing` module provides a `tkinter`-based interactive GUI app for the annotation of georeferenced sound events. This module is the initial step of the process. Prerequesite to using this module is logging a simultaneous pair of datasets in the field: (1) a canonical Type-1 NPS acoustic record (`Nvspl`) and (2) a transportation dataset (`Adsb`, `Ais`, or generalized `Tracks`).
+The `ground_truthing` module provides a `tkinter`-based interactive GUI app for the annotation of georeferenced sound events. This module is the initial step of the process. Prerequesite to using this module is logging a simultaneous pair of datasets in the field: (1) a canonical Type-1 NPS acoustic record (`Nvspl`) and (2) a transportation dataset (`Adsb`, `Ais`, or generalized `Tracks`).
 
 The module is initialized in the Command Line Interface (CLI). Detailed [CLI documentation is available to initialize the app](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/_DENA#ground-truthing) from a park-specific configuration file (see [`template.config`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/_DENA/config/template.config)).
 
----
+### `active_space`
 
-## active-space
-
-The `active-space` module is a CLI implementation of observer-based audibility modelling procedures. It produces an active space estimate through synthesis. This module exists primarially as a wrapper for the `FORTRAN`-based physics engine `Nord2000` as implemented in `NMSIM`. Previously-saved `ground-truthing.Annotations` files are required as an input. Diverse spatial and sound source inputs are also required to stage the `NMSIM` simulation (see [Ikelheimer and Plotkin 2005](https://github.com/dbetchkal/NMSIM-Python/blob/main/NMSIM/Manual/NMSim%20Manual.pdf)).
+The `active_space` module is a CLI implementation of observer-based audibility modelling procedures. It produces an active space estimate through synthesis. This module exists primarially as a wrapper for the `FORTRAN`-based physics engine `Nord2000` as implemented in `NMSIM`. Previously-saved `ground-truthing.Annotations` files are required as an input. Diverse spatial and sound source inputs are also required to stage the `NMSIM` simulation (see [Ikelheimer and Plotkin 2005](https://github.com/dbetchkal/NMSIM-Python/blob/main/NMSIM/Manual/NMSim%20Manual.pdf)).
 
 Detailed [CLI documentation is available to configure a synthesis](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/_DENA/README.md#generate-active-space) of the optimal active space estimate for a park listener in a specific location.
 
+### `validation` [Beta v.3.0.0]
+
+
+
 ---
+
+# AFTER THIS NEEDS TO BE PEELED OUT INTO INDIVIDUAL MODULE-LEVEL README FILES
 
 ## audible-transits
 
