@@ -19,21 +19,6 @@ Superposed over the polygon are colored flight track polylines. `nps_active_spac
 
 ## Architecture
 
-### The Synthesis
-
-At it's heart, this repository structures a two-step **scientific synthesis**:
-
-1) A GUI-based audibility measurement tool (`.ground_truthing`) to spatio-temporally $\text{JOIN}$ cause and effect.
-2) A geoprocess to $\text{ENCLOSE}$ the listener and user observations within an optimal 3-dimensional active space (`.active_space`). 
-
-A user progresses the synthesis using scripts (`.scripts`). A script tool is also provided to assist in the validation of syntheses (`.validate`). [Control script documentation](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space/scripts#scripts).
-
-### Foundations
-
-To enable scenario planning, global repository inputs are all structured together in a configuration file (`.config`).
-
-Internally, the toolkit requires sound source and weather data to operate. Provided (`.data`) are a widely applicable example: a fixed-wing propeller aircraft source and a standard "acoustician's atmosphere" with dry adiabatic lapse conditions. Utilities implement both data structure models and diverse computation tasks (`.utils`).
-
 ```mermaid
 graph LR
 
@@ -75,6 +60,23 @@ graph LR
     active_space --> validation
     utils --> validation
 ```
+
+### The Synthesis
+
+At it's heart, this repository structures a **scientific synthesis** in two parts:
+
+1) A GUI-based audibility measurement tool (`.ground_truthing`) that allows users to spatio-temporally $\text{JOIN}$ cause and effect.
+2) A geoprocess to $\text{ENCLOSE}$ the listening location and the user's causal observations within an optimal 3-dimensional active space (`.active_space`). 
+
+A user progresses the synthesis using scripts (`.scripts`). A script tool is also provided to assist in the validation of syntheses (`.validate`). [Control script documentation](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space/scripts#scripts).
+
+### Foundations
+
+To enable scenario planning, global repository inputs are all structured together in a configuration file (`.config`).
+
+Internally, the toolkit requires sound source and weather data to operate. Provided (`.data`) are a widely applicable example: a fixed-wing propeller aircraft source and a standard "acoustician's atmosphere" with dry adiabatic lapse conditions. Utilities implement both data structure models and diverse computation tasks (`.utils`).
+
+
 
 
 
