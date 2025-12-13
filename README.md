@@ -2,6 +2,8 @@
 
 # NPS-ActiveSpace
 
+`nps_active_space` is a Python toolkit of observer-based audibility modeling methods.
+
 ## What is active space?
 
 An **_active space_** is a well-known sensory concept from bioacoustics ([Marten and Marler 1977](https://www.jstor.org/stable/pdf/4599136.pdf), [Gabriele et al. 2018](https://www.frontiersin.org/articles/10.3389/fmars.2018.00270/full)). It represents a geographic volume whose radii correspond to the limit of audibility for a specific signal in each direction. In other words, an active space provides an answer to the question, _"how far can you hear a certain sound source from a specific location on the Earth's surface?"_
@@ -17,7 +19,121 @@ Superposed over the polygon are colored flight track polylines. `nps_active_spac
 <br>
 <img src="https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/nps_active_space/img/NPS-ActiveSpace_example.png" alt="active space polygon example" width="200">
 
-## Architecture
+### Synthesis-oriented Design
+
+At its heart, `nps_active_space` is organized around the idea of a **scientific synthesis**:
+a structured combination of heterogeneous observations into a single, interpretable
+geometric object.
+
+Rather than treating sound propagation, audibility, and vehicle movement as
+independent modeling problems, the toolkit treats them as *causally linked
+components* of an observer-centered system:
+
+- Vehicle trajectories represent potential causes
+- Acoustic records represent observed effects
+- Audibility is established through empirical association
+- Geometry is used to reconcile these relationships in space
+
+The resulting active space is not a purely predictive construct, nor a purely
+descriptive one. It is a **mensurated estimate**: a spatial enclosure that is
+consistent with observed audibility under specified environmental conditions.
+
+## Quick Start
+
+## Installation
+
+### Clone the NPS-ActiveSpace repository.
+
+```
+git clone https://github.com/dbetchkal/NPS-ActiveSpace.git
+cd NPS-ActiveSpace
+```
+
+### Set Up a Virtual Environment.
+
+Install Python, either via Anaconda/Miniconda, or directly. The repository has been tested with Python version 3.13.5.
+
+You can use a Conda environment if you want, but all installation is managed by pip.
+
+With Conda:
+
+```
+conda create --name active python=3.13.5
+conda activate active
+```
+
+With venv in a Git Bash terminal:
+
+```
+python -m venv .venv
+source .venv/bin/activate
+```
+
+With venv in a Windows Command Prompt terminal:
+
+```
+python -m venv .venv
+source .venv\Scripts\activate.bat
+```
+
+### Install Dependencies
+
+Make sure you are inside your virtual environment, then:
+
+```
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Historical note:
+The GDAL dependency comes from a `.whl` file published [here](https://github.com/cgohlke/geospatial-wheels/releases). If the Python version is updated, the GDAL wheel URL in `requirements.txt` may need to be changed to reflect the updated version. For example, `gdal-3.11.1-cp313-cp313-win_amd64.whl` is GDAL version 3.11.1 for Python 3.13.
+
+### Install NPS-ActiveSpace
+
+From the repository's root directory, inside the virtual environment:
+
+```
+pip install -e .
+```
+
+Try importing a python module to make sure this install worked, e.g. in a python file:
+
+```
+from nps_active_space.active_space import ActiveSpaceGenerator
+```
+
+### Create Config File
+
+All scripts require a configuration file saved in the config directory `nps_active_space/config`. Please copy the template config file, fill in the values required for the script(s) you will be running, and save it to the config directory as `<environment name>.config`. For example, a DENA configuration file might be named `dena.config` while a HAVO configuration file might be named `havo.config` and have a different value for where the DEM file is stored than `dena.config`
+
+Currently, the template config file has the following data:
+
+TODO - check this / update this for new scripts. Explaining which scripts require what is a bit messy, especially with all the new scripts we added. Consider a better way to document this.
+
+```text
+[database:overflights] - Values required if pulling tracks from the database in run_ground_truthing.py or run_audible_transits.py
+name = Database name.
+username = Database credentials username.
+password = Database credentials password.
+port = Database port.
+host = Database host.
+
+[data]
+site_metadata = Absolute path to the the file containing site metadata. Value required for all run_ground_truthing.py and generate_active_space.py
+nvspl_archive = Absolute path to the directory where all NVSPL sound data is stored. Value required for all run_ground_truthing.py and generate_active_space.py
+adsb = Absolute path to the directory where ADSB track data is stored.  Value required if pulling ADSB tracks in run_ground_truthing.py or run_audible_transits.py
+dem = Absolute path to the DEM tif file to use for active space generation. Value required for generate_active_space.py and generate_active_space_mesh.py
+mennitt = Absolute path to the mennitt ambience tif. Value required for generate_active_space.py and generate_active_space_mesh.py
+
+[project]
+dir = Absolute path to the directory where all NPS-ActiveSpace files are stored. Required for all scripts.
+nmsim = Absolute path to the NMSIM Nord2000batch.exe file. Value required for generate_active_space.py and generate_active_space_mesh.py
+FAA_Releasable_db = Absolute path to the FAA MASTER.txt database file downloaded from the [FAA website](https://www.faa.gov/licenses_certificates/aircraft_certification/aircraft_registry/releasable_aircraft_download). Required for run_audible_transits.py
+FAA_type_corrections = Absolute path to a json file for correcting aircraft types in the FAA database. Keys are ICAO addresses, values are correct aircraft type. Required for run_ground_truthing.py and run_audible_transits.py
+```
+
+
+## Toolkit Architecture
 
 ```mermaid
 graph LR
@@ -41,6 +157,7 @@ graph LR
 
     %% Flow: scripts → core → analysis
     config --> scripts
+    config --> ground_truthing
     data --> scripts
     utils --> scripts
     scripts --> active_space
@@ -63,107 +180,176 @@ graph LR
 
 ### The Synthesis
 
-At it's heart, this repository structures a **scientific synthesis** in two parts:
+At it's heart, this toolkit structures a **scientific synthesis** in two parts:
 
-1) A GUI-based audibility measurement tool (`.ground_truthing`) that allows users to spatio-temporally $\text{JOIN}$ cause and effect.
-2) A geoprocess to $\text{ENCLOSE}$ the listening location and the user's causal observations within an optimal 3-dimensional active space (`.active_space`). 
+1) A GUI-based audibility measurement tool (`.ground_truthing`) that allows users to spatio-temporally $\text{JOIN}$ vehicle tracks (cause) and acoustic records (effect).
+2) A geoprocess to $\text{ENCLOSE}$ the listening location and a user's audibility observations within an optimal 3-dimensional active space (`.active_space`).
 
-A user progresses the synthesis using scripts (`.scripts`). A script tool is also provided to assist in the validation of syntheses (`.validate`). [Control script documentation](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space/scripts#scripts).
-
-### Foundations
-
-To enable scenario planning, global repository inputs are all structured together in a configuration file (`.config`).
-
-Internally, the toolkit requires sound source and weather data to operate. Provided (`.data`) are a widely applicable example: a fixed-wing propeller aircraft source and a standard "acoustician's atmosphere" with dry adiabatic lapse conditions. Utilities implement both data structure models and diverse computation tasks (`.utils`).
-
-
-
-
+This enables a causal geometric calculation (mensuration) of acoustic metrics. Tools to help validate a set of syntheses are provided (`.validate`).
 
 ### Scripted Control
 
-### Synthesis Modules
+The entire synthesis $\rightarrow$ validation $\rightarrow$ mensuration workflow is scripted in a Command Line Interface (`.scripts`). For more information on scripted control, see the detailed [control script documentation](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space/scripts#scripts).
 
-### `ground_truthing`
+### Foundations
 
-<img src="https://ars.els-cdn.com/content/image/1-s2.0-S0301479723019898-gr2.jpg" alt="The provided `NPS-ActiveSpace.ground_truthing` module `tkinter`-based app. Reproduced from Betchkal et al. 2023, Fig. 2. A view of the NPS-ActiveSpace ground-truthing application with a completed spectrogram annotation for an audible helicopter overflying HAVO009A. The upper map frame shows ADS-B data (brown points) in the xy-plane and the user-estimated spatial extent of audibility (cyan highlight). The lower spectrogram frame includes the noise event as contrasted against the natural residual ambience. It also provides the user a cue: the timestamp corresponding to the most proximal ADS-B point (vertical green line). Audible extent was then estimated by adjusting the temporal boundary (cyan slider)." width="700">
+To enable environmental scenario planning, global repository inputs are all structured together in a configuration file (`.config`) that spans the architecture. Utilities implement both data structure models and diverse computation tasks (`.utils`) that are used throughout the architecture. 
 
-The `ground_truthing` module provides a `tkinter`-based interactive GUI app for the annotation of georeferenced sound events. This module is the initial step of the process. Prerequesite to using this module is logging a simultaneous pair of datasets in the field: (1) a canonical Type-1 NPS acoustic record (`Nvspl`) and (2) a transportation dataset (`Adsb`, `Ais`, or generalized `Tracks`).
+The toolkit also requires basic sound source and weather profile data to operate. The provided (`.data`) are a widely applicable example: a fixed-wing propeller aircraft source and a standard "acoustician's atmosphere" with dry adiabatic lapse conditions. The toolkit may be run using alternative, custom sound sources or weather profiles. 
 
-The module is initialized in the Command Line Interface (CLI). Detailed [CLI documentation is available to initialize the app](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/_DENA#ground-truthing) from a park-specific configuration file (see [`template.config`](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/_DENA/config/template.config)).
+### Data and File Directory Setup
 
-### `active_space`
+The `.config` configuration file requires a *project directory*, which may contain many listening locations (sites), which in turn can be configured flexibly to produce test many scenarios. The toolkit expects the user's project directory to be structured as follows:
 
-The `active_space` module is a CLI implementation of observer-based audibility modelling procedures. It produces an active space estimate through synthesis. This module exists primarially as a wrapper for the `FORTRAN`-based physics engine `Nord2000` as implemented in `NMSIM`. Previously-saved `ground-truthing.Annotations` files are required as an input. Diverse spatial and sound source inputs are also required to stage the `NMSIM` simulation (see [Ikelheimer and Plotkin 2005](https://github.com/dbetchkal/NMSIM-Python/blob/main/NMSIM/Manual/NMSim%20Manual.pdf)).
+```bash
+project_directory/
+├── UNITSITE_A/
+│   ├── UNITSITE_A_study_area.shp
+│   ├── Input_Data/
+│   │   ├── 01_ELEVATION/
+│   │   └── 02_IMPEDANCE/
+│   │   └── 05_SITES/
+│   └── Output_Data/
+│       ├── ASCII/
+│       ├── AUDIBLE_TRANSITS/
+│       ├── IMAGES/
+│       ├── SITE/
+│       └── TIG_TIS/
+├── UNITSITE_B/
+│   ├── UNITSITE_B_study_area.shp
+│   └── ...
+└── ...
+```
 
-Detailed [CLI documentation is available to configure a synthesis](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/_DENA/README.md#generate-active-space) of the optimal active space estimate for a park listener in a specific location.
+As an observer-based audibility model, each `nps_active_space` site directory (above `UNITSITE_A, UNITSITE_B, ...`) corresponds with a physical **listening location** on Earth. The files composing each site directory amount to a geographic model of a listener with no audible sound source present—only the quiescent surrounding land surface. Such a geographic model is a required input for every possible `nps_active_space` configuration scenario. 
 
-### `validation` [Beta v.3.0.0]
+Terrain within the geographic model is represented by a portion of [the National Elevation Dataset (Gesch, 2002)](https://apps.nationalmap.gov/downloader/). It is a required input. It must be formatted as ESRI grid-float (*.flt*) and stored in the `01_ELEVATION` subdirectory. Landcover-related variability in acoustic impedance along the propagation path is represented by a portion of [the National Landcover Dataset (NLCD; Yang , 2018)](https://apps.nationalmap.gov/downloader/). It is an optional input, but it should also be formatted as ESRI grid-float (*.flt*). Each landcover category may be coasrely mapped to a corresponding value of flow resistivity in MKS rayls following the guidelines of Table I (using information from Ikelheimer and Plotkin, 2005b; Embleton, 1996b; Plovsing and Kragh, 2001).
 
+<table>
+  <caption>
+    <strong>Table I.</strong> NLCD class mapped to flow resistivity value
+    (after <a href="https://doi.org/10.1121/10.0030300">Betchkal et al., 2023</a>)
+  </caption>
+  <thead>
+    <tr>
+      <th>NLCD Class</th>
+      <th>Description</th>
+      <th>Flow Resistivity (MKS rayls)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>11</td>
+      <td>Open water</td>
+      <td>100&nbsp;000</td>
+    </tr>
+    <tr>
+      <td>21</td>
+      <td>Developed, open space</td>
+      <td>200</td>
+    </tr>
+    <tr>
+      <td>22</td>
+      <td>Developed, low intensity</td>
+      <td>300</td>
+    </tr>
+    <tr>
+      <td>23</td>
+      <td>Developed, medium intensity</td>
+      <td>5&nbsp;000</td>
+    </tr>
+    <tr>
+      <td>24</td>
+      <td>Developed, high intensity</td>
+      <td>10&nbsp;000</td>
+    </tr>
+    <tr>
+      <td>31</td>
+      <td>Barren (e.g., bedrock, talus)</td>
+      <td>100&nbsp;000</td>
+    </tr>
+    <tr>
+      <td>41</td>
+      <td>Deciduous forest</td>
+      <td>70</td>
+    </tr>
+    <tr>
+      <td>42</td>
+      <td>Evergreen forest</td>
+      <td>70</td>
+    </tr>
+    <tr>
+      <td>43</td>
+      <td>Mixed forest</td>
+      <td>70</td>
+    </tr>
+    <tr>
+      <td>51</td>
+      <td>Dwarf scrub</td>
+      <td>200</td>
+    </tr>
+    <tr>
+      <td>52</td>
+      <td>Shrub/scrub</td>
+      <td>200</td>
+    </tr>
+    <tr>
+      <td>90</td>
+      <td>Woody wetlands</td>
+      <td>100&nbsp;000</td>
+    </tr>
+  </tbody>
+</table>
 
+Any three-dimensional coordinate above Earth's surface may be used as a listener location. The listener location should be formatted as a `NORD2000` (*.sit*) file and stored in the `05_SITES` subdirectory.
 
----
+TODO document:
 
-# AFTER THIS NEEDS TO BE PEELED OUT INTO INDIVIDUAL MODULE-LEVEL README FILES
+- acoustic data (NVSPL, SPLAT)
+- ADSB data
+- GPS data (database setup and usage via config file)
+- project directory
+- site directories, including minimal manual setup steps (what directories the user needs to make vs. what's made automatically by the code)
+  - mention that annotation files and clock drift correction files go in here
+- NMSIM
 
-## audible-transits
+## Intended Use & Status
 
-The `audible-transits` module is a CLI geoprocess to construct the spatiotemporal intersections of a set of tracks with an active space. As part of the construction errant `Tracks` are removed and tabulated. Output `Tracks` are imbued with the information necessary to produce an audiblity time series.
+`nps_active_space` is intended for **observer-based, post hoc audibility analysis**
+of transportation noise using long-term acoustic records and co-variate vehicle
+tracking data. It is designed to support scientific research, environmental
+assessment, and resource management applications, particularly in large,
+heterogeneous landscapes such as U.S. National Parks.
 
-Detailed [CLI documentation is available to initialize the construction](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/_DENA#audible-transits).
+The toolkit is especially suited to problems where:
 
----
+- A fixed listening location (or small set of locations) is monitored over time
+- Sound sources are mobile (e.g., aircraft, vessels, overland vehicles)
+- Audibility is inferred from measured sound levels rather than predicted emission alone
+- Spatial questions are central (e.g., *where* is a sound audible, and *for how long?*)
 
-## generate-metrics [beta]
+`nps_active_space` is **not** a real-time noise monitoring system, nor a general-purpose
+sound propagation model. It is a synthesis-oriented toolkit that combines
+observations, geometry, and physical modeling to estimate spatial limits of
+audibility under specified environmental conditions.
 
-The `generate-metrics` module estimates what we hear. To do this, it collapses the set of `audible-transits` into a binary audibility sequence in time.
-Then, from attributes of these _noise events_ (or dualistically, _noise-free intervals_) a variety of acoustical and spatial metrics may be computed.
+### Project Status
 
-At present, no CLI interface exists for `generate-metrics`. Instead it has been designed to be imported into a more flexible IDE.
+This software is:
 
----
+- Research-grade and actively used in peer-reviewed studies
+- Designed for transparency, reproducibility, and extensibility
+- Under continued development as methods and use cases evolve
 
-## utils
+Interfaces and workflows may change as new synthesis pathways are added.
+Users are encouraged to treat outputs as **scientific estimates** whose validity
+depends on data quality, configuration choices, and underlying assumptions.
 
-The utilities module `utils` contains two sub-modules:
+## Publications
 
-1. `computation` for tasks related to:
+Publications about `NPS-ActiveSpace`:
 
-   - geoprocessing
-     - `.build_src_point_mesh()`
-     - `.climb_angle()`
-     - `.coords_to_utm()`
-     - `.create_overlapping_mesh()`
-     - `.interpolate_spline()`
-     - `.NMSIM_bbox_utm()`
-     - `.project_raster()`
-   - audibility
-     - `.audibility_to_interval()`
-     - `.ambience_from_nvspl()`
-     - `.ambience_from_raster()`
-     - `.contiguous_regions()`
-   - detection statistics
-     - `.calculate_duration_summary()`
-     - `.compute_fbeta()`
-
-2. and `models` containing classes which parse various forms of input data:
-   - **Automatic Dependent Surveillance–Broadcast (ADS-B)** broacasts from aircraft
-     - `.Adsb()`
-     - `.EarlyAdsb()`
-   - **Automatic Identification System (AIS)** broadcasts from ships
-     - `.Ais()`
-   - human **spectrogram annotations** from the `NPS-ActiveSpace.ground_truthing` module as
-     - `.Annotations()`
-   - descriptions of canonical NPS Type-1 acoustic monitoring **Deployments**
-     - `.Microphone()`
-   - an **acoustic record** as 1/3rd-octave band spectral sound levels from a Deployment
-     - `.Nvspl()`
-   - generalized
-     - `.Tracks()`
-
-Most users should not need to use `utils` directly, but the data parsing classes may have use to other transportation geography projects.
-
----
+> Betchkal, D.H., J.A. Beeco, S.J. Anderson, B.A. Peterson, and D. Joyce. 2023. Using Aircraft Tracking Data to Estimate the Geographic Scope of Noise Impacts from Low-Level Overflights Above Parks and Protected Areas. Journal of Environmental Management 348(15): 119201 https://doi.org/10.1016/j.jenvman.2023.119201
 
 ## License
 
@@ -177,9 +363,3 @@ This project is in the worldwide [public domain](LICENSE.md):
 >
 > All contributions to this project will be released under the CC0 dedication.
 > By submitting a pull request, you are agreeing to comply with this waiver of copyright interest.
-
-## Publications
-
-Publications about `NPS-ActiveSpace`:
-
-> Betchkal, D.H., J.A. Beeco, S.J. Anderson, B.A. Peterson, and D. Joyce. 2023. Using Aircraft Tracking Data to Estimate the Geographic Scope of Noise Impacts from Low-Level Overflights Above Parks and Protected Areas. Journal of Environmental Management 348(15): 119201 https://doi.org/10.1016/j.jenvman.2023.119201
