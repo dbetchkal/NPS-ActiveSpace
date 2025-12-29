@@ -38,8 +38,6 @@ The resulting active space is not a purely predictive construct, nor a purely
 descriptive one. It is a **mensurated estimate**: a spatial enclosure that is
 consistent with observed audibility under specified environmental conditions.
 
-## Quick Start
-
 ## Installation
 
 ### Step 1: Clone the NPS-ActiveSpace repository.
