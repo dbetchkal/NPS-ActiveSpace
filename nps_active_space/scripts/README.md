@@ -158,29 +158,43 @@ $ python -u -W ignore _DENA/scripts/run_ground_truthing.py -e production -u DENA
 $ python -u -W ignore _DENA/scripts/run_ground_truthing.py -e production -u DENA -s TRLA -y 2018 -t ADSB
 ```
 
+
 ### Plot Altitudes
 
 This script is used to plot the distribution of annotated segment altitudes to help the user determine the altitude range relevant to the [3-dimensional active space](https://github.com/dbetchkal/NPS-ActiveSpace/v3_docs/nps_active_space/scripts/README.md#generate-3d-active-space) geoprocess.
 
-| command-line arg        | description                                                                                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `-e`, `--environment`   | The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                                      |
-| `-u`, `--unit`          | The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                                  |
-| `-s`, `--site`          | The 4 letter site code. _Ex_: Cathedral = CATH                                                                                                   |
-| `-y`, `--year`          | The deployment year, YYYY. _Ex_: 2018                                                                                                            |
-| `-a`, `--all`           | If provided, plot altitude histograms for all sites in the project directory. Should not be passed if -u -s -y flags are passed.                 |
+| command-line arg        | description                                                                                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `-e`, `--environment`     | The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                                      |
+| `-u`, `--unit`            | The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                                  |
+| `-s`, `--site`            | The 4 letter site code. _Ex_: Cathedral = CATH                                                                                                   |
+| `-y`, `--year`            | The deployment year, YYYY. _Ex_: 2018                                                                                                            |
+| `-a`, `--all`             | If provided, plot altitude histograms for all sites in the project directory. Should not be passed if -u -s -y flags are passed.                 |
 
 TODO Example executions
 
 >`TODO`
+
 
 ### Generate 3D Active Space
 
-TODO
+This script creates a command file for use with `generate_active_space_batch.py`.
+
+| command-line arg        | description                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--min-altitude`        | **required.**<br/>Minimum layer altitude (meters) for 3D active space. Should be a multiple of 300 meters.                                       |
+| `--max-altitude`        | **required.**<br/>Maximum layer altitude (meters) for 3D active space. Should be a multiple of 300 meters.                                       |
+| `--only-prep`           | **required.**<br/>Stop after creating the command file. Use if you want to combine several command files to run at once.                         |                                      
+| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `-u`, `--unit`          | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                |
+| `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
+| `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                          |
+| `-a`, `--ambience`      | **_default nvspl -> {nvspl, mennitt, or .pkl file path}_**<br/>The ambience type to use when running NMSIM.                                      |
 
 TODO Example executions
 
 >`TODO`
+
 
 ### Generate Active Space
 
@@ -189,20 +203,20 @@ omni source produces the active space that most closely matches the ground truth
 
 Please note that the Precision-Recall plot that is shown at the end of a run is automatically saved.
 
-| command-line arg      | description                                                                                                                                                                                                                                                             |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-e`, `--environment` | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                                                                                                                                           |
-| `-u`, `--unit`        | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                                                                                                                                       |
-| `-s`, `--site`        | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                                                                                                                                        |
-| `-y`, `--year`        | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                                                                                                                                                 |
-| `-a`, `--ambience`    | **_default nvspl -> {nvspl, mennitt, or .pkl file path}_**<br/>The ambience type to use when running NMSIM.                                                                                                                                                             |
-| `--headings`          | **_default [0, 120, 240]_**<br/>A list of the active space headings that should be dissolved together to make the final active space. _Ex_: `--headings 0, 90, 180, 270`                                                                                                |
-| `--omni-min`          | **_default -10.0_**<br/>The lowest gain to generate an active space for. Active spaces will be generated for all gains between `--omni-min` and `--omni-max`.                                                                                                           |
-| `--omni-max`          | **_default 40.0_**<br/>The highest gain to generate an active space for. Active spaces will be generated for all gains between `--omni-min` and `--omni-max`.                                                                                                           |
-| `-l`, `--altitude`    | Use this flag to generate the active spaces at a particular altitude (in meters). _Ex_: `-l 1524` generates active spaces at 1524 meters or 5000 feet.<br/>If not passed, the average altitude of the valid, audible ground-truthed tracks will be calculated and used. |
-| `-b`, `--beta`        | **_default 1.0_**<br/>the beta value to use when calculating the f-beta for each active space.<br/>https://en.wikipedia.org/wiki/F-score#F%CE%B2_score)                                                                                                                 |
-| `--cleanup`           | If this flag is added, all intermediary control and batch files will be deleted upon script completion.                                                                                                                                                                 |
-| `--annotation-file`   | If provided, basename of GEOJSON annotations file to use instead of the default. File should be in the site directory.                                                                                                                                                  |
+| command-line arg        | description                                                                                                                                                                                                                                                             |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                                                                                                                                           |
+| `-u`, `--unit`          | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                                                                                                                                       |
+| `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                                                                                                                                        |
+| `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                                                                                                                                                 |
+| `-a`, `--ambience`      | **_default nvspl -> {nvspl, mennitt, or .pkl file path}_**<br/>The ambience type to use when running NMSIM.                                                                                                                                                             |
+| `--headings`            | **_default [0, 120, 240]_**<br/>A list of the active space headings that should be dissolved together to make the final active space. _Ex_: `--headings 0, 90, 180, 270`                                                                                                |
+| `--omni-min`            | **_default -10.0_**<br/>The lowest gain to generate an active space for. Active spaces will be generated for all gains between `--omni-min` and `--omni-max`.                                                                                                           |
+| `--omni-max`            | **_default 40.0_**<br/>The highest gain to generate an active space for. Active spaces will be generated for all gains between `--omni-min` and `--omni-max`.                                                                                                           |
+| `-l`, `--altitude`      | Use this flag to generate the active spaces at a particular altitude (in meters). _Ex_: `-l 1524` generates active spaces at 1524 meters or 5000 feet.<br/>If not passed, the average altitude of the valid, audible ground-truthed tracks will be calculated and used. |
+| `-b`, `--beta`          | **_default 1.0_**<br/>the beta value to use when calculating the f-beta for each active space.<br/>https://en.wikipedia.org/wiki/F-score#F%CE%B2_score)                                                                                                                 |
+| `--cleanup`             | If this flag is added, all intermediary control and batch files will be deleted upon script completion.                                                                                                                                                                 |
+| `--annotation-file`     | If provided, basename of GEOJSON annotations file to use instead of the default. File should be in the site directory.                                                                                                                                                  |
 
 Example executions:
 
@@ -224,9 +238,15 @@ If you would like the command output to be shown in the console and saved to a t
 $ python -u -W ignore _DENA/scripts/generate_active_space.py -e production -u DENA -s MOOS -y 2018 --cleanup | Tee-Object -FilePath "C:\Path\To\active_space_output_DENAMOOS2018.txt"
 ```
 
+
 ### Generate Active Space Batch
 
-TODO
+This script
+
+| command-line arg           | description                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `input` (no flag)          | **required.**<br/>Path to input .txt file containing batch commands to run.                                                                      |
+| `-o`, `--output`           | **required.**<br/>Path to save the output .csv file.                                                                                             |
 
 TODO Example executions
 
@@ -234,17 +254,24 @@ TODO Example executions
 
 Mention that this script runs the `generate_active_space_batch.py` and `fit_3d_active_space.py` scripts
 
+
 ### Fit 3D Active Space
 
-TODO
+This script
+
+| command-line arg           | description                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `-e`, `--environment`      | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `-u`, `--unit`             | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                |
+| `-s`, `--site`             | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
+| `-y`, `--year`             | **required.**<br/>Which year's active space to use, YYYY. _Ex_: 2018                                                                             |
 
 TODO Example executions
 
 >`TODO`
 
-### Run Audible Transits
 
-TODO - table is out of date
+### Run Audible Transits
 
 This script is used to estimate the geographic intersection of a set of tracks with an active space. It simplifies and enriches the geographic data with information necessary to produce an audiblity time series.
 
@@ -257,7 +284,7 @@ This script is used to estimate the geographic intersection of a set of tracks w
 | `-g`, `--gain`             | **required.**<br/>The signed gain of the optimal active space fit, float. _Ex._: -20.5                                                           |
 | `-t0`, `--begintracks`     | **required.**<br/>Date to begin parsing the position record, YYYY-MM-DD. _Ex._: 2018-01-01                                                       |
 | `-tf`, `--endtracks`       | **required.**<br/>Date to stop parsing the position record, YYYY-MM-DD. _Ex._: 2018-06-05                                                        |
-| `-t`, `--track-source`     | **_default GPS -> {GPS, ADSB, AIS}_**<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
+| `-t`, `--database-type`    | **_default GPS -> {GPS, ADSB, AIS}_**<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
 | `-o`, `--output`           | **default ""**<br/>Output directory. Directory to store output files. Defaults to [project directory]/[unit][site]/Output_Data                   |
 | `-garb`, `--exportgarbage` | **default 0 -> {0, 1}**<br/>Whether to export garbage tracks (1) or not (0). _Ex._: 1                                                            |
 | `-v`, `--verbose`          | <br/>If provided, prints additional details to the console during processing steps.                                                              |
@@ -274,29 +301,51 @@ $ python _DENA/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 
 
 ### Get Acoustic Metrics
 
-TODO
+| command-line arg        | description                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `-u`, `--unit`          | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                |
+| `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
+| `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                          |
+| `-t`, `--track-source`  | **_default GPS -> {GPS, ADSB, AIS}_**<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
 
 TODO Example executions
 
 >`TODO`
+
 
 ### Get Geographic Metrics
 
-TODO
+| command-line arg        | description                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `-u`, `--unit`          | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                |
+| `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
+| `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                          |
+| `-t`, `--track-source`  | **_default GPS -> {GPS, ADSB, AIS}_**<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
+| `--transits-pkl`        | **_default to deployment dir_**<br/>Path to .pkl file from which to load audible transits                                                        |
 
 TODO Example executions
 
 >`TODO`
-
 
 
 ### Check Study Duration Robustness
 
-TODO
+This script is used to validate the robustness of a given active space fit.
+
+| command-line arg           | description                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `deployments` (no flag)    | **required.**<br/>A list of deployments to analyze, e.g., DENACATH2018 DENATRLA2025 MORU0022025                                                  |
+| `-e`, `--environment`      | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `--col`                    | **_default 'area'_**<br>Which column from the study duration csv to plot. Common values are 'area', 'gain', 'f1'. Default is 'area'.             |
+| `-k`                       | **_default 10_**<br>The top k best fits will be plotted in a range around the best fit.                                                          |
+| `-n`, `--max-n-tracks`     | Maximum number of tracks to plot (upper horizontal limit of the plot).                                                                           |
 
 TODO Example executions
 
 >`TODO`
+
 
 ### Viz
 
@@ -320,9 +369,10 @@ TODO Example executions
 
 >`TODO`
 
+
 ### Generate Active Space Mesh
 
-Currently deprecated as of v3.0.0; documentation included here for backwards compatability.
+NOTE: *deprecated as of v3.0.0; documentation included here for backwards compatability.*
 
 | command-line arg      | description                                                                                                                                                                   |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -345,6 +395,7 @@ $ python -u -W ignore _DENA/scripts/generate_active_space_mesh.py -e production 
 ```bash
 $ python -u -W ignore _DENA/scripts/generate_active_space_mesh.py -e production -n DENAFULL -s C:/Users/yourname/Desktop/DENA.shp --headings 0 180 --omni-source -12.5 --mesh-spacing 10 --mesh-size 20 -l 1524
 ```
+
 
 # Other Notes
 
