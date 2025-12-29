@@ -1,14 +1,16 @@
 # Scripts
 
-This directory contains scripts that can be run from the command line, and is the primary way of using the active space toolkit. See [below](#use-cases) for the most common use cases, and [further below](#script-usage) for detailed documentation of each script.
+The `nps_active_space` [toolkit architecture](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#toolkit-architecture) operates under the paradigm of scripted control: scripts advance various workflows.
+
+This directory contains the scripts along with instruction for their use via a command line interface. See [below](#use-cases) for the most common use cases, and [further below](#script-usage) for detailed documentation of each script.
 
 ## Use Cases
 
-**3D Active Space**
+### 3D Active Space
 
-These are the steps for the primary use case of generating a 3D active space and using that to predict metrics like # daily noise events.
+These are the steps for the **primary use case**: synthesizing a 3D active space $\rightarrow$ using it to predict acoustic metrics geographically.
 
-1. Follow installation and data setup steps [here](../README.md).
+1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#installation).
 2. Use `run_ground_truthing.py` to annotate audible track segments.
 3. Use `plot_altitudes.py` to get a sense of the altitudes spanned by typical traffic.
 4. Use `generate_3d_active_space.py` to automatically create a batch commands file based on the altitude range, generate active space layers, and fit the optimal gain. The fit results will be stored in `fits.csv` in the project directory.
@@ -17,7 +19,19 @@ These are the steps for the primary use case of generating a 3D active space and
 7. [Optional] Annotate the acoustic record using the SPLAT software, then use `get_acoustic_metrics.py` to get the true acoustic metrics, and compare these with the predicted geographic metrics.
 8. [Optional] Use `check_study_duration_robustness.py` to evaluate whether there was enough track data for a stable fit.
 
-**3D Visualization**
+```mermaid
+graph LR
+
+run_ground_truthing.py --> generate_3d_active_space.py
+plot_altitudes.py --> generate_3d_active_space.py
+generate_3d_active_space.py --> run_audible_transits.py
+generate_3d_active_space.py --> fits.csv
+run_audible_transits.py --> get_geographic_metrics.py
+fits.csv --> get_geographic_metrics.py
+check_study_duration_robustness.py
+```
+
+### 3D Visualization
 
 Use `viz.py` to run the 3D visualization tool.
 
@@ -29,24 +43,45 @@ You can visualize:
 - audible transits
 - any combination of the above
 
-Make sure the data you want to visualize exists beforehand. The script won't look for data that it wasn't asked to visualize; for instance if you just finished setting up your data / directory structure, you can immediately visualize the landscape without needing to have ground-truthed tracks or generated an active space.
+Make sure the data you want to visualize exist beforehand. The script won't look for data that it wasn't asked to visualize; for instance if you just finished setting up your data / directory structure, you can immediately visualize the landscape without needing to have ground-truthed tracks or generated an active space.
 
-**2D Active Space**
+### 2D Active Space
 
-1. Follow installation and data setup steps [here](../README.md).
+1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#installation).
 2. Use `run_ground_truthing.py` to annotate audible track segments.
 3. Use `generate_active_space.py` to generate candidates for a single active space layer at a fixed altitude, and also fit the optimal gain.
-4. We can make use of the 3D code to process a 2D active space, since a 2D active space is equivalent to a 3D one with a single layer. Make sure only a single layer of active spaces has been generated (check Output_Data/ACTIVESPACES). Then use `fit_3d_active_space.py` to fit the gain in a way the rest of the 3D code expects (storing it in the `fits.csv` file in the project directory). Then follow steps 5-6 of the typical 3D active space workflow.
+4. We can make use of the 3D code to process a 2D active space, since a 2D active space is equivalent to a 3D one with a single layer. Make sure only a single layer of active spaces has been generated (check `../NMSIM_project_dir/Output_Data/ACTIVESPACES`). Then use `fit_3d_active_space.py` to fit the gain in a way the rest of the 3D code expects (storing it in the `fits.csv` file in the project directory). Then follow steps 5-6 of the typical 3D active space workflow.
+
+```mermaid
+graph LR
+
+run_ground_truthing.py --> generate_active_space.py
+generate_active_space.py --> fit_3d_active_space.py
+fit_3d_active_space.py --> fits.csv
+fit_3d_active_space.py --> run_audible_transits.py
+run_audible_transits.py --> get_geographic_metrics.py
+fits.csv --> get_geographic_metrics.py
+check_study_duration_robustness.py
+```
 
 Alternative: 2D audible transits supports more precise track clipping. If you want this, then use `run_audible_transits.py` with an argument specifying you're doing 2D, and then adapt `get_geographic_metrics.py` to use the correct 2D gain and 2D metadata for loading audible transits.
 
-**Batch Generation**
+```mermaid
+graph LR
+
+run_ground_truthing.py --> generate_active_space.py
+generate_active_space.py --> run_audible_transits.py
+run_audible_transits.py --> get_geographic_metrics.py
+check_study_duration_robustness.py
+```
+
+## Batch Generation
 
 If you want to generate many active spaces at the same time, you can leverate the batch script to do so. This is useful for running it overnight or while you do other work.
 
-**Batch 3D Active Space**
+### Batch 3D Active Space
 
-1. Follow installation and data setup steps [here](../README.md).
+1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#installation).
 2. For each deployment:
    1. Use `run_ground_truthing.py` to annotate audible track segments.
    2. Use `plot_altitudes.py` to get a sense of the altitudes spanned by typical traffic.
@@ -56,26 +91,72 @@ If you want to generate many active spaces at the same time, you can leverate th
 5. For each deployment:
    1. Use `fit_3d_active_space.py` to fit the optimal gain. The fit results will be stored in `fits.csv` in the project directory.
    2. Complete steps 5-6 of the normal 3D active space workflow.
+  
+```mermaid
+graph LR
 
-**Batch 2D Active Space**
+   %% Groups
+   subgraph Deployment
+      run_ground_truthing.py[(run_ground_truthing.py)]
+      plot_altitudes.py[(plot_altitudes.py)]
+      generate_3d_active_space.py[(generate_3d_active_space.py)]
+      fit_3d_active_space.py[(fit_3d_active_space.py)]
+      fits.csv[(fits.csv)]
+      run_audible_transits.py[(run_audible_transits.py)]
+      get_geographic_metrics.py[(get_geographic_metrics.py)]
+      Command_File[(Command_File)]
+      check_study_duration_robustness.py[(check_study_duration_robustness.py)]
+   end
 
-1. Follow installation and data setup steps [here](../README.md).
+   subgraph Batch
+      Combined_Command_File[(Combined_Command_File)]
+      generate_active_space_batch.py[(generate_active_space_batch.py)]
+   end
+
+run_ground_truthing.py --> generate_3d_active_space.py
+plot_altitudes.py --> generate_3d_active_space.py
+generate_3d_active_space.py --> Command_File
+Command_File --> Combined_Command_File
+Combined_Command_File --> generate_active_space_batch.py
+generate_active_space_batch.py --> fit_3d_active_space.py
+fit_3d_active_space.py --> fits.csv
+fit_3d_active_space.py --> run_audible_transits.py
+run_audible_transits.py --> get_geographic_metrics.py
+fits.csv --> get_geographic_metrics.py
+check_study_duration_robustness.py
+```
+
+### Batch 2D Active Space
+
+1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#installation).
 2. For each deployment, use `run_ground_truthing.py` to annotate audible track segments.
 3. Manually prepare a commands file containing the arguments for each run, see [below](#batch-commands-file-format).
 4. Use `generate_active_space_batch.py` to execute the concatenated commands file.
 5. For each deployment, complete step 4 of the normal 2D active space workflow.
 
-**Mesh Generation**
-
-TODO
-
 # Script Usage
-
-TODO - complete missing tables. Make sure that existing tables' arguments and help string matches the argparse definitions in each script.
 
 ### Viz
 
-TODO
+This script is used to visualize select geospatial objects relevant to the `nps_active_space` toolkit.
+
+| command-line arg           | description                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `deployment` (no flag)     | **required.**<br/>The deployment name, e.g., DENACATH2018                                                                                        |
+| `-g`, `--gain`             | Active space gain, if not the optimal default found in `fits.csv`                                                                                |
+| `-s`, `--active-space`     | If included, load and plot the active space                                                                                                      |
+| `-a`, `--annotations`      | If included, load and plot annotations                                                                                                           |
+| `-t`, `--audible-transits` | If included, load and plot audible transits                                                                                                      |
+| `--all`                    | Load and plot all geospatial objects (shorthand for `--active-space --annotations --audible-transits`)                                           |
+| `-m`, `--max-tracks`       | **_default 500_**<br>Maximum number of annotation tracks or audible transits to show                                                             |
+| `--annotation-file`        | **_default to deployment dir_**<br/>Path to .geojson file from which to load annotations                                                         |
+| `--transits-pkl`           | **_default to deployment dir_**<br/>Path to .pkl file from which to load audible transits                                                        |
+| `--terraced`               | If included, render the active space as a terraced surface instead of contours                                                                   |
+| `--fill-layers`            | If included, fill the interior of each active space contour polygon                                                                              |
+
+TODO Example executions
+
+>`TODO`
 
 ### Run Ground Truthing
 
@@ -101,7 +182,19 @@ $ python -u -W ignore _DENA/scripts/run_ground_truthing.py -e production -u DENA
 
 ### Plot Altitudes
 
-TODO
+This script is used to plot the distribution of annotated segment altitudes to help the user determine the altitude range relevant to the [3-dimensional active space](https://github.com/dbetchkal/NPS-ActiveSpace/v3_docs/nps_active_space/scripts/README.md#generate-3d-active-space) geoprocess.
+
+| command-line arg        | description                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `-e`, `--environment`   | The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                                      |
+| `-u`, `--unit`          | The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                                  |
+| `-s`, `--site`          | The 4 letter site code. _Ex_: Cathedral = CATH                                                                                                   |
+| `-y`, `--year`          | The deployment year, YYYY. _Ex_: 2018                                                                                                            |
+| `-a`, `--all`           | If provided, plot altitude histograms for all sites in the project directory. Should not be passed if -u -s -y flags are passed.                 |
+
+TODO Example executions
+
+>`TODO`
 
 ### Generate Active Space
 
@@ -149,15 +242,27 @@ $ python -u -W ignore _DENA/scripts/generate_active_space.py -e production -u DE
 
 TODO
 
+TODO Example executions
+
+>`TODO`
+
 ### Generate 3D Active Space
 
 TODO
+
+TODO Example executions
+
+>`TODO`
 
 Mention that this script runs the `generate_active_space_batch.py` and `fit_3d_active_space.py` scripts
 
 ### Fit 3D Active Space
 
 TODO
+
+TODO Example executions
+
+>`TODO`
 
 ### Run Audible Transits
 
@@ -193,17 +298,29 @@ $ python _DENA/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 
 
 TODO
 
+TODO Example executions
+
+>`TODO`
+
 ### Get Acoustic Metrics
 
 TODO
+
+TODO Example executions
+
+>`TODO`
 
 ### Check Study Duration Robustness
 
 TODO
 
+TODO Example executions
+
+>`TODO`
+
 ### Generate Active Space Mesh
 
-TODO - outdated
+Currently deprecated as of v3.0.0; documentation included here for backwards compatability.
 
 | command-line arg      | description                                                                                                                                                                   |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
