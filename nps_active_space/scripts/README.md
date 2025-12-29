@@ -136,28 +136,6 @@ check_study_duration_robustness.py
 
 # Script Usage
 
-### Viz
-
-This script is used to visualize select geospatial objects relevant to the `nps_active_space` toolkit.
-
-| command-line arg           | description                                                                                                                                      |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `deployment` (no flag)     | **required.**<br/>The deployment name, e.g., DENACATH2018                                                                                        |
-| `-g`, `--gain`             | Active space gain, if not the optimal default found in `fits.csv`                                                                                |
-| `-s`, `--active-space`     | If included, load and plot the active space                                                                                                      |
-| `-a`, `--annotations`      | If included, load and plot annotations                                                                                                           |
-| `-t`, `--audible-transits` | If included, load and plot audible transits                                                                                                      |
-| `--all`                    | Load and plot all geospatial objects (shorthand for `--active-space --annotations --audible-transits`)                                           |
-| `-m`, `--max-tracks`       | **_default 500_**<br>Maximum number of annotation tracks or audible transits to show                                                             |
-| `--annotation-file`        | **_default to deployment dir_**<br/>Path to .geojson file from which to load annotations                                                         |
-| `--transits-pkl`           | **_default to deployment dir_**<br/>Path to .pkl file from which to load audible transits                                                        |
-| `--terraced`               | If included, render the active space as a terraced surface instead of contours                                                                   |
-| `--fill-layers`            | If included, fill the interior of each active space contour polygon                                                                              |
-
-TODO Example executions
-
->`TODO`
-
 ### Run Ground Truthing
 
 This script is used to launch the ground truthing application to annotate the audibility of sound source tracks.
@@ -191,6 +169,14 @@ This script is used to plot the distribution of annotated segment altitudes to h
 | `-s`, `--site`          | The 4 letter site code. _Ex_: Cathedral = CATH                                                                                                   |
 | `-y`, `--year`          | The deployment year, YYYY. _Ex_: 2018                                                                                                            |
 | `-a`, `--all`           | If provided, plot altitude histograms for all sites in the project directory. Should not be passed if -u -s -y flags are passed.                 |
+
+TODO Example executions
+
+>`TODO`
+
+### Generate 3D Active Space
+
+TODO
 
 TODO Example executions
 
@@ -246,14 +232,6 @@ TODO Example executions
 
 >`TODO`
 
-### Generate 3D Active Space
-
-TODO
-
-TODO Example executions
-
->`TODO`
-
 Mention that this script runs the `generate_active_space_batch.py` and `fit_3d_active_space.py` scripts
 
 ### Fit 3D Active Space
@@ -294,14 +272,6 @@ $ python _DENA/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 
 $ python _DENA/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20 -t ADSB
 ```
 
-### Get Geographic Metrics
-
-TODO
-
-TODO Example executions
-
->`TODO`
-
 ### Get Acoustic Metrics
 
 TODO
@@ -310,9 +280,41 @@ TODO Example executions
 
 >`TODO`
 
+### Get Geographic Metrics
+
+TODO
+
+TODO Example executions
+
+>`TODO`
+
+
+
 ### Check Study Duration Robustness
 
 TODO
+
+TODO Example executions
+
+>`TODO`
+
+### Viz
+
+This script is used to visualize select geospatial objects relevant to the `nps_active_space` toolkit.
+
+| command-line arg           | description                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `deployment` (no flag)     | **required.**<br/>The deployment name, e.g., DENACATH2018                                                                                        |
+| `-g`, `--gain`             | Active space gain, if not the optimal default found in `fits.csv`                                                                                |
+| `-s`, `--active-space`     | If included, load and plot the active space                                                                                                      |
+| `-a`, `--annotations`      | If included, load and plot annotations                                                                                                           |
+| `-t`, `--audible-transits` | If included, load and plot audible transits                                                                                                      |
+| `--all`                    | Load and plot all geospatial objects (shorthand for `--active-space --annotations --audible-transits`)                                           |
+| `-m`, `--max-tracks`       | **_default 500_**<br>Maximum number of annotation tracks or audible transits to show                                                             |
+| `--annotation-file`        | **_default to deployment dir_**<br/>Path to .geojson file from which to load annotations                                                         |
+| `--transits-pkl`           | **_default to deployment dir_**<br/>Path to .pkl file from which to load audible transits                                                        |
+| `--terraced`               | If included, render the active space as a terraced surface instead of contours                                                                   |
+| `--fill-layers`            | If included, fill the interior of each active space contour polygon                                                                              |
 
 TODO Example executions
 
