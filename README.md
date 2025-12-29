@@ -42,14 +42,14 @@ consistent with observed audibility under specified environmental conditions.
 
 ## Installation
 
-### Clone the NPS-ActiveSpace repository.
+### Step 1: Clone the NPS-ActiveSpace repository.
 
 ```
 git clone https://github.com/dbetchkal/NPS-ActiveSpace.git
 cd NPS-ActiveSpace
 ```
 
-### Set Up a Virtual Environment.
+### Step 2: Set Up a Virtual Environment.
 
 Install Python, either via Anaconda/Miniconda, or directly. The repository has been tested with Python version 3.13.5.
 
@@ -76,7 +76,7 @@ python -m venv .venv
 source .venv\Scripts\activate.bat
 ```
 
-### Install Dependencies
+### Step 3: Install Dependencies
 
 Make sure you are inside your virtual environment, then:
 
@@ -88,7 +88,7 @@ pip install -r requirements.txt
 Historical note:
 The GDAL dependency comes from a `.whl` file published [here](https://github.com/cgohlke/geospatial-wheels/releases). If the Python version is updated, the GDAL wheel URL in `requirements.txt` may need to be changed to reflect the updated version. For example, `gdal-3.11.1-cp313-cp313-win_amd64.whl` is GDAL version 3.11.1 for Python 3.13.
 
-### Install NPS-ActiveSpace
+### Step 4: Install NPS-ActiveSpace
 
 From the repository's root directory, inside the virtual environment:
 
@@ -102,13 +102,11 @@ Try importing a python module to make sure this install worked, e.g. in a python
 from nps_active_space.active_space import ActiveSpaceGenerator
 ```
 
-### Create Config File
+### Step 5: Create Config File
 
-All scripts require a configuration file saved in the config directory `nps_active_space/config`. Please copy the template config file, fill in the values required for the script(s) you will be running, and save it to the config directory as `<environment name>.config`. For example, a DENA configuration file might be named `dena.config` while a HAVO configuration file might be named `havo.config` and have a different value for where the DEM file is stored than `dena.config`
+All scripts require a configuration file saved in the config directory `nps_active_space/config`. Please copy the template config file, fill in the values required for the script(s) you will be running, and save it to the config directory as `<environment name>.config`. For example, a configuration file for Denali National Park and Preserve might be named `DENA.config` while a configuration file for Hawaii Volcanoes National Park might be named `HAVO.config` and have a different value for where the DEM file is stored than `DENA.config`
 
 Currently, the template config file has the following data:
-
-TODO - check this / update this for new scripts. Explaining which scripts require what is a bit messy, especially with all the new scripts we added. Consider a better way to document this.
 
 ```text
 [database:overflights] - Values required if pulling tracks from the database in run_ground_truthing.py or run_audible_transits.py
@@ -131,7 +129,6 @@ nmsim = Absolute path to the NMSIM Nord2000batch.exe file. Value required for ge
 FAA_Releasable_db = Absolute path to the FAA MASTER.txt database file downloaded from the [FAA website](https://www.faa.gov/licenses_certificates/aircraft_certification/aircraft_registry/releasable_aircraft_download). Required for run_audible_transits.py
 FAA_type_corrections = Absolute path to a json file for correcting aircraft types in the FAA database. Keys are ICAO addresses, values are correct aircraft type. Required for run_ground_truthing.py and run_audible_transits.py
 ```
-
 
 ## Toolkit Architecture
 
@@ -199,6 +196,8 @@ The toolkit also requires basic sound source and weather profile data to operate
 
 ### Data and File Directory Setup
 
+#### `NMSIM` project directory setup:
+
 The `.config` configuration file requires a *project directory*, which may contain many listening locations (sites), which in turn can be configured flexibly to produce test many scenarios. The toolkit expects the user's project directory to be structured as follows:
 
 ```bash
@@ -223,7 +222,19 @@ project_directory/
 
 As an observer-based audibility model, each `nps_active_space` site directory (above `UNITSITE_A, UNITSITE_B, ...`) corresponds with a physical **listening location** on Earth. The files composing each site directory amount to a geographic model of a listener with no audible sound source present—only the quiescent surrounding land surface. Such a geographic model is a required input for every possible `nps_active_space` configuration scenario. 
 
-Terrain within the geographic model is represented by a portion of [the National Elevation Dataset (Gesch, 2002)](https://apps.nationalmap.gov/downloader/). It is a required input. It must be formatted as ESRI grid-float (*.flt*) and stored in the `01_ELEVATION` subdirectory. Landcover-related variability in acoustic impedance along the propagation path is represented by a portion of [the National Landcover Dataset (NLCD; Yang , 2018)](https://apps.nationalmap.gov/downloader/). It is an optional input, but it should also be formatted as ESRI grid-float (*.flt*). Each landcover category may be coasrely mapped to a corresponding value of flow resistivity in MKS rayls following the guidelines of Table I (using information from Ikelheimer and Plotkin, 2005b; Embleton, 1996b; Plovsing and Kragh, 2001).
+##### Within the root of the project directory:
+
+The overarching input of `nps_active_space` is a study area. It is a required input. It must be contained within the root project directory and named similar to `UNITSITE_study_area.shp` (ESRI shapefile), where the variable geographic prefix `UNITSITE` matches the name of the project directory. It is recommended that study area geometries are saved using `NMSIM`'s native coordinate reference system (crs), NAD83 GCS North American (EPSG:4269).
+
+After their creation, the annotation outputs of `.ground_truthing` (.geojson) also belong in the root of the project directory. Clock drift correction files produced via [the `.utils\clock_drift.py` utility](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/nps_active_space/utils/clock_drift.py) also belong in the root of the project directory.
+
+##### Within `01_ELEVATION`:
+
+Terrain within the geographic model is represented by a portion of [the National Elevation Dataset (Gesch, 2002)](https://apps.nationalmap.gov/downloader/). It is a required input. It must be formatted as ESRI grid-float (*.flt*) and stored in the `01_ELEVATION` subdirectory. 
+
+##### Within `02_IMPEDANCE`:
+
+Landcover-related variability in acoustic impedance along the propagation path is represented by a portion of [the National Landcover Dataset (NLCD; Yang , 2018)](https://apps.nationalmap.gov/downloader/). It is an optional input. Like elevation data, flow resistivity data should also be formatted as ESRI grid-float (*.flt*) for use with `NMSIM`. Each landcover category may be coasrely mapped to a corresponding value of flow resistivity ($\frac{Pa \ s}{m^2}$) following the guidelines of Table I (using information from Ikelheimer and Plotkin, 2005b; Embleton, 1996b; Plovsing and Kragh, 2001).
 
 <table>
   <caption>
@@ -234,7 +245,7 @@ Terrain within the geographic model is represented by a portion of [the National
     <tr>
       <th>NLCD Class</th>
       <th>Description</th>
-      <th>Flow Resistivity (MKS rayls)</th>
+      <th>Flow Resistivity ($\frac{Pa \ s}{m^2}$)</th>
     </tr>
   </thead>
   <tbody>
@@ -301,32 +312,23 @@ Terrain within the geographic model is represented by a portion of [the National
   </tbody>
 </table>
 
-Any three-dimensional coordinate above Earth's surface may be used as a listener location. The listener location should be formatted as a `NORD2000` (*.sit*) file and stored in the `05_SITES` subdirectory.
+##### Within `05_SITES`:
 
-TODO document:
+Any three-dimensional coordinate above Earth's surface may be used as a listener location. The listener location should be formatted as a `NMSIM` (*.sit*) file and stored in the `05_SITES` subdirectory.
 
-- acoustic data (NVSPL, SPLAT)
-- ADSB data
-- GPS data (database setup and usage via config file)
-- project directory
-- site directories, including minimal manual setup steps (what directories the user needs to make vs. what's made automatically by the code)
-  - mention that annotation files and clock drift correction files go in here
-- NMSIM
+#### Acoustic record directory setup
+
+#### Vehicle track directory setup
 
 ## Intended Use & Status
 
-`nps_active_space` is intended for **observer-based, post hoc audibility analysis**
-of transportation noise using long-term acoustic records and co-variate vehicle
-tracking data. It is designed to support scientific research, environmental
-assessment, and resource management applications, particularly in large,
-heterogeneous landscapes such as U.S. National Parks.
+`nps_active_space` is intended for **observer-based, post hoc audibility analysis** of transportation noise using simultaneously collected, long-term acoustic records and covariate vehicle tracking data. It is designed to support scientific research, environmental assessment, and resource management applications, particularly in large, heterogeneous landscapes such as U.S. National Parks.
 
 The toolkit is especially suited to problems where:
 
 - A fixed listening location (or small set of locations) is monitored over time
 - Sound sources are mobile (e.g., aircraft, vessels, overland vehicles)
-- Audibility is inferred from measured sound levels rather than predicted emission alone
-- Spatial questions are central (e.g., *where* is a sound audible, and *for how long?*)
+- Spatial questions are central (e.g., *where* is a source audible from, and *for how long?*)
 
 `nps_active_space` is **not** a real-time noise monitoring system, nor a general-purpose
 sound propagation model. It is a synthesis-oriented toolkit that combines
@@ -341,15 +343,14 @@ This software is:
 - Designed for transparency, reproducibility, and extensibility
 - Under continued development as methods and use cases evolve
 
-Interfaces and workflows may change as new synthesis pathways are added.
-Users are encouraged to treat outputs as **scientific estimates** whose validity
-depends on data quality, configuration choices, and underlying assumptions.
+Interfaces and workflows may change as new synthesis pathways are added. Users are encouraged to treat outputs as **scientific estimates** whose validity depends on data quality, configuration choices, and underlying assumptions.
 
 ## Publications
 
 Publications about `NPS-ActiveSpace`:
 
-> Betchkal, D.H., J.A. Beeco, S.J. Anderson, B.A. Peterson, and D. Joyce. 2023. Using Aircraft Tracking Data to Estimate the Geographic Scope of Noise Impacts from Low-Level Overflights Above Parks and Protected Areas. Journal of Environmental Management 348(15): 119201 https://doi.org/10.1016/j.jenvman.2023.119201
+> Betchkal, D.H., J.A. Beeco, S.J. Anderson, B.A. Peterson, and D. Joyce. 2023. Using Aircraft Tracking Data to Estimate the Geographic Scope of Noise Impacts from Low-Level Overflights Above Parks and Protected Areas. Journal of Environmental Management 348(15): 119201 https://doi.org/10.1016/j.jenvman.2023.119201 <br><br>
+> Kosinski, A., D.H. Betchkal. 2025. Reliablility of the 3D Active Space Model. Presentation slides. https://irma.nps.gov/DataStore/Reference/Profile/2316524 <br>
 
 ## License
 
