@@ -177,12 +177,12 @@ graph LR
 
 ### The Synthesis
 
-At it's heart, this toolkit structures a **scientific synthesis** in two parts:
+At its heart, this toolkit structures a **scientific synthesis** in two parts:
 
 1) A GUI-based audibility measurement tool (`.ground_truthing`) that allows users to spatio-temporally $\text{JOIN}$ vehicle tracks (cause) and acoustic records (effect).
 2) A geoprocess to $\text{ENCLOSE}$ the listening location and a user's audibility observations within an optimal 3-dimensional active space (`.active_space`).
 
-This enables a causal geometric calculation (mensuration) of acoustic metrics. Tools to help validate a set of syntheses are provided (`.validate`).
+This enables a causal geometric calculation (mensuration) of acoustic metrics. Tools to help validate a set of syntheses are provided (`.validation`).
 
 ### Scripted Control
 
@@ -234,12 +234,11 @@ Terrain within the geographic model is represented by a portion of [the National
 
 ##### Within `02_IMPEDANCE`:
 
-Landcover-related variability in acoustic impedance along the propagation path is represented by a portion of [the National Landcover Dataset (NLCD; Yang , 2018)](https://apps.nationalmap.gov/downloader/). It is an optional input. Like elevation data, flow resistivity data should also be formatted as ESRI grid-float (*.flt*) for use with `NMSIM`. Each landcover category may be coasrely mapped to a corresponding value of flow resistivity ($\frac{Pa \ s}{m^2}$) following the guidelines of Table I (using information from Ikelheimer and Plotkin, 2005b; Embleton, 1996b; Plovsing and Kragh, 2001).
+Landcover-related variability in acoustic impedance along the propagation path is represented by a portion of [the National Landcover Dataset (NLCD; Yang , 2018)](https://apps.nationalmap.gov/downloader/). It is an optional input. Like elevation data, flow resistivity data should also be formatted as ESRI grid-float (*.flt*) for use with `NMSIM`. Each landcover category may be coasrely mapped to a corresponding value of flow resistivity ($\frac{Pa \ s}{m^2} = \frac{kg}{m^3 \ s}$) following the guidelines of Table I (<a href="https://doi.org/10.1121/10.0030300">adapted</a> from Ikelheimer and Plotkin, 2005b; Embleton, 1996b; Plovsing and Kragh, 2001).
 
 <table>
   <caption>
-    <strong>Table I.</strong> NLCD class mapped to flow resistivity value
-    (after <a href="https://doi.org/10.1121/10.0030300">Betchkal et al., 2023</a>)
+    <strong>Table I.</strong> NLCD class mapped to flow resistivity value.
   </caption>
   <thead>
     <tr>
@@ -315,10 +314,6 @@ Landcover-related variability in acoustic impedance along the propagation path i
 ##### Within `05_SITES`:
 
 Any three-dimensional coordinate above Earth's surface may be used as a listener location. The listener location should be formatted as a `NMSIM` (*.sit*) file and stored in the `05_SITES` subdirectory.
-
-#### Acoustic record directory setup
-
-#### Vehicle track directory setup
 
 ## Intended Use & Status
 
