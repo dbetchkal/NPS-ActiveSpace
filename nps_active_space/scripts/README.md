@@ -181,11 +181,11 @@ This script is used to launch the ground truthing application to annotate the au
 Example executions:
 
 ```bash
-$ python -u -W ignore _DENA/scripts/run_ground_truthing.py -e production -u DENA -s MOOS -y 2018
+$ python -u -W ignore nps_active_space/scripts/run_ground_truthing.py -e production -u DENA -s MOOS -y 2018
 ```
 
 ```bash
-$ python -u -W ignore _DENA/scripts/run_ground_truthing.py -e production -u DENA -s TRLA -y 2018 -t ADSB
+$ python -u -W ignore nps_active_space/scripts/run_ground_truthing.py -e production -u DENA -s TRLA -y 2018 -t ADSB
 ```
 
 
@@ -265,7 +265,7 @@ If you would like the command output to be shown in the console and saved to a t
 ```
 
 ```bash
-$ python -u -W ignore _DENA/scripts/generate_active_space.py -e production -u DENA -s MOOS -y 2018 --cleanup | Tee-Object -FilePath "C:\Path\To\active_space_output_DENAMOOS2018.txt"
+$ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e production -u DENA -s MOOS -y 2018 --cleanup | Tee-Object -FilePath "C:\Path\To\active_space_output_DENAMOOS2018.txt"
 ```
 
 
