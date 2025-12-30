@@ -214,7 +214,7 @@ This script creates a command file for use with `generate_active_space_batch.py`
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `--min-altitude`        | **required.**<br/>Minimum layer altitude (meters) for 3D active space. Should be a multiple of 300 meters.                                       |
 | `--max-altitude`        | **required.**<br/>Maximum layer altitude (meters) for 3D active space. Should be a multiple of 300 meters.                                       |
-| `--only-prep`           | **required.**<br/>Stop after creating the command file. Use if you want to combine several command files to run at once.                         |                                      
+| `--only-prep`           | Stop after creating the command file. Use if you want to combine several command files to run as a batch.                                        |                                      
 | `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
 | `-u`, `--unit`          | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                |
 | `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
