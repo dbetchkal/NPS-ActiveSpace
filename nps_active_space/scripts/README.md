@@ -11,9 +11,9 @@ This directory contains the scripts along with instruction for their use via a c
 These are the steps for the **primary use case**: synthesizing a 3D active space $\rightarrow$ using it to predict acoustic metrics geographically.
 
 1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#installation).
-2. Use `run_ground_truthing.py` to annotate audible track segments.
-3. Use `plot_altitudes.py` to get a sense of the altitudes spanned by typical traffic.
-4. Use `generate_3d_active_space.py` to automatically create a batch commands file based on the altitude range, generate active space layers, and fit the optimal gain. The fit results will be stored in `fits.csv` in the project directory.
+2. Use `run_ground_truthing.py` to annotate audible track segments. This GUI-based tool establishes a spatio-temporal $\text{JOIN}$ of vechicle positions (cause) and acoustic records (effect).
+3. Use `plot_altitudes.py` to scope the altitudes spanned by aircraft traffic traversing the study area.
+4. Use `generate_3d_active_space.py` to create a batch commands file based on the altitude range, generate active space layers, and fit the optimal gain. The fit results will be stored in `fits.csv` in the project directory.
 5. Use `run_audible_transits.py` to predict audible transits based on the active space.
 6. Use `get_geographic_metrics.py` to predict metrics based on audible transits.
 7. [Optional] Annotate the acoustic record using the SPLAT software, then use `get_acoustic_metrics.py` to get the true acoustic metrics, and compare these with the predicted geographic metrics.
@@ -96,7 +96,7 @@ If you want to generate many active spaces at the same time, you can leverate th
 graph LR
 
    %% Groups
-   subgraph Deployment
+   subgraph Per_Deployment
       run_ground_truthing.py[(run_ground_truthing.py)]
       plot_altitudes.py[(plot_altitudes.py)]
       generate_3d_active_space.py[(generate_3d_active_space.py)]
@@ -133,6 +133,36 @@ check_study_duration_robustness.py
 3. Manually prepare a commands file containing the arguments for each run, see [below](#batch-commands-file-format).
 4. Use `generate_active_space_batch.py` to execute the concatenated commands file.
 5. For each deployment, complete step 4 of the normal 2D active space workflow.
+
+```mermaid
+graph LR
+
+   %% Groups
+   subgraph Per_Deployment
+      run_ground_truthing.py[(run_ground_truthing.py)]
+      fit_3d_active_space.py[(fit_3d_active_space.py)]
+      fits.csv[(fits.csv)]
+      run_audible_transits.py[(run_audible_transits.py)]
+      get_geographic_metrics.py[(get_geographic_metrics.py)]
+      Command_File[(Command_File)]
+      check_study_duration_robustness.py[(check_study_duration_robustness.py)]
+   end
+
+   subgraph Batch
+      Combined_Command_File[(Combined_Command_File)]
+      generate_active_space_batch.py[(generate_active_space_batch.py)]
+   end
+
+run_ground_truthing.py --> Command_File
+Command_File --> Combined_Command_File
+Combined_Command_File --> generate_active_space_batch.py
+generate_active_space_batch.py --> fit_3d_active_space.py
+fit_3d_active_space.py --> fits.csv
+fit_3d_active_space.py --> run_audible_transits.py
+run_audible_transits.py --> get_geographic_metrics.py
+fits.csv --> get_geographic_metrics.py
+check_study_duration_robustness.py
+```
 
 # Script Usage
 
@@ -221,11 +251,11 @@ Please note that the Precision-Recall plot that is shown at the end of a run is 
 Example executions:
 
 ```bash
-$ python -u -W ignore _DENA/scripts/generate_active_space.py -e production -u DENA -s MOOS -y 2018 --cleanup
+$ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e production -u DENA -s MOOS -y 2018 --cleanup
 ```
 
 ```bash
-$ python -u -W ignore _DENA/scripts/generate_active_space.py -e production -u DENA -s TRLA -y 2017  -a mennitt --headings 0 --omni-min -5 --omni-max 10.5 -l 3658 -b .5
+$ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e production -u DENA -s TRLA -y 2017  -a mennitt --headings 0 --omni-min -5 --omni-max 10.5 -l 3658 -b .5
 ```
 
 If you would like the command output to be shown in the console and saved to a text file add the following after your command:
@@ -248,7 +278,7 @@ This script
 | `input` (no flag)          | **required.**<br/>Path to input .txt file containing batch commands to run.                                                                      |
 | `-o`, `--output`           | **required.**<br/>Path to save the output .csv file.                                                                                             |
 
-TODO Example executions
+TODO Example execution:
 
 >`TODO`
 
@@ -292,11 +322,11 @@ This script is used to estimate the geographic intersection of a set of tracks w
 Example executions:
 
 ```bash
-$ python _DENA/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20
+$ python nps_active_space/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20
 ```
 
 ```bash
-$ python _DENA/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20 -t ADSB
+$ python nps_active_space/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20 -t ADSB
 ```
 
 ### Get Acoustic Metrics
@@ -340,11 +370,17 @@ This script is used to validate the robustness of a given active space fit.
 | `-e`, `--environment`      | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
 | `--col`                    | **_default 'area'_**<br>Which column from the study duration csv to plot. Common values are 'area', 'gain', 'f1'. Default is 'area'.             |
 | `-k`                       | **_default 10_**<br>The top k best fits will be plotted in a range around the best fit.                                                          |
-| `-n`, `--max-n-tracks`     | Maximum number of tracks to plot (upper horizontal limit of the plot).                                                                           |
+| `-n`, `--max-n-tracks`     | **required.**<br/>Maximum number of tracks to plot (upper horizontal limit of the plot).                                                         |
 
-TODO Example executions
+Example executions:
 
->`TODO`
+```bash
+$ python -u -W ignore nps_active_space/scripts/check_study_duration_robustness.py DENATRLA2024 -e DENA -n 100
+```
+
+```bash
+$ python -u -W ignore nps_active_space/scripts/check_study_duration_robustness.py DENATRLA2023 DENATRLA2024 DENATRLA2025 -e DENA --col 'gain' -k 20 -n 100
+```
 
 
 ### Viz
@@ -354,6 +390,7 @@ This script is used to visualize select geospatial objects relevant to the `nps_
 | command-line arg           | description                                                                                                                                      |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `deployment` (no flag)     | **required.**<br/>The deployment name, e.g., DENACATH2018                                                                                        |
+| `-e`, `--environment`      | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
 | `-g`, `--gain`             | Active space gain, if not the optimal default found in `fits.csv`                                                                                |
 | `-s`, `--active-space`     | If included, load and plot the active space                                                                                                      |
 | `-a`, `--annotations`      | If included, load and plot annotations                                                                                                           |
@@ -365,35 +402,40 @@ This script is used to visualize select geospatial objects relevant to the `nps_
 | `--terraced`               | If included, render the active space as a terraced surface instead of contours                                                                   |
 | `--fill-layers`            | If included, fill the interior of each active space contour polygon                                                                              |
 
-TODO Example executions
+Example executions:
 
->`TODO`
+```bash
+$ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production --all
+```
 
+```bash
+$ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production -g 15.0 -s -a -m 700 --terraced
+```
 
 ### Generate Active Space Mesh
 
 NOTE: *deprecated as of v3.0.0; documentation included here for backwards compatability.*
 
-| command-line arg      | description                                                                                                                                                                   |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-e`, `--environment` | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                                                 |
-| `-n`, `--name`        | **required.**<br/>Name of the directory where intermediary and output files will be stored. _Ex_: `-n DENAFULL`                                                               |
-| `-s`, `--study-area`  | **required.**<br/>Absolute path to the shapefile of the study area. _Ex_: `-s C:/Users/yourname/Desktop/DENA.shp`                                                             |
-| `--headings`          | **_default [0, 120, 240]_**<br/>A list of the active space headings that should be dissolved together to make the final active space. _Ex_: `--headings 0, 90, 180, 270`      |
-| `--omni-source`       | **_default 0_**<br/>Gain to generate the mesh with.                                                                                                                           |
-| `--mesh-spacing`      | **_default 1_**<br/>How far apart, in km, mesh square centroids should be.                                                                                                    |
-| `--mesh-size`         | **_default 25_**<br/>How large, in km, each mesh square should be. Mesh squares will be mesh-size x mesh-size.                                                                |
-| `-l`, `--altitude`    | **_default 3658_**<br/>Use this flag to generate the active spaces at a particular altitude (in meters). _Ex_: `-l 1524` generates active spaces at 1524 meters or 5000 feet. |
-| `--cleanup`           | If this flag is added, all intermediary control and batch files will be deleted upon script completion.                                                                       |
+| command-line arg      | description                                                                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-e`, `--environment` | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                                                   |
+| `-n`, `--name`        | **required.**<br/>Name of the directory where intermediary and output files will be stored. _Ex_: `-n DENAFULL`                                                                 |
+| `-s`, `--study-area`  | **required.**<br/>Absolute path to the shapefile of the study area. _Ex_: `-s C:/Users/yourname/Desktop/DENA.shp`                                                               |
+| `--headings`          | **_default [0, 120, 240]_**<br/>A list of the active space headings that should be dissolved together to make the final active space. _Ex_: `--headings 0, 90, 180, 270`        |
+| `--omni-source`       | **_default 0_**<br/>Gain to generate the mesh with.                                                                                                                             |
+| `--mesh-spacing`      | **_default 1_**<br/>How far apart, in km, mesh square centroids should be.                                                                                                      |
+| `--mesh-size`         | **_default 25_**<br/>How large, in km, each mesh square should be. Mesh squares will be mesh-size x mesh-size.                                                                  |
+| `-l`, `--altitude`    | **_default 3658_**<br/>Use this flag to generate the active spaces at a particular altitude (in meters). _Ex_: `-l 1524` generates active spaces at 1524 meters or 5000 feet.   |
+| `--cleanup`           | If this flag is added, all intermediary control and batch files will be deleted upon script completion.                                                                         |
 
 Example executions:
 
 ```bash
-$ python -u -W ignore _DENA/scripts/generate_active_space_mesh.py -e production -n DENAFULL -s C:/Users/yourname/Desktop/DENA.shp --cleanup
+$ python -u -W ignore nps_active_space/scripts/generate_active_space_mesh.py -e production -n DENAFULL -s C:/Users/yourname/Desktop/DENA.shp --cleanup
 ```
 
 ```bash
-$ python -u -W ignore _DENA/scripts/generate_active_space_mesh.py -e production -n DENAFULL -s C:/Users/yourname/Desktop/DENA.shp --headings 0 180 --omni-source -12.5 --mesh-spacing 10 --mesh-size 20 -l 1524
+$ python -u -W ignore nps_active_space/scripts/generate_active_space_mesh.py -e production -n DENAFULL -s C:/Users/yourname/Desktop/DENA.shp --headings 0 180 --omni-source -12.5 --mesh-spacing 10 --mesh-size 20 -l 1524
 ```
 
 
