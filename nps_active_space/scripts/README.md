@@ -444,7 +444,7 @@ $ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production
 
 ### Generate Active Space Mesh
 
-NOTE: *deprecated as of v3.0.0; documentation included here for backwards compatability.*
+NOTE: *deprecated as of v3.0.0; documentation included here for backwards compatability. This script was used to generate active space predictions over a spatial grid spanning the study area.*
 
 | command-line arg      | description                                                                                                                                                                     |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
