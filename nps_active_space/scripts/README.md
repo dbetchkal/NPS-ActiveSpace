@@ -337,6 +337,8 @@ $ python nps_active_space/scripts/run_audible_transits.py -e production -u DENA 
 
 ### Get Acoustic Metrics
 
+This script is used to compute acoustic metrics for the period(s) of time with overlapping acoustic and causal data. Metrics are writen to a pickle (.pkl) file.
+
 | command-line arg        | description                                                                                                                                      |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
@@ -345,9 +347,11 @@ $ python nps_active_space/scripts/run_audible_transits.py -e production -u DENA 
 | `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                          |
 | `-t`, `--track-source`  | **_default GPS -> {GPS, ADSB, AIS}_**<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
 
-TODO Example executions
+Example execution:
 
->`TODO`
+```bash
+python -u -W ignore nps_active_space/scripts/get_acoustic_metrics.py -e production -u DENA -s MOOS -y 2018 -t GPS
+```
 
 
 ### Get Geographic Metrics
