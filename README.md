@@ -1,4 +1,4 @@
-[![DOI](https://zenodo.org/badge/389775527.svg)](https://zenodo.org/badge/latestdoi/389775527)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18111579.svg)](https://doi.org/10.5281/zenodo.18111579)
 
 # NPS-ActiveSpace
 
