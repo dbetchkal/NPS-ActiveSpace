@@ -201,9 +201,15 @@ This script is used to plot the distribution of annotated segment altitudes to h
 | `-y`, `--year`            | The deployment year, YYYY. _Ex_: 2018                                                                                                            |
 | `-a`, `--all`             | If provided, plot altitude histograms for all sites in the project directory. Should not be passed if -u -s -y flags are passed.                 |
 
-TODO Example executions
+Example executions:
 
->`TODO`
+```bash
+$ python -u -W ignore nps_active_space/scripts/plot_altitudes.py -e production -u DENA -s MOOS -y 2018
+```
+
+```bash
+$ python -u -W ignore nps_active_space/scripts/plot_altitudes.py -e production --all
+```
 
 
 ### Generate 3D Active Space
