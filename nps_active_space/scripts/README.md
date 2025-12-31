@@ -226,7 +226,7 @@ $ python -u -W ignore nps_active_space/scripts/plot_altitudes.py -e production -
 
 ### Generate 3D Active Space
 
-This script is used to predict active space scope in 3-dimensions. At present it represent the preferred, **primary use case** for the software. This script also allows the user to create a command file for [batch generation](#batch-generation).
+This script is used to predict active space scope in 3-dimensions. At present it represent the preferred, **primary use case** for the software. Fundamentally this script creates a command file for [batch generation](#batch-generation) and allows a user to either (1) immediately run the command file for the indicated deployment or (2) save the deployment's command file to aggregate into a multi-deployment batch run.
 
 | command-line arg        | description                                                                                                                                      |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -252,8 +252,9 @@ $ python -u -W ignore nps_active_space/scripts/generate_3d_active_space.py -e pr
 
 ### Generate Active Space
 
-This script is used to generate active spaces for a single site for a variety of omni sources to determine which
-omni source produces the active space that most closely matches the ground truthed tracks.
+This script is used to predict active space scope in 2-dimensions.
+
+*NOTE: while improved, this script essentially preserves the legacy functionality of earlier version releases (`nps_active_space ≤v2.1.0`).*
 
 *NOTE: the Precision-Recall plot that is shown at the end of a run is automatically saved.*
 
