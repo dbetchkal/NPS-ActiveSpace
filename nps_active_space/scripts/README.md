@@ -200,6 +200,7 @@ $ python -u -W ignore nps_active_space/scripts/run_ground_truthing.py -e product
 $ python -u -W ignore nps_active_space/scripts/run_ground_truthing.py -e production -u DENA -s TRLA -y 2018 -t ADSB
 ```
 
+----
 
 ### Plot Altitudes
 
@@ -223,6 +224,7 @@ $ python -u -W ignore nps_active_space/scripts/plot_altitudes.py -e production -
 $ python -u -W ignore nps_active_space/scripts/plot_altitudes.py -e production --all
 ```
 
+----
 
 ### Generate 3D Active Space
 
@@ -232,14 +234,15 @@ This script is used to predict active space scope in 3-dimensions. At present it
 
 | command-line arg        | description                                                                                                                                      |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--min-altitude`        | **required.**<br/>Minimum layer altitude (meters) for 3D active space. Should be a multiple of 300 meters.                                       |
-| `--max-altitude`        | **required.**<br/>Maximum layer altitude (meters) for 3D active space. Should be a multiple of 300 meters.                                       |
-| `--only-prep`           | Stop after creating the command file. Use if you want to combine several command files to run as a [batch](#batch-generation).                   |                                     
 | `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
 | `-u`, `--unit`          | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                |
 | `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
 | `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                          |
 | `-a`, `--ambience`      | **_default nvspl -> {nvspl, mennitt, or .pkl file path}_**<br/>The ambience type to use when running NMSIM.                                      |
+| `--min-altitude`        | **required.**<br/>Minimum layer altitude (meters) for 3D active space. Should be a multiple of 300 meters.                                       |
+| `--max-altitude`        | **required.**<br/>Maximum layer altitude (meters) for 3D active space. Should be a multiple of 300 meters.                                       |
+| `--only-prep`           | Stop after creating the command file. Use if you want to combine several command files to run as a [batch](#batch-generation).                   |                                     
+
 
 Example executions:
 
@@ -251,6 +254,7 @@ $ python -u -W ignore nps_active_space/scripts/generate_3d_active_space.py -e pr
 $ python -u -W ignore nps_active_space/scripts/generate_3d_active_space.py -e production --min-altitude 1800 --max-altitude 3600 -u DENA -s UWBT -y 2023 -a DENAUWBT2023_ambience.pkl --only-prep
 ```
 
+----
 
 ### Generate Active Space
 
@@ -295,6 +299,7 @@ If you would like the command output to be shown in the console and saved to a t
 $ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e production -u DENA -s MOOS -y 2018 --cleanup | Tee-Object -FilePath "C:\Path\To\active_space_output_DENAMOOS2018.txt"
 ```
 
+----
 
 ### Generate Active Space Batch
 
@@ -313,6 +318,7 @@ Example execution:
 python -u -W ignore nps_active_space/scripts/generate_active_space_batch.py DENAUWBTcombined_commands.txt -o DENAUWBTcombined_batch_outputs.csv
 ```
 
+----
 
 ### Fit 3D Active Space
 
@@ -332,6 +338,8 @@ Example execution:
 ```bash
 python -u -W ignore nps_active_space/scripts/fit_3d_active_space.py -e production -u DENA -s UWBT -y 2021
 ```
+
+----
 
 ### Run Audible Transits
 
@@ -361,6 +369,8 @@ $ python nps_active_space/scripts/run_audible_transits.py -e production -u DENA 
 $ python nps_active_space/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20 -t ADSB
 ```
 
+----
+
 ### Get Acoustic Metrics
 
 This script is used to compute acoustic metrics for the period(s) of time with overlapping acoustic and causal position data. [Metrics](#metrics-computed) are writen to a pickle (.pkl) file.
@@ -379,6 +389,7 @@ Example execution:
 python -u -W ignore nps_active_space/scripts/get_acoustic_metrics.py -e production -u DENA -s MOOS -y 2018 -t GPS
 ```
 
+----
 
 ### Get Geographic Metrics
 
@@ -403,6 +414,7 @@ python -u -W ignore nps_active_space/scripts/get_acoustic_metrics.py -e producti
 python -u -W ignore nps_active_space/scripts/get_acoustic_metrics.py -e production -u DENA -s TRLA -y 2024 -t ADSB --transits-pkl alt_transits.pkl
 ```
 
+----
 
 ### Check Study Duration Robustness
 
@@ -419,13 +431,14 @@ This script is used to validate the robustness of a given active space fit.
 Example executions:
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/check_study_duration_robustness.py DENATRLA2024 -e DENA -n 100
+$ python -u -W ignore nps_active_space/scripts/check_study_duration_robustness.py DENATRLA2024 -e production -n 100
 ```
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/check_study_duration_robustness.py DENATRLA2023 DENATRLA2024 DENATRLA2025 -e DENA --col 'gain' -k 20 -n 100
+$ python -u -W ignore nps_active_space/scripts/check_study_duration_robustness.py DENATRLA2023 DENATRLA2024 DENATRLA2025 -e production --col 'gain' -k 20 -n 100
 ```
 
+----
 
 ### Viz
 
@@ -455,6 +468,8 @@ $ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production
 ```bash
 $ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production -g 15.0 -s -a -m 700 --terraced
 ```
+
+----
 
 ### Generate Active Space Mesh
 
