@@ -4,6 +4,18 @@ The `nps_active_space` [toolkit architecture](https://github.com/dbetchkal/NPS-A
 
 This directory contains the scripts along with instruction for their use via a command line interface. See [below](#use-cases) for the most common use cases, and [further below](#script-usage) for detailed documentation of each script.
 
+- [run_ground_truthing.py](#run-ground-truthing)
+- [plot_altitudes.py](#plot-altitudes)
+- [generate_3d_active_space.py](#generate-3d-active-space)
+- [generate_active_space.py](#generate-active-space)
+- [generate_active_space_batch.py](#generate-active-space-batch)
+- [fit_3d_active_space.py](#fit-3d-active-space)
+- [run_audible_transits.py](#run-audible-transits)
+- [get_acoustic_metrics.py](#get-acoustic-metrics)
+- [get_geographic_metrics.py](#get-geographic-metrics)
+- [check_study_duration_robustness.py](#check-study-duration-robustness)
+- [viz.py](#viz)
+
 ## Use Cases
 
 ### 3D Active Space
@@ -191,7 +203,7 @@ $ python -u -W ignore nps_active_space/scripts/run_ground_truthing.py -e product
 
 ### Plot Altitudes
 
-This script is used to plot the distribution of annotated segment altitudes to help the user determine the altitude range relevant to the [3-dimensional active space](https://github.com/dbetchkal/NPS-ActiveSpace/v3_docs/nps_active_space/scripts/README.md#generate-3d-active-space) geoprocess.
+This script is used to plot the distribution of annotated segment altitudes to help the user determine the altitude range relevant to the [3-dimensional active space](#generate-3d-active-space) geoprocess.
 
 | command-line arg        | description                                                                                                                                        |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -337,7 +349,7 @@ $ python nps_active_space/scripts/run_audible_transits.py -e production -u DENA 
 
 ### Get Acoustic Metrics
 
-This script is used to compute acoustic metrics for the period(s) of time with overlapping acoustic and causal data. Metrics are writen to a pickle (.pkl) file.
+This script is used to compute acoustic metrics for the period(s) of time with overlapping acoustic and causal position data. [Metrics](#metrics-computed) are writen to a pickle (.pkl) file.
 
 | command-line arg        | description                                                                                                                                      |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -356,6 +368,8 @@ python -u -W ignore nps_active_space/scripts/get_acoustic_metrics.py -e producti
 
 ### Get Geographic Metrics
 
+This script is used to compute acoustic metrics geographically for the period(s) of time with overlapping acoustic and causal position data. [Metrics](#metrics-computed) are writen to a pickle (.pkl) file.
+
 | command-line arg        | description                                                                                                                                      |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
@@ -365,9 +379,15 @@ python -u -W ignore nps_active_space/scripts/get_acoustic_metrics.py -e producti
 | `-t`, `--track-source`  | **_default GPS -> {GPS, ADSB, AIS}_**<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
 | `--transits-pkl`        | **_default to deployment dir_**<br/>Path to .pkl file from which to load audible transits                                                        |
 
-TODO Example executions
+Example executions:
 
->`TODO`
+```bash
+python -u -W ignore nps_active_space/scripts/get_acoustic_metrics.py -e production -u DENA -s MOOS -y 2018 -t GPS
+```
+
+```bash
+python -u -W ignore nps_active_space/scripts/get_acoustic_metrics.py -e production -u DENA -s TRLA -y 2024 -t ADSB --transits-pkl alt_transits.pkl
+```
 
 
 ### Check Study Duration Robustness
@@ -459,3 +479,16 @@ A batch commands file is a text file with a sequence of lines, where each line s
 DENATRLA2025   -e DENA_streamline -u DENA -s TRLA -y 2025 --cleanup
 DENACATH2025   -e DENA_streamline -u DENA -s CATH -y 2025 --cleanup --omni-min 2.0
 ```
+
+### Metrics computed
+
+A primary purpose of `nps_active_space` is to compute acoustic metrics geographically. The software is capable of computing the following set of metrics:
+>Noise Event count; daily and hourly <br>
+>Noise Event duration <br>
+>Noise-Free Interval (NFI) duration <br>
+>Sound Exposure Level (SEL); A-weighted and T-weighted <br>
+>Time Audible (%); daily and hourly <br>
+
+
+For comparison purposes the software can also tabulate the same metrics from annotated acoustic records. One additional energy-based metric is available from an acoustic record:
+>Maximum $L_{eq,1s [12.5 - 20000 Hz]}$; A-weighted and T-weighted <br>
