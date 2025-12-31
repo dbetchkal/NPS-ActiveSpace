@@ -226,7 +226,7 @@ $ python -u -W ignore nps_active_space/scripts/plot_altitudes.py -e production -
 
 ### Generate 3D Active Space
 
-This script creates a command file for use with `generate_active_space_batch.py`.
+This script is used to predict active space scope in 3-dimensions. At present it represent the preferred, **primary use case** for the software. This script also allows the user to create a command file for [batch generation](#batch-generation).
 
 | command-line arg        | description                                                                                                                                      |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -239,9 +239,15 @@ This script creates a command file for use with `generate_active_space_batch.py`
 | `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                          |
 | `-a`, `--ambience`      | **_default nvspl -> {nvspl, mennitt, or .pkl file path}_**<br/>The ambience type to use when running NMSIM.                                      |
 
-TODO Example executions
+Example executions:
 
->`TODO`
+```bash
+$ python -u -W ignore nps_active_space/scripts/generate_3d_active_space.py -e production --min-altitude 1800 --max-altitude 3600 -u DENA -s UWBT -y 2023 -a nvspl
+```
+
+```bash
+$ python -u -W ignore nps_active_space/scripts/generate_3d_active_space.py -e production --min-altitude 1800 --max-altitude 3600 -u DENA -s UWBT -y 2023 -a DENAUWBT2023_ambience.pkl --only-prep
+```
 
 
 ### Generate Active Space
@@ -249,7 +255,7 @@ TODO Example executions
 This script is used to generate active spaces for a single site for a variety of omni sources to determine which
 omni source produces the active space that most closely matches the ground truthed tracks.
 
-Please note that the Precision-Recall plot that is shown at the end of a run is automatically saved.
+*NOTE: the Precision-Recall plot that is shown at the end of a run is automatically saved.*
 
 | command-line arg        | description                                                                                                                                                                                                                                                             |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
