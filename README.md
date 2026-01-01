@@ -17,8 +17,8 @@ Superposed over the polygon are colored flight track polylines. `NPS-ActiveSpace
 
 ### Synthesis-oriented Design
 
-At its heart, `nps_active_space` is organized around the idea of a **scientific synthesis**:
-a structured combination of heterogeneous observations into a single, interpretable
+At its heart, `nps_active_space` is organized around the idea of a **scientific geo-synthesis**:
+a structured combination of heterogeneous spatial observations into a single, interpretable
 geometric object.
 
 Rather than treating sound propagation, audibility, and vehicle movement as
@@ -171,7 +171,7 @@ graph LR
 
 ### The Synthesis
 
-At its heart, this toolkit structures a **scientific synthesis** in two parts:
+At its heart, this toolkit structures a **scientific geo-synthesis** in two parts:
 
 1) A GUI-based audibility measurement tool (`.ground_truthing`) that allows users to spatio-temporally $\text{JOIN}$ vehicle tracks (cause) and acoustic records (effect).
 2) A geoprocess to $\text{ENCLOSE}$ the listening location and a user's audibility observations within an optimal 3-dimensional active space (`.active_space`).
