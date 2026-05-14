@@ -1,12 +1,15 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=61.0.0"]
 build-backend = "setuptools.build_meta"
+
 
 [project]
 name = "NPS-ActiveSpace"
 version = "2.0"
 description = "An NPS Sound Active Space Project."
-requires-python = ">=3.7"
+requires-python = ">=3.12"
+readme = "README.md"
+
 authors = [
     {name="Kirby Heck"},
     {name="Adina Zucker"},
@@ -18,6 +21,19 @@ maintainers = [
 
 [project.urls]
 repository = "https://github.com/dbetchkal/NPS-ActiveSpace"
+documentation = "https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space"
+
+
+#
+# ------------- PACKAGE DISCOVERY -------------
+#
 
 [tool.setuptools]
-py-modules = ['nps_active_space']
+package-dir = {"" = "src"}
+
+# Use modern package discovery.
+# This replaces the old py-modules=['nps_active_space'] approach.
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["nps_active_space*"]
+
