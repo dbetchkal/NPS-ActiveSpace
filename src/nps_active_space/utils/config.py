@@ -5,13 +5,14 @@ import os
 
 __all__ = [
     'initialize',
-    'read'
+    'read',
+    'show'
 ]
 
 _config = None
 
 
-def initialize(environment: str):
+def initialize(environment: str, verbose: bool = False):
     """
     Initialize a connection to a configuration file.
 
@@ -19,18 +20,23 @@ def initialize(environment: str):
     ----------
     environment : str
         The name of the environment of the configuration file to read.
+    verbose : bool, default False
+        If True, print the configuration values after loading.
 
     Example
     -------
     import nps_active_space.utils.config as cfg
 
-    cfg.initialize('production')
+    cfg.initialize('production', verbose=True)
     """
     global _config
 
     config_file = os.path.join(ACTIVE_SPACE_DIR, "config", f"{environment}.config")
     _config = ConfigParser()
     _config.read(config_file)
+
+    if verbose:
+        show()
 
 
 def read(section: str, option: Optional[str] = None) -> Union[Dict, Any]:
@@ -52,13 +58,13 @@ def read(section: str, option: Optional[str] = None) -> Union[Dict, Any]:
 
     Raises
     ------
-    AssertionError is config file has not been initialized
+    AssertionError if config file has not been initialized
 
     Example
     -------
     import nps_active_space.utils.config as cfg
 
-    cfg.initialize('../', 'production')
+    cfg.initialize('production')
     user = cfg.read('database', 'username')
     """
     assert _config, "Config file initialization required before reading."
@@ -67,3 +73,23 @@ def read(section: str, option: Optional[str] = None) -> Union[Dict, Any]:
         return _config.get(section, option)
     else:
         return dict(_config.items(section))
+
+
+def show():
+    """
+    Print a formatted view of the current configuration.
+    
+    Raises
+    ------
+    AssertionError if config file has not been initialized
+    """
+    assert _config, "Config file initialization required before reading."
+    
+    print("\n" + "="*50)
+    print("CURRENT CONFIGURATION")
+    print("="*50)
+    for section in _config.sections():
+        print(f"\n[{section}]")
+        for key, value in _config.items(section):
+            print(f"  {key:<20} : {value}")
+    print("\n" + "="*50 + "\n")
