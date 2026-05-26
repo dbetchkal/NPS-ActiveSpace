@@ -284,8 +284,8 @@ if __name__ == '__main__':
 
     # --------------- INIT --------------- #
 
-    cfg.initialize(environment=args.environment)
-    site_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
+    config = cfg.load_config(args.environment)
+    site_dir = f"{config.project.dir}/{args.unit}{args.site}"
     logger = get_logger(f"ACTIVE-SPACE: {args.unit}{args.site}{args.year}")
 
     omni_sources = get_omni_sources(lower=args.omni_min, upper=args.omni_max)
@@ -293,19 +293,19 @@ if __name__ == '__main__':
     # --------------- DATA SELECTION --------------- #
 
     # Load the microphone deployment site metadata and the study area shapefile.
-    mic_ = get_deployment(cfg.read('project', 'dir'), args.unit, args.site, args.year, elevation=False)
+    mic_ = get_deployment(config.project.dir, args.unit, args.site, args.year, elevation=False)
     study_area = gpd.read_file(glob.glob(f"{site_dir}/*study*.shp")[0])
 
     # Compute ambience
     # Load NVSPL data or the mennitt raster depending on the user input.
     if args.ambience == 'nvspl':
-        archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
+        archive = iyore.Dataset(config.data.nvspl_archive)
         nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year))]
         nvspl = Nvspl(nvspl_files)
         ambience_quantile = 90  # L90 = 90% exceedance = 10% quantile sound level
         ambience = ambience_from_nvspl(nvspl, ambience_quantile, broadband=False)
     elif args.ambience == 'mennitt':
-        ambience = ambience_from_raster(cfg.read('data', 'mennitt'), mic_)
+        ambience = ambience_from_raster(config.data.mennitt, mic_)
     else:
         # should be a .pkl filename
         ambience = pd.read_pickle(args.ambience)
@@ -319,7 +319,7 @@ if __name__ == '__main__':
         print(f"Using non-default annotation file: {args.annotation_file}")
         annotations = Annotations(f"{site_dir}/{args.annotation_file}", only_valid=True)
     else:
-        annotations = load_annotations(cfg.read("project", "dir"), args.unit, args.site, args.year)
+        annotations = load_annotations(config.project.dir, args.unit, args.site, args.year)
     if annotations.empty:
         logger.info(f"No track annotations found for {args.unit}{args.site}{args.year}. Exiting...")
         exit(-1)
@@ -360,11 +360,11 @@ if __name__ == '__main__':
     # Create an ActiveSpaceGenerator instance and set the DEM data for the microphone location since we will be using
     #  the same location for every active space. This is a MAJOR time saver!
     generator_ = ActiveSpaceGenerator(
-        NMSIM=cfg.read('project', 'nmsim'),
+        NMSIM=config.project.nmsim_binary,
         root_dir=site_dir,
         study_area=study_area,
         ambience=ambience,
-        dem_src=cfg.read('data', 'dem'),
+        dem_src=config.data.dem,
     )
     logger.info('Setting dem...')
     generator_.set_dem(mic_)

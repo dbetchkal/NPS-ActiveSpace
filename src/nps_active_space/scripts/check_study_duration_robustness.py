@@ -18,8 +18,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     assert len(args.deployments) > 0, "Must pass at least one deployment as a positional argument."
 
-    cfg.initialize(args.environment)
-    project_dir = cfg.read("project", "dir")
+    config = cfg.load_config(args.environment)
+    project_dir = config.project.dir
 
     # for each deployment, fit active space with increasing # of tracks
     # and save results to a CSV

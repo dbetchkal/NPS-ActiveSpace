@@ -19,8 +19,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     unit, site, year = args.unit, args.site, args.year
-    cfg.initialize(args.environment)
-    project_dir = cfg.read("project", "dir")
+    config = cfg.load_config(args.environment)
+    project_dir = config.project.dir
     print(unit+site+year)
 
     # fit active space model using annotations

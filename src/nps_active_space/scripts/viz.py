@@ -69,7 +69,7 @@ class Visualizer():
     audible_transits_color = "purple"
     z_scale_toggle_color = "black"  # button toggling z scale
 
-    def __init__(self, unit, site, year, env, do_active=False, gain=None,
+    def __init__(self, unit, site, year, config: cfg.ActiveSpaceConfig, do_active=False, gain=None,
                  do_annots=False, do_transits=False,
                  annotation_file=None, audible_transits_pkl=None,
                  terraced=False, fill_layers=False, max_tracks=1000,
@@ -79,8 +79,7 @@ class Visualizer():
         self.site = site
         self.year = year
         self.deployment = f"{unit}{site}{year}"
-        cfg.initialize(env)
-        self.project_dir = cfg.read("project", "dir")
+        self.project_dir = config.project.dir
         self.fill_layers = fill_layers
         self.max_tracks = max_tracks
 
@@ -431,7 +430,8 @@ if __name__ == "__main__":
     do_annotations = args.annotations or args.all
     do_transits = args.audible_transits or args.all
 
-    Visualizer(unit, site, year, args.environment,
+    config = cfg.load_config(args.environment)
+    Visualizer(unit, site, year, config,
                do_active, args.gain,
                do_annotations, do_transits,
                args.annotation_file, args.transits_pkl,

@@ -22,7 +22,7 @@ def get_optimal_3d_gain(project_dir, unit, site, year):
     return gain_3d
 
 
-def get_geographic_metrics(unit, site, year, env, track_source, transits_pkl=None):
+def get_geographic_metrics(unit, site, year, config: cfg.ActiveSpaceConfig, track_source, transits_pkl=None):
     """
     Gets geographic metrics for the period(s) of time with overlapping acoustic and causal data.
     
@@ -34,8 +34,8 @@ def get_geographic_metrics(unit, site, year, env, track_source, transits_pkl=Non
         Four letter site code. E.g. TRLA
     year: str
         Four digit year. E.g. "2018"
-    env: str
-        The configuration environment to run the script in. E.g. "DENA_streamline"
+    config: ActiveSpaceConfig
+        The loaded Pydantic configuration model.
     track_source: str
         'GPS', 'ADSB', or 'AIS'. Metrics will only be calculated for
         time periods with overlapping acoustic and track data.
@@ -51,14 +51,13 @@ def get_geographic_metrics(unit, site, year, env, track_source, transits_pkl=Non
     year = str(year)
     print(unit + site + year)
 
-    cfg.initialize(env)
-    project_dir = cfg.read("project", "dir")
-    nvspl_archive = cfg.read("data", "nvspl_archive")
+    project_dir = config.project.dir
+    nvspl_archive = config.data.nvspl_archive
 
     # process track source
     adsb_dir = None
     if track_source == "ADSB":
-        adsb_dir = cfg.read("data", "adsb")
+        adsb_dir = config.data.adsb
     elif track_source == "AIS":
         raise NotImplementedError('Code for AIS is not ready yet.')
     
@@ -77,8 +76,8 @@ def get_geographic_metrics(unit, site, year, env, track_source, transits_pkl=Non
         # make a dummy listener to determine default save path
         metadata = {"unit": unit, "site": site, "activespace year": year, "gain": gain_3d,
                     "study start": f"{year}-01-01", "study end": f"{year}-12-31",
-                    "database type": track_source, "env": env}
-        listener = init_audible_transits(metadata, paths={})
+                    "database type": track_source}
+        listener = init_audible_transits(metadata, paths={}, config=config)
         transits_pkl = os.path.join(listener.default_output_dir(), listener.pkl_filename)
     
     if not os.path.exists(transits_pkl):
@@ -126,5 +125,6 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     
-    get_geographic_metrics(args.unit, args.site, args.year, args.environment,
+    config = cfg.load_config(args.environment)
+    get_geographic_metrics(args.unit, args.site, args.year, config,
                            args.track_source, args.transits_pkl)

@@ -103,8 +103,8 @@ if __name__ == "__main__":
                         help="If provided, plot altitude histograms for all sites in the project directory." \
                              "Should not be passed if -u -s -y flags are passed.")
     args = parser.parse_args()
-    cfg.initialize(args.environment)
-    project_dir = cfg.read("project", "dir")
+    config = cfg.load_config(args.environment)
+    project_dir = config.project.dir
 
     if not args.all:
         for arg in [args.unit, args.site, args.year]:

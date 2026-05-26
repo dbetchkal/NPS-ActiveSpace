@@ -50,8 +50,8 @@ if __name__ == "__main__":
     assert args.min_altitude % ALTITUDE_STEP == 0, f"Min altitude not a multiple of {ALTITUDE_STEP}"
     assert args.max_altitude % ALTITUDE_STEP == 0, f"Max altitude not a multiple of {ALTITUDE_STEP}"
 
-    cfg.initialize(args.environment)
-    project_dir = cfg.read("project", "dir")
+    config = cfg.load_config(args.environment)
+    project_dir = config.project.dir
     site_dir = os.path.join(project_dir, args.unit + args.site)
     usy = f"{args.unit}{args.site}{args.year}"
 
@@ -70,7 +70,7 @@ if __name__ == "__main__":
             print(f"Found existing NVSPL ambience, using it: {ambience_pkl_path}")
         else:
             print("Computing NVSPL ambience")
-            archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
+            archive = iyore.Dataset(config.data.nvspl_archive)
             nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year))]
             nvspl = Nvspl(nvspl_files)
             ambience_quantile = 90  # L90 = 90% exceedance = 10% quantile sound level

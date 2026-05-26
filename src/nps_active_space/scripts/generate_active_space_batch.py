@@ -199,8 +199,8 @@ def copy_output_files(option_str: str, savedir: str, designator: str) -> None:
     # shlex avoids splitting on spaces that are inside quotes
     args, _ = argparse.parse_known_args(shlex.split(option_str))
 
-    cfg.initialize(environment=args.environment)
-    site_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
+    config = cfg.load_config(args.environment)
+    site_dir = f"{config.project.dir}/{args.unit}{args.site}"
     deployment = f"{args.unit}{args.site}{args.year}"
 
     # Get filenames we wish to copy
