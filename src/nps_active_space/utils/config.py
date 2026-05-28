@@ -58,7 +58,7 @@ def load_config(environment: str) -> ActiveSpaceConfig:
     Parameters
     ----------
     environment : str
-        The name of the environment (e.g., 'production').
+        The name of the environment (e.g., 'production', 'DENA').
 
     Returns
     -------
@@ -67,13 +67,9 @@ def load_config(environment: str) -> ActiveSpaceConfig:
     """
     config_file = Path(ACTIVE_SPACE_DIR) / "config" / f"{environment}.toml"
     with open(config_file, "rb") as f:
-        data = tomllib.load(f)
+        config_fields = tomllib.load(f)
     
-    # Map the legacy/alternative "database:overflights" section to "database" if present
-    if "database:overflights" in data:
-        data["database"] = data.pop("database:overflights")
-        
-    return ActiveSpaceConfig(**data)
+    return ActiveSpaceConfig(**config_fields)
 
 def show_config(config: ActiveSpaceConfig) -> None:
     """Print a formatted view of the configuration."""

@@ -19,4 +19,4 @@
 
 # config files
 src/nps_active_space/config/*
-!src/nps_active_space/config/template.config
+!src/nps_active_space/config/template.toml

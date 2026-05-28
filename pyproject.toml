@@ -21,7 +21,21 @@ maintainers = [
 
 [project.urls]
 repository = "https://github.com/dbetchkal/NPS-ActiveSpace"
-documentation = "https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space"
+documentation = "https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/src/nps_active_space/scripts"
+
+[project.scripts]
+nps-ground-truthing = "nps_active_space.cli:run_ground_truthing"
+nps-audible-transits = "nps_active_space.cli:run_audible_transits"
+nps-generate-active-space = "nps_active_space.cli:generate_active_space"
+nps-generate-active-space-batch = "nps_active_space.cli:generate_active_space_batch"
+nps-generate-active-space-mesh = "nps_active_space.cli:generate_active_space_mesh"
+nps-generate-3d-active-space = "nps_active_space.cli:generate_3d_active_space"
+nps-fit-3d-active-space = "nps_active_space.cli:fit_3d_active_space"
+nps-acoustic-metrics = "nps_active_space.cli:get_acoustic_metrics"
+nps-geographic-metrics = "nps_active_space.cli:get_geographic_metrics"
+nps-plot-altitudes = "nps_active_space.cli:plot_altitudes"
+nps-viz = "nps_active_space.cli:viz"
+nps-check-study-duration = "nps_active_space.cli:check_study_duration_robustness"
 
 
 #
@@ -36,4 +50,3 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["nps_active_space*"]
-
