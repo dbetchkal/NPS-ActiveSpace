@@ -4,6 +4,9 @@
 # venv
 .venv*
 
+# vscode
+.vscode/
+
 # python
 **/__pycache__
 *.pyc
@@ -15,5 +18,5 @@
 *.egg-info/
 
 # config files
-nps_active_space/config/*
-!nps_active_space/config/template.config
+src/nps_active_space/config/*
+!src/nps_active_space/config/template.config

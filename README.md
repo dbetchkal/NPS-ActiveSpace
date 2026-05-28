@@ -52,15 +52,15 @@ You can use a Conda environment if you want, but all installation is managed by 
 With Conda:
 
 ```
-conda create --name active python=3.13.5
+conda create --name active python=3.12.12
 conda activate active
 ```
 
-With venv in a Git Bash terminal:
+With venv in a Windows Git Bash terminal:
 
 ```
 python -m venv .venv
-source .venv/bin/activate
+source .venv/Scripts/activate
 ```
 
 With venv in a Windows Command Prompt terminal:
@@ -80,7 +80,7 @@ pip install -r requirements.txt
 ```
 
 Historical note:
-The GDAL dependency comes from a `.whl` file published [here](https://github.com/cgohlke/geospatial-wheels/releases). If the Python version is updated, the GDAL wheel URL in `requirements.txt` may need to be changed to reflect the updated version. For example, `gdal-3.11.1-cp313-cp313-win_amd64.whl` is GDAL version 3.11.1 for Python 3.13.
+The GDAL dependency comes from a `.whl` file published [here](https://github.com/cgohlke/geospatial-wheels/releases). If the Python version is updated, the GDAL wheel URL in `requirements.txt` may need to be changed to reflect the updated version. For example, `gdal-3.11.1-cp312-cp312-win_amd64.whl` is GDAL version 3.11.1 for Python 3.12.
 
 ### Step 4: Install NPS-ActiveSpace
 
