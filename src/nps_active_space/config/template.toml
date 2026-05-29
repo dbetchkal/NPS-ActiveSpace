@@ -1,42 +1,7 @@
-# Copy to config/<environment>.toml and fill in values.
-# Blank strings are treated as unset.
-#
-# ── Data and directory layout ─────────────────────────────────────────────
-#
-# [project] dir — workspace root. Each deployment is a subfolder named {unit}{site}
-# (four-letter unit + four-letter site, e.g. DENATRLA for the Denali Triple Lakes site). Under that site folder:
-#
-#   You provide (manual setup):
-#     • *study*.shp          study area polygon (NAD83 / EPSG:4269 recommended)
-#     • Input_Data/01_ELEVATION/   terrain for NMSIM (*.flt grid-float)
-#     • Input_Data/02_IMPEDANCE/    optional landcover → flow resistivity (*.flt)
-#     • Input_Data/05_SITES/        listener *.sit files for NMSIM
-#
-#   The pipeline creates (do not hand-author):
-#     • Output_Data/          ASCII, transits, images, TIG/TIS, etc.
-#     • *.geojson             ground-truthing annotations (after nps-ground-truthing)
-#     • *_clock_drift_*.csv   optional clock-drift corrections
-#
-# Config [data] paths usually live outside [project] dir:
-#
-#   nvspl_archive  — root of the iyore NVSPL acoustic monitoring archive (hourly .txt).
-#   adsb           — folder of ADS-B track exports (.tsv) when using ADS-B as track source.
-#
-# [database] — PostgreSQL “overflights” DB for GPS flight tracks (not a filesystem path).
-#
-#   nmsim_binary   — Nord2000batch executable ([project] dir holds per-site NMSIM inputs).
-#   dem            — optional GeoTIFF for some generate scripts; site elevation often
-#                    comes from Input_Data/01_ELEVATION via load_DEM(project.dir, unit, site).
-#   mennitt        — optional statewide ambient-noise GeoTIFF (Mennitt L50 raster).
-#   FAA_*          — aircraft registry and optional type-correction JSON for track labeling.
-#
-# SPLAT and other post-processing tools are separate; see script docs for acoustic metrics.
-#
-# Required for almost all scripts: [project] dir. Per-field requirements below.
+# nps-init-config -e <name>  →  edit ~/.nps_active_space/<name>.toml (or NPS_ACTIVE_SPACE_CONFIG_DIR)
+# Pipeline scripts: -e <name>.  Blank strings = unset.  Full reference: config/README.md in repo (see GitHub tree).
 
 [database]
-# PostgreSQL overflights flight-track database.
-# Required: nps-ground-truthing (all track sources); nps-audible-transits with GPS tracks.
 name = ""
 username = ""
 password = ""
@@ -44,18 +9,14 @@ port = ""
 host = ""
 
 [data]
-site_metadata = ""  # optional; reserved — not read by current scripts
-
-nvspl_archive = ""  # iyore NVSPL archive root (required: ground truthing, 3D/2D active space, metrics)
-
-adsb = ""           # ADS-B .tsv directory (required when track source is ADSB)
-
-dem = ""            # DEM GeoTIFF for NMSIM (generate_active_space / mesh only)
-
-mennitt = ""        # Mennitt ambience GeoTIFF (only if using Mennitt ambience in generate scripts)
+site_metadata = ""
+nvspl_archive = ""
+adsb = ""
+dem = ""
+mennitt = ""
 
 [project]
-dir = ""                    # project workspace root (site data subfolders should be under here)
-nmsim_binary = ""           # NMSIM (Noise Model Simulation) Nord2000batch executable
-FAA_Releasable_db = ""      # FAA (Federal Aviation Administration) MASTER.txt releasable aircraft registry
-FAA_type_corrections = ""   # optional JSON: Mode S / ICAO hex -> aircraft type
+dir = ""
+nmsim_binary = ""
+FAA_Releasable_db = ""
+FAA_type_corrections = ""
