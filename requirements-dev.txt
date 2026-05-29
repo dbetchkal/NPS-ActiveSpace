@@ -1,3 +1,0 @@
-# pytest for local testing (install after requirements.txt + editable package).
--r requirements.txt
-pytest>=9.0.3

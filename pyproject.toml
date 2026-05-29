@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "NPS-ActiveSpace"
-version = "2.0"
+version = "3.0"
 description = "An NPS Sound Active Space Project."
 requires-python = ">=3.12"
 readme = "README.md"
@@ -17,6 +17,36 @@ authors = [
 ]
 maintainers = [
     {name="Davyd Betchkal", email="davyd_betchkal@nps.gov"}
+]
+
+dependencies = [
+    "contextily>=1.6.2",
+    "geopandas>=1.1.1",
+    "geopy>=2.4.1",
+    "iyore @ git+https://github.com/nationalparkservice/iyore.git@b3b1e3fd025a392bf63bf6c4a8a4eebb887291ec",
+    "KDEpy>=1.1.12",
+    "matplotlib>=3.10.3",
+    "numpy>=2.3.1",
+    "pandas>=2.3.1",
+    "pillow>=11.3.0",
+    "psycopg2>=2.9.10",
+    "pydantic>=2.13.4",
+    "pyproj>=3.7.1",
+    "pyvista>=0.46.3",
+    "rasterio>=1.4.3",
+    "scipy>=1.16.0",
+    "shapely>=2.1.1",
+    "SQLAlchemy>=2.0.41",
+    "tqdm>=4.67.1",
+    "tzwhere>=3.0.3",
+    "pytz>=2025.2",
+    "GDAL @ https://github.com/cgohlke/geospatial-wheels/releases/download/v2025.7.4/gdal-3.11.1-cp312-cp312-win_amd64.whl ; sys_platform == 'win32'",
+    "gdal>=3.13.0 ; sys_platform != 'win32'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.3",
 ]
 
 [project.urls]
@@ -45,8 +75,6 @@ nps-check-study-duration = "nps_active_space.cli:check_study_duration_robustness
 [tool.setuptools]
 package-dir = {"" = "src"}
 
-# Use modern package discovery.
-# This replaces the old py-modules=['nps_active_space'] approach.
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["nps_active_space*"]
