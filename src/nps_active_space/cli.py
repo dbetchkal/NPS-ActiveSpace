@@ -92,3 +92,7 @@ def viz() -> NoReturn:
 
 def check_study_duration_robustness() -> NoReturn:
     _run_script("nps_active_space.scripts.check_study_duration_robustness")
+
+
+def run_init_config() -> NoReturn:
+    _run_script("nps_active_space.scripts.init_config")

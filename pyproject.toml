@@ -66,6 +66,7 @@ nps-geographic-metrics = "nps_active_space.cli:get_geographic_metrics"
 nps-plot-altitudes = "nps_active_space.cli:plot_altitudes"
 nps-viz = "nps_active_space.cli:viz"
 nps-check-study-duration = "nps_active_space.cli:check_study_duration_robustness"
+nps-init-config = "nps_active_space.cli:run_init_config"
 
 
 #
