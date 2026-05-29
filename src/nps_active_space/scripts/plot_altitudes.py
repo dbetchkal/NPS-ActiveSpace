@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 import glob
 from nps_active_space.utils.helpers import load_annotations
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 from argparse import ArgumentParser
 import re
 

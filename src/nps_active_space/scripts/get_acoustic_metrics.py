@@ -3,7 +3,7 @@ import os
 import iyore
 import pickle
 from nps_active_space.utils.metrics import get_obs_periods, get_all_srcid_stats
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 from nps_active_space.utils.models import Srcid
 
 

@@ -17,7 +17,7 @@ import pickle
 import sys
 import iyore
 
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 from nps_active_space.utils.helpers import get_deployment, get_logger, get_omni_sources, load_annotations, omni_to_gain
 from nps_active_space.utils.models import Annotations, Nvspl
 from nps_active_space.utils.computation import select_optimal, ambience_from_nvspl, ambience_from_raster, normalize_point_density

@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
 from nps_active_space.validation.study_duration_stability import fit_varying_n_tracks, plot_stability
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 
 if __name__ == "__main__":
     parser = ArgumentParser()

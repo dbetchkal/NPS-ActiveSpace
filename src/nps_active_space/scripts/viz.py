@@ -12,7 +12,7 @@ from nps_active_space.utils.helpers import get_deployment, load_annotations, loa
 from nps_active_space.scripts.run_audible_transits import AudibleTransits
 from nps_active_space.utils.models import Annotations
 from nps_active_space.utils.computation import NMSIM_bbox_utm
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 import argparse
 
 # helper functions ============================================

@@ -6,7 +6,7 @@ from pathlib import Path
 import geopandas as gpd
 from tqdm import tqdm
 
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 from nps_active_space.utils.helpers import get_logger, get_omni_sources
 from nps_active_space.active_space import ActiveSpaceGenerator
 

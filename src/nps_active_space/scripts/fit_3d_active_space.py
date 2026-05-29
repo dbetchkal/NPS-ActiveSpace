@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 from nps_active_space.utils.helpers import load_layered_activespace, load_annotations
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 from argparse import ArgumentParser
 
 """

@@ -19,7 +19,7 @@ import geopy as geopy
 import geopandas as gpd
 from tqdm import tqdm
 import warnings
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 from nps_active_space.utils.helpers import get_deployment, get_logger, load_studyarea, query_adsb, query_tracks, load_DEM, load_activespace, load_layered_activespace
 from nps_active_space.utils.computation import NMSIM_bbox_utm, contiguous_regions, coords_to_utm, interpolate_spline
 from nps_active_space.utils.models import Tracks, FAAReleasable

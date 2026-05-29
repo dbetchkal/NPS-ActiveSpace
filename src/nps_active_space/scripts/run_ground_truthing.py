@@ -6,7 +6,7 @@ import sqlalchemy
 import iyore
 import nps_active_space.ground_truthing as app
 from nps_active_space.utils.models import Nvspl, Tracks
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 from nps_active_space.utils.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM
 from nps_active_space.utils.computation import coords_to_utm
 from nps_active_space.utils.clock_drift import correct_clock_drift

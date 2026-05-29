@@ -46,7 +46,7 @@ from time import mktime, sleep
 from tqdm import tqdm
 import warnings
 
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 from nps_active_space.utils.helpers import get_deployment, get_logger, query_adsb, query_tracks
 from nps_active_space.utils.computation import coords_to_utm, interpolate_spline
 from nps_active_space.utils.models import Tracks, Adsb

@@ -1,4 +1,4 @@
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 from nps_active_space import ACTIVE_SPACE_DIR
 import subprocess
 import os

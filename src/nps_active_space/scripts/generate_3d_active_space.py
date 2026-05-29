@@ -6,7 +6,7 @@ import shlex
 import matplotlib.pyplot as plt
 from nps_active_space.utils.models import Nvspl
 from nps_active_space.utils.computation import ambience_from_nvspl
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 
 """
 This script creates a commands file for use with generate_active_space_batch.py, containing commands
