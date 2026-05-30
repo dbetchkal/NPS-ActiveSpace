@@ -1,0 +1,22 @@
+# nps-init-config -e <name>  →  edit ~/.nps_active_space/<name>.toml (or NPS_ACTIVE_SPACE_CONFIG_DIR)
+# Pipeline scripts: -e <name>.  Blank strings = unset.  Full reference: config/README.md in repo (see GitHub tree).
+
+[database]
+name = ""
+username = ""
+password = ""
+port = ""
+host = ""
+
+[data]
+site_metadata = ""
+nvspl_archive = ""
+adsb = ""
+dem = ""
+mennitt = ""
+
+[project]
+dir = ""
+nmsim_binary = ""
+FAA_Releasable_db = ""
+FAA_type_corrections = ""

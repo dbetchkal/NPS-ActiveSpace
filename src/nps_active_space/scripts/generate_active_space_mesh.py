@@ -6,7 +6,7 @@ from pathlib import Path
 import geopandas as gpd
 from tqdm import tqdm
 
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 from nps_active_space.utils.helpers import get_logger, get_omni_sources
 from nps_active_space.active_space import ActiveSpaceGenerator
 
@@ -35,22 +35,22 @@ if __name__ == '__main__':
                           help="Remove intermediary control and batch files.")
     args = argparse.parse_args()
 
-    cfg.initialize(environment=args.environment)
-    project_dir = f"{cfg.read('project', 'dir')}/{args.name}"
+    config = cfg.load_config(args.environment)
+    project_dir = f"{config.project.dir}/{args.name}"
     logger = get_logger(f"ACTIVE-SPACE: {args.name}")
 
     # Get the requested omni source and load the study area shapefile and Mennitt ambience raster.
     omni_source = get_omni_sources(lower=args.omni_source, upper=args.omni_source)[0]
     study_area = gpd.read_file(args.study_area)
-    ambience = cfg.read('data', 'mennitt')
+    ambience = config.data.mennitt
 
     logger.info('Instantiating ActiveSpaceGenerator...')
     active_space_generator = ActiveSpaceGenerator(
-        NMSIM=cfg.read('project', 'nmsim'),
+        NMSIM=config.project.nmsim_binary,
         root_dir=project_dir,
         study_area=study_area,
-        ambience_src=ambience,
-        dem_src=cfg.read('data', 'dem'),
+        ambience=ambience,
+        dem_src=config.data.dem,
     )
 
     logger.info(f"Generating active space mesh for: {args.name}...\n")

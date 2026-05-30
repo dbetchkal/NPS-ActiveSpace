@@ -3,11 +3,11 @@ import os
 import iyore
 import pickle
 from nps_active_space.utils.metrics import get_obs_periods, get_all_srcid_stats
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 from nps_active_space.utils.models import Srcid
 
 
-def get_acoustic_metrics(unit, site, year, env, track_source):
+def get_acoustic_metrics(unit, site, year, config: cfg.ActiveSpaceConfig, track_source):
     """
     Gets acoustic metrics for the period(s) of time with overlapping acoustic and causal data.
     
@@ -19,8 +19,8 @@ def get_acoustic_metrics(unit, site, year, env, track_source):
         Four letter site code. E.g. TRLA
     year: str
         Four digit year. E.g. "2018"
-    env: str
-        The configuration environment to run the script in. E.g. "DENA_streamline"
+    config: ActiveSpaceConfig
+        The loaded Pydantic configuration model.
     track_source: str
         'GPS', 'ADSB', or 'AIS'. Metrics will only be calculated for
         time periods with overlapping acoustic and track data.
@@ -34,14 +34,13 @@ def get_acoustic_metrics(unit, site, year, env, track_source):
     year = str(year)
     print(unit + site + year)
 
-    cfg.initialize(env)
-    project_dir = cfg.read("project", "dir")
-    nvspl_archive = cfg.read("data", "nvspl_archive")
+    project_dir = config.project.dir
+    nvspl_archive = config.data.nvspl_archive
 
     # process track source
     adsb_dir = None
     if track_source == "ADSB":
-        adsb_dir = cfg.read("data", "adsb")
+        adsb_dir = config.data.adsb
     elif track_source == "AIS":
         raise NotImplementedError('Code for AIS is not ready yet.')
     
@@ -83,4 +82,5 @@ if __name__ == "__main__":
                           "time periods with overlapping acoustic and track data.")
     args = parser.parse_args()
     
-    get_acoustic_metrics(args.unit, args.site, args.year, args.environment, args.track_source)
+    config = cfg.load_config(args.environment)
+    get_acoustic_metrics(args.unit, args.site, args.year, config, args.track_source)

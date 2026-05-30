@@ -19,14 +19,14 @@ import geopy as geopy
 import geopandas as gpd
 from tqdm import tqdm
 import warnings
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 from nps_active_space.utils.helpers import get_deployment, get_logger, load_studyarea, query_adsb, query_tracks, load_DEM, load_activespace, load_layered_activespace
 from nps_active_space.utils.computation import NMSIM_bbox_utm, contiguous_regions, coords_to_utm, interpolate_spline
 from nps_active_space.utils.models import Tracks, FAAReleasable
 
 pd.set_option('future.no_silent_downcasting', True)
 
-def init_audible_transits(metadata, paths={}, raw_tracks = None):
+def init_audible_transits(metadata, paths={}, raw_tracks = None, config: cfg.ActiveSpaceConfig | None = None):
     '''
     Main function for initialization. Decides which AudibleTransits subclass to initialize based on the metadata provided.
 
@@ -79,9 +79,9 @@ def init_audible_transits(metadata, paths={}, raw_tracks = None):
     assert "database type" in metadata, "Metadata must contain a 'database type' field"
 
     if metadata["database type"] == "ADSB":
-        listener = AudibleTransitsADSB(metadata, paths, raw_tracks)
+        listener = AudibleTransitsADSB(metadata, paths, raw_tracks, config)
     elif metadata["database type"] == "GPS":
-        listener = AudibleTransitsGPS(metadata, paths, raw_tracks)
+        listener = AudibleTransitsGPS(metadata, paths, raw_tracks, config)
     elif metadata["database type"] == "AIS":
         raise NotImplementedError(
             "AIS functionality has not been implemented.")
@@ -158,7 +158,7 @@ class AudibleTransits(ABC):
 
     pkl_filename = "AudibleTransits_object.pkl"
 
-    def __init__(self, metadata, paths, raw_tracks = None):
+    def __init__(self, metadata, paths, raw_tracks = None, config: cfg.ActiveSpaceConfig | None = None):
         '''
         Initializes properties of the site and paths to the data.
 
@@ -188,31 +188,27 @@ class AudibleTransits(ABC):
             self.tracks = None
 
         # if config exists, init it and fill in missing paths
-        if "env" in metadata:
-            cfg.initialize(metadata["env"])
+        if config is None and "env" in metadata:
+            config = cfg.load_config(metadata["env"])
 
+        self.config = config
+        if self.config is not None:
             if not "project" in self.paths:
                 print("Using project dir path from config file")
-                self.paths["project"] = cfg.read("project", "dir")
+                self.paths["project"] = self.config.project.dir
             if not "FAA" in self.paths:
                 print("Using FAA path from config file")
-                self.paths["FAA"] = cfg.read("project", "FAA_Releasable_db")
+                self.paths["FAA"] = self.config.project.FAA_Releasable_db
 
             # optional paths may not be present in the config file (causing an error), can ignore if so
-            if not "aircraft corrections" in self.paths:
-                try:
-                    corrections_file = cfg.read("project", "FAA_type_corrections")
+            if "aircraft corrections" not in self.paths:
+                if self.config.project.FAA_type_corrections:
                     print("Using FAA corrections path from config file")
-                    self.paths["aircraft corrections"] = corrections_file
-                except:
-                    pass
-            if not "ADSB" in self.paths and metadata["database type"] == "ADSB":
-                try:
-                    adsb_dir = cfg.read("data", "adsb")
+                    self.paths["aircraft corrections"] = self.config.project.FAA_type_corrections
+            if "ADSB" not in self.paths and metadata["database type"] == "ADSB":
+                if self.config.data.adsb:
                     print("Using ADSB path from config file")
-                    self.paths["ADSB"] = adsb_dir
-                except:
-                    pass
+                    self.paths["ADSB"] = self.config.data.adsb
         
         if metadata["database type"] == "ADSB":
             assert "ADSB" in self.paths, "No ADSB directory provided, required for ADSB mode"
@@ -237,7 +233,7 @@ class AudibleTransits(ABC):
         hide_progress_bars = not verbose
 
         logger.info("\n=========  NPS-ActiveSpace Audible Transits module  ==========\n")
-        logger.info(f"3D run" if self.three_dimensional_run else f"2D run at altitude={self.altitude_m}")
+        logger.info("3D run" if self.three_dimensional_run else f"2D run at altitude={self.altitude_m}")
         for k in self.metadata.keys():
             logger.debug(f"{k}: {self.metadata[k]}")
         logger.debug("paths: " + json.dumps(self.paths, indent=2) + "\n")
@@ -2193,9 +2189,21 @@ class AudibleTransitsGPS(AudibleTransits):
         -------
         engine
         '''
-        d = cfg.read('database:overflights')
+        if self.config is None:
+            if "env" in self.metadata:
+                self.config = cfg.load_config(self.metadata["env"])
+            else:
+                raise ValueError("ActiveSpaceConfig not provided and 'env' not in metadata.")
+                
         engine = sqlalchemy.create_engine(
-            f'postgresql://{d["username"]}:{d["password"]}@{d["host"]}:{d["port"]}/{d["name"]}')
+            'postgresql://{username}:{password}@{host}:{port}/{name}'.format(
+                username=self.config.database.username,
+                password=self.config.database.password,
+                host=self.config.database.host,
+                port=self.config.database.port,
+                name=self.config.database.name
+            )
+        )
         return engine
 
     def remove_jets(self):
@@ -2505,7 +2513,8 @@ if __name__ == '__main__':
                 }
     paths = {}
 
-    listener = init_audible_transits(metadata, paths)
+    config = cfg.load_config(args.environment)
+    listener = init_audible_transits(metadata, paths, config=config)
     listener.run_pipeline(verbose=args.verbose)
     output_dir = args.output or None
     listener.export_results(output_dir=output_dir,

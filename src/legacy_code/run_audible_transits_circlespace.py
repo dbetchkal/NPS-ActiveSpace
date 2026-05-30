@@ -46,7 +46,7 @@ from time import mktime, sleep
 from tqdm import tqdm
 import warnings
 
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 from nps_active_space.utils.helpers import get_deployment, get_logger, query_adsb, query_tracks
 from nps_active_space.utils.computation import coords_to_utm, interpolate_spline
 from nps_active_space.utils.models import Tracks, Adsb
@@ -2509,25 +2509,24 @@ if __name__ == '__main__':
 
     args = argparse.parse_args()
 
-    cfg.initialize(environment=args.environment)
-    project_dir = f"{cfg.read('project', 'dir')}\{args.unit}{args.site}"
-    FAAReleasable_path = f"{cfg.read('project', 'FAA_Releasable_db')}"
-    FAAType_corrections = f"{cfg.read('project', 'FAA_type_corrections')}"
+    config = cfg.load_config(args.environment)
+    project_dir = f"{config.project.dir}/{args.unit}{args.site}"
+    paths = {
+        "project": project_dir,
+        "FAA": str(config.project.FAA_Releasable_db or ""),
+        "aircraft corrections": str(config.project.FAA_type_corrections or ""),
+    }
 
     # logger = get_logger(f"ACTIVE-SPACE: {args.unit}{args.site}{args.year}") # TODO write all the useful comments to a log file, not the console
     metadata = {"unit": args.unit,
                 "site": args.site,
                 "year": args.year,
                 "gain": args.gain,
-                "study start": args.begintracks, 
-                "study end": args.endtracks} 
-    paths = {"project": project_dir, 
-             "FAA": FAAReleasable_path,
-             "aircraft corrections": FAAType_corrections}
-
+                "study start": args.begintracks,
+                "study end": args.endtracks}
     if args.track_source == 'ADSB':
         metadata["database type"] = "ADSB"
-        paths["ADSB"] = f"{cfg.read('data', 'adsb')}"
+        paths["ADSB"] = str(config.data.adsb or "")
         listener = AudibleTransitsADSB(metadata, paths)
 
     elif args.track_source == 'Database':

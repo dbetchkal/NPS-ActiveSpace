@@ -6,6 +6,27 @@ An **_active space_** is a well-known sensory concept from bioacoustics ([Marten
 
 This repository is designed to estimate active spaces for motorized noise sources transiting the U.S. National Park System. Aircraft are powerful noise sources audible over vast areas. Thus [considerable NPS management efforts have focused on protecting natural quietude from aviation noise intrusions](https://www.nps.gov/subjects/sound/overflights.htm). For coastal parks, vessels are similarly powerful noise sources of concern. For both transportation modalities `NPS-ActiveSpace` provides meaningful, quantitative spatial guides for noise mitigation and subsequent monitoring.
 
+## Table of contents
+
+- [Example](#example)
+  - [Synthesis-oriented Design](#synthesis-oriented-design)
+- [Installation](#installation)
+  - [Step 1: Clone the NPS-ActiveSpace repository](#step-1-clone-the-nps-activespace-repository)
+  - [Step 2: Set Up a Virtual Environment](#step-2-set-up-a-virtual-environment)
+  - [Step 3: Install NPS-ActiveSpace](#step-3-install-nps-activespace)
+  - [Step 4: Command-line tools](#step-4-command-line-tools)
+  - [Step 5: Configuration](#step-5-configuration)
+  - [Running tests](#running-tests)
+- [Toolkit Architecture](#toolkit-architecture)
+  - [The Synthesis](#the-synthesis)
+  - [Scripted Control](#scripted-control)
+  - [Foundations](#foundations)
+- [Intended Use & Status](#intended-use--status)
+  - [Project Status](#project-status)
+- [License](#license)
+  - [Public domain](#public-domain)
+- [Publications](#publications)
+
 ## Example
 
 Consider an example active space, below. It was computed using data from a long term acoustic monitoring site in Denali National Park, DENAUWBT Upper West Branch Toklat ([Withers 2012](https://irma.nps.gov/DataStore/Reference/Profile/2184396)). The bold black polygon delineates an active space estimate for flights at 3000 meters altitude. Points interior to the polygon are predicted to be audible, those exterior, inaudible. <br>
@@ -13,7 +34,7 @@ Consider an example active space, below. It was computed using data from a long 
 Superposed over the polygon are colored flight track polylines. `NPS-ActiveSpace` includes an application that leverages the acoustic record to ground-truth audibility of co-variate vehicle tracks from GPS databases. Ground-truthing is used to "tune" an active space to the appropriate geographic extent via mathematical optimization.<br>
 
 <br>
-<img src="https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/nps_active_space/img/NPS-ActiveSpace_example.png" alt="active space polygon example" width="200">
+<img src="https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/src/nps_active_space/img/NPS-ActiveSpace_example.png" alt="active space polygon example" width="200">
 
 ### Synthesis-oriented Design
 
@@ -45,9 +66,8 @@ cd NPS-ActiveSpace
 
 ### Step 2: Set Up a Virtual Environment.
 
-Install Python, either via Anaconda/Miniconda, or directly. The repository has been tested with Python version 3.13.5.
-
-You can use a Conda environment if you want, but all installation is managed by pip.
+This is tested with **Python 3.12**. The Windows GDAL wheel in `pyproject.toml` targets `cp312`; use a
+different wheel URL if you change Python version.
 
 With Conda:
 
@@ -67,62 +87,67 @@ With venv in a Windows Command Prompt terminal:
 
 ```
 python -m venv .venv
-source .venv\Scripts\activate.bat
+.venv\Scripts\activate.bat
 ```
 
-### Step 3: Install Dependencies
+With venv on macOS or Linux:
 
-Make sure you are inside your virtual environment, then:
+```
+python3.12 -m venv .venv
+source .venv/bin/activate
+```
+
+### Step 3: Install NPS-ActiveSpace
+
+From the repository root, with the virtual environment activated:
 
 ```
 python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-Historical note:
-The GDAL dependency comes from a `.whl` file published [here](https://github.com/cgohlke/geospatial-wheels/releases). If the Python version is updated, the GDAL wheel URL in `requirements.txt` may need to be changed to reflect the updated version. For example, `gdal-3.11.1-cp312-cp312-win_amd64.whl` is GDAL version 3.11.1 for Python 3.12.
-
-### Step 4: Install NPS-ActiveSpace
-
-From the repository's root directory, inside the virtual environment:
-
-```
 pip install -e .
+python -c "from nps_active_space.active_space import ActiveSpaceGenerator"
+nps-ground-truthing --help
 ```
 
-Try importing a python module to make sure this install worked, e.g. in a python file:
+Runtime dependencies are declared in `pyproject.toml` and installed with the package. On Windows, GDAL is installed from a [CGohlke wheel](https://github.com/cgohlke/geospatial-wheels/releases) declared there. If updating the Python version, update that wheel URL to match.
+
+### Step 4: Command-line tools
+
+| Command | Script |
+|---------|--------|
+| `nps-ground-truthing` | Ground-truthing GUI |
+| `nps-audible-transits` | Transit prediction |
+| `nps-generate-active-space` | 2D active space (NMSIM) |
+| `nps-generate-active-space-batch` | Batch active space |
+| `nps-generate-active-space-mesh` | Active space mesh |
+| `nps-generate-3d-active-space` | 3D active space |
+| `nps-fit-3d-active-space` | Fit 3D active space |
+| `nps-acoustic-metrics` | Acoustic metrics |
+| `nps-geographic-metrics` | Geographic metrics |
+| `nps-plot-altitudes` | Altitude plots |
+| `nps-viz` | Visualization |
+| `nps-check-study-duration` | Study-duration robustness |
+| `nps-init-config` | Create `{environment}.toml` from bundled template |
+
+Module invocation: `python -m nps_active_space.scripts.<module_name>`. All modules require `-e <environment>` to load `<environment>.toml` from your config directory (Step 5). See [script documentation](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/src/nps_active_space/scripts#scripts) for all flags.
+
+### Step 5: Configuration
+
+Pipeline scripts take **`-e <name>`** to load `<name>.toml` from your config folder. After `pip install -e .`, run `nps-init-config -e <environment_name>` (e.g. `nps-init-config -e DENA`), edit paths
+and credentials, then pass `-e <name>` to scripts.
+
+**[Configuration guide](src/nps_active_space/config/README.md)** — TOML fields, required paths,
+`NPS_ACTIVE_SPACE_CONFIG_DIR`, and NMSIM site directory layout.
+
+### Running tests
+
+After Step 3, from the repository root (with the virtual environment activated):
 
 ```
-from nps_active_space.active_space import ActiveSpaceGenerator
+pip install -e ".[dev]"
+pytest
 ```
 
-### Step 5: Create Config File
-
-All scripts require a configuration file saved in the config directory `nps_active_space/config`. Please copy the template config file, fill in the values required for the script(s) you will be running, and save it to the config directory as `<environment name>.config`. For example, a configuration file for Denali National Park and Preserve might be named `DENA.config` while a configuration file for Hawaii Volcanoes National Park might be named `HAVO.config` and have a different value for where the DEM file is stored than `DENA.config`
-
-Currently, the template config file has the following data:
-
-```text
-[database:overflights] - Values required if pulling tracks from the database in run_ground_truthing.py or run_audible_transits.py
-name = Database name.
-username = Database credentials username.
-password = Database credentials password.
-port = Database port.
-host = Database host.
-
-[data]
-site_metadata = Absolute path to the the file containing site metadata. Value required for all run_ground_truthing.py and generate_active_space.py
-nvspl_archive = Absolute path to the directory where all NVSPL sound data is stored. Value required for all run_ground_truthing.py and generate_active_space.py
-adsb = Absolute path to the directory where ADSB track data is stored.  Value required if pulling ADSB tracks in run_ground_truthing.py or run_audible_transits.py
-dem = Absolute path to the DEM tif file to use for active space generation. Value required for generate_active_space.py and generate_active_space_mesh.py
-mennitt = Absolute path to the mennitt ambience tif. Value required for generate_active_space.py and generate_active_space_mesh.py
-
-[project]
-dir = Absolute path to the directory where all NPS-ActiveSpace files are stored. Required for all scripts.
-nmsim = Absolute path to the NMSIM Nord2000batch.exe file. Value required for generate_active_space.py and generate_active_space_mesh.py
-FAA_Releasable_db = Absolute path to the FAA MASTER.txt database file downloaded from the [FAA website](https://www.faa.gov/licenses_certificates/aircraft_certification/aircraft_registry/releasable_aircraft_download). Required for run_audible_transits.py
-FAA_type_corrections = Absolute path to a json file for correcting aircraft types in the FAA database. Keys are ICAO addresses, values are correct aircraft type. Required for run_ground_truthing.py and run_audible_transits.py
-```
+Dev dependencies are declared in `pyproject.toml` under `[project.optional-dependencies]`.
 
 ## Toolkit Architecture
 
@@ -180,134 +205,15 @@ This enables a causal geometric calculation (mensuration) of acoustic metrics. T
 
 ### Scripted Control
 
-The entire synthesis $\rightarrow$ validation $\rightarrow$ mensuration workflow is scripted in a Command Line Interface (`.scripts`). For more information on scripted control, see the detailed [control script documentation](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space/scripts#scripts).
+The entire synthesis $\rightarrow$ validation $\rightarrow$ mensuration workflow is scripted in a Command Line Interface (`.scripts`). Install registers `nps-*` commands (Step 4). For per-script flags, see [control script documentation](https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/src/nps_active_space/scripts#scripts).
 
 ### Foundations
 
-To enable environmental scenario planning, global repository inputs are all structured together in a configuration file (`.config`) that spans the architecture. Utilities implement both data structure models and diverse computation tasks (`.utils`) that are used throughout the architecture. 
+To enable environmental scenario planning, global inputs are grouped in environment **TOML** files (see **Step 5** and the [configuration guide](src/nps_active_space/config/README.md)). One file corresponds to a set of inputs (e.g. `DENA.toml` for Denali) and is selected with `-e` by scripts. Utilities implement both data structure models and diverse computation tasks (`.utils`) that are used throughout the architecture. 
 
 The toolkit also requires basic sound source and weather profile data to operate. The provided (`.data`) are a widely applicable example: a fixed-wing propeller aircraft source and a standard "acoustician's atmosphere" with dry adiabatic lapse conditions. The toolkit may be run using alternative, custom sound sources or weather profiles. 
 
-### Data and File Directory Setup
-
-#### `NMSIM` project directory setup:
-
-The `.config` configuration file requires a *project directory*, which may contain many listening locations (sites), which in turn can be configured flexibly to produce test many scenarios. The toolkit expects the user's project directory to be structured as follows:
-
-```bash
-project_directory/
-├── UNITSITE_A/
-│   ├── UNITSITE_A_study_area.shp
-│   ├── Input_Data/
-│   │   ├── 01_ELEVATION/
-│   │   └── 02_IMPEDANCE/
-│   │   └── 05_SITES/
-│   └── Output_Data/
-│       ├── ASCII/
-│       ├── AUDIBLE_TRANSITS/
-│       ├── IMAGES/
-│       ├── SITE/
-│       └── TIG_TIS/
-├── UNITSITE_B/
-│   ├── UNITSITE_B_study_area.shp
-│   └── ...
-└── ...
-```
-
-As an observer-based audibility model, each `nps_active_space` site directory (above `UNITSITE_A, UNITSITE_B, ...`) corresponds with a physical **listening location** on Earth. The files composing each site directory amount to a geographic model of a listener with no audible sound source present—only the quiescent surrounding land surface. Such a geographic model is a required input for every possible `nps_active_space` configuration scenario. 
-
-##### Within the root of the project directory:
-
-The overarching input of `nps_active_space` is a study area. It is a required input. It must be contained within the root project directory and named similar to `UNITSITE_study_area.shp` (ESRI shapefile), where the variable geographic prefix `UNITSITE` matches the name of the project directory. It is recommended that study area geometries are saved using `NMSIM`'s native coordinate reference system (crs), NAD83 GCS North American (EPSG:4269).
-
-After their creation, the annotation outputs of `.ground_truthing` (.geojson) also belong in the root of the project directory. Clock drift correction files produced via [the `.utils\clock_drift.py` utility](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/nps_active_space/utils/clock_drift.py) also belong in the root of the project directory.
-
-##### Within `01_ELEVATION`:
-
-Terrain within the geographic model is represented by a portion of [the National Elevation Dataset (Gesch, 2002)](https://apps.nationalmap.gov/downloader/). It is a required input. It must be formatted as ESRI grid-float (*.flt*) and stored in the `01_ELEVATION` subdirectory. 
-
-##### Within `02_IMPEDANCE`:
-
-Landcover-related variability in acoustic impedance along the propagation path is represented by a portion of [the National Landcover Dataset (NLCD; Yang , 2018)](https://apps.nationalmap.gov/downloader/). It is an optional input. Like elevation data, flow resistivity data should also be formatted as ESRI grid-float (*.flt*) for use with `NMSIM`. Each landcover category may be coasrely mapped to a corresponding value of flow resistivity ($\frac{Pa \ s}{m^2} = \frac{kg}{m^3 \ s}$) following the guidelines of Table I (<a href="https://doi.org/10.1121/10.0030300">adapted</a> from Ikelheimer and Plotkin, 2005b; Embleton, 1996b; Plovsing and Kragh, 2001).
-
-<table>
-  <caption>
-    <strong>Table I.</strong> NLCD class mapped to flow resistivity value.
-  </caption>
-  <thead>
-    <tr>
-      <th>NLCD Class</th>
-      <th>Description</th>
-      <th>Flow Resistivity ($\frac{Pa \ s}{m^2}$)</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>11</td>
-      <td>Open water</td>
-      <td>100&nbsp;000</td>
-    </tr>
-    <tr>
-      <td>21</td>
-      <td>Developed, open space</td>
-      <td>200</td>
-    </tr>
-    <tr>
-      <td>22</td>
-      <td>Developed, low intensity</td>
-      <td>300</td>
-    </tr>
-    <tr>
-      <td>23</td>
-      <td>Developed, medium intensity</td>
-      <td>5&nbsp;000</td>
-    </tr>
-    <tr>
-      <td>24</td>
-      <td>Developed, high intensity</td>
-      <td>10&nbsp;000</td>
-    </tr>
-    <tr>
-      <td>31</td>
-      <td>Barren (e.g., bedrock, talus)</td>
-      <td>100&nbsp;000</td>
-    </tr>
-    <tr>
-      <td>41</td>
-      <td>Deciduous forest</td>
-      <td>70</td>
-    </tr>
-    <tr>
-      <td>42</td>
-      <td>Evergreen forest</td>
-      <td>70</td>
-    </tr>
-    <tr>
-      <td>43</td>
-      <td>Mixed forest</td>
-      <td>70</td>
-    </tr>
-    <tr>
-      <td>51</td>
-      <td>Dwarf scrub</td>
-      <td>200</td>
-    </tr>
-    <tr>
-      <td>52</td>
-      <td>Shrub/scrub</td>
-      <td>200</td>
-    </tr>
-    <tr>
-      <td>90</td>
-      <td>Woody wetlands</td>
-      <td>100&nbsp;000</td>
-    </tr>
-  </tbody>
-</table>
-
-##### Within `05_SITES`:
-
-Any three-dimensional coordinate above Earth's surface may be used as a listener location. The listener location should be formatted as a `NMSIM` (*.sit*) file and stored in the `05_SITES` subdirectory.
+Bundled `data/` and ground-truthing GUI icons are included in the install via `pyproject.toml` `package-data` so non-editable `pip install` deployments receive them.
 
 ## Intended Use & Status
 

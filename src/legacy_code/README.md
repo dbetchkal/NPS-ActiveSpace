@@ -1,4 +1,10 @@
-# NPS-ActiveSpace
+# Legacy code
+
+**Superseded by [`src/nps_active_space/`](../nps_active_space/).** See the [repository README](../../README.md) for current installation and workflow.
+
+---
+
+# NPS-ActiveSpace (historical)
 
 Authors: <br>
 Kirby Heck (Denali 2021 SIP - Computing) <br>

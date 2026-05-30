@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
 from nps_active_space.validation.study_duration_stability import fit_varying_n_tracks, plot_stability
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 
 if __name__ == "__main__":
     parser = ArgumentParser()
@@ -18,8 +18,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     assert len(args.deployments) > 0, "Must pass at least one deployment as a positional argument."
 
-    cfg.initialize(args.environment)
-    project_dir = cfg.read("project", "dir")
+    config = cfg.load_config(args.environment)
+    project_dir = config.project.dir
 
     # for each deployment, fit active space with increasing # of tracks
     # and save results to a CSV

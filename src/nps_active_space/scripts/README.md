@@ -1,20 +1,42 @@
 # Scripts
 
-The `nps_active_space` [toolkit architecture](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#toolkit-architecture) operates under the paradigm of scripted control: scripts advance various workflows.
+The [toolkit architecture](https://github.com/dbetchkal/NPS-ActiveSpace#toolkit-architecture) uses scripted control: each workflow is a CLI entry point.
 
-This directory contains the scripts along with instruction for their use via a command line interface. See [below](#use-cases) for the most common use cases, and [further below](#script-usage) for detailed documentation of each script.
+After [installation](https://github.com/dbetchkal/NPS-ActiveSpace#installation) (`pip install -e .`), `nps-*` commands are installed. Each runs [`cli.py`](../cli.py) (line-buffered stdout/stderr; warnings suppressed unless `--show-warnings`). The direct equivalent is `python -u -W ignore -m nps_active_space.scripts.<module>`.
 
-- [run_ground_truthing.py](#run-ground-truthing)
-- [plot_altitudes.py](#plot-altitudes)
-- [generate_3d_active_space.py](#generate-3d-active-space)
-- [generate_active_space.py](#generate-active-space)
-- [generate_active_space_batch.py](#generate-active-space-batch)
-- [fit_3d_active_space.py](#fit-3d-active-space)
-- [run_audible_transits.py](#run-audible-transits)
-- [get_acoustic_metrics.py](#get-acoustic-metrics)
-- [get_geographic_metrics.py](#get-geographic-metrics)
-- [check_study_duration_robustness.py](#check-study-duration-robustness)
-- [viz.py](#viz)
+Most pipeline scripts load a config file: **`-e <environment>`** selects `{environment}.toml` (e.g. `-e DENA` → `DENA.toml`). Exceptions: **`nps-init-config`** uses `-e` as the new config name; **`nps-generate-active-space-batch`** reads `-e` from each line in the commands file.
+
+Create a config after install:
+
+```bash
+nps-init-config -e DENA
+```
+
+Lookup order:
+
+1. If `NPS_ACTIVE_SPACE_CONFIG_DIR` is set, only `{that_dir}/{environment}.toml`.
+2. Otherwise `~/.nps_active_space/{environment}.toml` (Windows:
+   `%USERPROFILE%\.nps_active_space`).
+
+If the file is missing, the error message suggests running `nps-init-config`.
+
+Field reference and data layout: [configuration guide](../config/README.md).
+
+See [use cases](#use-cases) and [script usage](#script-usage) below.
+
+- [init_config.py](#init-config) (`nps-init-config`)
+- [run_ground_truthing.py](#run-ground-truthing) (`nps-ground-truthing`)
+- [plot_altitudes.py](#plot-altitudes) (`nps-plot-altitudes`)
+- [generate_3d_active_space.py](#generate-3d-active-space) (`nps-generate-3d-active-space`)
+- [generate_active_space.py](#generate-active-space) (`nps-generate-active-space`)
+- [generate_active_space_batch.py](#generate-active-space-batch) (`nps-generate-active-space-batch`)
+- [fit_3d_active_space.py](#fit-3d-active-space) (`nps-fit-3d-active-space`)
+- [run_audible_transits.py](#run-audible-transits) (`nps-audible-transits`)
+- [get_acoustic_metrics.py](#get-acoustic-metrics) (`nps-acoustic-metrics`)
+- [get_geographic_metrics.py](#get-geographic-metrics) (`nps-geographic-metrics`)
+- [check_study_duration_robustness.py](#check-study-duration-robustness) (`nps-check-study-duration`)
+- [viz.py](#viz) (`nps-viz`)
+- [generate_active_space_mesh.py](#generate-active-space-mesh) (`nps-generate-active-space-mesh`, deprecated)
 
 ## Use Cases
 
@@ -22,7 +44,7 @@ This directory contains the scripts along with instruction for their use via a c
 
 These are the steps for the **primary use case**: synthesizing a 3D active space $\rightarrow$ using it to predict acoustic metrics geographically.
 
-1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#installation).
+1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace#installation).
 2. Use `run_ground_truthing.py` to annotate audible track segments. This GUI-based tool establishes a spatio-temporal $\text{JOIN}$ of vechicle positions (cause) and acoustic records (effect).
 3. Use `plot_altitudes.py` to scope the altitudes spanned by aircraft traffic traversing the study area.
 4. Use `generate_3d_active_space.py` to create a batch commands file based on the altitude range, generate active space layers, and fit the optimal gain. The fit results will be stored in `fits.csv` in the project directory.
@@ -59,10 +81,10 @@ Make sure the data you want to visualize exist beforehand. The script won't look
 
 ### 2D Active Space
 
-1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#installation).
+1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace#installation).
 2. Use `run_ground_truthing.py` to annotate audible track segments.
 3. Use `generate_active_space.py` to generate candidates for a single active space layer at a fixed altitude, and also fit the optimal gain.
-4. We can make use of the 3D code to process a 2D active space, since a 2D active space is equivalent to a 3D one with a single layer. Make sure only a single layer of active spaces has been generated (check `../NMSIM_project_dir/Output_Data/ACTIVESPACES`). Then use `fit_3d_active_space.py` to fit the gain in a way the rest of the 3D code expects (storing it in the `fits.csv` file in the project directory). Then follow steps 5-6 of the typical 3D active space workflow.
+4. We can make use of the 3D code to process a 2D active space, since a 2D active space is equivalent to a 3D one with a single layer. Make sure only a single layer of active spaces has been generated (check `{[project] dir}/{unit}{site}/Output_Data/ACTIVESPACES`). Then use `fit_3d_active_space.py` to fit the gain in a way the rest of the 3D code expects (storing it in the `fits.csv` file in the project directory). Then follow steps 5-6 of the typical 3D active space workflow.
 
 ```mermaid
 graph LR
@@ -93,7 +115,7 @@ If you want to generate many active spaces at the same time, you can leverate th
 
 ### Batch 3D Active Space
 
-1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#installation).
+1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace#installation).
 2. For each deployment:
    1. Use `run_ground_truthing.py` to annotate audible track segments.
    2. Use `plot_altitudes.py` to get a sense of the altitudes spanned by typical traffic.
@@ -140,7 +162,7 @@ check_study_duration_robustness.py
 
 ### Batch 2D Active Space
 
-1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#installation).
+1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace#installation).
 2. For each deployment, use `run_ground_truthing.py` to annotate audible track segments.
 3. Manually prepare a commands file containing the arguments for each run, see [below](#batch-commands-file-format).
 4. Use `generate_active_space_batch.py` to execute the concatenated commands file.
@@ -178,26 +200,44 @@ check_study_duration_robustness.py
 
 # Script Usage
 
+### Init Config
+
+Creates `{environment}.toml` from the bundled template. See [configuration guide](../config/README.md).
+
+| command-line arg | description |
+| ---------------- | ----------- |
+| `-e`, `--environment` | **required.** Config name (writes `{environment}.toml`, e.g. `DENA`). |
+| `--config-dir` | Destination folder (default: `NPS_ACTIVE_SPACE_CONFIG_DIR` or `~/.nps_active_space`). |
+| `--force` | Overwrite an existing file. |
+
+Example:
+
+```bash
+nps-init-config -e DENA
+```
+
+----
+
 ### Run Ground Truthing
 
 This script is used to launch the ground truthing application to annotate the audibility of sound source tracks.
 
 | command-line arg        | description                                                                                                                                      |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: for `DENA.toml`, pass `-e DENA`                                    |
 | `-u`, `--unit`          | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                |
 | `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
 | `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                          |
-| `-t`, `--database-type` | **_default GPS -> {GPS, ADSB, AIS}_**<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
+| `-t`, `--track-source` | **_default GPS -> {GPS, ADSB, AIS}_**<br/>Which track source to use. Paths and credentials are in the config TOML |
 
 Example executions:
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/run_ground_truthing.py -e production -u DENA -s MOOS -y 2018
+$ nps-ground-truthing -e DENA -u DENA -s MOOS -y 2018
 ```
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/run_ground_truthing.py -e production -u DENA -s TRLA -y 2018 -t ADSB
+$ nps-ground-truthing -e DENA -u DENA -s TRLA -y 2018 -t ADSB
 ```
 
 ----
@@ -208,7 +248,7 @@ This script is used to plot the distribution of annotated segment altitudes to h
 
 | command-line arg        | description                                                                                                                                        |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `-e`, `--environment`     | The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                                      |
+| `-e`, `--environment`     | The configuration environment to use. _Ex_: for `DENA.toml`, pass `-e DENA`                                                      |
 | `-u`, `--unit`            | The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                                  |
 | `-s`, `--site`            | The 4 letter site code. _Ex_: Cathedral = CATH                                                                                                   |
 | `-y`, `--year`            | The deployment year, YYYY. _Ex_: 2018                                                                                                            |
@@ -217,11 +257,11 @@ This script is used to plot the distribution of annotated segment altitudes to h
 Example executions:
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/plot_altitudes.py -e production -u DENA -s MOOS -y 2018
+$ nps-plot-altitudes -e DENA -u DENA -s MOOS -y 2018
 ```
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/plot_altitudes.py -e production --all
+$ nps-plot-altitudes -e DENA --all
 ```
 
 ----
@@ -234,7 +274,7 @@ This script is used to predict active space scope in 3-dimensions. At present it
 
 | command-line arg        | description                                                                                                                                      |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: for `DENA.toml`, pass `-e DENA`                                    |
 | `-u`, `--unit`          | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                |
 | `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
 | `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                          |
@@ -247,11 +287,11 @@ This script is used to predict active space scope in 3-dimensions. At present it
 Example executions:
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/generate_3d_active_space.py -e production --min-altitude 1800 --max-altitude 3600 -u DENA -s UWBT -y 2023 -a nvspl
+$ nps-generate-3d-active-space -e DENA --min-altitude 1800 --max-altitude 3600 -u DENA -s UWBT -y 2023 -a nvspl
 ```
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/generate_3d_active_space.py -e production --min-altitude 1800 --max-altitude 3600 -u DENA -s UWBT -y 2023 -a DENAUWBT2023_ambience.pkl --only-prep
+$ nps-generate-3d-active-space -e DENA --min-altitude 1800 --max-altitude 3600 -u DENA -s UWBT -y 2023 -a DENAUWBT2023_ambience.pkl --only-prep
 ```
 
 ----
@@ -266,7 +306,7 @@ This script is used to predict active space scope in 2-dimensions.
 
 | command-line arg        | description                                                                                                                                                                                                                                                             |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                                                                                                                                           |
+| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: for `DENA.toml`, pass `-e DENA`                                                                                                                                                           |
 | `-u`, `--unit`          | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                                                                                                                                       |
 | `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                                                                                                                                        |
 | `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                                                                                                                                                 |
@@ -282,11 +322,11 @@ This script is used to predict active space scope in 2-dimensions.
 Example executions:
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e production -u DENA -s MOOS -y 2018 --cleanup
+$ nps-generate-active-space -e DENA -u DENA -s MOOS -y 2018 --cleanup
 ```
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e production -u DENA -s TRLA -y 2017  -a mennitt --headings 0 --omni-min -5 --omni-max 10.5 -l 3658 -b .5
+$ nps-generate-active-space -e DENA -u DENA -s TRLA -y 2017  -a mennitt --headings 0 --omni-min -5 --omni-max 10.5 -l 3658 -b .5
 ```
 
 If you would like the command output to be shown in the console and saved to a text file add the following after your command:
@@ -296,7 +336,7 @@ If you would like the command output to be shown in the console and saved to a t
 ```
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e production -u DENA -s MOOS -y 2018 --cleanup | Tee-Object -FilePath "C:\Path\To\active_space_output_DENAMOOS2018.txt"
+$ nps-generate-active-space -e DENA -u DENA -s MOOS -y 2018 --cleanup | Tee-Object -FilePath "C:\Path\To\active_space_output_DENAMOOS2018.txt"
 ```
 
 ----
@@ -315,7 +355,7 @@ This script generates active space estimates for a set of senarios provided in a
 Example execution:
 
 ```bash
-python -u -W ignore nps_active_space/scripts/generate_active_space_batch.py DENAUWBTcombined_commands.txt -o DENAUWBTcombined_batch_outputs.csv
+nps-generate-active-space-batch DENAUWBTcombined_commands.txt -o DENAUWBTcombined_batch_outputs.csv
 ```
 
 ----
@@ -328,7 +368,7 @@ This script finds the optimal best fit for a 3-dimensional active space.
 
 | command-line arg           | description                                                                                                                                      |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `-e`, `--environment`      | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `-e`, `--environment`      | **required.**<br/>The configuration environment to use. _Ex_: for `DENA.toml`, pass `-e DENA`                                    |
 | `-u`, `--unit`             | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                |
 | `-s`, `--site`             | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
 | `-y`, `--year`             | **required.**<br/>Which year's active space to use, YYYY. _Ex_: 2018                                                                             |
@@ -336,7 +376,7 @@ This script finds the optimal best fit for a 3-dimensional active space.
 Example execution:
 
 ```bash
-python -u -W ignore nps_active_space/scripts/fit_3d_active_space.py -e production -u DENA -s UWBT -y 2021
+nps-fit-3d-active-space -e DENA -u DENA -s UWBT -y 2021
 ```
 
 ----
@@ -347,7 +387,7 @@ This script is used to estimate the geographic intersection of a set of tracks w
 
 | command-line arg           | description                                                                                                                                      |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `-e`, `--environment`      | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `-e`, `--environment`      | **required.**<br/>The configuration environment to use. _Ex_: for `DENA.toml`, pass `-e DENA`                                    |
 | `-u`, `--unit`             | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                |
 | `-s`, `--site`             | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
 | `-y`, `--year`             | **required.**<br/>Which year's active space to use, YYYY. _Ex_: 2018                                                                             |
@@ -362,11 +402,11 @@ This script is used to estimate the geographic intersection of a set of tracks w
 Example executions:
 
 ```bash
-$ python nps_active_space/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20
+$ nps-audible-transits -e DENA -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20
 ```
 
 ```bash
-$ python nps_active_space/scripts/run_audible_transits.py -e production -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20 -t ADSB
+$ nps-audible-transits -e DENA -u DENA -s FANG -y 2018 -g -1.5 -t0 2018-01-01 -tf 2024-08-20 -t ADSB
 ```
 
 ----
@@ -377,7 +417,7 @@ This script is used to compute acoustic metrics for the period(s) of time with o
 
 | command-line arg        | description                                                                                                                                      |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: for `DENA.toml`, pass `-e DENA`                                    |
 | `-u`, `--unit`          | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                |
 | `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
 | `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                          |
@@ -386,7 +426,7 @@ This script is used to compute acoustic metrics for the period(s) of time with o
 Example execution:
 
 ```bash
-python -u -W ignore nps_active_space/scripts/get_acoustic_metrics.py -e production -u DENA -s MOOS -y 2018 -t GPS
+nps-acoustic-metrics -e DENA -u DENA -s MOOS -y 2018 -t GPS
 ```
 
 ----
@@ -397,7 +437,7 @@ This script is used to compute acoustic metrics geographically for the period(s)
 
 | command-line arg        | description                                                                                                                                      |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: for `DENA.toml`, pass `-e DENA`                                    |
 | `-u`, `--unit`          | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                |
 | `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
 | `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                          |
@@ -407,11 +447,11 @@ This script is used to compute acoustic metrics geographically for the period(s)
 Example executions:
 
 ```bash
-python -u -W ignore nps_active_space/scripts/get_acoustic_metrics.py -e production -u DENA -s MOOS -y 2018 -t GPS
+nps-geographic-metrics -e DENA -u DENA -s MOOS -y 2018 -t GPS
 ```
 
 ```bash
-python -u -W ignore nps_active_space/scripts/get_acoustic_metrics.py -e production -u DENA -s TRLA -y 2024 -t ADSB --transits-pkl alt_transits.pkl
+nps-geographic-metrics -e DENA -u DENA -s TRLA -y 2024 -t ADSB --transits-pkl alt_transits.pkl
 ```
 
 ----
@@ -423,7 +463,7 @@ This script is used to validate the robustness of a given active space fit.
 | command-line arg           | description                                                                                                                                      |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `deployments` (no flag)    | **required.**<br/>A list of deployments to analyze, e.g., DENACATH2018 DENATRLA2025 MORU0022025                                                  |
-| `-e`, `--environment`      | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `-e`, `--environment`      | **required.**<br/>The configuration environment to use. _Ex_: for `DENA.toml`, pass `-e DENA`                                    |
 | `--col`                    | **_default 'area'_**<br>Which column from the study duration csv to plot. Common values are 'area', 'gain', 'f1'. Default is 'area'.             |
 | `-k`                       | **_default 10_**<br>The top k best fits will be plotted in a range around the best fit.                                                          |
 | `-n`, `--max-n-tracks`     | **required.**<br/>Maximum number of tracks to plot (upper horizontal limit of the plot).                                                         |
@@ -431,11 +471,11 @@ This script is used to validate the robustness of a given active space fit.
 Example executions:
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/check_study_duration_robustness.py DENATRLA2024 -e production -n 100
+$ nps-check-study-duration DENATRLA2024 -e DENA -n 100
 ```
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/check_study_duration_robustness.py DENATRLA2023 DENATRLA2024 DENATRLA2025 -e production --col 'gain' -k 20 -n 100
+$ nps-check-study-duration DENATRLA2023 DENATRLA2024 DENATRLA2025 -e DENA --col 'gain' -k 20 -n 100
 ```
 
 ----
@@ -447,7 +487,7 @@ This script is used to visualize select geospatial objects relevant to the `nps_
 | command-line arg           | description                                                                                                                                      |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `deployment` (no flag)     | **required.**<br/>The deployment name, e.g., DENACATH2018                                                                                        |
-| `-e`, `--environment`      | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `-e`, `--environment`      | **required.**<br/>The configuration environment to use. _Ex_: for `DENA.toml`, pass `-e DENA`                                    |
 | `-g`, `--gain`             | Active space gain, if not the optimal default found in `fits.csv`                                                                                |
 | `-s`, `--active-space`     | If included, load and plot the active space                                                                                                      |
 | `-a`, `--annotations`      | If included, load and plot annotations                                                                                                           |
@@ -462,11 +502,11 @@ This script is used to visualize select geospatial objects relevant to the `nps_
 Example executions:
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production --all
+$ nps-viz DENATRLA2024 -e DENA --all
 ```
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production -g 15.0 -s -a -m 700 --terraced
+$ nps-viz DENATRLA2024 -e DENA -g 15.0 -s -a -m 700 --terraced
 ```
 
 ----
@@ -477,7 +517,7 @@ NOTE: *deprecated as of v3.0.0; documentation included here for backwards compat
 
 | command-line arg      | description                                                                                                                                                                     |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-e`, `--environment` | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                                                   |
+| `-e`, `--environment` | **required.**<br/>The configuration environment to use. _Ex_: for `DENA.toml`, pass `-e DENA`                                                                   |
 | `-n`, `--name`        | **required.**<br/>Name of the directory where intermediary and output files will be stored. _Ex_: `-n DENAFULL`                                                                 |
 | `-s`, `--study-area`  | **required.**<br/>Absolute path to the shapefile of the study area. _Ex_: `-s C:/Users/yourname/Desktop/DENA.shp`                                                               |
 | `--headings`          | **_default [0, 120, 240]_**<br/>A list of the active space headings that should be dissolved together to make the final active space. _Ex_: `--headings 0, 90, 180, 270`        |
@@ -490,11 +530,11 @@ NOTE: *deprecated as of v3.0.0; documentation included here for backwards compat
 Example executions:
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/generate_active_space_mesh.py -e production -n DENAFULL -s C:/Users/yourname/Desktop/DENA.shp --cleanup
+$ nps-generate-active-space-mesh -e DENA -n DENAFULL -s C:/Users/yourname/Desktop/DENA.shp --cleanup
 ```
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/generate_active_space_mesh.py -e production -n DENAFULL -s C:/Users/yourname/Desktop/DENA.shp --headings 0 180 --omni-source -12.5 --mesh-spacing 10 --mesh-size 20 -l 1524
+$ nps-generate-active-space-mesh -e DENA -n DENAFULL -s C:/Users/yourname/Desktop/DENA.shp --headings 0 180 --omni-source -12.5 --mesh-spacing 10 --mesh-size 20 -l 1524
 ```
 
 

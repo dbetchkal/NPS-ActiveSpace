@@ -17,6 +17,5 @@
 # .egg-info
 *.egg-info/
 
-# config files
-src/nps_active_space/config/*
-!src/nps_active_space/config/template.config
+# setuptools
+build/

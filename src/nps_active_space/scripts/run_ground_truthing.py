@@ -6,7 +6,7 @@ import sqlalchemy
 import iyore
 import nps_active_space.ground_truthing as app
 from nps_active_space.utils.models import Nvspl, Tracks
-import nps_active_space.utils.config as cfg
+import nps_active_space.config as cfg
 from nps_active_space.utils.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM
 from nps_active_space.utils.computation import coords_to_utm
 from nps_active_space.utils.clock_drift import correct_clock_drift
@@ -29,47 +29,49 @@ if __name__ == '__main__':
 
     args = argparse.parse_args()
 
-    cfg.initialize(environment=args.environment)
+    config = cfg.load_config(args.environment)
     logger = get_logger('GROUND-TRUTHING')
+    db_conf = config.database
     engine = sqlalchemy.create_engine(
-        'postgresql://{username}:{password}@{host}:{port}/{name}'.format(**cfg.read('database:overflights'))
+        f'postgresql://{db_conf.username}:{db_conf.password}'
+        f'@{db_conf.host}:{db_conf.port}/{db_conf.name}'
     )
 
     logger.info(f"Beginning ground truthing process for {args.unit}{args.site}{args.year}...")
 
     # Set the various path variables.
-    archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
-    site_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
+    archive = iyore.Dataset(config.data.nvspl_archive)
+    site_dir = f"{config.project.dir}/{args.unit}{args.site}"
     faa_path = None
     faa_corrections_path = None
 
     # Load the microphone deployment site metadata and the study area shapefile.
-    microphone = get_deployment(cfg.read('project', 'dir'), args.unit, args.site, args.year)
+    microphone = get_deployment(config.project.dir, args.unit, args.site, args.year)
     study_area = gpd.read_file(glob.glob(f"{site_dir}/*study*.shp")[0])  # In NAD83, epsg:4269
 
     # Retrieve the days for which at least some NVSPL data exist.
     nvspl_dates = sorted(set([f"{e.year}-{e.month}-{e.day}" for e in archive.nvspl(unit=args.unit, site=args.site, year=args.year)]))
-    assert len(nvspl_dates) > 0, f"No NVSPL data found in archive {cfg.read('data', 'nvspl_archive')}"
+    assert len(nvspl_dates) > 0, f"No NVSPL data found in archive {config.data.nvspl_archive}"
 
     # Query flight tracks from days there is NVSPL data for.
     logger.info("Querying tracks...")
 
     if args.track_source == 'ADSB':
         raw_tracks = query_adsb(
-            adsb_path=cfg.read('data', 'adsb'),
+            adsb_path=config.data.adsb,
             start_date=nvspl_dates[0],
             end_date=nvspl_dates[-1],
             mask=study_area
         )
         tracks = Tracks(raw_tracks, id_col='flight_id', datetime_col='TIME', z_col='altitude')
-        faa_path = cfg.read('project', 'FAA_Releasable_db')
-        faa_corrections_path = cfg.read('project', 'FAA_type_corrections')
+        faa_path = config.project.FAA_Releasable_db
+        faa_corrections_path = config.project.FAA_type_corrections
 
     elif args.track_source == 'GPS':
         raw_tracks = query_tracks(engine=engine, start_date=nvspl_dates[0], end_date=nvspl_dates[-1], mask=study_area)
         tracks = Tracks(raw_tracks, 'flight_id', 'ak_datetime', 'altitude_m')
-        faa_path = cfg.read('project', 'FAA_Releasable_db')
-        faa_corrections_path = cfg.read('project', 'FAA_type_corrections')
+        faa_path = config.project.FAA_Releasable_db
+        faa_corrections_path = config.project.FAA_type_corrections
 
     else:
         raise NotImplementedError('Code for AIS is not ready yet.')
@@ -93,7 +95,7 @@ if __name__ == '__main__':
     nvspl = Nvspl(nvspl_files)
 
     # Load DEM
-    dem = load_DEM(cfg.read('project', 'dir'), args.unit, args.site)
+    dem = load_DEM(config.project.dir, args.unit, args.site)
 
     logger.info("Launching application...")
     app.launch(

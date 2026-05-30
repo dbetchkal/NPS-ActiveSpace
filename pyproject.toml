@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "NPS-ActiveSpace"
-version = "2.0"
+version = "3.0"
 description = "An NPS Sound Active Space Project."
 requires-python = ">=3.12"
 readme = "README.md"
@@ -19,9 +19,54 @@ maintainers = [
     {name="Davyd Betchkal", email="davyd_betchkal@nps.gov"}
 ]
 
+dependencies = [
+    "contextily>=1.6.2",
+    "geopandas>=1.1.1",
+    "geopy>=2.4.1",
+    "iyore @ git+https://github.com/nationalparkservice/iyore.git@b3b1e3fd025a392bf63bf6c4a8a4eebb887291ec",
+    "KDEpy>=1.1.12",
+    "matplotlib>=3.10.3",
+    "numpy>=2.3.1",
+    "pandas>=2.3.1",
+    "pillow>=11.3.0",
+    "psycopg2>=2.9.10",
+    "pydantic>=2.13.4",
+    "pyproj>=3.7.1",
+    "pyvista>=0.46.3",
+    "rasterio>=1.4.3",
+    "scipy>=1.16.0",
+    "shapely>=2.1.1",
+    "SQLAlchemy>=2.0.41",
+    "tqdm>=4.67.1",
+    "tzwhere>=3.0.3",
+    "pytz>=2025.2",
+    "GDAL @ https://github.com/cgohlke/geospatial-wheels/releases/download/v2025.7.4/gdal-3.11.1-cp312-cp312-win_amd64.whl ; sys_platform == 'win32'",
+    "gdal>=3.13.0 ; sys_platform != 'win32'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.3",
+]
+
 [project.urls]
 repository = "https://github.com/dbetchkal/NPS-ActiveSpace"
-documentation = "https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_active_space"
+documentation = "https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/src/nps_active_space/scripts"
+
+[project.scripts]
+nps-ground-truthing = "nps_active_space.cli:run_ground_truthing"
+nps-audible-transits = "nps_active_space.cli:run_audible_transits"
+nps-generate-active-space = "nps_active_space.cli:generate_active_space"
+nps-generate-active-space-batch = "nps_active_space.cli:generate_active_space_batch"
+nps-generate-active-space-mesh = "nps_active_space.cli:generate_active_space_mesh"
+nps-generate-3d-active-space = "nps_active_space.cli:generate_3d_active_space"
+nps-fit-3d-active-space = "nps_active_space.cli:fit_3d_active_space"
+nps-acoustic-metrics = "nps_active_space.cli:get_acoustic_metrics"
+nps-geographic-metrics = "nps_active_space.cli:get_geographic_metrics"
+nps-plot-altitudes = "nps_active_space.cli:plot_altitudes"
+nps-viz = "nps_active_space.cli:viz"
+nps-check-study-duration = "nps_active_space.cli:check_study_duration_robustness"
+nps-init-config = "nps_active_space.cli:run_init_config"
 
 
 #
@@ -31,9 +76,14 @@ documentation = "https://github.com/dbetchkal/NPS-ActiveSpace/tree/main/nps_acti
 [tool.setuptools]
 package-dir = {"" = "src"}
 
-# Use modern package discovery.
-# This replaces the old py-modules=['nps_active_space'] approach.
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["nps_active_space*"]
 
+[tool.setuptools.package-data]
+nps_active_space = [
+    "config/template.toml",
+    "data/**/*",
+    "img/flat-four-color.ico",
+    "img/flat-four-color.png",
+]
