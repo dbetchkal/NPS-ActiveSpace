@@ -209,13 +209,11 @@ The entire synthesis $\rightarrow$ validation $\rightarrow$ mensuration workflow
 
 ### Foundations
 
-To enable environmental scenario planning, global inputs are grouped in environment **TOML**
-files (see **Step 5** and the [configuration guide](src/nps_active_space/config/README.md)):
-one file per profile (e.g. `DENA.toml`), selected at the CLI with `-e`. Utilities implement
-both data structure models and diverse computation tasks (`.utils`) that are used throughout
-the architecture. 
+To enable environmental scenario planning, global inputs are grouped in environment **TOML** files (see **Step 5** and the [configuration guide](src/nps_active_space/config/README.md)). One file corresponds to a set of inputs (e.g. `DENA.toml` for Denali) and is selected with `-e` by scripts. Utilities implement both data structure models and diverse computation tasks (`.utils`) that are used throughout the architecture. 
 
-The toolkit also requires basic sound source and weather profile data to operate. The provided (`.data`) are a widely applicable example: a fixed-wing propeller aircraft source and a standard "acoustician's atmosphere" with dry adiabatic lapse conditions. The toolkit may be run using alternative, custom sound sources or weather profiles. Bundled `data/` and ground-truthing GUI icons are included in the install via `pyproject.toml` `package-data` so non-editable `pip install` deployments receive them.
+The toolkit also requires basic sound source and weather profile data to operate. The provided (`.data`) are a widely applicable example: a fixed-wing propeller aircraft source and a standard "acoustician's atmosphere" with dry adiabatic lapse conditions. The toolkit may be run using alternative, custom sound sources or weather profiles. 
+
+Bundled `data/` and ground-truthing GUI icons are included in the install via `pyproject.toml` `package-data` so non-editable `pip install` deployments receive them.
 
 ## Intended Use & Status
 
