@@ -431,7 +431,7 @@ class Visualizer():
         self.logger.info(message)
 
     def _add_track_line(
-        self, polyline: pv.PolyData, *, color: str, line_width: int = 4
+        self, polyline: pv.PolyData, *, color: str, line_width: int = 2
     ):
         """Add a track/annotation polyline that reads clearly over the DEM."""
         return self.plotter.add_mesh(
@@ -439,11 +439,11 @@ class Visualizer():
             color=color,
             line_width=line_width,
             render_lines_as_tubes=True,
-            point_size=4,
+            point_size=2,
         )
 
     def _add_annotation_lines(
-        self, polylines: list[pv.PolyData], *, color: str, line_width: int = 3
+        self, polylines: list[pv.PolyData], *, color: str, line_width: int = 2
     ):
         """Add many annotation segments as one mesh (much faster than per-segment tubes)."""
         polylines = [p for p in polylines if p.n_points >= 2]
@@ -454,6 +454,7 @@ class Visualizer():
             mesh,
             color=color,
             line_width=line_width,
+            point_size=2,
             render_lines_as_tubes=False,
         )
 
@@ -855,7 +856,7 @@ class Visualizer():
             if line.is_empty or line.length == 0:
                 continue
             polyline = self._sea_surface_polyline(line)
-            actor = self._add_track_line(polyline, color=self.vessel_track_color, line_width=5)
+            actor = self._add_track_line(polyline, color=self.vessel_track_color)
             actors.append(actor)
 
         if not actors:
