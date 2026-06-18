@@ -161,13 +161,11 @@ def load_DEM(project_dir: str, unit: str, site: str):
 
 
 def get_elevation(DEM, lon: float, lat: float) -> float:
-    """Read elevation at a certain lat/lon from a DEM.
-    """
+    """Read elevation at a certain lat/lon from a DEM."""
     proj = Transformer.from_crs("epsg:4326", DEM.crs, always_xy=True)
     x, y = proj.transform(lon, lat)
     row, col = DEM.index(x, y)
-    elevation = DEM.read(1)[row, col]
-    return elevation
+    return float(DEM.read(1, window=((row, row + 1), (col, col + 1)))[0, 0])
 
 
 def load_studyarea(project_dir: str, unit: str, site: str, year: int, crs: str = None):

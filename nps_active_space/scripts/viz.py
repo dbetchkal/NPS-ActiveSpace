@@ -314,6 +314,7 @@ class Visualizer():
         self.study_area = load_studyarea(self.project_dir, self.unit, self.site, self.year)
         self.crs = NMSIM_bbox_utm(self.study_area)
         self.study_area = self.study_area.to_crs(self.crs)
+        self._to_wgs84 = pyproj.Transformer.from_crs(self.crs, "epsg:4326", always_xy=True)
 
         # plot each element
         self.plotter = pv.Plotter()
@@ -353,6 +354,29 @@ class Visualizer():
             render_lines_as_tubes=True,
             point_size=4,
         )
+
+    def _add_annotation_lines(
+        self, polylines: list[pv.PolyData], *, color: str, line_width: int = 3
+    ):
+        """Add many annotation segments as one mesh (much faster than per-segment tubes)."""
+        polylines = [p for p in polylines if p.n_points >= 2]
+        if not polylines:
+            return None
+        mesh = polylines[0] if len(polylines) == 1 else pv.merge(polylines)
+        return self.plotter.add_mesh(
+            mesh,
+            color=color,
+            line_width=line_width,
+            render_lines_as_tubes=False,
+        )
+
+    @staticmethod
+    def _flat_sea_surface_polyline(
+        linestring: LineString, offset_m: float
+    ) -> pv.PolyData:
+        """Sea-level track at a constant offset — no DEM resampling."""
+        z = np.full(len(linestring.coords), offset_m)
+        return create_polyline_3d(linestring, z=z)
     
     def plot_dem(self, show_scalar_bar: bool = False) -> None:
         # load DEM
@@ -516,12 +540,11 @@ class Visualizer():
     
     def _annotation_z_values(self, linestring: LineString, offset_m: float = 2.0) -> np.ndarray:
         """Per-vertex z for airborne tracks that may pass below the local DEM surface."""
-        to_wgs84 = pyproj.Transformer.from_crs(self.crs, "epsg:4326", always_xy=True)
         z_vals = []
         for coord in np.array(linestring.coords):
             x, y = coord[0], coord[1]
             z = vertex_z_from_coord(coord)
-            lon, lat = to_wgs84.transform(x, y)
+            lon, lat = self._to_wgs84.transform(x, y)
             dem_z = safe_dem_elevation(self.dem, lon, lat)
             if z <= 0 or z < dem_z:
                 z_vals.append(max(dem_z, 0.0) + offset_m)
@@ -532,11 +555,13 @@ class Visualizer():
     def _annotation_polyline(self, linestring: LineString) -> pv.PolyData:
         """Build a 3D polyline for one annotation segment."""
         if is_surface_track(np.array(linestring.coords)):
-            return self._sea_surface_polyline(linestring)
+            return self._flat_sea_surface_polyline(linestring, self.sea_surface_offset_m)
         return create_polyline_3d(linestring, z=self._annotation_z_values(linestring))
 
     def _sea_surface_polyline(self, linestring: LineString) -> pv.PolyData:
         """Build a 3D polyline that follows the local water/ground surface."""
+        if is_surface_track(np.array(linestring.coords)):
+            return self._flat_sea_surface_polyline(linestring, self.sea_surface_offset_m)
         line, z_vals = sea_surface_z_profile(
             linestring,
             self.dem,
@@ -594,26 +619,37 @@ class Visualizer():
 
         audible_actors = []
         inaudible_actors = []
+        audible_polylines: list[pv.PolyData] = []
+        inaudible_polylines: list[pv.PolyData] = []
         n_plotted = 0
         n_skipped = 0
         for _, annot in tqdm(
             annotations.iterrows(),
             total=len(annotations),
-            desc="Plotting annotations",
+            desc="Building annotation lines",
             unit="segment",
         ):
-            color = "deepskyblue" if annot["audible"] else "red"
             for line in iter_plot_linestrings(annot["geometry"]):
                 polyline = self._annotation_polyline(line)
                 if polyline.n_points < 2:
                     n_skipped += 1
                     continue
-                actor = self._add_track_line(polyline, color=color)
                 n_plotted += 1
                 if annot["audible"]:
-                    audible_actors.append(actor)
+                    audible_polylines.append(polyline)
                 else:
-                    inaudible_actors.append(actor)
+                    inaudible_polylines.append(polyline)
+
+        audible_actor = self._add_annotation_lines(
+            audible_polylines, color=self.audible_annotation_color
+        )
+        if audible_actor is not None:
+            audible_actors.append(audible_actor)
+        inaudible_actor = self._add_annotation_lines(
+            inaudible_polylines, color=self.inaudible_annotation_color
+        )
+        if inaudible_actor is not None:
+            inaudible_actors.append(inaudible_actor)
 
         if n_plotted == 0:
             self._status(
@@ -623,8 +659,9 @@ class Visualizer():
             )
             return
         self._status(
-            f"Plotted {n_plotted} annotation line(s) "
-            f"({len(audible_actors)} audible, {len(inaudible_actors)} inaudible; "
+            f"Plotted {n_plotted} annotation line(s) in "
+            f"{len(audible_actors) + len(inaudible_actors)} mesh(es) "
+            f"({len(audible_polylines)} audible, {len(inaudible_polylines)} inaudible; "
             f"{n_skipped} skipped)"
         )
         

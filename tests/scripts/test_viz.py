@@ -6,6 +6,7 @@ import pytest
 from shapely.geometry import LineString, MultiLineString, Point
 
 from nps_active_space.scripts.viz import (
+    Visualizer,
     create_polyline_3d,
     densify_linestring,
     format_annotation_summary,
@@ -168,6 +169,14 @@ class TestFormatAnnotationSummary:
         assert "1 audible" in summary
         assert "1 sea-surface" in summary
         assert "1 elevated" in summary
+
+
+class TestFlatSeaSurfacePolyline:
+    def test_uses_constant_offset_without_dem(self):
+        line = LineString([(0, 0), (1000, 0), (2000, 0)])
+        poly = Visualizer._flat_sea_surface_polyline(line, offset_m=5.0)
+        assert poly.n_points == 3
+        assert np.all(poly.points[:, 2] == pytest.approx(5.0))
 
 
 class TestVertexZAndSurfaceTrack:
