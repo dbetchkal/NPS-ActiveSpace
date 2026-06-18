@@ -17,3 +17,6 @@
 # config files
 nps_active_space/config/*
 !nps_active_space/config/template.config
+
+# Generated Index
+example_data/ADS-B/healy_repeater/index.txt
