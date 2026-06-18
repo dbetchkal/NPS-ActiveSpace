@@ -50,13 +50,16 @@ def get_acoustic_metrics(
 
     # process track source
     adsb_dir = None
+    ais_path = None
     match track_source:
         case TrackSource.ADSB:
             adsb_dir = cfg.read("data", "adsb")
         case TrackSource.AIS:
-            raise NotImplementedError('Code for AIS is not ready yet.')
-    
-    obs_periods = get_obs_periods(unit, site, year, nvspl_archive, adsb_dir)
+            ais_path = cfg.read("data", "ais")
+
+    obs_periods = get_obs_periods(
+        unit, site, year, nvspl_archive, adsb_dir=adsb_dir, ais_path=ais_path
+    )
     print(f"Time periods with acoustic and causal data:\n{obs_periods}")
 
     # load SRCID files (true acoustic record)
