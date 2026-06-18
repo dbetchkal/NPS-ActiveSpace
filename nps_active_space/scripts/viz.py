@@ -8,9 +8,10 @@ import rasterio
 import pyproj
 import sys
 from shapely.geometry import box, Polygon, MultiPolygon, LineString, MultiLineString
-from nps_active_space.utils.helpers import get_deployment, load_annotations, load_DEM, load_layered_activespace, load_studyarea
+from nps_active_space.utils.ais import query_ais_mxak
+from nps_active_space.utils.helpers import get_deployment, get_elevation, load_annotations, load_DEM, load_layered_activespace, load_studyarea
 from nps_active_space.scripts.run_audible_transits import AudibleTransits
-from nps_active_space.utils.models import Annotations
+from nps_active_space.utils.models import Annotations, Tracks
 from nps_active_space.utils.computation import NMSIM_bbox_utm
 import nps_active_space.utils.config as cfg
 import argparse
@@ -43,17 +44,63 @@ def active_to_linestrings(active):
     return linestrings
 
 
+def densify_linestring(linestring: LineString, step_m: float) -> LineString:
+    """Insert vertices along a line so elevation can be sampled between sparse AIS points."""
+    if linestring.is_empty or linestring.length <= step_m:
+        return linestring
+    distances = np.arange(0, linestring.length, step_m)
+    if distances[-1] < linestring.length:
+        distances = np.append(distances, linestring.length)
+    return LineString([linestring.interpolate(float(d)) for d in distances])
+
+
+def sea_surface_z_profile(
+    linestring: LineString,
+    dem,
+    crs: str,
+    *,
+    offset_m: float = 5.0,
+    densify_step_m: float = 100.0,
+) -> tuple[LineString, np.ndarray]:
+    """Return a densified line and z values hugging the DEM water surface (≈0 m)."""
+    line = densify_linestring(linestring, densify_step_m)
+    to_wgs84 = pyproj.Transformer.from_crs(crs, "epsg:4326", always_xy=True)
+    z_vals = []
+    for x, y in np.array(line.coords)[:, :2]:
+        lon, lat = to_wgs84.transform(x, y)
+        dem_z = float(get_elevation(dem, lon, lat))
+        # NMSIM DEM uses 0 m over water; keep tracks slightly above the mesh to avoid z-fighting.
+        z_vals.append(max(dem_z, 0.0) + offset_m)
+    return line, np.asarray(z_vals)
+
+
 def create_polyline_3d(linestring, z=None):
     coords = np.array(linestring.coords)
+    xy = coords[:, :2]
     if z is not None:
-        coords = np.column_stack((coords, np.full(coords.shape[0], z)))
+        z_arr = np.atleast_1d(np.asarray(z, dtype=float))
+        if z_arr.size != coords.shape[0]:
+            raise ValueError(
+                f"z must be scalar or have one value per vertex ({coords.shape[0]}), got {z_arr.size}"
+            )
+        coords = np.column_stack((xy, z_arr))
+    elif coords.shape[1] == 2:
+        coords = np.column_stack((xy, np.zeros(coords.shape[0])))
     assert coords.shape[1] == 3
-    coords[:,2] = np.clip(coords[:,2], 0, 10000)  # reduce magnitude of erroneous elevations
+    coords[:, 2] = np.clip(coords[:, 2], 0, 10000)  # reduce magnitude of erroneous elevations
     n_points = coords.shape[0]
     lines = np.hstack([[n_points], np.arange(n_points)])
     poly = pv.PolyData(coords)
     poly.lines = lines
     return poly
+
+
+def track_points_to_linestring(track_points: gpd.GeoDataFrame) -> LineString:
+    """Connect ordered track points into a 2D line in the plot CRS."""
+    coords = [(geom.x, geom.y) for geom in track_points.geometry]
+    if len(coords) < 2:
+        return LineString(coords)
+    return LineString(coords)
 
 
 
@@ -67,11 +114,15 @@ class Visualizer():
     audible_annotation_color = "deepskyblue"
     inaudible_annotation_color = "red"
     audible_transits_color = "purple"
+    vessel_track_color = "cyan"
     z_scale_toggle_color = "black"  # button toggling z scale
+    sea_surface_offset_m = 5.0
+    sea_surface_densify_step_m = 100.0
 
     def __init__(self, unit, site, year, env, do_active=False, gain=None,
-                 do_annots=False, do_transits=False,
+                 do_annots=False, do_transits=False, do_vessels=False,
                  annotation_file=None, audible_transits_pkl=None,
+                 vessel_start_date=None, vessel_end_date=None,
                  terraced=False, fill_layers=False, max_tracks=1000,
                  ):
         # class metadata
@@ -99,6 +150,8 @@ class Visualizer():
             self.plot_annotations(annotation_file)
         if do_transits:
             self.plot_audible_transits(audible_transits_pkl)
+        if do_vessels:
+            self.plot_vessel_tracks(vessel_start_date, vessel_end_date)
 
         # configure plot parameters and display
         self.plotter.camera_position = "xz"
@@ -111,7 +164,8 @@ class Visualizer():
     
     def plot_dem(self, show_scalar_bar=False):
         # load DEM
-        dem = load_DEM(self.project_dir, self.unit, self.site)    
+        dem = load_DEM(self.project_dir, self.unit, self.site)
+        self.dem = dem
         data = dem.read(1)
         if dem.nodata is not None:
             data[data == dem.nodata] = 0
@@ -266,6 +320,44 @@ class Visualizer():
             color_on=self.activespace_color
         )
     
+    def _annotation_z_values(self, linestring, offset_m: float = 2.0) -> np.ndarray:
+        """Sample DEM elevation when track z is at or below the surface (e.g. vessel annotations)."""
+        coords = np.array(linestring.coords)
+        vertex_z = [coord[2] if len(coord) > 2 else 0.0 for coord in coords]
+        if all(z <= 0 for z in vertex_z):
+            _, z_vals = sea_surface_z_profile(
+                linestring,
+                self.dem,
+                self.crs,
+                offset_m=offset_m,
+                densify_step_m=self.sea_surface_densify_step_m,
+            )
+            return z_vals
+
+        to_wgs84 = pyproj.Transformer.from_crs(self.crs, "epsg:4326", always_xy=True)
+        z_vals = []
+        for coord in coords:
+            x, y = coord[0], coord[1]
+            z = coord[2] if len(coord) > 2 else 0.0
+            lon, lat = to_wgs84.transform(x, y)
+            dem_z = float(get_elevation(self.dem, lon, lat))
+            if z <= 0 or z < dem_z:
+                z_vals.append(max(dem_z, 0.0) + offset_m)
+            else:
+                z_vals.append(z)
+        return np.asarray(z_vals)
+
+    def _sea_surface_polyline(self, linestring: LineString) -> pv.PolyData:
+        """Build a 3D polyline that follows the local water/ground surface."""
+        line, z_vals = sea_surface_z_profile(
+            linestring,
+            self.dem,
+            self.crs,
+            offset_m=self.sea_surface_offset_m,
+            densify_step_m=self.sea_surface_densify_step_m,
+        )
+        return create_polyline_3d(line, z=z_vals)
+
     def plot_annotations(self, annotation_file=None):
         # load annotations
         if annotation_file is None:
@@ -296,7 +388,14 @@ class Visualizer():
         inaudible_actors = []
         for _, annot in annotations.iterrows():
             color = "deepskyblue" if annot["audible"] else "red"
-            polyline = create_polyline_3d(annot["geometry"])
+            geometry = annot["geometry"]
+            coords = np.array(geometry.coords)
+            vertex_z = [c[2] if len(c) > 2 else 0.0 for c in coords]
+            if all(z <= 0 for z in vertex_z):
+                polyline = self._sea_surface_polyline(geometry)
+            else:
+                z_vals = self._annotation_z_values(geometry)
+                polyline = create_polyline_3d(geometry, z=z_vals)
             actor = self.plotter.add_mesh(polyline, color=color, point_size=2, line_width=2)
             if annot["audible"]:
                 audible_actors.append(actor)
@@ -373,6 +472,70 @@ class Visualizer():
             color_on="purple"
         )
 
+    def plot_vessel_tracks(self, start_date: str | None = None, end_date: str | None = None):
+        """Plot MXAK AIS vessel transits at the local sea surface."""
+        start_date = start_date or f"{self.year}-01-01"
+        end_date = end_date or f"{self.year}-12-31"
+
+        try:
+            ais_path = cfg.read("data", "ais")
+        except KeyError:
+            print("No [data] ais path in config, skipping vessel tracks.")
+            return
+
+        print(f"Querying AIS tracks from {start_date} to {end_date}")
+        try:
+            raw_tracks = query_ais_mxak(
+                ais_path=ais_path,
+                start_date=start_date,
+                end_date=end_date,
+                mask=self.study_area,
+            )
+        except AssertionError as exc:
+            print(f"No AIS tracks loaded: {exc}")
+            return
+        tracks = Tracks(raw_tracks, id_col="event_id", datetime_col="TIME", z_col="altitude")
+        tracks = tracks.to_crs(self.crs)
+
+        track_ids = tracks["track_id"].drop_duplicates()
+        print(f"{len(track_ids)} vessel transits ({len(tracks)} points)")
+        if len(track_ids) > self.max_tracks:
+            print(f"More than {self.max_tracks}, sampling")
+            selected = track_ids.sample(self.max_tracks, replace=False, random_state=3)
+            tracks = tracks[tracks["track_id"].isin(selected)]
+            print(f"Showing {selected.nunique()} transits")
+
+        actors = []
+        for track_id, group in tracks.groupby("track_id", sort=False):
+            group = group.sort_values("point_dt")
+            line = track_points_to_linestring(group)
+            if line.is_empty or line.length == 0:
+                continue
+            polyline = self._sea_surface_polyline(line)
+            actor = self.plotter.add_mesh(
+                polyline,
+                color=self.vessel_track_color,
+                point_size=2,
+                line_width=3,
+            )
+            actors.append(actor)
+
+        if not actors:
+            print("No vessel tracks to plot.")
+            return
+
+        def toggle(flag):
+            for actor in actors:
+                actor.SetVisibility(flag)
+
+        self.plotter.add_checkbox_button_widget(
+            callback=toggle,
+            value=True,
+            position=(10, 220),
+            size=25,
+            color_on=self.vessel_track_color,
+        )
+
     def setup_z_scale(self):
         self.plotter.set_scale(1, 1, 2)  # easier to make out elevation differences
 
@@ -408,6 +571,8 @@ if __name__ == "__main__":
                         help="If included, load and plot annotations")
     parser.add_argument("-t", "--audible-transits", action="store_true",
                         help="If included, load and plot audible transits")
+    parser.add_argument("-v", "--vessels", action="store_true",
+                        help="If included, load and plot MXAK AIS vessel tracks at sea level")
     parser.add_argument("--all", action="store_true",
                         help="Load everything, shorthand for --active-space --annotations --audible-transits")
 
@@ -416,6 +581,8 @@ if __name__ == "__main__":
                         help="Maximum number of annotation tracks or audible transits to show.")
     parser.add_argument("--annotation-file", help="Path to .geojson file to load annotations from, if not the default.")
     parser.add_argument("--transits-pkl", help="Path to .pkl file to load audible transits from, if not the default.")
+    parser.add_argument("--start-date", help="AIS query start date (YYYY-MM-DD). Default: Jan 1 of deployment year.")
+    parser.add_argument("--end-date", help="AIS query end date (YYYY-MM-DD). Default: Dec 31 of deployment year.")
     parser.add_argument("--terraced", action="store_true",
                         help="If included, render the active space as the terraced surface instead of contours.")
     parser.add_argument("--fill-layers", action="store_true",
@@ -430,9 +597,11 @@ if __name__ == "__main__":
     do_active = args.active_space or args.all
     do_annotations = args.annotations or args.all
     do_transits = args.audible_transits or args.all
+    do_vessels = args.vessels
 
     Visualizer(unit, site, year, args.environment,
                do_active, args.gain,
-               do_annotations, do_transits,
+               do_annotations, do_transits, do_vessels,
                args.annotation_file, args.transits_pkl,
+               args.start_date, args.end_date,
                args.terraced, args.fill_layers, args.max_tracks)
