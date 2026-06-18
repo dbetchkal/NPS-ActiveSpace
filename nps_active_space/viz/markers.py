@@ -1,5 +1,27 @@
 """Scene orientation markers and viewport chrome."""
 
+from __future__ import annotations
+
+from pathlib import Path
+
+import pyvista as pv
+
+WINDOW_TITLE = "NPS ActiveSpace Visualization"
+_ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+DEFAULT_WINDOW_ICON = _ASSETS_DIR / "waypoint_icon.png"
+
+
+def default_window_icon_path() -> Path:
+    """Bundled waypoint/map-pin PNG for the native window icon."""
+    return DEFAULT_WINDOW_ICON
+
+
+def apply_window_icon(plotter: pv.Plotter, icon_path: Path | None = None) -> None:
+    """Apply the window icon when a PNG is available (no-op if missing)."""
+    path = DEFAULT_WINDOW_ICON if icon_path is None else icon_path
+    if path.is_file():
+        set_window_icon(plotter, path)
+
 
 def utm_orientation_axes_kwargs() -> dict:
     """Orientation-marker kwargs for UTM scenes (+X east, +Y north).
@@ -15,3 +37,20 @@ def utm_orientation_axes_kwargs() -> dict:
         "zlabel": "Z",
         "viewport": (0, 0, 0.2, 0.2),
     }
+
+
+def set_window_icon(plotter: pv.Plotter, icon_path: str | Path) -> None:
+    """Set the native window icon from a PNG file.
+
+    Works on Windows and many Linux window managers. macOS often ignores VTK
+    window icons; use a bundled .icns via a Qt wrapper if dock icon matters.
+    """
+    from vtkmodules.vtkIOImage import vtkPNGReader
+
+    path = Path(icon_path)
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    reader = vtkPNGReader()
+    reader.SetFileName(str(path))
+    reader.Update()
+    plotter.render_window.SetIcon(reader.GetOutput())

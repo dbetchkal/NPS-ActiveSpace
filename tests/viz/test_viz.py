@@ -197,6 +197,16 @@ class TestAnnotationZProfile:
 
 
 class TestOrientationWidgets:
+    def test_window_title_constant(self):
+        from nps_active_space.viz.markers import WINDOW_TITLE
+
+        assert WINDOW_TITLE == "NPS ActiveSpace Visualization"
+
+    def test_bundled_waypoint_icon_exists(self):
+        from nps_active_space.viz.markers import default_window_icon_path
+
+        assert default_window_icon_path().is_file()
+
     def test_utm_axes_use_east_north_up_labels(self):
         kwargs = utm_orientation_axes_kwargs()
         assert kwargs["xlabel"] == "E"
