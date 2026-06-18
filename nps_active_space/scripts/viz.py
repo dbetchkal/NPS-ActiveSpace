@@ -160,6 +160,77 @@ def is_surface_track(coords: np.ndarray) -> bool:
     return all(vertex_z_from_coord(c) <= 0.0 for c in coords)
 
 
+def is_airborne_track(coords: np.ndarray) -> bool:
+    """True when every vertex has positive stored elevation (aircraft spline z)."""
+    return all(vertex_z_from_coord(c) > 0.0 for c in coords)
+
+
+def stored_vertex_z(linestring: LineString) -> np.ndarray:
+    """Elevation from annotation geometry coordinates."""
+    return np.array([vertex_z_from_coord(c) for c in linestring.coords])
+
+
+class DemElevationSampler:
+    """Sample elevations from an in-memory DEM band (no per-point raster I/O)."""
+
+    def __init__(self, dem, band: np.ndarray, plot_crs: str) -> None:
+        self.dem = dem
+        self.band = np.asarray(band, dtype=float).copy()
+        if dem.nodata is not None:
+            self.band[self.band == dem.nodata] = 0.0
+        self.band[self.band > 9000] = 0.0
+        self._to_dem = pyproj.Transformer.from_crs(plot_crs, dem.crs, always_xy=True)
+
+    def sample_utm_many(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
+        x = np.asarray(x, dtype=float)
+        y = np.asarray(y, dtype=float)
+        dem_x, dem_y = self._to_dem.transform(x, y)
+        rows, cols = self.dem.index(dem_x, dem_y)
+        rows = np.atleast_1d(rows).astype(int)
+        cols = np.atleast_1d(cols).astype(int)
+        in_bounds = (
+            (rows >= 0)
+            & (rows < self.band.shape[0])
+            & (cols >= 0)
+            & (cols < self.band.shape[1])
+        )
+        elev = np.zeros(rows.shape[0], dtype=float)
+        if in_bounds.any():
+            samples = self.band[rows[in_bounds], cols[in_bounds]]
+            elev[in_bounds] = np.where(np.isfinite(samples), samples, 0.0)
+        return elev
+
+
+def annotation_z_profile(
+    linestring: LineString,
+    dem_sampler: DemElevationSampler | None,
+    *,
+    offset_m: float = 2.0,
+) -> np.ndarray:
+    """Per-vertex z for annotation segments.
+
+    Aircraft splines already carry MSL elevation in geometry; only vertices at or
+    below sea level need a local DEM clamp (vessels use the flat sea-surface path).
+    """
+    z_stored = stored_vertex_z(linestring)
+    if np.all(z_stored > 0):
+        return z_stored
+    if dem_sampler is None:
+        return z_stored
+    coords = np.array(linestring.coords)
+    need_dem = z_stored <= 0
+    if not need_dem.any():
+        return z_stored
+    dem_z = dem_sampler.sample_utm_many(coords[need_dem, 0], coords[need_dem, 1])
+    z_out = z_stored.copy()
+    for j, i in enumerate(np.where(need_dem)[0]):
+        z = z_stored[i]
+        dz = float(dem_z[j])
+        if z <= 0 or z < dz:
+            z_out[i] = max(dz, 0.0) + offset_m
+    return z_out
+
+
 def safe_dem_elevation(dem, lon: float, lat: float) -> float:
     """Sample DEM elevation, returning 0 m when the point is off-raster or nodata."""
     try:
@@ -402,6 +473,7 @@ class Visualizer():
         if dem.nodata is not None:
             data[data == dem.nodata] = 0
         data[data > 9000] = 0  # higher than any elevation on earth, should be nodata
+        self._dem_sampler = DemElevationSampler(dem, data, self.crs)
         
         # convert x and y coord of each DEM pixel to the CRS
         # we are not interpolating the DEM, just taking the points corresponding to each pixel
@@ -554,25 +626,15 @@ class Visualizer():
             color_on=self.activespace_color
         )
     
-    def _annotation_z_values(self, linestring: LineString, offset_m: float = 2.0) -> np.ndarray:
-        """Per-vertex z for airborne tracks that may pass below the local DEM surface."""
-        z_vals = []
-        for coord in np.array(linestring.coords):
-            x, y = coord[0], coord[1]
-            z = vertex_z_from_coord(coord)
-            lon, lat = self._to_wgs84.transform(x, y)
-            dem_z = safe_dem_elevation(self.dem, lon, lat)
-            if z <= 0 or z < dem_z:
-                z_vals.append(max(dem_z, 0.0) + offset_m)
-            else:
-                z_vals.append(z)
-        return np.asarray(z_vals)
-
     def _annotation_polyline(self, linestring: LineString) -> pv.PolyData:
         """Build a 3D polyline for one annotation segment."""
-        if is_surface_track(np.array(linestring.coords)):
+        coords = np.array(linestring.coords)
+        if is_surface_track(coords):
             return self._flat_sea_surface_polyline(linestring, self.sea_surface_offset_m)
-        return create_polyline_3d(linestring, z=self._annotation_z_values(linestring))
+        return create_polyline_3d(
+            linestring,
+            z=annotation_z_profile(linestring, self._dem_sampler),
+        )
 
     def _sea_surface_polyline(self, linestring: LineString) -> pv.PolyData:
         """Build a 3D polyline that follows the local water/ground surface."""

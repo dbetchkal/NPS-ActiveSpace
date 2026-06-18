@@ -7,6 +7,7 @@ from shapely.geometry import LineString, MultiLineString, Point
 
 from nps_active_space.scripts.viz import (
     Visualizer,
+    annotation_z_profile,
     create_polyline_3d,
     densify_linestring,
     format_annotation_summary,
@@ -19,6 +20,7 @@ from nps_active_space.scripts.viz import (
     resolve_viz_plot_flags,
     sea_surface_z_profile,
     track_points_to_linestring,
+    utm_orientation_axes_kwargs,
     vertex_z_from_coord,
 )
 
@@ -171,14 +173,36 @@ class TestFormatAnnotationSummary:
         assert "1 elevated" in summary
 
 
+class TestAnnotationZProfile:
+    def test_airborne_uses_stored_z_without_dem(self):
+        line = LineString([(0, 0, 1500.0), (1, 1, 2000.0), (2, 2, 1800.0)])
+
+        class _FailSampler:
+            def sample_utm_many(self, x, y):
+                raise AssertionError("DEM sampling should be skipped for airborne tracks")
+
+        z = annotation_z_profile(line, _FailSampler())
+        assert z.tolist() == [1500.0, 2000.0, 1800.0]
+
+    def test_surface_vertices_clamped_to_dem(self):
+        line = LineString([(0, 0, 0.0), (1, 1, 250.0)])
+
+        class _FakeSampler:
+            def sample_utm_many(self, x, y):
+                return np.full(len(x), 100.0)
+
+        z = annotation_z_profile(line, _FakeSampler(), offset_m=2.0)
+        assert z[0] == pytest.approx(102.0)
+        assert z[1] == pytest.approx(250.0)
+
+
 class TestOrientationWidgets:
-    def test_compass_viewport_sits_right_of_axes(self):
-        ax = Visualizer.axes_viewport
-        compass = Visualizer.compass_viewport
-        assert ax[0] == 0.0
-        assert compass[0] == pytest.approx(ax[2])
-        assert compass[2] > compass[0]
-        assert compass[3] == pytest.approx(ax[3])
+    def test_utm_axes_use_east_north_up_labels(self):
+        kwargs = utm_orientation_axes_kwargs()
+        assert kwargs["xlabel"] == "E"
+        assert kwargs["ylabel"] == "N"
+        assert kwargs["zlabel"] == "Z"
+        assert kwargs["viewport"] == (0, 0, 0.2, 0.2)
 
 
 class TestFlatSeaSurfacePolyline:
