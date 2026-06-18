@@ -85,6 +85,24 @@ def parse_max_tracks(value: str) -> int:
     return n
 
 
+def resolve_viz_plot_flags(
+    *,
+    active_space: bool = False,
+    annotations: bool = False,
+    audible_transits: bool = False,
+    vessels: bool = False,
+    plot_all: bool = False,
+    annotation_file: str | None = None,
+    transits_pkl: str | None = None,
+) -> tuple[bool, bool, bool, bool]:
+    """Map CLI flags to Visualizer layer toggles."""
+    do_active = active_space or plot_all
+    do_annotations = annotations or plot_all or annotation_file is not None
+    do_transits = audible_transits or plot_all or transits_pkl is not None
+    do_vessels = vessels
+    return do_active, do_annotations, do_transits, do_vessels
+
+
 # helper functions ============================================
 
 def polygon_to_mesh(polygon: Polygon, z: float) -> pv.PolyData:
@@ -290,7 +308,7 @@ class Visualizer():
         self.project_dir = cfg.read("project", "dir")
         self.fill_layers = fill_layers
         self.max_tracks = max_tracks
-        self.logger = get_logger("VIZ")
+        self.logger = get_logger("VIZ", verbose=True)
 
         # study area and crs
         self.study_area = load_studyarea(self.project_dir, self.unit, self.site, self.year)
@@ -311,13 +329,30 @@ class Visualizer():
             self.plot_vessel_tracks(vessel_start_date, vessel_end_date)
 
         # configure plot parameters and display
-        self.plotter.camera_position = "xz"
-        self.plotter.camera.elevation = 45
         self.plotter.enable_terrain_style()
         self.setup_z_scale()
         self.plotter.add_title(f"{unit}{site}{year}", font_size=12)
         self.plotter.show_axes()
+        self.plotter.reset_camera()
+        self.plotter.camera.elevation = 30
         self.plotter.show()
+
+    def _status(self, message: str) -> None:
+        """Print and log a user-facing status line (visible when run via python)."""
+        print(message, flush=True)
+        self.logger.info(message)
+
+    def _add_track_line(
+        self, polyline: pv.PolyData, *, color: str, line_width: int = 4
+    ):
+        """Add a track/annotation polyline that reads clearly over the DEM."""
+        return self.plotter.add_mesh(
+            polyline,
+            color=color,
+            line_width=line_width,
+            render_lines_as_tubes=True,
+            point_size=4,
+        )
     
     def plot_dem(self, show_scalar_bar: bool = False) -> None:
         # load DEM
@@ -513,43 +548,46 @@ class Visualizer():
 
     def plot_annotations(self, annotation_file: str | None = None) -> None:
         if annotation_file is None:
-            self.logger.info(
+            self._status(
                 f"Loading annotations from project dir for {self.deployment} (valid only)"
             )
             annotations = load_annotations(
                 self.project_dir, self.unit, self.site, self.year, only_valid=True
             )
         else:
-            self.logger.info(f"Loading annotations from {annotation_file} (valid only)")
+            self._status(f"Loading annotations from {annotation_file} (valid only)")
             annotations = Annotations(annotation_file, only_valid=True)
 
-        self.logger.info(f"Parsed annotations: {format_annotation_summary(annotations)}")
+        self._status(f"Parsed annotations: {format_annotation_summary(annotations)}")
         if annotations.empty:
-            self.logger.info("No annotations found, skipping.")
+            self._status("No annotations found, skipping.")
             return
 
         track_ids = annotations["_id"].drop_duplicates()
         if len(track_ids) > self.max_tracks:
-            self.logger.info(
+            self._status(
                 f"Sampling {self.max_tracks} of {len(track_ids)} tracks "
                 f"({len(annotations)} segments before sample)"
             )
             selected_track_ids = track_ids.sample(self.max_tracks, replace=False, random_state=2)
             annotations = annotations[annotations["_id"].isin(selected_track_ids)]
-            self.logger.info(
-                f"After sample: {format_annotation_summary(annotations)}"
-            )
+            self._status(f"After sample: {format_annotation_summary(annotations)}")
 
         n_loaded = len(annotations)
-        self.logger.info(f"Reprojecting annotations to {self.crs} and clipping to study area")
+        self._status(f"Reprojecting annotations to {self.crs} and clipping to study area")
         annotations = annotations.to_crs(self.crs)
+        ann_bounds = annotations.total_bounds
+        study_bounds = self.study_area.total_bounds
+        self._status(f"Annotation bounds: {ann_bounds}")
+        self._status(f"Study area bounds: {study_bounds}")
+
         n_empty = int(annotations.geometry.is_empty.sum())
         if n_empty:
-            self.logger.info(f"Dropping {n_empty} empty geometries before clip")
+            self._status(f"Dropping {n_empty} empty geometries before clip")
         annotations = annotations[~annotations.geometry.is_empty]
-        annotations = annotations.clip(box(*self.study_area.total_bounds))
+        annotations = annotations.clip(box(*study_bounds))
         annotations = annotations[~annotations.geometry.is_empty].explode(ignore_index=True)
-        self.logger.info(
+        self._status(
             f"After clip: {len(annotations)} segments "
             f"({n_loaded - len(annotations)} removed outside study area)"
         )
@@ -570,9 +608,7 @@ class Visualizer():
                 if polyline.n_points < 2:
                     n_skipped += 1
                     continue
-                actor = self.plotter.add_mesh(
-                    polyline, color=color, point_size=2, line_width=2
-                )
+                actor = self._add_track_line(polyline, color=color)
                 n_plotted += 1
                 if annot["audible"]:
                     audible_actors.append(actor)
@@ -580,13 +616,13 @@ class Visualizer():
                     inaudible_actors.append(actor)
 
         if n_plotted == 0:
-            self.logger.info(
+            self._status(
                 f"No annotation segments plotted ({n_loaded} loaded; "
                 f"{n_skipped} degenerate lines skipped). "
                 "Check CRS and study-area overlap."
             )
             return
-        self.logger.info(
+        self._status(
             f"Plotted {n_plotted} annotation line(s) "
             f"({len(audible_actors)} audible, {len(inaudible_actors)} inaudible; "
             f"{n_skipped} skipped)"
@@ -704,12 +740,7 @@ class Visualizer():
             if line.is_empty or line.length == 0:
                 continue
             polyline = self._sea_surface_polyline(line)
-            actor = self.plotter.add_mesh(
-                polyline,
-                color=self.vessel_track_color,
-                point_size=2,
-                line_width=3,
-            )
+            actor = self._add_track_line(polyline, color=self.vessel_track_color, line_width=5)
             actors.append(actor)
 
         if not actors:
@@ -783,12 +814,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--annotation-file",
         type=lambda p: parse_existing_file(p, arg_name="--annotation-file"),
-        help="Path to .geojson file to load annotations from, if not the default.",
+        help="Path to .geojson annotations (implies -a).",
     )
     parser.add_argument(
         "--transits-pkl",
         type=lambda p: parse_existing_file(p, arg_name="--transits-pkl"),
-        help="Path to .pkl file to load audible transits from, if not the default.",
+        help="Path to .pkl audible transits (implies -t).",
     )
     parser.add_argument(
         "--start-date",
@@ -810,10 +841,15 @@ if __name__ == "__main__":
     unit, site, year = args.deployment
     print(unit, site, year)
 
-    do_active = args.active_space or args.all
-    do_annotations = args.annotations or args.all
-    do_transits = args.audible_transits or args.all
-    do_vessels = args.vessels
+    do_active, do_annotations, do_transits, do_vessels = resolve_viz_plot_flags(
+        active_space=args.active_space,
+        annotations=args.annotations,
+        audible_transits=args.audible_transits,
+        vessels=args.vessels,
+        plot_all=args.all,
+        annotation_file=args.annotation_file,
+        transits_pkl=args.transits_pkl,
+    )
 
     Visualizer(unit, site, year, args.environment,
                do_active, args.gain,

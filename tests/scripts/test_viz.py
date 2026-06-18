@@ -15,6 +15,7 @@ from nps_active_space.scripts.viz import (
     parse_existing_file,
     parse_iso_date,
     parse_max_tracks,
+    resolve_viz_plot_flags,
     sea_surface_z_profile,
     track_points_to_linestring,
     vertex_z_from_coord,
@@ -62,6 +63,20 @@ class TestParseExistingFile:
     def test_missing_file(self, tmp_path: Path):
         with pytest.raises(argparse.ArgumentTypeError, match="file not found"):
             parse_existing_file(str(tmp_path / "missing.geojson"), arg_name="--transits-pkl")
+
+
+class TestResolveVizPlotFlags:
+    def test_annotation_file_implies_annotations(self):
+        flags = resolve_viz_plot_flags(annotation_file="/tmp/a.geojson")
+        assert flags == (False, True, False, False)
+
+    def test_transits_pkl_implies_transits(self):
+        flags = resolve_viz_plot_flags(transits_pkl="/tmp/t.pkl")
+        assert flags == (False, False, True, False)
+
+    def test_all_enables_standard_layers(self):
+        flags = resolve_viz_plot_flags(plot_all=True)
+        assert flags == (True, True, True, False)
 
 
 class TestParseMaxTracks:
