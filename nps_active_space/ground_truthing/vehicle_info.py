@@ -54,3 +54,26 @@ def lookup_aircraft(
             aircraft_help_text = f"ICAO Address: {faa_row["MODE S CODE HEX"]}"
     aircraft_type = faa_row["TYPE AIRCRAFT"] if faa_row is not None else None
     return faa_row, aircraft_help_text, aircraft_type
+
+
+def lookup_vessel(
+    database_type: str,
+    track_id: str,
+    points: gpd.GeoDataFrame,
+) -> tuple[str | None, str | None, str | None]:
+    """Look up help text, vessel type, and vessel name for a track."""
+    if database_type != "AIS":
+        return None, None, None
+
+    mmsi = track_id.split("_")[0]
+    help_text = f"MMSI: {mmsi}"
+
+    vessel_name = None
+    if "ship_name" in points.columns and points["ship_name"].notna().any():
+        vessel_name = points["ship_name"].dropna().iloc[0]
+
+    vessel_type = None
+    if "shiptype" in points.columns and points["shiptype"].notna().any():
+        vessel_type = points["shiptype"].dropna().iloc[0]
+
+    return help_text, vessel_type, vessel_name

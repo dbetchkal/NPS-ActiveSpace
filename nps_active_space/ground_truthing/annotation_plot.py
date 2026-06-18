@@ -203,10 +203,26 @@ def build_plot(frame: "_GroundTruthingFrame") -> None:
 
     # --------------------------------- Update Track Labels and Event Handling --------------------------------- #
 
+    if frame.master.database_type == "AIS":
+        type_line = (
+            f"Vessel type: {frame.aircraft_type}\n"
+            if frame.aircraft_type is not None else ""
+        )
+        name_line = (
+            f"Vessel: {frame.vessel_name}\n"
+            if getattr(frame, "vessel_name", None) is not None else ""
+        )
+    else:
+        type_line = (
+            f"Aircraft Type: {frame.aircraft_type}\n"
+            if frame.aircraft_type is not None else ""
+        )
+        name_line = ""
+
     frame.track_label.config(text=f"Microphone: {frame.master.mic.name}\n\n" + \
                                  f"Track Id: {frame.track_id}\n" + \
                                  (f"{frame.aircraft_help_text}\n" if frame.aircraft_help_text is not None else "") + \
-                                 (f"Aircraft Type: {frame.aircraft_type}\n" if frame.aircraft_type is not None else "") + \
+                                 name_line + type_line + \
                                  f"\nAnnotated: {frame.track_annotated}" + \
                                  f"\nValid: {frame.valid}")
     frame.progress_label.config(text=f"{frame.i+1}/{frame.master.tracks.track_id.nunique()}")

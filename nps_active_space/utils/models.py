@@ -2,12 +2,10 @@ import time
 from datetime import datetime
 from types import GeneratorType
 import concurrent.futures
-from tzwhere import tzwhere
 from tqdm import tqdm
 from pyproj import Transformer
 import datetime as dt
 import glob
-import pytz
 import re
 import os
 import csv
@@ -29,7 +27,6 @@ pd.set_option('future.no_silent_downcasting', True)
 __all__ = [
     'Microphone',
     'Nvspl',
-    'Ais',
     'Adsb',
     'EarlyAdsb',
     'FAAReleasable',
@@ -256,226 +253,6 @@ class Nvspl(pd.DataFrame):
             only_standard_cols = all(re.match(self.octave_regex, col)
                                      for col in (set(columns) - self.standard_fields))
             assert only_standard_cols is True, "NVSPL data contains unexpected NVSPL columns."
-
-
-class Ais(gpd.GeoDataFrame):
-    """
-    A geopandas GeoDataFrame wrapper class to ensure consistent AIS data.
-
-    Parameters
-    ----------
-    filepaths_or_data : List, str, or gpd.GeoDataFrame
-        A directory containing AIS 
-
-    """
-
-    def __init__(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
-        data = self._read(filepaths_or_data)
-        super().__init__(data=data)
-
-    def parseAis(self, aisFileEntry, state=(None, None, 1)):
-
-        timestamps, columns, index_index = state
-
-        df = pd.read_csv(str(aisFileEntry),
-                         engine='c',
-                         usecols=columns,
-                         low_memory=False
-                         )  # read the .csv
-
-        if 'mmsi' in df.columns:  # Then this is the more modern version of AIS file...
-
-            # We must rename the headers to match
-            df.columns = ['Base station time stamp', 'MMSI', 'callsign', 'IMO', 'Ship name',
-                          'Navigational status (text)', 'Latitude', 'Longitude', 'Course over ground',
-                          'Speed over ground', 'Destination', 'eta', 'Type of ship (text)', 'Draught',
-                          'length', 'width']
-
-            # We drop the fields that don't exist in the legacy files
-            df.drop(['callsign', 'eta', 'length', 'width'],
-                    axis=1, inplace=True, errors="ignore")
-
-        # if there are 1090 MHz jet ADS-B points mixed into this dataset
-        # this is a convenient way to make sure they are removed
-        # we strictly require a 9-digit MMSI code
-        df = df.loc[df["MMSI"] >= 100000000, :].copy()
-
-        # tidy up all the header field names
-        mask = df.iloc[:, 0].isin(['Base station time stamp'])
-        df = df[~mask]
-        header_list = ['Base station time stamp']
-        import_header = df.axes[1]
-        result = any(elem in import_header for elem in header_list)
-        if result:
-            pass
-        else:
-            raise KeyError
-
-        # Standardize key field names and remove extra columns collected by the AIS logger
-        if 'Base station time stamp' in df.columns:
-            df = df.rename(columns={'Base station time stamp': "TIME"})
-
-        df.drop(['IMO', 'Ship name', 'Type of ship (text)', 'Size A',
-                'Size B', 'Size C', 'Size D', 'Draught', 'Destination', 'Heading',
-                 'Navigational status (text)', 'Country (AIS)', 'Target class (text)',
-                 'Data source type (text)', 'Data source region'], axis=1, inplace=True, errors="ignore")
-
-        if 'Course over ground' in df.columns:
-            df = df.rename(columns={'Course over ground': "heading"})
-
-        if 'Latitude' in df.columns:
-            df = df.rename(columns={'Latitude': "lat"})
-
-        if 'Longitude' in df.columns:
-            df = df.rename(columns={'Longitude': "lon"})
-
-        if 'Speed over ground' in df.columns:
-            df = df.rename(columns={'Speed over ground': "velocity"})
-
-        # Delete duplicate records
-        df.drop_duplicates(inplace=True)
-        df.dropna(how="any", axis=0, inplace=True)
-
-        # it is possible that upon removing ADS-B no points remain,
-        # in which case we're done... we return an empty `pd.DataFrame` with formatted field names
-        if (len(df) == 0):
-            return df
-
-        else:
-            # For now, we assume the vessel's z-position is "at sea level"
-            # a slower, but more accurate z-position would be derived
-            # using the NOAA CO-OPS Data Retrieval API
-            # https://api.tidesandcurrents.noaa.gov/api/prod/
-            df["altitude"] = 0.0  # meters
-
-            # The MXAK has released data with many different time formats
-            # we can safely assume that a single fine has a consistent time format over all rows
-            # our best approach is to check the first row against the known patterns:
-            test = df["TIME"].iloc[0]
-            time_pattern = test.split(" ")
-
-            # Files exist with the following patterns:
-            MXAK_timestamp_patterns = {1: "%d %b %Y %H:%M:%S UTC",
-                                       2: "%Y-%m-%d %H:%M:%S UTC",
-                                       3: "%m-%d-%Y %H:%M:%S UTC",
-                                       4: "%Y-%m-%d %H:%M:%S AKST",
-                                       5: "%Y-%m-%d %H:%M:%S AKDT",
-                                       6: "%Y-%m-%d %H:%M:%S"}
-
-            # Begin conditional timestamp formatting...
-            if ((len(time_pattern) == 5) & (time_pattern[-1] == "UTC")):
-                df["TIME"] = pd.to_datetime(
-                    df["TIME"], format=MXAK_timestamp_patterns[1])
-
-            elif ((len(time_pattern) == 3) & (time_pattern[-1] == "UTC")):
-                try:
-                    df["TIME"] = pd.to_datetime(
-                        df["TIME"], format=MXAK_timestamp_patterns[2])
-
-                except ValueError:
-                    df["TIME"] = pd.to_datetime(
-                        df["TIME"], format=MXAK_timestamp_patterns[3])
-
-            elif ((len(time_pattern) == 3) & (time_pattern[-1] == "AKST")):
-                try:
-                    df["TIME"] = pd.to_datetime(
-                        df["TIME"], format=MXAK_timestamp_patterns[4]) + dt.timedelta(hours=9)
-                except ValueError:
-                    # we must handle the day in November where we change from AKST to AKDT
-                    df.loc[df["TIME"].str[-4:] == "AKST", "TIME"] = pd.to_datetime(df["TIME"].loc[df["TIME"].str[-4:] == "AKST"],
-                                                                                   format=MXAK_timestamp_patterns[4]) + dt.timedelta(hours=9)
-                    df.loc[df["TIME"].str[-4:] == "AKDT", "TIME"] = pd.to_datetime(df["TIME"].loc[df["TIME"].str[-4:] == "AKDT"],
-                                                                                   format=MXAK_timestamp_patterns[5]) + dt.timedelta(hours=8)
-                    # apparently we still need to nudge these into datetime format?
-                    df["TIME"] = pd.to_datetime(df["TIME"])
-
-            elif ((len(time_pattern) == 3) & (time_pattern[-1] == "AKDT")):
-                try:
-                    df["TIME"] = pd.to_datetime(
-                        df["TIME"], format=MXAK_timestamp_patterns[5]) + dt.timedelta(hours=8)
-                except ValueError:
-                    # we must handle the day in March where we change from AKDT to AKST
-                    df.loc[df["TIME"].str[-4:] == "AKST", "TIME"] = pd.to_datetime(df["TIME"].loc[df["TIME"].str[-4:] == "AKST"],
-                                                                                   format=MXAK_timestamp_patterns[4]) + dt.timedelta(hours=9)
-                    df.loc[df["TIME"].str[-4:] == "AKDT", "TIME"] = pd.to_datetime(df["TIME"].loc[df["TIME"].str[-4:] == "AKDT"],
-                                                                                   format=MXAK_timestamp_patterns[5]) + dt.timedelta(hours=8)
-                    df["TIME"] = pd.to_datetime(df["TIME"])
-
-            elif ((len(time_pattern) == 2)):
-                df["TIME"] = pd.to_datetime(
-                    df["TIME"], format=MXAK_timestamp_patterns[6])
-
-            else:
-                raise ValueError(
-                    "The file's timestamp format is not recognized!")
-
-            df["TIME"].dt.tz_localize(tz="UTC")
-            df["DATE"] = df["TIME"].dt.strftime("%Y%m%d")
-
-            # Sort records by MMSI and TIME then reset dataframe index
-            df.sort_values(["MMSI", "TIME"], inplace=True, ignore_index=True)
-
-            # Calculate time difference between sequential waypoints for each watercraft
-            df["TIME"] = pd.to_datetime(arg=df["TIME"], errors="coerce")
-            df["dur_secs"] = df.groupby(
-                "MMSI")["TIME"].diff().dt.total_seconds()
-            df["dur_secs"] = df["dur_secs"].fillna(0)
-
-            # Drop any identical waypoints in a single input file based on MMSI, time, lat, and lon
-            df.drop_duplicates(
-                subset=['MMSI', 'TIME', 'lat', 'lon'], keep='last')
-
-            # Use threshold waypoint duration value to identify separate flights by a vessel then sum the number of "true" conditions to assign unique ID's
-            df['diff_event'] = df['dur_secs'] >= 1200  # ( = 20 minutes)
-            df['cumsum'] = df.groupby('MMSI')['diff_event'].cumsum()
-            df['event_id'] = df['MMSI'].astype(
-                'str') + "_" + df['cumsum'].astype(str) + "_" + df['DATE'].astype(str)
-
-            # Let us only consider events with more than 2 AIS points
-            df = df[df.groupby("event_id").event_id.transform(len) > 2]
-
-            return df
-
-    def _read(self, filepaths_or_data: Union[List[str], str, gpd.GeoDataFrame]):
-        """
-        Read in AIS points as formatted by the Alaska Marine Exchange (www.mxak.org).
-
-        Parameters
-        ----------
-        filepaths_or_data : List, str, or gpd.GeoDataFrame
-            A directory containing AIS files, a list of AIS files, or an existing gpd.GeoDataFrame of AIS data.
-
-        Raises
-        ------
-        AssertionError if directory path or file path does not exists or is of the wrong format.
-        """
-        if isinstance(filepaths_or_data, gpd.GeoDataFrame):
-            data = filepaths_or_data.to_crs("epsg:4326")
-
-        else:
-            if isinstance(filepaths_or_data, str):
-                assert os.path.isdir(
-                    filepaths_or_data), f"{filepaths_or_data} does not exist."
-                filepaths_or_data = glob.glob(f"{filepaths_or_data}/*.csv")
-
-            else:
-                for file in filepaths_or_data:
-                    assert os.path.isfile(file), f"{file} does not exist."
-                    assert file.endswith(
-                        '.csv'), f"Only .csv AIS files accepted."
-
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                parts = list(tqdm(pool.map(self.parseAis, filepaths_or_data), total=len(
-                    filepaths_or_data), unit="AIS files"))
-
-            data = pd.concat(parts)
-            data = gpd.GeoDataFrame(
-                data,
-                geometry=gpd.points_from_xy(data["lon"], data["lat"]),
-                crs="epsg:4326"
-            )
-
-        return data
 
 
 class Adsb(gpd.GeoDataFrame):

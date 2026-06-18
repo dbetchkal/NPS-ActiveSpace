@@ -416,7 +416,16 @@ class _GroundTruthingFrame(_AppFrame):
         mic_point = Point(float(self.master.mic.x), 
                           float(self.master.mic.y), 
                           float(self.master.mic.z))
-        spline = track_context.prepare_spline(points, mic_point)
+        try:
+            spline = track_context.prepare_spline(points, mic_point)
+        except ValueError as exc:
+            tk.messagebox.showwarning(
+                title='Data Warning',
+                message=f"Track {track_id} could not be interpolated ({exc}). Skipping...",
+                icon='warning'
+            )
+            self._store_annotation(track_id, points, valid=False, note='Spline failed')
+            return
 
         # Determine the closest spline point to the mic.
         closest_point, closest_time = track_context.closest_approach(spline)
@@ -445,10 +454,18 @@ class _GroundTruthingFrame(_AppFrame):
         if audible_ranges is None:
             return
         
-        # load FAA data if applicable
-        faa_row, aircraft_help_text, aircraft_type = vehicle_info.lookup_aircraft(
-            self.faa, self.master.database_type, track_id, points
-        )
+        # load vehicle metadata if applicable
+        if self.master.database_type == "AIS":
+            aircraft_help_text, aircraft_type, vessel_name = vehicle_info.lookup_vessel(
+                self.master.database_type, track_id, points
+            )
+            faa_row = None
+            self.vessel_name = vessel_name
+        else:
+            faa_row, aircraft_help_text, aircraft_type = vehicle_info.lookup_aircraft(
+                self.faa, self.master.database_type, track_id, points
+            )
+            self.vessel_name = None
 
         # update track-specific state, stored in member variables
         # these are stored as member variables because _build_plot() might be called again later,
@@ -467,7 +484,10 @@ class _GroundTruthingFrame(_AppFrame):
         self.x_lims = x_lims
         self.lower_limit_start = lower_limit_start
         self.upper_limit_start = upper_limit_start
-        self.aircraft_help_text = aircraft_help_text if faa_row is not None else None
+        if faa_row is not None or self.master.database_type == "AIS":
+            self.aircraft_help_text = aircraft_help_text
+        else:
+            self.aircraft_help_text = None
         self.aircraft_type = aircraft_type
 
         self._build_plot()

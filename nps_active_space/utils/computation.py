@@ -145,10 +145,22 @@ def interpolate_spline(points: 'Tracks', ds: int = 1, s: float = None) -> gpd.Ge
     points.sort_values(by='point_dt', ascending=True, inplace=True)
     starttime = points.point_dt.iat[0]
     endtime = points.point_dt.iat[-1]
-    flight_times = (points.point_dt - starttime).dt.total_seconds().values  # Seconds after initial point
+    flight_times = (points.point_dt - starttime).dt.total_seconds().values
 
-    coords = [points.geometry.x, points.geometry.y, points.z] if 'z' in points else [points.geometry.x, points.geometry.y]
-    tck, u = interpolate.splprep(x=coords, u=flight_times, k=k, s=s)
+    if 'z' in points.columns:
+        coords = [points.geometry.x, points.geometry.y, points.z]
+    else:
+        coords = [points.geometry.x, points.geometry.y]
+    try:
+        tck, u = interpolate.splprep(x=coords, u=flight_times, k=k, s=s)
+    except ValueError as exc:
+        if "invalid" in str(exc).lower():
+            raise ValueError(
+                "Spline interpolation failed for this track: duplicate or "
+                "non-increasing point_dt values. Each track point needs a "
+                "unique timestamp."
+            ) from exc
+        raise
 
     # Parametric interpolation on the time interval provided.
     duration = (endtime - starttime).total_seconds()

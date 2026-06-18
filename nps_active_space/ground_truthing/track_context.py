@@ -15,6 +15,14 @@ if TYPE_CHECKING:
     from nps_active_space.utils.models import Nvspl
 
 
+def _for_nvspl_index(ts) -> pd.Timestamp:
+    """Return a naive timestamp on the NVSPL site-local clock."""
+    t = pd.Timestamp(ts)
+    if t.tzinfo is not None:
+        raise ValueError("point_dt must be site-local naive before indexing NVSPL")
+    return t
+
+
 def load_spectrogram(
     nvspl: "Nvspl",
     points: gpd.GeoDataFrame,
@@ -23,9 +31,9 @@ def load_spectrogram(
     """Load spectrogram window for track points."""
     if time_pad is None:
         time_pad = dt.timedelta(seconds=5*60)
-    t_start = str(points.point_dt.iat[0] - time_pad)
-    t_end = str(points.point_dt.iat[-1] + time_pad)
-    spectro = nvspl.loc[t_start:t_end, '12.5':'20000']
+    t_start = _for_nvspl_index(points.point_dt.iat[0] - time_pad)
+    t_end = _for_nvspl_index(points.point_dt.iat[-1] + time_pad)
+    spectro = nvspl.loc[t_start:t_end, "12.5":"20000"]
     return spectro
 
 

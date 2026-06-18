@@ -1,13 +1,20 @@
-import glob
 from argparse import ArgumentParser
-import geopandas as gpd
 import os
 import sqlalchemy
 import iyore
 import nps_active_space.ground_truthing as app
 from nps_active_space.utils.models import Nvspl, Tracks
 import nps_active_space.utils.config as cfg
-from nps_active_space.utils.helpers import get_deployment, get_logger, query_adsb, query_tracks, load_DEM
+from nps_active_space.utils.ais import query_ais_mxak
+from nps_active_space.utils.time_utils import site_timezone_name, utc_naive_to_site_naive
+from nps_active_space.utils.helpers import (
+    get_deployment,
+    get_logger,
+    load_DEM,
+    load_studyarea,
+    query_adsb,
+    query_tracks,
+)
 from nps_active_space.utils.computation import coords_to_utm
 from nps_active_space.utils.clock_drift import correct_clock_drift
 
@@ -31,9 +38,6 @@ if __name__ == '__main__':
 
     cfg.initialize(environment=args.environment)
     logger = get_logger('GROUND-TRUTHING')
-    engine = sqlalchemy.create_engine(
-        'postgresql://{username}:{password}@{host}:{port}/{name}'.format(**cfg.read('database:overflights'))
-    )
 
     logger.info(f"Beginning ground truthing process for {args.unit}{args.site}{args.year}...")
 
@@ -44,8 +48,9 @@ if __name__ == '__main__':
     faa_corrections_path = None
 
     # Load the microphone deployment site metadata and the study area shapefile.
-    microphone = get_deployment(cfg.read('project', 'dir'), args.unit, args.site, args.year)
-    study_area = gpd.read_file(glob.glob(f"{site_dir}/*study*.shp")[0])  # In NAD83, epsg:4269
+    project_dir = cfg.read("project", "dir")
+    microphone = get_deployment(project_dir, args.unit, args.site, args.year)
+    study_area = load_studyarea(project_dir, args.unit, args.site, args.year)
 
     # Retrieve the days for which at least some NVSPL data exist.
     nvspl_dates = sorted(set([f"{e.year}-{e.month}-{e.day}" for e in archive.nvspl(unit=args.unit, site=args.site, year=args.year)]))
@@ -66,16 +71,38 @@ if __name__ == '__main__':
         faa_corrections_path = cfg.read('project', 'FAA_type_corrections')
 
     elif args.track_source == 'GPS':
+        engine = sqlalchemy.create_engine(
+            'postgresql://{username}:{password}@{host}:{port}/{name}'.format(
+                **cfg.read('database:overflights')
+            )
+        )
         raw_tracks = query_tracks(engine=engine, start_date=nvspl_dates[0], end_date=nvspl_dates[-1], mask=study_area)
         tracks = Tracks(raw_tracks, 'flight_id', 'ak_datetime', 'altitude_m')
         faa_path = cfg.read('project', 'FAA_Releasable_db')
         faa_corrections_path = cfg.read('project', 'FAA_type_corrections')
 
+    elif args.track_source == 'AIS':
+        raw_tracks = query_ais_mxak(
+            ais_path=cfg.read('data', 'ais'),
+            start_date=nvspl_dates[0],
+            end_date=nvspl_dates[-1],
+            mask=study_area,
+        )
+        tracks = Tracks(raw_tracks, id_col='event_id', datetime_col='TIME', z_col='altitude')
+        site_tz = site_timezone_name(microphone.lat, microphone.lon)
+        tracks["point_dt"] = utc_naive_to_site_naive(tracks["point_dt"], site_tz)
+        faa_path = None
+        faa_corrections_path = None
+
     else:
-        raise NotImplementedError('Code for AIS is not ready yet.')
+        raise ValueError(f"Unknown track source: {args.track_source}")
 
     assert not tracks.empty, "No tracks loaded, is your track source correct?"
-    
+    logger.info(
+        f"Loaded {tracks['track_id'].nunique()} tracks "
+        f"({len(tracks)} points) from {nvspl_dates[0]} to {nvspl_dates[-1]}"
+    )
+
     # correct for clock drift
     clock_drift_file = os.path.join(site_dir, f"{args.unit}{args.site}{args.year}_clock_drift_{args.track_source}.csv")
     if os.path.exists(clock_drift_file):

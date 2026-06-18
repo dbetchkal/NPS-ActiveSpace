@@ -1,6 +1,7 @@
 import glob
 import logging
 import os
+from pathlib import Path
 from typing import List, Optional, TYPE_CHECKING, Union
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -38,6 +39,16 @@ __all__ = [
     'get_omni_sources',
     'estimate_line_count'
 ]
+
+
+def _require_glob(pattern: str, *, description: str) -> str:
+    """Return the path matching ``pattern``, or raise ``FileNotFoundError``."""
+    matches = glob.glob(pattern)
+    if not matches:
+        raise FileNotFoundError(
+            f"No {description} found matching:\n  {pattern}"
+        )
+    return matches[0]
 
 
 def omni_to_gain(omni_source: str) -> float:
@@ -133,8 +144,16 @@ def load_DEM(project_dir: str, unit: str, site: str):
         A rasterio Dataset object for reading the DEM data
     """
 
-    raster_path = glob.glob(os.path.join(
-        project_dir, unit+site, "Input_Data", "01_ELEVATION", "elevation_m_nad83_utm*.tif"))[0]
+    dem_glob = os.path.join(
+        project_dir, unit + site, "Input_Data", "01_ELEVATION", "elevation_m_nad83_utm*.tif"
+    )
+    raster_path = _require_glob(
+        dem_glob,
+        description=(
+            f"elevation DEM for {unit}{site} "
+            f"(expected GeoTIFF in Input_Data/01_ELEVATION/elevation_m_nad83_utm*.tif)"
+        ),
+    )
     return rasterio.open(raster_path)
 
 
@@ -172,8 +191,13 @@ def load_studyarea(project_dir: str, unit: str, site: str, year: int, crs: str =
         A dataframe containing the geometry of the study area. A single polygon.
     """
 
-    study_area_path = glob.glob(os.path.join(
-        project_dir, unit + site, unit + site + '*study*area*.shp'))[0]
+    study_glob = os.path.join(
+        project_dir, unit + site, f"{unit}{site}*study*area*.shp"
+    )
+    study_area_path = _require_glob(
+        study_glob,
+        description=f"study area shapefile for {unit}{site}{year}",
+    )
     study_area = gpd.read_file(study_area_path)
 
     if crs is not None:
@@ -208,9 +232,21 @@ def get_deployment(project_dir: str, unit: str, site: str, year: int, elevation:
 
     # Read the .SIT file containing x, y, and z AGL in NMSIM's CRS
     mic_location_path = os.path.join(
-        project_dir, unit+site, 'Input_Data', '05_SITES', unit+site+str(year) + '.sit')
-    raw_text = open(mic_location_path).read()
-    coords_line = raw_text.splitlines()[2]
+        project_dir, unit + site, "Input_Data", "05_SITES", f"{unit}{site}{year}.sit"
+    )
+    if not os.path.isfile(mic_location_path):
+        raise FileNotFoundError(
+            f"Microphone site file not found:\n  {mic_location_path}\n"
+            f"Expected NMSIM .sit file at Input_Data/05_SITES/{unit}{site}{year}.sit"
+        )
+    raw_text = Path(mic_location_path).read_text()
+    sit_lines = raw_text.splitlines()
+    if len(sit_lines) < 3:
+        raise ValueError(
+            f"Microphone site file has invalid format (expected coordinates on line 3):\n"
+            f"  {mic_location_path}"
+        )
+    coords_line = sit_lines[2]
     coords_str = re.split(r'\s+', coords_line)[1:-1]
     x, y, z_agl = [float(i) for i in coords_str[:3]]
 
@@ -343,8 +379,10 @@ def query_adsb(adsb_path: str,  start_date: str, end_date: str,
         adsb = Adsb(adsb_files, mask, start_dt, end_dt)
     
     assert not adsb.empty, f"No ADSB data loaded for {start_date} to {end_date}, please check the time period and/or region mask"
-    
-    adsb = adsb.loc[(adsb["TIME"] > start_date) & (adsb["TIME"] < end_date)]
+
+    end_ts = pd.Timestamp(end_date) + pd.Timedelta(days=1)
+    start_ts = pd.Timestamp(start_date)
+    adsb = adsb.loc[(adsb["TIME"] >= start_ts) & (adsb["TIME"] < end_ts)]
     adsb = adsb.loc[~(adsb.geometry.is_empty)]
     return adsb
 
