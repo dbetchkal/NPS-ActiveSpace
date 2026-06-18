@@ -13,7 +13,7 @@ import pandas as pd
 import pyproj
 import pyvista as pv
 import rasterio
-from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon, box
+from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon, box
 from nps_active_space.utils.ais import query_ais_mxak
 from nps_active_space.utils.helpers import get_deployment, get_elevation, load_annotations, load_DEM, load_layered_activespace, load_studyarea
 from nps_active_space.scripts.run_audible_transits import AudibleTransits
@@ -104,6 +104,52 @@ def active_to_linestrings(active: gpd.GeoDataFrame) -> list[LineString]:
     return linestrings
 
 
+def vertex_z_from_coord(coord: tuple | np.ndarray) -> float:
+    """Return vertex elevation; missing or NaN z is treated as sea level (0 m)."""
+    if len(coord) < 3:
+        return 0.0
+    z = float(coord[2])
+    return 0.0 if not np.isfinite(z) else z
+
+
+def is_surface_track(coords: np.ndarray) -> bool:
+    """True when every vertex is at or below sea level (vessel / surface transit)."""
+    return all(vertex_z_from_coord(c) <= 0.0 for c in coords)
+
+
+def safe_dem_elevation(dem, lon: float, lat: float) -> float:
+    """Sample DEM elevation, returning 0 m when the point is off-raster or nodata."""
+    try:
+        elev = float(get_elevation(dem, lon, lat))
+    except (IndexError, ValueError, TypeError):
+        return 0.0
+    return elev if np.isfinite(elev) else 0.0
+
+
+def _point_as_line(point: Point, span_m: float = 10.0) -> LineString:
+    """Convert a single-point geometry into a short renderable segment."""
+    x, y = point.x, point.y
+    return LineString([(x, y), (x + span_m, y)])
+
+
+def iter_plot_linestrings(geometry) -> list[LineString]:
+    """Normalize annotation geometries to LineStrings PyVista can draw."""
+    if geometry is None or geometry.is_empty:
+        return []
+    if isinstance(geometry, Point):
+        return [_point_as_line(geometry)]
+    if isinstance(geometry, LineString):
+        if len(geometry.coords) < 2:
+            return [_point_as_line(Point(geometry.coords[0]))]
+        return [geometry]
+    if isinstance(geometry, MultiLineString):
+        lines: list[LineString] = []
+        for part in geometry.geoms:
+            lines.extend(iter_plot_linestrings(part))
+        return lines
+    return []
+
+
 def densify_linestring(linestring: LineString, step_m: float) -> LineString:
     """Insert vertices along a line so elevation can be sampled between sparse AIS points."""
     if linestring.is_empty or linestring.length <= step_m:
@@ -128,7 +174,7 @@ def sea_surface_z_profile(
     z_vals = []
     for x, y in np.array(line.coords)[:, :2]:
         lon, lat = to_wgs84.transform(x, y)
-        dem_z = float(get_elevation(dem, lon, lat))
+        dem_z = safe_dem_elevation(dem, lon, lat)
         # NMSIM DEM uses 0 m over water; keep tracks slightly above the mesh to avoid z-fighting.
         z_vals.append(max(dem_z, 0.0) + offset_m)
     return line, np.asarray(z_vals)
@@ -150,7 +196,7 @@ def create_polyline_3d(
     elif coords.shape[1] == 2:
         coords = np.column_stack((xy, np.zeros(coords.shape[0])))
     assert coords.shape[1] == 3
-    coords[:, 2] = np.clip(coords[:, 2], 0, 10000)  # reduce magnitude of erroneous elevations
+    coords[:, 2] = np.clip(np.nan_to_num(coords[:, 2], nan=0.0), 0, 10000)
     n_points = coords.shape[0]
     lines = np.hstack([[n_points], np.arange(n_points)])
     poly = pv.PolyData(coords)
@@ -398,32 +444,26 @@ class Visualizer():
             color_on=self.activespace_color
         )
     
-    def _annotation_z_values(self, linestring, offset_m: float = 2.0) -> np.ndarray:
-        """Sample DEM elevation when track z is at or below the surface (e.g. vessel annotations)."""
-        coords = np.array(linestring.coords)
-        vertex_z = [coord[2] if len(coord) > 2 else 0.0 for coord in coords]
-        if all(z <= 0 for z in vertex_z):
-            _, z_vals = sea_surface_z_profile(
-                linestring,
-                self.dem,
-                self.crs,
-                offset_m=offset_m,
-                densify_step_m=self.sea_surface_densify_step_m,
-            )
-            return z_vals
-
+    def _annotation_z_values(self, linestring: LineString, offset_m: float = 2.0) -> np.ndarray:
+        """Per-vertex z for airborne tracks that may pass below the local DEM surface."""
         to_wgs84 = pyproj.Transformer.from_crs(self.crs, "epsg:4326", always_xy=True)
         z_vals = []
-        for coord in coords:
+        for coord in np.array(linestring.coords):
             x, y = coord[0], coord[1]
-            z = coord[2] if len(coord) > 2 else 0.0
+            z = vertex_z_from_coord(coord)
             lon, lat = to_wgs84.transform(x, y)
-            dem_z = float(get_elevation(self.dem, lon, lat))
+            dem_z = safe_dem_elevation(self.dem, lon, lat)
             if z <= 0 or z < dem_z:
                 z_vals.append(max(dem_z, 0.0) + offset_m)
             else:
                 z_vals.append(z)
         return np.asarray(z_vals)
+
+    def _annotation_polyline(self, linestring: LineString) -> pv.PolyData:
+        """Build a 3D polyline for one annotation segment."""
+        if is_surface_track(np.array(linestring.coords)):
+            return self._sea_surface_polyline(linestring)
+        return create_polyline_3d(linestring, z=self._annotation_z_values(linestring))
 
     def _sea_surface_polyline(self, linestring: LineString) -> pv.PolyData:
         """Build a 3D polyline that follows the local water/ground surface."""
@@ -458,27 +498,36 @@ class Visualizer():
             print(f"Sampled tracks, showing {len(selected_track_ids)} tracks = {len(annotations)} annotated segments")
 
         # clip to the area - using a box() plays more nicely with z values than the study area itself
+        n_loaded = len(annotations)
         annotations = annotations.to_crs(self.crs)
-        annotations = annotations.clip(box(*self.study_area.total_bounds)).explode()
+        annotations = annotations[~annotations.geometry.is_empty]
+        annotations = annotations.clip(box(*self.study_area.total_bounds))
+        annotations = annotations[~annotations.geometry.is_empty].explode(ignore_index=True)
 
         # create and plot segments
         audible_actors = []
         inaudible_actors = []
+        n_plotted = 0
         for _, annot in annotations.iterrows():
             color = "deepskyblue" if annot["audible"] else "red"
-            geometry = annot["geometry"]
-            coords = np.array(geometry.coords)
-            vertex_z = [c[2] if len(c) > 2 else 0.0 for c in coords]
-            if all(z <= 0 for z in vertex_z):
-                polyline = self._sea_surface_polyline(geometry)
-            else:
-                z_vals = self._annotation_z_values(geometry)
-                polyline = create_polyline_3d(geometry, z=z_vals)
-            actor = self.plotter.add_mesh(polyline, color=color, point_size=2, line_width=2)
-            if annot["audible"]:
-                audible_actors.append(actor)
-            else:
-                inaudible_actors.append(actor)
+            for line in iter_plot_linestrings(annot["geometry"]):
+                polyline = self._annotation_polyline(line)
+                if polyline.n_points < 2:
+                    continue
+                actor = self.plotter.add_mesh(polyline, color=color, point_size=2, line_width=2)
+                n_plotted += 1
+                if annot["audible"]:
+                    audible_actors.append(actor)
+                else:
+                    inaudible_actors.append(actor)
+
+        if n_plotted == 0:
+            print(
+                f"No annotation segments in view after clip "
+                f"({n_loaded} loaded from file; check CRS and study-area overlap)."
+            )
+            return
+        print(f"Plotted {n_plotted} annotation segments")
         
         def toggle_audible(flag):
             for actor in audible_actors:
