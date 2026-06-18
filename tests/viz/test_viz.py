@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from shapely.geometry import LineString, MultiLineString, Point
 
-from nps_active_space.scripts.viz import (
+from nps_active_space.viz import (
     Visualizer,
     annotation_z_profile,
     create_polyline_3d,
@@ -115,7 +115,7 @@ class TestSeaSurfaceZProfile:
             return 0.0
 
         monkeypatch.setattr(
-            "nps_active_space.scripts.viz.get_elevation",
+            "nps_active_space.viz.elevation.get_elevation",
             fake_elevation,
         )
         dense, z_vals = sea_surface_z_profile(
@@ -132,7 +132,7 @@ class TestSeaSurfaceZProfile:
         line = LineString([(0, 0), (1, 0)])
 
         monkeypatch.setattr(
-            "nps_active_space.scripts.viz.get_elevation",
+            "nps_active_space.viz.elevation.get_elevation",
             lambda _dem, _lon, _lat: -12.0,
         )
         _, z_vals = sea_surface_z_profile(
@@ -263,3 +263,11 @@ class TestTrackPointsToLinestring:
         )
         line = track_points_to_linestring(gdf)
         assert len(line.coords) == 3
+
+
+class TestScriptsVizShim:
+    def test_scripts_viz_reexports_visualizer(self):
+        from nps_active_space.scripts import viz as scripts_viz
+
+        assert scripts_viz.Visualizer is Visualizer
+        assert scripts_viz.parse_deployment is parse_deployment
