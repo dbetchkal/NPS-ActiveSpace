@@ -1,24 +1,84 @@
+from __future__ import annotations
+
+import argparse
+import glob
 import os
+import sys
+from datetime import datetime
+from pathlib import Path
+
+import geopandas as gpd
 import numpy as np
 import pandas as pd
-import geopandas as gpd
-import glob
+import pyproj
 import pyvista as pv
 import rasterio
-import pyproj
-import sys
-from shapely.geometry import box, Polygon, MultiPolygon, LineString, MultiLineString
+from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon, box
 from nps_active_space.utils.ais import query_ais_mxak
 from nps_active_space.utils.helpers import get_deployment, get_elevation, load_annotations, load_DEM, load_layered_activespace, load_studyarea
 from nps_active_space.scripts.run_audible_transits import AudibleTransits
 from nps_active_space.utils.models import Annotations, Tracks
 from nps_active_space.utils.computation import NMSIM_bbox_utm
 import nps_active_space.utils.config as cfg
-import argparse
+
+# CLI argument validation =====================================
+
+def parse_deployment(name: str) -> tuple[str, str, int]:
+    """Parse deployment name like DENATRLA2024 into unit, site, and year."""
+    if len(name) < 9:
+        raise argparse.ArgumentTypeError(
+            f"deployment must be at least 9 characters "
+            f"(4-char unit + site code + 4-digit year), got {len(name)}: {name!r}"
+        )
+    unit, site, year_str = name[:4], name[4:-4], name[-4:]
+    if not site:
+        raise argparse.ArgumentTypeError(
+            f"deployment must include a site code between unit and year, got {name!r}"
+        )
+    if len(year_str) != 4 or not year_str.isdigit():
+        raise argparse.ArgumentTypeError(
+            f"deployment year must be 4 digits, got {year_str!r} in {name!r}"
+        )
+    return unit, site, int(year_str)
+
+
+def parse_iso_date(value: str, *, arg_name: str) -> str:
+    """Validate YYYY-MM-DD date string."""
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{arg_name}: expected YYYY-MM-DD date, got {value!r}"
+        ) from None
+    return value
+
+
+def parse_existing_file(path: str, *, arg_name: str) -> str:
+    """Validate that a CLI path refers to an existing file."""
+    file_path = Path(path)
+    if not file_path.is_file():
+        raise argparse.ArgumentTypeError(f"{arg_name}: file not found: {path}")
+    return path
+
+
+def parse_max_tracks(value: str) -> int:
+    """Validate positive integer for --max-tracks."""
+    try:
+        n = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"--max-tracks must be a positive integer, got {value!r}"
+        ) from None
+    if n <= 0:
+        raise argparse.ArgumentTypeError(
+            f"--max-tracks must be a positive integer, got {n}"
+        )
+    return n
+
 
 # helper functions ============================================
 
-def polygon_to_mesh(polygon, z):
+def polygon_to_mesh(polygon: Polygon, z: float) -> pv.PolyData:
     exterior = np.array(polygon.exterior.coords)
     points = np.c_[exterior[:, 0], exterior[:, 1], np.full(len(exterior), z)]
     poly = pv.PolyData(points)
@@ -26,7 +86,7 @@ def polygon_to_mesh(polygon, z):
     return poly.triangulate()
 
 
-def active_to_polys(active):
+def active_to_polys(active: gpd.GeoDataFrame) -> list[Polygon]:
     geometry = active.geometry.iloc[0]
     if isinstance(geometry, Polygon):
         polys = [geometry]
@@ -35,7 +95,7 @@ def active_to_polys(active):
     return polys
 
 
-def active_to_linestrings(active):
+def active_to_linestrings(active: gpd.GeoDataFrame) -> list[LineString]:
     geometry = active.boundary.iloc[0]
     if isinstance(geometry, MultiLineString):
         linestrings = geometry.geoms
@@ -74,7 +134,10 @@ def sea_surface_z_profile(
     return line, np.asarray(z_vals)
 
 
-def create_polyline_3d(linestring, z=None):
+def create_polyline_3d(
+    linestring: LineString,
+    z: float | np.ndarray | None = None,
+) -> pv.PolyData:
     coords = np.array(linestring.coords)
     xy = coords[:, :2]
     if z is not None:
@@ -119,12 +182,25 @@ class Visualizer():
     sea_surface_offset_m = 5.0
     sea_surface_densify_step_m = 100.0
 
-    def __init__(self, unit, site, year, env, do_active=False, gain=None,
-                 do_annots=False, do_transits=False, do_vessels=False,
-                 annotation_file=None, audible_transits_pkl=None,
-                 vessel_start_date=None, vessel_end_date=None,
-                 terraced=False, fill_layers=False, max_tracks=1000,
-                 ):
+    def __init__(
+        self,
+        unit: str,
+        site: str,
+        year: int,
+        env: str,
+        do_active: bool = False,
+        gain: float | None = None,
+        do_annots: bool = False,
+        do_transits: bool = False,
+        do_vessels: bool = False,
+        annotation_file: str | None = None,
+        audible_transits_pkl: str | None = None,
+        vessel_start_date: str | None = None,
+        vessel_end_date: str | None = None,
+        terraced: bool = False,
+        fill_layers: bool = False,
+        max_tracks: int = 1000,
+    ) -> None:
         # class metadata
         self.unit = unit
         self.site = site
@@ -162,7 +238,7 @@ class Visualizer():
         self.plotter.show_axes()
         self.plotter.show()
     
-    def plot_dem(self, show_scalar_bar=False):
+    def plot_dem(self, show_scalar_bar: bool = False) -> None:
         # load DEM
         dem = load_DEM(self.project_dir, self.unit, self.site)
         self.dem = dem
@@ -192,23 +268,23 @@ class Visualizer():
         # add mesh to plot
         self.plotter.add_mesh(mesh, scalars="elevation", cmap="gist_earth", show_scalar_bar=show_scalar_bar)
 
-    def plot_point(self, x, y, z, color="white"):
+    def plot_point(self, x: float, y: float, z: float, color: str = "white") -> None:
         point = pv.PolyData(np.array([[x, y, z]]))
         self.plotter.add_mesh(point, color=color, point_size=10, render_points_as_spheres=True)
 
-    def plot_mic(self):
+    def plot_mic(self) -> None:
         mic = get_deployment(self.project_dir, self.unit, self.site, self.year)
         mic = mic.to_crs(self.crs)
         self.plot_point(mic.x, mic.y, mic.z, self.mic_color)
 
-    def plot_activespace(self, terraced=False, gain=None):
+    def plot_activespace(self, terraced: bool = False, gain: float | None = None) -> None:
         csv_3d_fits = f"{self.project_dir}/fits.csv"
         fit_results = pd.read_csv(csv_3d_fits, index_col="Designator")
 
         if gain is not None:
             print(f"Using gain {gain}dB")
         elif self.deployment in fit_results.index:
-            gain = float(fit_results.loc[unit+site+year, "1/3rd Octave Gain (F1)"])
+            gain = float(fit_results.loc[self.deployment, "1/3rd Octave Gain (F1)"])
         else:
             print(f"No fitted active space gain found in {csv_3d_fits}, skipping active space.")
             return
@@ -221,7 +297,7 @@ class Visualizer():
         else:
             self.plot_contoured_activespace(active_3d)
 
-    def plot_contoured_activespace(self, active_3d):
+    def plot_contoured_activespace(self, active_3d) -> None:
         layer_checkboxes = []
         layer_callbacks = []
         for i, (active_z, active) in enumerate(active_3d.activespaces.items()):
@@ -245,7 +321,7 @@ class Visualizer():
             color_on=self.activespace_color
         )
 
-    def plot_active_layer(self, active_layer, elevation, i=0):
+    def plot_active_layer(self, active_layer, elevation: float, i: int = 0):
         poly_actor = None
         if self.fill_layers:
             meshes = []
@@ -276,7 +352,9 @@ class Visualizer():
 
         return checkbox, toggle
 
-    def plot_terraced_activespace(self, active_3d, layer_thickness=300, opacity=1):
+    def plot_terraced_activespace(
+        self, active_3d, layer_thickness: int = 300, opacity: float = 1
+    ) -> None:
         meshes = []
         layers = list(active_3d.activespaces.items())
         for i in range(len(layers)):
@@ -358,7 +436,7 @@ class Visualizer():
         )
         return create_polyline_3d(line, z=z_vals)
 
-    def plot_annotations(self, annotation_file=None):
+    def plot_annotations(self, annotation_file: str | None = None) -> None:
         # load annotations
         if annotation_file is None:
             annotations = load_annotations(self.project_dir, self.unit, self.site, self.year, only_valid=True)
@@ -425,7 +503,7 @@ class Visualizer():
             color_on="red"
         )
      
-    def plot_audible_transits(self, audible_transits_pkl=None):
+    def plot_audible_transits(self, audible_transits_pkl: str | None = None) -> None:
         if audible_transits_pkl:
             print(f"Loading audible transits from {audible_transits_pkl}")
             listener = AudibleTransits.from_pickle(audible_transits_pkl)
@@ -433,7 +511,7 @@ class Visualizer():
             print("Loading audible transits")
             matches = glob.glob(os.path.join(
                 self.project_dir, self.unit+self.site, "Output_Data", "AUDIBLE_TRANSITS",
-                f"3D*{year}-01-01*Active Space {self.year}*", "AudibleTransits_object.pkl"))
+                f"3D*{self.year}-01-01*Active Space {self.year}*", "AudibleTransits_object.pkl"))
             if len(matches) == 0:
                 print("No audible transits pkl file found found")
                 return
@@ -472,7 +550,9 @@ class Visualizer():
             color_on="purple"
         )
 
-    def plot_vessel_tracks(self, start_date: str | None = None, end_date: str | None = None):
+    def plot_vessel_tracks(
+        self, start_date: str | None = None, end_date: str | None = None
+    ) -> None:
         """Plot MXAK AIS vessel transits at the local sea surface."""
         start_date = start_date or f"{self.year}-01-01"
         end_date = end_date or f"{self.year}-12-31"
@@ -536,7 +616,7 @@ class Visualizer():
             color_on=self.vessel_track_color,
         )
 
-    def setup_z_scale(self):
+    def setup_z_scale(self) -> None:
         self.plotter.set_scale(1, 1, 2)  # easier to make out elevation differences
 
         # allow toggling though
@@ -559,7 +639,11 @@ if __name__ == "__main__":
     # required args
     # we pass deployment as a single positional arg instead of -u DENA -s TRLA -y 2024,
     # because it saves a lot of keystrokes, and this script is often used frequently
-    parser.add_argument("deployment", help="Deployment name, e.g. DENATRLA2024")
+    parser.add_argument(
+        "deployment",
+        type=parse_deployment,
+        help="Deployment name, e.g. DENATRLA2024",
+    )
     parser.add_argument("-e", "--environment", default="DENA_streamline",
                         help="Config environment name, e.g. DENA_streamline. Default is 'DENA_streamline'")
 
@@ -577,12 +661,33 @@ if __name__ == "__main__":
                         help="Load everything, shorthand for --active-space --annotations --audible-transits")
 
     # uncommon / special use case args
-    parser.add_argument("-m", "--max-tracks", default=500,
-                        help="Maximum number of annotation tracks or audible transits to show.")
-    parser.add_argument("--annotation-file", help="Path to .geojson file to load annotations from, if not the default.")
-    parser.add_argument("--transits-pkl", help="Path to .pkl file to load audible transits from, if not the default.")
-    parser.add_argument("--start-date", help="AIS query start date (YYYY-MM-DD). Default: Jan 1 of deployment year.")
-    parser.add_argument("--end-date", help="AIS query end date (YYYY-MM-DD). Default: Dec 31 of deployment year.")
+    parser.add_argument(
+        "-m",
+        "--max-tracks",
+        type=parse_max_tracks,
+        default=500,
+        help="Maximum number of annotation tracks or audible transits to show.",
+    )
+    parser.add_argument(
+        "--annotation-file",
+        type=lambda p: parse_existing_file(p, arg_name="--annotation-file"),
+        help="Path to .geojson file to load annotations from, if not the default.",
+    )
+    parser.add_argument(
+        "--transits-pkl",
+        type=lambda p: parse_existing_file(p, arg_name="--transits-pkl"),
+        help="Path to .pkl file to load audible transits from, if not the default.",
+    )
+    parser.add_argument(
+        "--start-date",
+        type=lambda d: parse_iso_date(d, arg_name="--start-date"),
+        help="AIS query start date (YYYY-MM-DD). Default: Jan 1 of deployment year.",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=lambda d: parse_iso_date(d, arg_name="--end-date"),
+        help="AIS query end date (YYYY-MM-DD). Default: Dec 31 of deployment year.",
+    )
     parser.add_argument("--terraced", action="store_true",
                         help="If included, render the active space as the terraced surface instead of contours.")
     parser.add_argument("--fill-layers", action="store_true",
@@ -590,8 +695,7 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
 
-    usy = args.deployment
-    unit, site, year = usy[:4], usy[4:-4], usy[-4:]
+    unit, site, year = args.deployment
     print(unit, site, year)
 
     do_active = args.active_space or args.all

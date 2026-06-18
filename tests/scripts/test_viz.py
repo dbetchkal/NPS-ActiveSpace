@@ -1,3 +1,6 @@
+import argparse
+from pathlib import Path
+
 import numpy as np
 import pytest
 from shapely.geometry import LineString, Point
@@ -5,9 +8,69 @@ from shapely.geometry import LineString, Point
 from nps_active_space.scripts.viz import (
     create_polyline_3d,
     densify_linestring,
+    parse_deployment,
+    parse_existing_file,
+    parse_iso_date,
+    parse_max_tracks,
     sea_surface_z_profile,
     track_points_to_linestring,
 )
+
+
+class TestParseDeployment:
+    def test_valid_deployment(self):
+        assert parse_deployment("DENATRLA2024") == ("DENA", "TRLA", 2024)
+
+    def test_rejects_too_short(self):
+        with pytest.raises(argparse.ArgumentTypeError, match="at least 9 characters"):
+            parse_deployment("DENA2024")
+
+    def test_rejects_unit_year_only(self):
+        with pytest.raises(argparse.ArgumentTypeError, match="at least 9 characters"):
+            parse_deployment("DENA2024")
+
+    def test_rejects_non_digit_year(self):
+        with pytest.raises(argparse.ArgumentTypeError, match="4 digits"):
+            parse_deployment("DENATRLA20XX")
+
+
+class TestParseIsoDate:
+    def test_valid_date(self):
+        assert parse_iso_date("2024-06-18", arg_name="--start-date") == "2024-06-18"
+
+    def test_rejects_bad_format(self):
+        with pytest.raises(argparse.ArgumentTypeError, match="YYYY-MM-DD"):
+            parse_iso_date("06/18/2024", arg_name="--start-date")
+
+    def test_includes_arg_name_in_error(self):
+        with pytest.raises(argparse.ArgumentTypeError, match="--end-date"):
+            parse_iso_date("not-a-date", arg_name="--end-date")
+
+
+class TestParseExistingFile:
+    def test_existing_file(self, tmp_path: Path):
+        file_path = tmp_path / "annotations.geojson"
+        file_path.write_text("{}")
+        assert parse_existing_file(str(file_path), arg_name="--annotation-file") == str(
+            file_path
+        )
+
+    def test_missing_file(self, tmp_path: Path):
+        with pytest.raises(argparse.ArgumentTypeError, match="file not found"):
+            parse_existing_file(str(tmp_path / "missing.geojson"), arg_name="--transits-pkl")
+
+
+class TestParseMaxTracks:
+    def test_valid_positive_int(self):
+        assert parse_max_tracks("500") == 500
+
+    def test_rejects_zero(self):
+        with pytest.raises(argparse.ArgumentTypeError, match="positive integer"):
+            parse_max_tracks("0")
+
+    def test_rejects_non_integer(self):
+        with pytest.raises(argparse.ArgumentTypeError, match="positive integer"):
+            parse_max_tracks("abc")
 
 
 class TestDensifyLinestring:
