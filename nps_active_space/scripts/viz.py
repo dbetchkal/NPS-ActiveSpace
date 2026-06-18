@@ -103,6 +103,22 @@ def resolve_viz_plot_flags(
     return do_active, do_annotations, do_transits, do_vessels
 
 
+def utm_orientation_axes_kwargs() -> dict:
+    """Orientation-marker kwargs for UTM scenes (+X east, +Y north).
+
+    PyVista/VTK allow only one vtkOrientationMarkerWidget per renderer, so axes
+    and north-arrow widgets cannot coexist as separate corner widgets.
+    """
+    return {
+        "interactive": False,
+        "line_width": 2,
+        "xlabel": "E",
+        "ylabel": "N",
+        "zlabel": "Z",
+        "viewport": (0, 0, 0.2, 0.2),
+    }
+
+
 # helper functions ============================================
 
 def polygon_to_mesh(polygon: Polygon, z: float) -> pv.PolyData:
@@ -279,8 +295,6 @@ class Visualizer():
     z_scale_toggle_color = "black"  # button toggling z scale
     sea_surface_offset_m = 5.0
     sea_surface_densify_step_m = 100.0
-    axes_viewport = (0.0, 0.0, 0.14, 0.14)
-    compass_viewport = (0.14, 0.0, 0.26, 0.14)
 
     def __init__(
         self,
@@ -799,18 +813,8 @@ class Visualizer():
         )
 
     def setup_orientation_widgets(self) -> None:
-        """Bottom-left XYZ axes and geographic north compass (UTM +Y)."""
-        self.plotter.add_axes(
-            viewport=self.axes_viewport,
-            interactive=False,
-            line_width=2,
-        )
-        self.plotter.add_north_arrow_widget(
-            viewport=self.compass_viewport,
-            interactive=False,
-            color="#2f4f4f",
-            line_width=2,
-        )
+        """Bottom-left E/N/Z axes (+Y = north in UTM)."""
+        self.plotter.add_axes(**utm_orientation_axes_kwargs())
 
     def setup_z_scale(self) -> None:
         self.plotter.set_scale(1, 1, 2)  # easier to make out elevation differences
