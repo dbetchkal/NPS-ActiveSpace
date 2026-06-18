@@ -13,9 +13,18 @@ import pandas as pd
 import pyproj
 import pyvista as pv
 import rasterio
+from tqdm import tqdm
 from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon, box
 from nps_active_space.utils.ais import query_ais_mxak
-from nps_active_space.utils.helpers import get_deployment, get_elevation, load_annotations, load_DEM, load_layered_activespace, load_studyarea
+from nps_active_space.utils.helpers import (
+    get_deployment,
+    get_elevation,
+    get_logger,
+    load_annotations,
+    load_DEM,
+    load_layered_activespace,
+    load_studyarea,
+)
 from nps_active_space.scripts.run_audible_transits import AudibleTransits
 from nps_active_space.utils.models import Annotations, Tracks
 from nps_active_space.utils.computation import NMSIM_bbox_utm
@@ -150,6 +159,31 @@ def iter_plot_linestrings(geometry) -> list[LineString]:
     return []
 
 
+def format_annotation_summary(annotations: gpd.GeoDataFrame) -> str:
+    """One-line summary of a loaded annotations table for logging."""
+    if annotations.empty:
+        return "0 segments"
+    n_surface = 0
+    n_elevated = 0
+    for geom in annotations.geometry:
+        if geom is None or geom.is_empty:
+            continue
+        for line in iter_plot_linestrings(geom):
+            if is_surface_track(np.array(line.coords)):
+                n_surface += 1
+            else:
+                n_elevated += 1
+    geom_types = ", ".join(
+        f"{k}={v}" for k, v in annotations.geometry.geom_type.value_counts().items()
+    )
+    n_audible = int(annotations["audible"].sum()) if "audible" in annotations.columns else 0
+    return (
+        f"{len(annotations)} segments, {annotations['_id'].nunique()} tracks, "
+        f"{n_audible} audible rows, {n_surface} sea-surface / {n_elevated} elevated line(s), "
+        f"CRS={annotations.crs}, types: {geom_types}"
+    )
+
+
 def densify_linestring(linestring: LineString, step_m: float) -> LineString:
     """Insert vertices along a line so elevation can be sampled between sparse AIS points."""
     if linestring.is_empty or linestring.length <= step_m:
@@ -256,6 +290,7 @@ class Visualizer():
         self.project_dir = cfg.read("project", "dir")
         self.fill_layers = fill_layers
         self.max_tracks = max_tracks
+        self.logger = get_logger("VIZ")
 
         # study area and crs
         self.study_area = load_studyarea(self.project_dir, self.unit, self.site, self.year)
@@ -477,44 +512,67 @@ class Visualizer():
         return create_polyline_3d(line, z=z_vals)
 
     def plot_annotations(self, annotation_file: str | None = None) -> None:
-        # load annotations
         if annotation_file is None:
-            annotations = load_annotations(self.project_dir, self.unit, self.site, self.year, only_valid=True)
+            self.logger.info(
+                f"Loading annotations from project dir for {self.deployment} (valid only)"
+            )
+            annotations = load_annotations(
+                self.project_dir, self.unit, self.site, self.year, only_valid=True
+            )
         else:
-            print(f"Loading annotations from custom file: {annotation_file}")
+            self.logger.info(f"Loading annotations from {annotation_file} (valid only)")
             annotations = Annotations(annotation_file, only_valid=True)
-        
+
+        self.logger.info(f"Parsed annotations: {format_annotation_summary(annotations)}")
         if annotations.empty:
-            print("No annotations found, skipping.")
+            self.logger.info("No annotations found, skipping.")
             return
-        
-        # downsample n tracks if too many
+
         track_ids = annotations["_id"].drop_duplicates()
-        print(f"{len(track_ids)} tracks = {len(annotations)} annotated segments")
         if len(track_ids) > self.max_tracks:
-            print(f"More than {self.max_tracks}, sampling")
+            self.logger.info(
+                f"Sampling {self.max_tracks} of {len(track_ids)} tracks "
+                f"({len(annotations)} segments before sample)"
+            )
             selected_track_ids = track_ids.sample(self.max_tracks, replace=False, random_state=2)
             annotations = annotations[annotations["_id"].isin(selected_track_ids)]
-            print(f"Sampled tracks, showing {len(selected_track_ids)} tracks = {len(annotations)} annotated segments")
+            self.logger.info(
+                f"After sample: {format_annotation_summary(annotations)}"
+            )
 
-        # clip to the area - using a box() plays more nicely with z values than the study area itself
         n_loaded = len(annotations)
+        self.logger.info(f"Reprojecting annotations to {self.crs} and clipping to study area")
         annotations = annotations.to_crs(self.crs)
+        n_empty = int(annotations.geometry.is_empty.sum())
+        if n_empty:
+            self.logger.info(f"Dropping {n_empty} empty geometries before clip")
         annotations = annotations[~annotations.geometry.is_empty]
         annotations = annotations.clip(box(*self.study_area.total_bounds))
         annotations = annotations[~annotations.geometry.is_empty].explode(ignore_index=True)
+        self.logger.info(
+            f"After clip: {len(annotations)} segments "
+            f"({n_loaded - len(annotations)} removed outside study area)"
+        )
 
-        # create and plot segments
         audible_actors = []
         inaudible_actors = []
         n_plotted = 0
-        for _, annot in annotations.iterrows():
+        n_skipped = 0
+        for _, annot in tqdm(
+            annotations.iterrows(),
+            total=len(annotations),
+            desc="Plotting annotations",
+            unit="segment",
+        ):
             color = "deepskyblue" if annot["audible"] else "red"
             for line in iter_plot_linestrings(annot["geometry"]):
                 polyline = self._annotation_polyline(line)
                 if polyline.n_points < 2:
+                    n_skipped += 1
                     continue
-                actor = self.plotter.add_mesh(polyline, color=color, point_size=2, line_width=2)
+                actor = self.plotter.add_mesh(
+                    polyline, color=color, point_size=2, line_width=2
+                )
                 n_plotted += 1
                 if annot["audible"]:
                     audible_actors.append(actor)
@@ -522,12 +580,17 @@ class Visualizer():
                     inaudible_actors.append(actor)
 
         if n_plotted == 0:
-            print(
-                f"No annotation segments in view after clip "
-                f"({n_loaded} loaded from file; check CRS and study-area overlap)."
+            self.logger.info(
+                f"No annotation segments plotted ({n_loaded} loaded; "
+                f"{n_skipped} degenerate lines skipped). "
+                "Check CRS and study-area overlap."
             )
             return
-        print(f"Plotted {n_plotted} annotation segments")
+        self.logger.info(
+            f"Plotted {n_plotted} annotation line(s) "
+            f"({len(audible_actors)} audible, {len(inaudible_actors)} inaudible; "
+            f"{n_skipped} skipped)"
+        )
         
         def toggle_audible(flag):
             for actor in audible_actors:

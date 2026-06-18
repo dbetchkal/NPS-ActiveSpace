@@ -3,17 +3,21 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, MultiLineString, Point
 
 from nps_active_space.scripts.viz import (
     create_polyline_3d,
     densify_linestring,
+    format_annotation_summary,
+    is_surface_track,
+    iter_plot_linestrings,
     parse_deployment,
     parse_existing_file,
     parse_iso_date,
     parse_max_tracks,
     sea_surface_z_profile,
     track_points_to_linestring,
+    vertex_z_from_coord,
 )
 
 
@@ -123,7 +127,68 @@ class TestSeaSurfaceZProfile:
         assert z_vals.tolist() == [2.0, 2.0]
 
 
+class TestFormatAnnotationSummary:
+    def test_empty(self):
+        import geopandas as gpd
+
+        assert format_annotation_summary(gpd.GeoDataFrame()) == "0 segments"
+
+    def test_includes_track_and_surface_counts(self):
+        import geopandas as gpd
+
+        gdf = gpd.GeoDataFrame(
+            {
+                "_id": ["T1", "T1"],
+                "audible": [True, False],
+            },
+            geometry=[
+                LineString([(-136.0, 58.0), (-136.1, 58.1)]),
+                LineString([(0.0, 0.0, 100.0), (1.0, 1.0, 200.0)]),
+            ],
+            crs="EPSG:4326",
+        )
+        summary = format_annotation_summary(gdf)
+        assert "2 segments" in summary
+        assert "1 tracks" in summary
+        assert "1 audible" in summary
+        assert "1 sea-surface" in summary
+        assert "1 elevated" in summary
+
+
+class TestVertexZAndSurfaceTrack:
+    def test_missing_z_is_sea_level(self):
+        assert vertex_z_from_coord((-136.0, 58.0)) == 0.0
+
+    def test_nan_z_is_sea_level(self):
+        assert vertex_z_from_coord((-136.0, 58.0, float("nan"))) == 0.0
+
+    def test_nan_z_counts_as_surface_track(self):
+        line = LineString([(-136.0, 58.0, float("nan")), (-136.1, 58.1, float("nan"))])
+        assert is_surface_track(np.array(line.coords))
+
+    def test_positive_z_is_not_surface_track(self):
+        line = LineString([(0, 0, 100.0), (1, 1, 200.0)])
+        assert not is_surface_track(np.array(line.coords))
+
+
+class TestIterPlotLinestrings:
+    def test_point_becomes_short_line(self):
+        lines = iter_plot_linestrings(Point(1.0, 2.0))
+        assert len(lines) == 1
+        assert len(lines[0].coords) == 2
+
+    def test_multilinestring_splits(self):
+        geom = MultiLineString([LineString([(0, 0), (1, 1)]), LineString([(2, 2), (3, 3)])])
+        assert len(iter_plot_linestrings(geom)) == 2
+
+
 class TestCreatePolyline3d:
+    def test_nan_z_becomes_zero(self):
+        line = LineString([(0, 0, float("nan")), (1, 0, float("nan"))])
+        poly = create_polyline_3d(line, z=np.array([float("nan"), 5.0]))
+        assert poly.points[0, 2] == pytest.approx(0.0)
+        assert poly.points[1, 2] == pytest.approx(5.0)
+
     def test_rejects_mismatched_z_length(self):
         line = LineString([(0, 0), (1, 1), (2, 2)])
         with pytest.raises(ValueError, match="one value per vertex"):
