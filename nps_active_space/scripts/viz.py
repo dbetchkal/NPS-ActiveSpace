@@ -279,6 +279,8 @@ class Visualizer():
     z_scale_toggle_color = "black"  # button toggling z scale
     sea_surface_offset_m = 5.0
     sea_surface_densify_step_m = 100.0
+    axes_viewport = (0.0, 0.0, 0.14, 0.14)
+    compass_viewport = (0.14, 0.0, 0.26, 0.14)
 
     def __init__(
         self,
@@ -333,7 +335,7 @@ class Visualizer():
         self.plotter.enable_terrain_style()
         self.setup_z_scale()
         self.plotter.add_title(f"{unit}{site}{year}", font_size=12)
-        self.plotter.show_axes()
+        self.setup_orientation_widgets()
         self.plotter.reset_camera()
         self.plotter.camera.elevation = 30
         self.plotter.show()
@@ -794,6 +796,20 @@ class Visualizer():
             position=(10, 220),
             size=25,
             color_on=self.vessel_track_color,
+        )
+
+    def setup_orientation_widgets(self) -> None:
+        """Bottom-left XYZ axes and geographic north compass (UTM +Y)."""
+        self.plotter.add_axes(
+            viewport=self.axes_viewport,
+            interactive=False,
+            line_width=2,
+        )
+        self.plotter.add_north_arrow_widget(
+            viewport=self.compass_viewport,
+            interactive=False,
+            color="#2f4f4f",
+            line_width=2,
         )
 
     def setup_z_scale(self) -> None:

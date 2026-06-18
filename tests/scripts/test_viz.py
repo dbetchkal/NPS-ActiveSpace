@@ -171,6 +171,16 @@ class TestFormatAnnotationSummary:
         assert "1 elevated" in summary
 
 
+class TestOrientationWidgets:
+    def test_compass_viewport_sits_right_of_axes(self):
+        ax = Visualizer.axes_viewport
+        compass = Visualizer.compass_viewport
+        assert ax[0] == 0.0
+        assert compass[0] == pytest.approx(ax[2])
+        assert compass[2] > compass[0]
+        assert compass[3] == pytest.approx(ax[3])
+
+
 class TestFlatSeaSurfacePolyline:
     def test_uses_constant_offset_without_dem(self):
         line = LineString([(0, 0), (1000, 0), (2000, 0)])
