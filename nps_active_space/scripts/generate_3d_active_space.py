@@ -3,6 +3,7 @@ import subprocess
 import iyore
 import os
 import shlex
+import sys
 import matplotlib.pyplot as plt
 from nps_active_space.utils.models import Nvspl
 from nps_active_space.utils.computation import ambience_from_nvspl
@@ -122,13 +123,13 @@ if __name__ == "__main__":
         print("Running generate_active_space_batch.py on the commands file\n")
         batch_script = os.path.join(os.path.dirname(__file__), "generate_active_space_batch.py")
         process = subprocess.Popen(
-            ["python", batch_script, cmds_file]
+            [sys.executable, batch_script, cmds_file]
         )
         process.wait()
 
         print("\nRunning fit_3d_active_space.py to fit the active space\n")
         fit_script = os.path.join(os.path.dirname(__file__), "fit_3d_active_space.py")
         process = subprocess.Popen(
-            ["python", fit_script, "-e", args.environment, "-u", args.unit, "-s", args.site, "-y", str(args.year)]
+            [sys.executable, fit_script, "-e", args.environment, "-u", args.unit, "-s", args.site, "-y", str(args.year)]
         )
         process.wait()
