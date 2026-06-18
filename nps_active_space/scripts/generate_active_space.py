@@ -27,6 +27,24 @@ if TYPE_CHECKING:
     from nps_active_space.utils.models import Microphone
 
 
+def infer_annotation_altitude(valid_points: gpd.GeoDataFrame) -> int:
+    """Infer mean audible annotation altitude (meters) from valid track points."""
+    annotation_altitudes = []
+    relevant_mask = (
+        (valid_points["audible"])
+        & (valid_points.geometry.z >= 0)
+        & (valid_points.geometry.z <= 10000)
+    )
+    for _, group in valid_points.loc[relevant_mask].groupby("annotation_idx"):
+        annotation_altitudes.append(group.geometry.z.mean())
+    if not annotation_altitudes:
+        raise ValueError(
+            "Could not infer annotation altitude from audible points; "
+            "pass -l/--altitude explicitly (e.g. for sea-level vessel sources)."
+        )
+    return int(np.mean(annotation_altitudes))
+
+
 def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGenerator, headings: List[int],
                       microphone: 'Microphone', altitude: int, tested_pts_outfile: Optional[str] = None,
                       pretested_pts_dict : Optional[dict] = None) -> Tuple[str, gpd.GeoDataFrame, dict]:
@@ -340,17 +358,7 @@ if __name__ == '__main__':
     #  (some inaudible segments are very far away / at different altitudes)
     if not args.altitude:
         logger.info("Calculating average altitude (in meters)...")
-        annotation_altitudes = []
-        relevant_mask = (valid_points["audible"]) & (valid_points.geometry.z > 0) & (valid_points.geometry.z <= 10000)
-        # NOTE we only apply the altitude filter for the purposes of calculating mean altitude, instead of removing
-        # them altogether, because removing the negative values could be severe for some ADS-B loggers
-        for idx, group in valid_points.loc[relevant_mask].groupby("annotation_idx"):
-            annotation_altitudes.append(group.geometry.z.mean())
-        altitude_ = int(np.mean(annotation_altitudes))
-        # annotations['z_val'] = (annotations['geometry'].apply(lambda geom: mean([coords[-1] for coords in geom.coords])))
-        # altitudes_ = annotations[annotations.audible == True].z_val
-        # altitudes_ = altitudes_[(altitudes_ > 0)&(altitudes_ <= 10000)] # NOTE removing the negative values could be severe for some ADS-B loggers
-        # altitude_ = int(mean(altitudes_.tolist()))
+        altitude_ = infer_annotation_altitude(valid_points)
         logger.info(f"Average altitude is: {altitude_}m")
     else:
         altitude_ = args.altitude

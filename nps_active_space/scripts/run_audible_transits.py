@@ -19,6 +19,7 @@ import geopandas as gpd
 from tqdm import tqdm
 import warnings
 import nps_active_space.utils.config as cfg
+from nps_active_space.utils.ais import query_ais_mxak
 from nps_active_space.utils.helpers import (
     create_overflights_engine,
     get_deployment,
@@ -30,9 +31,9 @@ from nps_active_space.utils.helpers import (
     load_activespace,
     load_layered_activespace,
 )
-from nps_active_space.utils.computation import NMSIM_bbox_utm, contiguous_regions, interpolate_spline
 from nps_active_space.utils.models import Tracks, FAAReleasable
-
+from nps_active_space.utils.time_utils import site_timezone_name, utc_naive_to_site_naive
+from nps_active_space.utils.computation import NMSIM_bbox_utm, contiguous_regions, coords_to_utm, interpolate_spline
 pd.set_option('future.no_silent_downcasting', True)
 
 def init_audible_transits(metadata, paths=None, raw_tracks=None):
@@ -51,7 +52,7 @@ def init_audible_transits(metadata, paths=None, raw_tracks=None):
         - "gain": modeled gain value from fitting the active space
         - "study start": date represented as a string of format yyyy-mm-dd, inclusive
         - "study end": date represented as a string of format yyyy-mm-dd, inclusive
-        - "database type": type of database. Can be one of "ADSB", "GPS", "AIS". Note that AIS functionality is not yet implemented.
+        - "database type": type of database. Can be one of "ADSB", "GPS", "AIS".
         - "env" (optional): config file name (e.g. "DENA_streamline"). Required if the database type is "GPS". Also, this will be used to fill in missing values for required paths (e.g. "project") that weren't specified by the user.
         
         - "2D" (optional): Not required to be in metadata. If set to True, run a 2D active space
@@ -68,6 +69,7 @@ def init_audible_transits(metadata, paths=None, raw_tracks=None):
         - "FAA": path to MASTER.txt file provided by the FAA
         - "aircraft corrections" (optional): path to FAA_AircraftCorrections.json file provided by the FAA
         - "ADSB" (optional): directory containing ADSB files in the tab-separated-values (.TSV) format. Required if the database type is "ADSB"
+        - "AIS" (optional): directory containing MXAK AIS CSV files. Required if the database type is "AIS"
     
     raw_tracks: gpd.GeoDataFrame, default None
         A GeoDataFrame containing raw tracks. If provided, will use this instead of loading tracks from the database.
@@ -81,7 +83,6 @@ def init_audible_transits(metadata, paths=None, raw_tracks=None):
 
     Raises
     ------
-    NotImplementedError if "AIS" is entered as the database type
     ValueError if invalid database type is entered
     '''
 
@@ -94,8 +95,7 @@ def init_audible_transits(metadata, paths=None, raw_tracks=None):
     elif metadata["database type"] == "GPS":
         listener = AudibleTransitsGPS(metadata, paths, raw_tracks)
     elif metadata["database type"] == "AIS":
-        raise NotImplementedError(
-            "AIS functionality has not been implemented.")
+        listener = AudibleTransitsAIS(metadata, paths, raw_tracks)
     else:
         raise ValueError(
             f"Invalid metadata['database type'] value: {metadata['database type']}. Valid options: 'ADSB', 'GPS', 'AIS'.")
@@ -224,11 +224,20 @@ class AudibleTransits(ABC):
                     self.paths["ADSB"] = adsb_dir
                 except KeyError:
                     pass
+            if not "AIS" in self.paths and metadata["database type"] == "AIS":
+                try:
+                    ais_dir = cfg.read("data", "ais")
+                    print("Using AIS path from config file")
+                    self.paths["AIS"] = ais_dir
+                except:
+                    pass
         
         if metadata["database type"] == "ADSB":
             assert "ADSB" in self.paths, "No ADSB directory provided, required for ADSB mode"
         elif metadata["database type"] == "GPS":
             assert "env" in metadata, "No config environment provided, GPS database initialization requires a config file"
+        elif metadata["database type"] == "AIS":
+            assert "AIS" in self.paths, "No AIS directory provided, required for AIS mode"
 
         # Errant tracks will be removed and tabulated for reassurance.
         self.garbage = gpd.GeoDataFrame(
@@ -2470,6 +2479,83 @@ class AudibleTransitsADSB(AudibleTransits):
 
         if (return_jets):
             return jets
+
+
+class AudibleTransitsAIS(AudibleTransits):
+
+    def load_tracks_from_database(self, buffer=1000):
+
+        assert self.active_layer is not None, "Active space hasn't been loaded yet."
+        assert self.mic is not None, "Microphone hasn't been loaded yet."
+
+        logger.debug("Loading AIS data")
+        warnings.filterwarnings(
+            'ignore', message=".*before calling to_datetime.*")
+
+        AIS_DIR = self.paths["AIS"]
+
+        mask = self.active_layer
+        if self.three_dimensional_run:
+            mask = pd.concat(list(self.active_3d.activespaces.values())).dissolve()
+
+        raw = query_ais_mxak(
+            AIS_DIR, self.study_start, self.study_end,
+            mask=mask, mask_buffer_distance=buffer,
+        )
+        assert not raw.empty, "AIS query returned an empty dataframe"
+
+        tracks = Tracks(raw, id_col='event_id', datetime_col='TIME', z_col='altitude')
+        site_tz = site_timezone_name(self.mic.lat, self.mic.lon)
+        tracks["point_dt"] = utc_naive_to_site_naive(tracks["point_dt"], site_tz)
+        tracks.set_crs('WGS84', inplace=True)
+        tracks.geometry = gpd.points_from_xy(
+            tracks.geometry.x, tracks.geometry.y, tracks.z)
+
+        logger.debug("\tTracks have been parsed.")
+        logger.debug("\tFiltering duplicate records...")
+
+        original_length = len(tracks)
+        tracks.drop_duplicates(subset=['track_id', 'point_dt'], inplace=True)
+        time_duplicates = original_length - len(tracks)
+        tracks.drop_duplicates(subset=['track_id', 'geometry'], inplace=True)
+        position_duplicates = original_length - time_duplicates - len(tracks)
+        logger.debug(
+            f"\t\tRemoved {time_duplicates} points with repeated times and {position_duplicates} points with repeated positions.")
+
+        self.tracks = tracks
+        return tracks.copy()
+
+    def extract_aircraft_info(self):
+
+        tracks = self.tracks
+
+        if 'MMSI' in tracks.columns:
+            for track_id, group in tracks.groupby('track_id'):
+                if group['MMSI'].notna().any():
+                    mmsi = str(group['MMSI'].dropna().iloc[0])
+                else:
+                    mmsi = track_id.split('_')[0]
+                tracks.loc[group.index, 'n_number'] = mmsi
+        else:
+            tracks['n_number'] = tracks.track_id.apply(
+                lambda tid: tid.split('_')[0])
+
+        if 'shiptype' in tracks.columns:
+            for track_id, group in tracks.groupby('track_id'):
+                if group['shiptype'].notna().any():
+                    shiptype = group['shiptype'].dropna().iloc[0]
+                else:
+                    shiptype = pd.NA
+                tracks.loc[group.index, 'aircraft_type'] = shiptype
+        else:
+            tracks['aircraft_type'] = pd.NA
+
+    def remove_jets(self, tracks='self', return_jets=False):
+        pass
+
+    def detect_takeoffs_and_landings(self, tracks='self', **kwargs):
+        # Vessel tracks do not use aircraft takeoff/landing extrapolation.
+        pass
 
 
 if __name__ == '__main__':

@@ -15,6 +15,7 @@ from datetime import timedelta
 import matplotlib.patches as patches
 import glob
 import os
+import re
 from nps_active_space.utils.computation import contiguous_regions
 from nps_active_space.utils.models import Srcid
 import iyore
@@ -40,7 +41,59 @@ __all__ = [
 
 # SHARED - ACOUSTIC AND GEOGRAPHIC ---------------------------------------
 
-def get_obs_periods(unit: str, site: str, year: str, nvspl_archive: str, adsb_dir: str | None = None) -> np.ndarray:
+_AIS_DATE_PATTERN = re.compile(r"-(\d{8})(?:-\d+)?\.csv$")
+
+
+def _ais_dates_from_archive(ais_path: str) -> np.ndarray:
+    """Extract sorted calendar dates from MXAK AIS CSV filenames in ``ais_path``."""
+    dates: list[np.datetime64] = []
+    for path in glob.glob(os.path.join(ais_path, "*.csv")):
+        match = _AIS_DATE_PATTERN.search(os.path.basename(path))
+        if match:
+            ymd = match.group(1)
+            dates.append(np.datetime64(f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:8]}"))
+    return np.array(sorted(dates))
+
+
+def _full_causal_days(dates: np.ndarray) -> np.ndarray:
+    """Days with causal data on both the prior and following calendar day."""
+    gaps = np.diff(dates) > np.timedelta64(1, "D")
+    gap_after = np.concat([gaps, [False]])
+    gap_before = np.concat([[False], gaps])
+    full_day = (~gap_after) & (~gap_before)
+    # first and last days aren't full days, since monitoring started/stopped during them
+    full_day[[0, -1]] = False
+    return full_day
+
+
+def _obs_periods_from_causal_dates(
+    causal_dates: np.ndarray,
+    full_day: np.ndarray,
+    src_obs_periods: np.ndarray | None,
+) -> np.ndarray:
+    if src_obs_periods is None:
+        dates = causal_dates[full_day]
+    else:
+        during_acoustic = np.full(causal_dates.shape, False)
+        for start, end in src_obs_periods.astype("datetime64[D]"):
+            during_acoustic |= (causal_dates >= start) & (causal_dates <= end)
+        dates = causal_dates[full_day & during_acoustic]
+
+    all_dates = np.arange(dates[0], dates[-1] + np.timedelta64(1, "D"))
+    period_indices = contiguous_regions(np.isin(all_dates, dates))
+    period_indices[:, 1] -= 1
+    obs_periods = all_dates[period_indices]
+    return np.datetime_as_string(obs_periods, unit="D")
+
+
+def get_obs_periods(
+    unit: str,
+    site: str,
+    year: str,
+    nvspl_archive: str,
+    adsb_dir: str | None = None,
+    ais_path: str | None = None,
+) -> np.ndarray:
     """
     Get periods of time in which we have overlapping acoustic and causal observations.
     A full day with no SPLAT annotations is considered acoustic data missing.
@@ -59,9 +112,13 @@ def get_obs_periods(unit: str, site: str, year: str, nvspl_archive: str, adsb_di
         Path the the nvspl archive. Should contain a .structure file for use with iyore.
     adsb_dir: str, default None
         If provided, the path to the directory containing ADSB TSV files for this year / site.
-        If not provided, casual data is assumed to be GPS. Since we assume GPS doesn't have
-        any gaps of no-data, this function just computes the periods of time with acoustic data.
-    
+        If not provided, casual data is assumed to be GPS unless ``ais_path`` is set. Since we
+        assume GPS doesn't have any gaps of no-data, this function just computes the periods
+        of time with acoustic data.
+    ais_path: str, default None
+        If provided, the path to a directory containing MXAK AIS CSV files for this year / site.
+        Uses the same full-day gap logic as ADSB when determining observation periods.
+
     Returns
     -------
     obs_periods: np.array of shape (# periods, 2)
@@ -79,7 +136,8 @@ def get_obs_periods(unit: str, site: str, year: str, nvspl_archive: str, adsb_di
         logger.info("No SPLAT annotation data")
         src_obs_periods = None
 
-    # load ADSB record periods if applicable
+    # load causal record periods if applicable
+    causal_dates = None
     if adsb_dir is not None:
         tsv_files = glob.glob(os.path.join(adsb_dir, "*.tsv"))
         adsb_dates = []
@@ -87,16 +145,12 @@ def get_obs_periods(unit: str, site: str, year: str, nvspl_archive: str, adsb_di
             f = os.path.basename(file)
             date = f"{f[:4]}-{f[4:6]}-{f[6:8]}"
             adsb_dates.append(np.datetime64(date))
-        adsb_dates = np.array(adsb_dates)
-        gaps = np.diff(adsb_dates) > np.timedelta64(1, "D")
-        gap_after = np.concat([gaps, [False]])
-        gap_before = np.concat([[False], gaps])
-        full_adsb_day = (~gap_after) & (~gap_before)
-        # first and last days aren't full days, since monitoring started/stopped during them
-        full_adsb_day[[0,-1]] = False
+        causal_dates = np.array(adsb_dates)
+    elif ais_path is not None:
+        causal_dates = _ais_dates_from_archive(ais_path)
 
-    # several possibilities for what data we have - GPS vs. ADSB, and may or may not have SPLAT
-    if adsb_dir is None:
+    # several possibilities for what data we have - GPS vs. ADSB/AIS, and may or may not have SPLAT
+    if causal_dates is None:
         if src_obs_periods is None:
             # GPS + no SPLAT
             # assume GPS covers the whole year
@@ -106,31 +160,8 @@ def get_obs_periods(unit: str, site: str, year: str, nvspl_archive: str, adsb_di
             # assume GPS covers the whole year, so only acoustic record is limiting
             return src_obs_periods
     else:
-        if src_obs_periods is None:
-            # ADSB + No SPLAT
-            dates = adsb_dates[full_adsb_day]
-        else:
-            # ADSB + SPLAT
-            # get which adsb days were during the acoustic record
-            during_acoustic = np.full(adsb_dates.shape, False)
-            for start, end in src_obs_periods.astype("datetime64[D]"):
-                during_acoustic |= (adsb_dates >= start) & (adsb_dates <= end)
-            # get np array of dates with overlapping ADSB and acoustic
-            dates = adsb_dates[full_adsb_day & during_acoustic]
-
-        # make np array of days spanning the full range
-        # add one extra day to end date for np.arange exclusive indexing
-        all_dates = np.arange(dates[0], dates[-1] + np.timedelta64(1, "D"))
-
-        # Get contiguous regions. Returns a numpy array of shape (len(all_dates), 2),
-        # containing indices of the beginning and end of each contiguous region (exclusive end index)
-        period_indices = contiguous_regions(np.isin(all_dates, dates))
-        # convert end indices to inclusive
-        period_indices[:,1] -= 1
-
-        # index into all dates and convert to strings
-        obs_periods = all_dates[period_indices]
-        return np.datetime_as_string(obs_periods, unit="D")
+        full_causal_day = _full_causal_days(causal_dates)
+        return _obs_periods_from_causal_dates(causal_dates, full_causal_day, src_obs_periods)
 
 
 def clip_events_to_time_period(df: pd.DataFrame, start_col: str, end_col: str, start_dt: np.datetime64, end_dt: np.datetime64, months: list[int] | None = None) -> pd.DataFrame:
