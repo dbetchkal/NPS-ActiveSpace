@@ -80,10 +80,15 @@ def load_layered_activespace(project_dir, unit, site, year, gain=None, crs="epsg
         altitude = int(os.path.basename(dir).split("_")[1].split("m")[0])
         layer_dirs[altitude] = dir
     if not layer_dirs:
+        cmds_output = os.path.join(
+            project_dir, unit + site, f"{unit}{site}{year}_commands_output.csv"
+        )
         raise FileNotFoundError(
             f"No active space layers with GeoJSON output found for {unit}{site}{year} under:\n"
             f"  {prefix}\n"
-            f"Expected directories like {unit}{site}{year}_0m containing *_O_*.geojson files."
+            f"Expected directories like {unit}{site}{year}_0m containing *_O_*.geojson files.\n"
+            f"If layers were deleted or failed, delete {cmds_output} (if present) and rerun batch "
+            f"with --force, or rerun generate_3d_active_space.py with --force-rerun."
         )
     study_area = load_studyarea(project_dir, unit, site, year)
     return LayeredActiveSpace(f"{unit}{site}{year}", layer_dirs, study_area, gain, crs)

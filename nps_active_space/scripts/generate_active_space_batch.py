@@ -232,6 +232,11 @@ if __name__ == "__main__":
                                         "whitespace, then followed by the options for the generate_active_space.py script."
                                         "An example line is this: DENATRLA2025  -e DENA_streamline -u DENA -s TRLA -y 2025 --cleanup")
     argparse.add_argument("-o", "--output", help="Path to output .csv file")
+    argparse.add_argument(
+        "--force",
+        action="store_true",
+        help="Rerun all commands even if their designator is already in the output CSV.",
+    )
     # argparse.add_argument("-s", "--savedir", help="Parent directory to copy the output files to. Output files are the active spaces,"
     #                                               "the annotations used, and the precision-recall plot. A subdirectory named with"
     #                                               "the designator will contain the files.")
@@ -262,7 +267,11 @@ if __name__ == "__main__":
 
         # check if this run has been done already, based on if the output file has a matching designator,
         # since designators should be unique to a run
-        if not output_df.empty and designator in output_df["Designator"].values:
+        if (
+            not args.force
+            and not output_df.empty
+            and designator in output_df["Designator"].values
+        ):
             print("Done already, skipping")
             continue
 

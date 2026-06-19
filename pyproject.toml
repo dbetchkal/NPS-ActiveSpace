@@ -66,3 +66,7 @@ nps_active_space = [
     "data/**/*",
     "img/*",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
