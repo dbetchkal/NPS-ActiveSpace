@@ -74,6 +74,8 @@ nps_active_space = [
 ]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
 markers = [
     "integration: multiprocess or heavy integration tests",
 ]
