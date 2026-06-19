@@ -458,10 +458,13 @@ This script is used to visualize select geospatial objects relevant to the `nps_
 | `-s`, `--active-space`     | If included, load and plot the active space                                                                                                      |
 | `-a`, `--annotations`      | If included, load and plot annotations                                                                                                           |
 | `-t`, `--audible-transits` | If included, load and plot audible transits                                                                                                      |
+| `-v`, `--vessels`          | If included, load and plot MXAK AIS vessel tracks at sea level                                                                                 |
 | `--all`                    | Load and plot all geospatial objects (shorthand for `--active-space --annotations --audible-transits`)                                           |
 | `-m`, `--max-tracks`       | **_default 500_**<br>Maximum number of annotation tracks or audible transits to show                                                             |
 | `--annotation-file`        | **_default to deployment dir_**<br/>Path to .geojson file from which to load annotations                                                         |
 | `--transits-pkl`           | **_default to deployment dir_**<br/>Path to .pkl file from which to load audible transits                                                        |
+| `--start-date`             | AIS query start date (YYYY-MM-DD). Default: Jan 1 of deployment year.                                                                            |
+| `--end-date`               | AIS query end date (YYYY-MM-DD). Default: Dec 31 of deployment year.                                                                             |
 | `--terraced`               | If included, render the active space as a terraced surface instead of contours                                                                   |
 | `--fill-layers`            | If included, fill the interior of each active space contour polygon                                                                              |
 
@@ -469,6 +472,10 @@ Example executions:
 
 ```bash
 $ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production --all
+```
+
+```bash
+$ python -u -W ignore nps_active_space/scripts/viz.py GLBALSTL2024 -e production -s -a -v --terraced
 ```
 
 ```bash

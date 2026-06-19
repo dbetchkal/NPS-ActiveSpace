@@ -203,6 +203,14 @@ class Visualizer:
         active_3d = load_layered_activespace(
             self.project_dir, self.unit, self.site, self.year, gain, self.crs
         )
+        if not active_3d.activespaces:
+            self._status(
+                f"No active space geometry loaded for {self.deployment} at {gain}dB; skipping."
+            )
+            return
+        self._status(
+            f"Loaded active space layers (m): {sorted(active_3d.activespaces.keys())} at {gain}dB"
+        )
         if terraced:
             self.plot_terraced_activespace(active_3d)
         else:
@@ -244,7 +252,10 @@ class Visualizer:
         for line in active_to_linestrings(active_layer):
             polyline = create_polyline_3d(line, z=elevation)
             actor = self.plotter.add_mesh(
-                polyline, color=self.activespace_color, point_size=2, line_width=2
+                polyline,
+                color=self.activespace_color,
+                line_width=4,
+                render_lines_as_tubes=True,
             )
             line_actors.append(actor)
 
@@ -464,7 +475,7 @@ class Visualizer:
                 )
             )
             if len(matches) == 0:
-                print("No audible transits pkl file found found")
+                self._status("No audible transits pkl file found")
                 return
             listener = AudibleTransits.from_pickle(matches[0])
 

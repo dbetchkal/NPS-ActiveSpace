@@ -162,7 +162,6 @@ def main() -> None:
 
     args = parser.parse_args()
     unit, site, year = args.deployment
-    print(unit, site, year)
 
     do_active, do_annotations, do_transits, do_vessels = resolve_viz_plot_flags(
         active_space=args.active_space,

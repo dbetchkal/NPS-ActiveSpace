@@ -276,8 +276,8 @@ class TestTrackPointsToLinestring:
 
 
 class TestScriptsVizShim:
-    def test_scripts_viz_reexports_visualizer(self):
+    def test_scripts_viz_delegates_to_viz_cli(self):
         from nps_active_space.scripts import viz as scripts_viz
+        from nps_active_space.viz.cli import main
 
-        assert scripts_viz.Visualizer is Visualizer
-        assert scripts_viz.parse_deployment is parse_deployment
+        assert scripts_viz.main is main
