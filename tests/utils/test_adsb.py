@@ -1,7 +1,9 @@
 from pathlib import Path
 
+import geopandas as gpd
 import pandas as pd
 import pytest
+from pandas.testing import assert_frame_equal
 
 from nps_active_space.utils.helpers import query_adsb
 from nps_active_space.utils.models import Adsb
@@ -16,6 +18,12 @@ ADSB_FIXTURE = (
 ADSB_DIR = ADSB_FIXTURE.parent
 FIXTURE_DAY_START = pd.Timestamp("2025-06-23")
 FIXTURE_DAY_END = pd.Timestamp("2025-06-24")
+
+PARSE_CHECK_COLS = ["lat", "lon", "altitude", "flight_id", "TIME"]
+
+
+def _tabular(gdf: gpd.GeoDataFrame, columns: list[str]) -> pd.DataFrame:
+    return pd.DataFrame(gdf)[columns].reset_index(drop=True)
 
 
 @pytest.fixture(scope="module")
@@ -36,12 +44,17 @@ class TestAdsbParser:
 
         cfs = adsb[adsb["ICAO_address"] == "A98046"]
         assert not cfs.empty
-        row = cfs.iloc[0]
-        assert row["lat"] == pytest.approx(63.7391488)
-        assert row["lon"] == pytest.approx(-149.02944)
-        assert row["altitude"] == pytest.approx(5791.2)
-        assert row["flight_id"] == "A98046_0_20250623"
-        assert row["TIME"] == pd.Timestamp("2025-06-23 12:53:23")
+        actual = _tabular(cfs.head(1), PARSE_CHECK_COLS)
+        expected = pd.DataFrame(
+            {
+                "lat": [63.7391488],
+                "lon": [-149.02944],
+                "altitude": [5791.2],
+                "flight_id": ["A98046_0_20250623"],
+                "TIME": [pd.Timestamp("2025-06-23 12:53:23")],
+            }
+        )
+        assert_frame_equal(actual, expected, check_dtype=False)
 
     def test_flight_id_format(self, adsb_fixture_day: Adsb):
         for flight_id in adsb_fixture_day["flight_id"].unique():
