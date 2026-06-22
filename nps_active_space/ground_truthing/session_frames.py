@@ -9,7 +9,7 @@ from nps_active_space.ground_truthing.segments import AudibleRange
 from nps_active_space.ground_truthing import dem
 from nps_active_space.ground_truthing import plotting
 from nps_active_space.ground_truthing import segments
-from nps_active_space.ground_truthing import track_prepare
+from nps_active_space.ground_truthing import track_context
 from nps_active_space.ground_truthing import vehicle_info
 
 
@@ -402,7 +402,7 @@ class _GroundTruthingFrame(_AppFrame):
             return
 
         # load spectrogram
-        spectro = track_prepare.load_spectrogram(self.master.nvspl, points)
+        spectro = track_context.load_spectrogram(self.master.nvspl, points)
         if spectro.empty:
             tk.messagebox.showwarning(
                 title='Data Warning',
@@ -416,14 +416,14 @@ class _GroundTruthingFrame(_AppFrame):
         mic_point = Point(float(self.master.mic.x), 
                           float(self.master.mic.y), 
                           float(self.master.mic.z))
-        spline = track_prepare.prepare_spline(points, mic_point)
+        spline = track_context.prepare_spline(points, mic_point)
 
         # Determine the closest spline point to the mic.
-        closest_point, closest_time = track_prepare.closest_approach(spline)
+        closest_point, closest_time = track_context.closest_approach(spline)
 
         # Calculate some datetime starting points.
         x_lims = date2num(spectro.index)  # convert the NVSPL's nice datetime axis to numbers
-        lower_limit_start, upper_limit_start = track_prepare.limit_line_bounds(closest_time, x_lims)
+        lower_limit_start, upper_limit_start = track_context.limit_line_bounds(closest_time, x_lims)
 
         if upper_limit_start <= lower_limit_start:
             tk.messagebox.showwarning(
@@ -439,7 +439,7 @@ class _GroundTruthingFrame(_AppFrame):
         # note: audible_ranges is a list of [datetime, datetime], in the SPECTROGRAM's timeline
         # - i.e. uses the 'time_audible' field, not the 'point_dt' field
         annots = self.master.annotations[self.master.annotations["_id"] == track_id]
-        audible_ranges = track_prepare.audible_ranges_from_annotations(
+        audible_ranges = track_context.audible_ranges_from_annotations(
             annots, spline, lower_limit_start, upper_limit_start
         )
         if audible_ranges is None:

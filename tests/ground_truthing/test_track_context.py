@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 from matplotlib.dates import date2num, num2date
 
-from nps_active_space.ground_truthing.track_prepare import (
+from nps_active_space.ground_truthing.track_context import (
     audible_ranges_from_annotations,
     limit_line_bounds,
 )
