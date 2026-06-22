@@ -11,6 +11,7 @@ from nps_active_space.ground_truthing import dem
 from nps_active_space.ground_truthing import segments
 from nps_active_space.ground_truthing import track_context
 from nps_active_space.ground_truthing import vehicle_info
+from nps_active_space.utils.enums import TrackSource
 
 
 class _AnnotationLoadFrame(_AppFrame):
@@ -259,7 +260,7 @@ class _GroundTruthingFrame(_AppFrame):
         self.faa = vehicle_info.load_faa(
             self.master.faa_path,
             self.master.faa_corrections_path,
-            self.master.database_type,
+            self.master.track_source,
             self.master.tracks,
         )
 
@@ -454,18 +455,10 @@ class _GroundTruthingFrame(_AppFrame):
         if audible_ranges is None:
             return
         
-        # load vehicle metadata if applicable
-        if self.master.database_type == "AIS":
-            aircraft_help_text, aircraft_type, vessel_name = vehicle_info.lookup_vessel(
-                self.master.database_type, track_id, points
-            )
-            faa_row = None
-            self.vessel_name = vessel_name
-        else:
-            faa_row, aircraft_help_text, aircraft_type = vehicle_info.lookup_aircraft(
-                self.faa, self.master.database_type, track_id, points
-            )
-            self.vessel_name = None
+        vehicle = vehicle_info.lookup_track_vehicle(
+            self.faa, self.master.track_source, track_id, points
+        )
+        self.vessel_name = vehicle.vessel_name
 
         # update track-specific state, stored in member variables
         # these are stored as member variables because _build_plot() might be called again later,
@@ -484,11 +477,11 @@ class _GroundTruthingFrame(_AppFrame):
         self.x_lims = x_lims
         self.lower_limit_start = lower_limit_start
         self.upper_limit_start = upper_limit_start
-        if faa_row is not None or self.master.database_type == "AIS":
-            self.aircraft_help_text = aircraft_help_text
+        if vehicle.faa_row is not None or self.master.track_source is TrackSource.AIS:
+            self.aircraft_help_text = vehicle.help_text
         else:
             self.aircraft_help_text = None
-        self.aircraft_type = aircraft_type
+        self.aircraft_type = vehicle.vehicle_type
 
         self._build_plot()
 

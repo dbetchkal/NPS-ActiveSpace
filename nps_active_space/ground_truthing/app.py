@@ -27,7 +27,7 @@ def launch(
     tracks: "Tracks",
     crs: str,
     study_area: gpd.GeoDataFrame,
-    database_type: TrackSource,
+    track_source: TrackSource,
     dem: DatasetReader,
     clip: bool = False,
     faa_path: str | None = None,
@@ -41,7 +41,7 @@ def launch(
         tracks,
         crs,
         study_area,
-        database_type,
+        track_source,
         dem,
         clip=clip,
         faa_path=faa_path,
@@ -67,7 +67,7 @@ class _App(tk.Tk):
         Format of 'epsg:XXXX...', E.g. 'epsg:32632'
     study_area : gpd.GeoDataFrame
         A gpd.GeoDataFrame of polygon(s) that make up the study area.
-    database_type: TrackSource
+    track_source: TrackSource
         Track feed for causal data (GPS, ADSB, or AIS).
     dem
         rasterio Dataset object for reading the DEM
@@ -85,7 +85,7 @@ class _App(tk.Tk):
         tracks: "Tracks",
         crs: str,
         study_area: gpd.GeoDataFrame,
-        database_type: TrackSource,
+        track_source: TrackSource,
         dem: DatasetReader,
         clip: bool = False,
         faa_path: str | None = None,
@@ -98,7 +98,7 @@ class _App(tk.Tk):
         self.study_area = study_area.to_crs(crs)
         self.nvspl = nvspl
         self.outfile = None
-        self.database_type = database_type
+        self.track_source = track_source
         self.dem = dem
         self.faa_path = faa_path
         self.faa_corrections_path = faa_corrections_path

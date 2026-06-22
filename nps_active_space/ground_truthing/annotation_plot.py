@@ -10,9 +10,35 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.widgets import Button
 
 from nps_active_space.ground_truthing.widgets import FastRangeSlider
+from nps_active_space.utils.enums import TrackSource
 
 if TYPE_CHECKING:
     from nps_active_space.ground_truthing.annotation_frames import _GroundTruthingFrame
+
+
+def _track_label_type_lines(
+    track_source: TrackSource,
+    vehicle_type: str | None,
+    vessel_name: str | None,
+) -> tuple[str, str]:
+    """Return type and name label lines for the track info panel."""
+    match track_source:
+        case TrackSource.AIS:
+            type_line = (
+                f"Vessel type: {vehicle_type}\n"
+                if vehicle_type is not None else ""
+            )
+            name_line = (
+                f"Vessel: {vessel_name}\n"
+                if vessel_name is not None else ""
+            )
+        case _:
+            type_line = (
+                f"Aircraft Type: {vehicle_type}\n"
+                if vehicle_type is not None else ""
+            )
+            name_line = ""
+    return type_line, name_line
 
 
 def build_plot(frame: "_GroundTruthingFrame") -> None:
@@ -203,21 +229,11 @@ def build_plot(frame: "_GroundTruthingFrame") -> None:
 
     # --------------------------------- Update Track Labels and Event Handling --------------------------------- #
 
-    if frame.master.database_type == "AIS":
-        type_line = (
-            f"Vessel type: {frame.aircraft_type}\n"
-            if frame.aircraft_type is not None else ""
-        )
-        name_line = (
-            f"Vessel: {frame.vessel_name}\n"
-            if getattr(frame, "vessel_name", None) is not None else ""
-        )
-    else:
-        type_line = (
-            f"Aircraft Type: {frame.aircraft_type}\n"
-            if frame.aircraft_type is not None else ""
-        )
-        name_line = ""
+    type_line, name_line = _track_label_type_lines(
+        frame.master.track_source,
+        frame.aircraft_type,
+        getattr(frame, "vessel_name", None),
+    )
 
     frame.track_label.config(text=f"Microphone: {frame.master.mic.name}\n\n" + \
                                  f"Track Id: {frame.track_id}\n" + \

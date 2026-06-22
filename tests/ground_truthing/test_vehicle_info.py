@@ -1,8 +1,8 @@
 import geopandas as gpd
-import pandas as pd
 from shapely.geometry import Point
 
 from nps_active_space.ground_truthing import vehicle_info
+from nps_active_space.utils.enums import TrackSource
 
 
 def _ais_points() -> gpd.GeoDataFrame:
@@ -19,11 +19,15 @@ def _ais_points() -> gpd.GeoDataFrame:
 class TestLookupVessel:
     def test_ais_returns_name_and_type(self):
         help_text, vessel_type, vessel_name = vehicle_info.lookup_vessel(
-            "AIS", "368018710_0_20250107", _ais_points()
+            TrackSource.AIS, "368018710_0_20250107", _ais_points()
         )
         assert help_text == "MMSI: 368018710"
         assert vessel_type == "Tug"
         assert vessel_name == "ANNA T"
 
     def test_non_ais_returns_none(self):
-        assert vehicle_info.lookup_vessel("ADSB", "x", _ais_points()) == (None, None, None)
+        assert vehicle_info.lookup_vessel(TrackSource.ADSB, "x", _ais_points()) == (
+            None,
+            None,
+            None,
+        )

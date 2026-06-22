@@ -102,7 +102,7 @@ if __name__ == '__main__':
         mic=microphone,
         crs=coords_to_utm(microphone.lat, microphone.lon),
         study_area=study_area,
-        database_type=args.track_source,
+        track_source=args.track_source,
         dem=dem,
         clip=False,
         faa_path=faa_path,
