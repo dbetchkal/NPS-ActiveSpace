@@ -41,7 +41,7 @@ __all__ = [
 ]
 
 
-def _require_glob(pattern: str, *, description: str) -> str:
+def _glob_path_or_raise(pattern: str, *, description: str) -> str:
     """Return the path matching ``pattern``, or raise ``FileNotFoundError``."""
     matches = glob.glob(pattern)
     if not matches:
@@ -147,7 +147,7 @@ def load_DEM(project_dir: str, unit: str, site: str):
     dem_glob = os.path.join(
         project_dir, unit + site, "Input_Data", "01_ELEVATION", "elevation_m_nad83_utm*.tif"
     )
-    raster_path = _require_glob(
+    raster_path = _glob_path_or_raise(
         dem_glob,
         description=(
             f"elevation DEM for {unit}{site} "
@@ -194,7 +194,7 @@ def load_studyarea(project_dir: str, unit: str, site: str, year: int, crs: str =
     study_glob = os.path.join(
         project_dir, unit + site, f"{unit}{site}*study*area*.shp"
     )
-    study_area_path = _require_glob(
+    study_area_path = _glob_path_or_raise(
         study_glob,
         description=f"study area shapefile for {unit}{site}{year}",
     )
