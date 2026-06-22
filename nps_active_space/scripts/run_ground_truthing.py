@@ -2,7 +2,7 @@ from argparse import ArgumentParser
 import os
 import iyore
 import nps_active_space.ground_truthing as app
-from nps_active_space.ground_truthing.tracks import load_ground_truthing_tracks
+from nps_active_space.ground_truthing.load_tracks import load_tracks
 from nps_active_space.utils.enums import TrackSource
 from nps_active_space.utils.models import Nvspl
 import nps_active_space.utils.config as cfg
@@ -59,7 +59,7 @@ if __name__ == '__main__':
     # Query flight tracks from days there is NVSPL data for.
     logger.info("Querying tracks...")
 
-    loaded = load_ground_truthing_tracks(
+    loaded = load_tracks(
         args.track_source,
         start_date=nvspl_dates[0],
         end_date=nvspl_dates[-1],

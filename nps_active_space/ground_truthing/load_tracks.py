@@ -79,7 +79,7 @@ def _load_ais_tracks(
     return GroundTruthingTracks(tracks, None, None)
 
 
-def load_ground_truthing_tracks(
+def load_tracks(
     source: TrackSource,
     *,
     start_date: str,
