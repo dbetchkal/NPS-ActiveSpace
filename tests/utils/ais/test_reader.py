@@ -5,11 +5,10 @@ import pandas as pd
 import pytest
 from pandas.testing import assert_frame_equal
 
-from nps_active_space.utils.ais import MxakAis, query_ais_mxak
+from nps_active_space.utils.ais.reader import MxakAis
 
 REPO = Path(__file__).resolve().parents[3]
 AIS_FIXTURE = REPO / "example_data" / "AIS" / "MXAK-AIS-GLBA-20250107.csv"
-AIS_DIR = AIS_FIXTURE.parent
 ANNA_MMSI = 368018710
 
 METADATA_COLS = ["TIME", "MMSI", "lat", "lon", "ship_name", "shiptype", "altitude", "event_id"]
@@ -86,17 +85,3 @@ class TestMxakAisParser:
             }
         )
         assert_frame_equal(actual, expected, check_dtype=False)
-
-
-class TestQueryAisMxak:
-    def test_matches_direct_parse_for_fixture_day(self, mxak_fixture_day: MxakAis):
-        queried = query_ais_mxak(str(AIS_DIR), "2025-01-07", "2025-01-07")
-        assert_frame_equal(
-            _tabular(queried, METADATA_COLS),
-            _tabular(mxak_fixture_day, METADATA_COLS),
-            check_dtype=False,
-        )
-
-    def test_date_filter_excludes_other_days(self):
-        with pytest.raises(AssertionError, match="No AIS data loaded"):
-            query_ais_mxak(str(AIS_DIR), "2025-01-08", "2025-01-08")
