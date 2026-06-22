@@ -1,6 +1,6 @@
 import pandas as pd
 
-from nps_active_space.utils.ais import parse_mxak_ais_timestamps
+from nps_active_space.utils.ais.timestamp_parsing import parse_mxak_ais_timestamps
 
 
 class TestParseMxakAisTimestamps:
