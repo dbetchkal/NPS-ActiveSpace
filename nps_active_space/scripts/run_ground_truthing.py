@@ -1,19 +1,16 @@
 from argparse import ArgumentParser
 import os
-import sqlalchemy
 import iyore
 import nps_active_space.ground_truthing as app
-from nps_active_space.utils.models import Nvspl, Tracks
+from nps_active_space.ground_truthing.tracks import load_ground_truthing_tracks
+from nps_active_space.utils.enums import TrackSource
+from nps_active_space.utils.models import Nvspl
 import nps_active_space.utils.config as cfg
-from nps_active_space.utils.ais import query_ais_mxak
-from nps_active_space.utils.time_utils import site_timezone_name, utc_naive_to_site_naive
 from nps_active_space.utils.helpers import (
     get_deployment,
     get_logger,
     load_DEM,
     load_studyarea,
-    query_adsb,
-    query_tracks,
 )
 from nps_active_space.utils.computation import coords_to_utm
 from nps_active_space.utils.clock_drift import correct_clock_drift
@@ -31,8 +28,13 @@ if __name__ == '__main__':
                           help="Four letter site code. E.g. TRLA")
     argparse.add_argument('-y', '--year', type=int, required=True,
                           help="Four digit year. E.g. 2018")
-    argparse.add_argument('-t', '--track-source', default='GPS', choices=["GPS", "ADSB", "AIS"],
-                          help="Enter 'GPS', 'ADSB', or 'AIS")
+    argparse.add_argument(
+        '-t', '--track-source',
+        default=TrackSource.GPS,
+        type=TrackSource,
+        choices=list(TrackSource),
+        help="Enter 'GPS', 'ADSB', or 'AIS'",
+    )
 
     args = argparse.parse_args()
 
@@ -44,8 +46,6 @@ if __name__ == '__main__':
     # Set the various path variables.
     archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
     site_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
-    faa_path = None
-    faa_corrections_path = None
 
     # Load the microphone deployment site metadata and the study area shapefile.
     project_dir = cfg.read("project", "dir")
@@ -59,43 +59,16 @@ if __name__ == '__main__':
     # Query flight tracks from days there is NVSPL data for.
     logger.info("Querying tracks...")
 
-    if args.track_source == 'ADSB':
-        raw_tracks = query_adsb(
-            adsb_path=cfg.read('data', 'adsb'),
-            start_date=nvspl_dates[0],
-            end_date=nvspl_dates[-1],
-            mask=study_area
-        )
-        tracks = Tracks(raw_tracks, id_col='flight_id', datetime_col='TIME', z_col='altitude')
-        faa_path = cfg.read('project', 'FAA_Releasable_db')
-        faa_corrections_path = cfg.read('project', 'FAA_type_corrections')
-
-    elif args.track_source == 'GPS':
-        engine = sqlalchemy.create_engine(
-            'postgresql://{username}:{password}@{host}:{port}/{name}'.format(
-                **cfg.read('database:overflights')
-            )
-        )
-        raw_tracks = query_tracks(engine=engine, start_date=nvspl_dates[0], end_date=nvspl_dates[-1], mask=study_area)
-        tracks = Tracks(raw_tracks, 'flight_id', 'ak_datetime', 'altitude_m')
-        faa_path = cfg.read('project', 'FAA_Releasable_db')
-        faa_corrections_path = cfg.read('project', 'FAA_type_corrections')
-
-    elif args.track_source == 'AIS':
-        raw_tracks = query_ais_mxak(
-            ais_path=cfg.read('data', 'ais'),
-            start_date=nvspl_dates[0],
-            end_date=nvspl_dates[-1],
-            mask=study_area,
-        )
-        tracks = Tracks(raw_tracks, id_col='event_id', datetime_col='TIME', z_col='altitude')
-        site_tz = site_timezone_name(microphone.lat, microphone.lon)
-        tracks["point_dt"] = utc_naive_to_site_naive(tracks["point_dt"], site_tz)
-        faa_path = None
-        faa_corrections_path = None
-
-    else:
-        raise ValueError(f"Unknown track source: {args.track_source}")
+    loaded = load_ground_truthing_tracks(
+        args.track_source,
+        start_date=nvspl_dates[0],
+        end_date=nvspl_dates[-1],
+        study_area=study_area,
+        microphone=microphone,
+    )
+    tracks = loaded.tracks
+    faa_path = loaded.faa_path
+    faa_corrections_path = loaded.faa_corrections_path
 
     assert not tracks.empty, "No tracks loaded, is your track source correct?"
     logger.info(

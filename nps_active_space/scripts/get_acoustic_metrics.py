@@ -1,13 +1,24 @@
 from argparse import ArgumentParser
 import os
-import iyore
 import pickle
-from nps_active_space.utils.metrics import get_obs_periods, get_all_srcid_stats
+
+import iyore
+import numpy as np
+import pandas as pd
+
+from nps_active_space.utils.enums import TrackSource
+from nps_active_space.utils.metrics import get_all_srcid_stats, get_obs_periods
 import nps_active_space.utils.config as cfg
 from nps_active_space.utils.models import Srcid
 
 
-def get_acoustic_metrics(unit, site, year, env, track_source):
+def get_acoustic_metrics(
+    unit: str,
+    site: str,
+    year: str | int,
+    env: str,
+    track_source: TrackSource,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, pd.Series], np.ndarray]:
     """
     Gets acoustic metrics for the period(s) of time with overlapping acoustic and causal data.
     
@@ -21,8 +32,8 @@ def get_acoustic_metrics(unit, site, year, env, track_source):
         Four digit year. E.g. "2018"
     env: str
         The configuration environment to run the script in. E.g. "DENA_streamline"
-    track_source: str
-        'GPS', 'ADSB', or 'AIS'. Metrics will only be calculated for
+    track_source: TrackSource
+        GPS, ADSB, or AIS. Metrics will only be calculated for
         time periods with overlapping acoustic and track data.
     
     Returns
@@ -30,7 +41,6 @@ def get_acoustic_metrics(unit, site, year, env, track_source):
     Tuple (stats, CIs, data, obs_periods)
         What is stored in the output .pkl file. See get_all_srcid_stats() and get_obs_periods() for documentation.
     """
-    assert track_source in ["GPS", "ADSB", "AIS"], "Invalid track source"
     year = str(year)
     print(unit + site + year)
 
@@ -40,10 +50,11 @@ def get_acoustic_metrics(unit, site, year, env, track_source):
 
     # process track source
     adsb_dir = None
-    if track_source == "ADSB":
-        adsb_dir = cfg.read("data", "adsb")
-    elif track_source == "AIS":
-        raise NotImplementedError('Code for AIS is not ready yet.')
+    match track_source:
+        case TrackSource.ADSB:
+            adsb_dir = cfg.read("data", "adsb")
+        case TrackSource.AIS:
+            raise NotImplementedError('Code for AIS is not ready yet.')
     
     obs_periods = get_obs_periods(unit, site, year, nvspl_archive, adsb_dir)
     print(f"Time periods with acoustic and causal data:\n{obs_periods}")
@@ -78,9 +89,14 @@ if __name__ == "__main__":
     parser.add_argument("-u", "--unit", help="Four letter unit code. E.g. DENA")
     parser.add_argument("-s", "--site", help="Four letter site code. E.g. TRLA")
     parser.add_argument("-y", "--year",  help="Four digit year. E.g. 2018")
-    parser.add_argument('-t', '--track-source', default='GPS', choices=["GPS", "ADSB", "AIS"],
-                          help="Enter 'GPS', 'ADSB', or 'AIS'. Metrics will only be calculated for " \
-                          "time periods with overlapping acoustic and track data.")
+    parser.add_argument(
+        '-t', '--track-source',
+        default=TrackSource.GPS,
+        type=TrackSource,
+        choices=list(TrackSource),
+        help="Enter 'GPS', 'ADSB', or 'AIS'. Metrics will only be calculated for "
+        "time periods with overlapping acoustic and track data.",
+    )
     args = parser.parse_args()
     
     get_acoustic_metrics(args.unit, args.site, args.year, args.environment, args.track_source)

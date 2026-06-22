@@ -11,6 +11,7 @@ import pandas as pd
 import numpy as np
 from shapely.geometry import Point
 
+from nps_active_space.utils.enums import TrackSource
 from nps_active_space.utils.models import FAAReleasable, Nvspl, Tracks
 from nps_active_space.utils.computation import expected_Lp, NMSIM_bbox_utm, audible_time_delay, ambience_from_nvspl, interpolate_spline
 from nps_active_space.utils.helpers import load_studyarea, get_deployment
@@ -36,7 +37,7 @@ class ClockDriftFixer():
     """
     
     def __init__(self, project_dir: str, unit: str, site: str, year: str,
-                 pts: Tracks, nvspl: Nvspl, database_type: str, plot_dir: str = None):
+                 pts: Tracks, nvspl: Nvspl, database_type: TrackSource, plot_dir: str = None):
         """Constructor for the ClockDriftFixer class. Loads data and computes predicted audibility of causal data.
 
         Parameters
@@ -57,14 +58,12 @@ class ClockDriftFixer():
         nvspl: Nvspl
             An NVSPL object containing the acoustic record for the period of interest. Should overlap
             with pts as much as possible. Any partial days will be excluded from analysis.
-        database_type: str
-            What type of causal data is being used. Options "ADSB", "GPS", "AIS". This is only used
-            for creating the default clock drift file name.
+        database_type: TrackSource
+            Causal track feed (GPS, ADSB, or AIS). Used only for the default clock drift filename.
         plot_dir: str, Optional
             If provided, intermediate plots will be saved to this directory. This is very helpful for
             doing quality control, and is highly recommended.
         """
-        assert database_type in ["GPS", "ADSB", "AIS"]
         self.deployment = unit + site + year
         self.default_clock_drift_file = os.path.join(
             project_dir, unit+site, f"{unit}{site}{year}_clock_drift_{database_type}.csv")

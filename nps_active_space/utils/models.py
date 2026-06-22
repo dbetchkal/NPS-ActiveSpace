@@ -32,7 +32,7 @@ __all__ = [
     'FAAReleasable',
     'Tracks',
     'Annotations',
-    'Srcid'
+    'Srcid',
 ]
 
 
