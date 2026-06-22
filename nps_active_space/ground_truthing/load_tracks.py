@@ -1,11 +1,9 @@
 from typing import NamedTuple
 
 import geopandas as gpd
-import sqlalchemy
-
 import nps_active_space.utils.config as cfg
 from nps_active_space.utils.ais import query_ais_mxak
-from nps_active_space.utils.helpers import query_adsb, query_tracks
+from nps_active_space.utils.helpers import create_overflights_engine, query_adsb, query_tracks
 from nps_active_space.utils.enums import TrackSource
 from nps_active_space.utils.models import Microphone, Tracks
 from nps_active_space.utils.time_utils import site_timezone_name, utc_naive_to_site_naive
@@ -45,11 +43,7 @@ def _load_gps_tracks(
     end_date: str,
     study_area: gpd.GeoDataFrame,
 ) -> GroundTruthingTracks:
-    engine = sqlalchemy.create_engine(
-        'postgresql://{username}:{password}@{host}:{port}/{name}'.format(
-            **cfg.read('database:overflights')
-        )
-    )
+    engine = create_overflights_engine(cfg.read('database:overflights'))
     raw_tracks = query_tracks(
         engine=engine,
         start_date=start_date,

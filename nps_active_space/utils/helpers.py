@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 
 import geopandas as gpd
 import numpy as np
+import sqlalchemy
+from sqlalchemy.engine import URL
 from tqdm import tqdm
 import re
 import rasterio
@@ -32,6 +34,7 @@ __all__ = [
     'get_elevation',
     'load_study_area',
     'get_deployment',
+    'create_overflights_engine',
     'query_tracks',
     'query_adsb',
     'load_annotations',
@@ -272,6 +275,20 @@ def get_deployment(project_dir: str, unit: str, site: str, year: int, elevation:
     )
 
     return mic
+
+
+def create_overflights_engine(db: dict[str, str]) -> "Engine":
+    """SQLAlchemy engine for the overflights PostgreSQL database."""
+    return sqlalchemy.create_engine(
+        URL.create(
+            drivername="postgresql",
+            username=db["username"],
+            password=db["password"],
+            host=db["host"],
+            port=db["port"],
+            database=db["name"],
+        )
+    )
 
 
 def query_tracks(engine: 'Engine', start_date: str, end_date: str,
