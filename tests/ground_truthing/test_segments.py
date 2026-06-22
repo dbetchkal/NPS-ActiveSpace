@@ -18,9 +18,8 @@ class TestCollapseAudibleRanges:
             [t0, t0 + dt.timedelta(minutes=5)],
             [t0 + dt.timedelta(minutes=3), t0 + dt.timedelta(minutes=10)],
         ]
-        out = collapse_audible_ranges(ranges)
-        assert len(out) == 1
-        assert out[0] == [t0, t0 + dt.timedelta(minutes=10)]
+        expected_ranges = [[t0, t0 + dt.timedelta(minutes=10)]]
+        assert collapse_audible_ranges(ranges) == expected_ranges
 
     def test_keeps_separate_non_overlapping(self):
         t0 = dt.datetime(2020, 1, 1, 12, 0, 0)
@@ -28,10 +27,7 @@ class TestCollapseAudibleRanges:
             [t0, t0 + dt.timedelta(minutes=2)],
             [t0 + dt.timedelta(minutes=5), t0 + dt.timedelta(minutes=7)],
         ]
-        out = collapse_audible_ranges(ranges)
-        assert len(out) == 2
-        assert out[0] == ranges[0]
-        assert out[1] == ranges[1]
+        assert collapse_audible_ranges(ranges) == ranges
 
     def test_single_range_unchanged(self):
         t0 = dt.datetime(2020, 1, 1, 12, 0, 0)
@@ -55,7 +51,6 @@ class TestBuildAnnotationSegments:
             }
         )
         assert_frame_equal(actual, expected, check_dtype=False)
-        assert len(result) == 1
 
     def test_invalid_track_single_segment(self):
         points = make_track_points(4)
@@ -120,8 +115,7 @@ class TestBuildAnnotationSegments:
         t = points.point_dt
         audible_ranges = [[t.iat[1], t.iat[3]], [t.iat[2], t.iat[4]]]
         result = build_annotation_segments("T1", points, audible_ranges=audible_ranges)
-        audible = result[result["audible"]]
-        actual = _tabular(audible, SEGMENT_TABULAR_COLS)
+        actual = _tabular(result, SEGMENT_TABULAR_COLS)
         expected = pd.DataFrame(
             {
                 "_id": ["T1"],
@@ -140,16 +134,15 @@ class TestBuildAnnotationSegments:
         points = make_track_points(6, time_audible=time_audible)
         audible_ranges = [[time_audible[1], time_audible[3]]]
         result = build_annotation_segments("T1", points, audible_ranges=audible_ranges)
-        audible = result[result["audible"]]
-        actual = _tabular(audible, SEGMENT_TABULAR_COLS)
+        actual = _tabular(result.sort_values("start_dt"), SEGMENT_TABULAR_COLS)
         expected = pd.DataFrame(
             {
-                "_id": ["T1"],
-                "start_dt": [point_dt[1]],
-                "end_dt": [point_dt[2]],
-                "valid": [True],
-                "audible": [True],
-                "note": [None],
+                "_id": ["T1", "T1"],
+                "start_dt": [point_dt[1], point_dt[3]],
+                "end_dt": [point_dt[2], point_dt[4]],
+                "valid": [True, True],
+                "audible": [True, False],
+                "note": [None, None],
             }
         )
         assert_frame_equal(actual, expected, check_dtype=False)
