@@ -11,8 +11,8 @@ from tkinter import messagebox
 
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.utils.models import Annotations
-from nps_active_space.ground_truthing.base import _AppFrame
-from nps_active_space.ground_truthing.setup_frames import _WelcomeFrame
+from nps_active_space.ground_truthing.frame_base import _AppFrame
+from nps_active_space.ground_truthing.welcome_frame import _WelcomeFrame
 
 if TYPE_CHECKING:
     from nps_active_space.utils.models import Microphone, Nvspl, Tracks

@@ -4,10 +4,10 @@ from tkinter import filedialog, messagebox
 from matplotlib.dates import date2num
 from shapely.geometry import Point
 
-from nps_active_space.ground_truthing.base import _AppFrame
+from nps_active_space.ground_truthing.frame_base import _AppFrame
 from nps_active_space.ground_truthing.segments import AudibleRange
+from nps_active_space.ground_truthing import annotation_plot
 from nps_active_space.ground_truthing import dem
-from nps_active_space.ground_truthing import plotting
 from nps_active_space.ground_truthing import segments
 from nps_active_space.ground_truthing import track_context
 from nps_active_space.ground_truthing import vehicle_info
@@ -571,4 +571,4 @@ class _GroundTruthingFrame(_AppFrame):
         self._next()
 
     def _build_plot(self) -> None:
-        plotting.build_plot(self)
+        annotation_plot.build_plot(self)

@@ -12,7 +12,7 @@ from matplotlib.widgets import Button
 from nps_active_space.ground_truthing.widgets import FastRangeSlider
 
 if TYPE_CHECKING:
-    from nps_active_space.ground_truthing.session_frames import _GroundTruthingFrame
+    from nps_active_space.ground_truthing.annotation_frames import _GroundTruthingFrame
 
 
 def build_plot(frame: "_GroundTruthingFrame") -> None:

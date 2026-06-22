@@ -2,8 +2,8 @@ import tkinter as tk
 from PIL import Image, ImageTk
 
 from nps_active_space import ACTIVE_SPACE_DIR
-from nps_active_space.ground_truthing.base import _AppFrame
-from nps_active_space.ground_truthing.session_frames import _AnnotationLoadFrame
+from nps_active_space.ground_truthing.frame_base import _AppFrame
+from nps_active_space.ground_truthing.annotation_frames import _AnnotationLoadFrame
 
 
 class _WelcomeFrame(_AppFrame):
