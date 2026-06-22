@@ -206,8 +206,6 @@ For marine deployments, use `-t AIS` and set `ais =` under `[data]` in your conf
 $ python -u -W ignore nps_active_space/scripts/run_ground_truthing.py -e production -u GLBA -s SITE -y 2025 -t AIS
 ```
 
-For vessel ground-truthing annotations, `viz.py -a` samples the DEM when track geometry is at sea level (z = 0) so tracks render above the terrain surface.
-
 ----
 
 ### Plot Altitudes

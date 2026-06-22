@@ -8,7 +8,7 @@ import rasterio
 import pyproj
 import sys
 from shapely.geometry import box, Polygon, MultiPolygon, LineString, MultiLineString
-from nps_active_space.utils.helpers import get_deployment, get_elevation, load_annotations, load_DEM, load_layered_activespace, load_studyarea
+from nps_active_space.utils.helpers import get_deployment, load_annotations, load_DEM, load_layered_activespace, load_studyarea
 from nps_active_space.scripts.run_audible_transits import AudibleTransits
 from nps_active_space.utils.models import Annotations
 from nps_active_space.utils.computation import NMSIM_bbox_utm
@@ -45,14 +45,8 @@ def active_to_linestrings(active):
 
 def create_polyline_3d(linestring, z=None):
     coords = np.array(linestring.coords)
-    xy = coords[:, :2]
     if z is not None:
-        z_arr = np.atleast_1d(np.asarray(z, dtype=float))
-        if z_arr.size == 1:
-            z_arr = np.full(coords.shape[0], z_arr[0])
-        coords = np.column_stack((xy, z_arr))
-    elif coords.shape[1] == 2:
-        coords = np.column_stack((xy, np.zeros(coords.shape[0])))
+        coords = np.column_stack((coords, np.full(coords.shape[0], z)))
     assert coords.shape[1] == 3
     coords[:,2] = np.clip(coords[:,2], 0, 10000)  # reduce magnitude of erroneous elevations
     n_points = coords.shape[0]
@@ -117,8 +111,7 @@ class Visualizer():
     
     def plot_dem(self, show_scalar_bar=False):
         # load DEM
-        dem = load_DEM(self.project_dir, self.unit, self.site)
-        self.dem = dem
+        dem = load_DEM(self.project_dir, self.unit, self.site)    
         data = dem.read(1)
         if dem.nodata is not None:
             data[data == dem.nodata] = 0
@@ -273,22 +266,6 @@ class Visualizer():
             color_on=self.activespace_color
         )
     
-    def _annotation_z_values(self, linestring, offset_m: float = 2.0) -> np.ndarray:
-        """Sample DEM elevation when track z is at or below the surface."""
-        to_wgs84 = pyproj.Transformer.from_crs(self.crs, "epsg:4326", always_xy=True)
-        coords = np.array(linestring.coords)
-        z_vals = []
-        for coord in coords:
-            x, y = coord[0], coord[1]
-            z = coord[2] if len(coord) > 2 else 0.0
-            lon, lat = to_wgs84.transform(x, y)
-            dem_z = float(get_elevation(self.dem, lon, lat))
-            if z <= 0 or z < dem_z:
-                z_vals.append(dem_z + offset_m)
-            else:
-                z_vals.append(z)
-        return np.asarray(z_vals)
-
     def plot_annotations(self, annotation_file=None):
         # load annotations
         if annotation_file is None:
@@ -319,8 +296,7 @@ class Visualizer():
         inaudible_actors = []
         for _, annot in annotations.iterrows():
             color = "deepskyblue" if annot["audible"] else "red"
-            z_vals = self._annotation_z_values(annot["geometry"])
-            polyline = create_polyline_3d(annot["geometry"], z=z_vals)
+            polyline = create_polyline_3d(annot["geometry"])
             actor = self.plotter.add_mesh(polyline, color=color, point_size=2, line_width=2)
             if annot["audible"]:
                 audible_actors.append(actor)
