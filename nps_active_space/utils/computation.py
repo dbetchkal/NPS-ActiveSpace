@@ -145,14 +145,14 @@ def interpolate_spline(points: 'Tracks', ds: int = 1, s: float = None) -> gpd.Ge
     points.sort_values(by='point_dt', ascending=True, inplace=True)
     starttime = points.point_dt.iat[0]
     endtime = points.point_dt.iat[-1]
-    flight_times = (points.point_dt - starttime).dt.total_seconds().values
+    elapsed_seconds = (points.point_dt - starttime).dt.total_seconds().values
 
     if 'z' in points.columns:
         coords = [points.geometry.x, points.geometry.y, points.z]
     else:
         coords = [points.geometry.x, points.geometry.y]
     try:
-        tck, u = interpolate.splprep(x=coords, u=flight_times, k=k, s=s)
+        tck, u = interpolate.splprep(x=coords, u=elapsed_seconds, k=k, s=s)
     except ValueError as exc:
         if "invalid" in str(exc).lower():
             raise ValueError(

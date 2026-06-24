@@ -87,7 +87,7 @@ LEGACY_RENAME_TO_CANONICAL = {
 }
 
 POINT_COLUMNS = ("MMSI", "TIME", "lat", "lon")
-EVENT_GAP_SECONDS = 1200
+EVENT_GAP_SECONDS = 900
 MIN_EVENT_POINTS = 3
 WGS84 = "epsg:4326"
 
@@ -175,7 +175,6 @@ class MxakAis(gpd.GeoDataFrame):
 
         df.drop_duplicates(subset=list(POINT_COLUMNS), keep="last")
 
-        # 20-minute gap threshold splits vessel transits (mirrors ADSB event logic).
         df["diff_event"] = df["dur_secs"] >= EVENT_GAP_SECONDS
         df["cumsum"] = df.groupby("MMSI")["diff_event"].cumsum()
         df["event_id"] = (
