@@ -58,7 +58,7 @@ class TestLookupVessel:
         assert vessel_type is None
         assert vessel_name is None
 
-    def test_non_ais_returns_none(self):
+    def test_non_ais_track_source_returns_none(self):
         assert vehicle_info.lookup_vessel(TrackSource.ADSB, "x", _ais_points()) == (
             None,
             None,
@@ -93,15 +93,17 @@ class TestLookupAircraft:
 
     def test_adsb_no_match_returns_nones(self):
         faa = _faa_table()
+        missing_icao_points = _adsb_points(icao="DEADBE")
         assert vehicle_info.lookup_aircraft(
-            faa, TrackSource.ADSB, "A98046_0_20250623", _adsb_points(icao="DEADBE")
+            faa, TrackSource.ADSB, "A98046_0_20250623", missing_icao_points
         ) == (None, None, None)
 
     def test_gps_no_match_returns_nones(self):
         faa = _faa_table()
+        missing_n_number_track_id = "N99999_0_20250623"
         points = gpd.GeoDataFrame(geometry=[Point(0, 0)], crs="EPSG:4326")
         assert vehicle_info.lookup_aircraft(
-            faa, TrackSource.GPS, "N99999_0_20250623", points
+            faa, TrackSource.GPS, missing_n_number_track_id, points
         ) == (None, None, None)
 
     def test_ais_returns_nones(self):
