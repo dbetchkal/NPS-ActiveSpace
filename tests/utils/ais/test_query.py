@@ -21,12 +21,12 @@ def _tabular(gdf: gpd.GeoDataFrame, columns: list[str]) -> pd.DataFrame:
 
 @pytest.fixture(scope="module")
 def mxak_fixture_day() -> MxakAis:
-    return MxakAis([str(AIS_FIXTURE)])
+    return MxakAis([AIS_FIXTURE])
 
 
 class TestQueryAisMxak:
     def test_matches_direct_parse_for_fixture_day(self, mxak_fixture_day: MxakAis):
-        queried = query_ais_mxak(str(AIS_DIR), "2025-01-07", "2025-01-07")
+        queried = query_ais_mxak(AIS_DIR, "2025-01-07", "2025-01-07")
         assert_frame_equal(
             _tabular(queried, METADATA_COLS),
             _tabular(mxak_fixture_day, METADATA_COLS),
@@ -35,4 +35,4 @@ class TestQueryAisMxak:
 
     def test_date_filter_excludes_other_days(self):
         with pytest.raises(AssertionError, match="No AIS data loaded"):
-            query_ais_mxak(str(AIS_DIR), "2025-01-08", "2025-01-08")
+            query_ais_mxak(AIS_DIR, "2025-01-08", "2025-01-08")

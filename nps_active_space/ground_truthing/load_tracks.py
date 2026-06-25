@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import NamedTuple
 
 import geopandas as gpd
@@ -62,7 +63,7 @@ def _load_ais_tracks(
     microphone: Microphone,
 ) -> GroundTruthingTracks:
     raw_tracks = query_ais_mxak(
-        ais_path=cfg.read('data', 'ais'),
+        ais_path=Path(cfg.read("data", "ais")),
         start_date=start_date,
         end_date=end_date,
         mask=study_area,

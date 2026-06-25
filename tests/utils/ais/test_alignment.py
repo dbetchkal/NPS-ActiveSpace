@@ -1,4 +1,11 @@
-"""Tests that AIS (UTC), ship-visit CPA (site-local), and NVSPL (site-local) clocks align."""
+"""Clock alignment between MXAK AIS (UTC), ship-visit CPA (site-local), and NVSPL (site-local).
+
+These tests do not prove acoustic detection — they guard timezone handling and loose
+co-timing between bundled example files. AIS transit segmentation (``event_id``) is
+tested indirectly via :class:`~nps_active_space.utils.ais.reader.MxakAis`; clock
+checks use :func:`~nps_active_space.utils.ais.reader.parse_mxak_ais_csv_points` so they
+stay stable when ``EVENT_GAP_SECONDS`` changes.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +14,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from nps_active_space.utils.ais import MxakAis
+from nps_active_space.utils.ais.reader import EVENT_GAP_SECONDS, parse_mxak_ais_csv_points
 from nps_active_space.utils.models import Nvspl
 from nps_active_space.utils.time_utils import site_timezone_name, utc_naive_to_site_naive
 
@@ -18,8 +25,11 @@ SHIP_VISITS = REPO / "example_data" / "GLBALSTL_ship_visits.csv"
 
 GLBALSTL_LAT, GLBALSTL_LON = 58.78, -136.32
 SITE_TZ = "America/Juneau"
-CPA_WINDOW_MINUTES = 15
-AIS_CPA_TOLERANCE_SEC = 20 * 60
+
+# Same transit scale as MXAK event splitting; used for CPA windows and loose AIS timing.
+CPA_WINDOW_MINUTES = EVENT_GAP_SECONDS // 60
+AIS_CPA_TOLERANCE_SEC = 2 * EVENT_GAP_SECONDS
+UTC_MISALIGNMENT_FLOOR_SEC = 3600
 NVSPL_PEAK_TOLERANCE_DB = 5
 
 MAY24_MMSIS = (367365630, 246648000, 367578110)
@@ -74,8 +84,8 @@ def _minimal_nvspl_df(index: pd.DatetimeIndex, dba: pd.Series) -> pd.DataFrame:
     return data
 
 
-class TestAisCpaAlignment:
-    """Unit tests: UTC AIS timestamps must match site-local CPA after conversion."""
+class TestUtcToSiteLocalConversion:
+    """Synthetic checks that AIS UTC timestamps convert to site-local CPA time."""
 
     def test_nearest_ais_point_matches_local_cpa(self):
         cpa_local = pd.Timestamp("2024-05-24 07:40:00")
@@ -109,7 +119,7 @@ class TestAisCpaAlignment:
 
 
 class TestNvsplCpaWindow:
-    """Unit tests: NVSPL CPA window selection on synthetic site-local series."""
+    """Synthetic NVSPL CPA-window selection (site-local timestamps, no files)."""
 
     def test_cpa_window_captures_injected_noise_peak(self):
         cpa = pd.Timestamp("2024-05-24 07:40:00")
@@ -127,7 +137,7 @@ class TestNvsplCpaWindow:
         cpa = pd.Timestamp("2024-05-24 07:40:00")
         index = pd.date_range(cpa - pd.Timedelta(hours=1), cpa + pd.Timedelta(hours=1), freq="1min")
         dba = pd.Series(55.0, index=index)
-        dba.loc[cpa - pd.Timedelta(minutes=30)] = 90.0  # peak outside ±15 min
+        dba.loc[cpa - pd.Timedelta(minutes=30)] = 90.0  # peak outside ±EVENT_GAP window
 
         nvspl = _minimal_nvspl_df(index, dba)
         window_peak, series_peak = nvspl_dba_peaks_near_cpa(nvspl, cpa)
@@ -137,10 +147,11 @@ class TestNvsplCpaWindow:
         assert window_peak < series_peak - NVSPL_PEAK_TOLERANCE_DB
 
 
-class TestMay24ExampleDataAlignment:
-    """Regression on bundled GLBA example data (May 24, 2024).
+class TestMay24ExampleDataClockAlignment:
+    """Example-data regression: MXAK UTC → site-local must co-time with ship-visit CPA.
 
-    Ship visits store CPA in site-local time; MXAK AIS is UTC; NVSPL is site-local.
+    Uses parsed AIS points only (no ``event_id`` filter) so results do not depend on
+    transit-segmentation thresholds.
     """
 
     @pytest.fixture
@@ -149,25 +160,43 @@ class TestMay24ExampleDataAlignment:
         return visits[visits["CPATime"].dt.date == pd.Timestamp("2024-05-24").date()]
 
     @pytest.fixture(scope="class")
-    def ais_may24(self) -> MxakAis:
-        return MxakAis([str(AIS_MAY24)])
+    def ais_points_may24(self) -> pd.DataFrame:
+        return parse_mxak_ais_csv_points(AIS_MAY24)
 
     @pytest.mark.parametrize("mmsi", MAY24_MMSIS)
     def test_ais_cpa_matches_ship_visits_after_site_conversion(
         self,
         visits_may24: pd.DataFrame,
-        ais_may24: MxakAis,
+        ais_points_may24: pd.DataFrame,
         mmsi: int,
     ):
         row = visits_may24.loc[visits_may24["MMSI"] == mmsi].iloc[0]
         site_tz = site_timezone_name(GLBALSTL_LAT, GLBALSTL_LON)
-        ship = ais_may24[ais_may24["MMSI"] == mmsi]
+        cpa_local = pd.Timestamp(row.CPATime)
+        ship = ais_points_may24.loc[ais_points_may24["MMSI"] == mmsi]
         assert not ship.empty, f"No AIS data for MMSI {mmsi}"
 
-        nearest, delta_sec = nearest_ais_local_to_cpa(ship["TIME"], pd.Timestamp(row.CPATime), site_tz)
-        assert delta_sec < AIS_CPA_TOLERANCE_SEC, (
-            f"{row.ShipName}: AIS local CPA {nearest} vs visits {row.CPATime} (delta {delta_sec:.0f}s)"
+        nearest, converted_delta_sec = nearest_ais_local_to_cpa(ship["TIME"], cpa_local, site_tz)
+        local = utc_naive_to_site_naive(ship["TIME"], site_tz)
+        idx = (local - nearest).abs().idxmin()
+        raw_delta_sec = abs((ship["TIME"].loc[idx] - cpa_local).total_seconds())
+
+        assert raw_delta_sec > UTC_MISALIGNMENT_FLOOR_SEC, (
+            f"{row.ShipName}: raw UTC AIS is not hours off CPA — conversion may be skipped"
         )
+        assert converted_delta_sec < AIS_CPA_TOLERANCE_SEC, (
+            f"{row.ShipName}: site-local AIS {nearest} vs visit CPA {cpa_local} "
+            f"(delta {converted_delta_sec:.0f}s, limit {AIS_CPA_TOLERANCE_SEC}s)"
+        )
+
+
+class TestMay24ExampleDataSplSanity:
+    """Loose sanity check: NVSPL dBA peaks near ship-visit CPA on bundled May 24 data."""
+
+    @pytest.fixture
+    def visits_may24(self) -> pd.DataFrame:
+        visits = pd.read_csv(SHIP_VISITS, parse_dates=["CPATime"])
+        return visits[visits["CPATime"].dt.date == pd.Timestamp("2024-05-24").date()]
 
     @pytest.mark.parametrize("mmsi", MAY24_MMSIS)
     def test_nvspl_noise_peak_near_visit_cpa(

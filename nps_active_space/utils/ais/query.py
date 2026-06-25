@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import glob
-import os
 import re
+from pathlib import Path
 from typing import Optional
 
 import geopandas as gpd
@@ -14,7 +13,7 @@ from nps_active_space.utils.ais.reader import MxakAis
 
 
 def query_ais_mxak(
-    ais_path: str,
+    ais_path: Path,
     start_date: str,
     end_date: str,
     mask: Optional[gpd.GeoDataFrame] = None,
@@ -24,7 +23,7 @@ def query_ais_mxak(
 
     Parameters
     ----------
-    ais_path : str
+    ais_path : Path
         Absolute path to a directory with MXAK AIS CSV files (``MXAK-AIS-*-YYYYMMDD.csv``).
     start_date : str
         ISO date string (YYYY-mm-dd) indicating the beginning of the date range to query within.
@@ -46,14 +45,14 @@ def query_ais_mxak(
             mask.geometry = ak_albers_mask.buffer(mask_buffer_distance).to_crs(epsg=4326)
         mask = mask.to_crs("epsg:4326")
 
-    all_files = glob.glob(os.path.join(ais_path, "*.csv"))
+    all_files = sorted(ais_path.glob("*.csv"))
     assert len(all_files) > 0, f"No AIS files found in {ais_path}"
 
     start_dt = pd.Timestamp(start_date)
     end_dt = pd.Timestamp(end_date)
-    dated_files = []
+    dated_files: list[Path] = []
     for path in all_files:
-        match = re.search(r"-(\d{8})(?:-\d+)?\.csv$", os.path.basename(path))
+        match = re.search(r"-(\d{8})(?:-\d+)?\.csv$", path.name)
         if match:
             file_date = pd.Timestamp(match.group(1))
             if start_dt <= file_date <= end_dt:

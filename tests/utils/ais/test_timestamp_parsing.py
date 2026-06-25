@@ -121,3 +121,14 @@ class TestParseMxakAisTimestamps:
         time = pd.Series(["not-a-timestamp"])
         with pytest.raises(ValueError, match="not recognized"):
             parse_mxak_ais_timestamps(time)
+
+    def test_mixed_akst_with_unparseable_row_raises(self):
+        """DST fallback only re-parses AKST/AKDT rows; other suffixes must not become NaT."""
+        time = pd.Series(
+            [
+                "2024-11-03 01:30:00 AKST",
+                "2024-11-03 01:30:00 UTC",
+            ]
+        )
+        with pytest.raises(ValueError, match="Failed to parse 1 MXAK AIS timestamp"):
+            parse_mxak_ais_timestamps(time)

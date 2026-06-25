@@ -86,4 +86,12 @@ def parse_mxak_ais_timestamps(time: pd.Series) -> pd.Series:
     else:
         raise ValueError("The file's timestamp format is not recognized!")
 
+    if parsed.isna().any():
+        bad_count = int(parsed.isna().sum())
+        example = time.loc[parsed.isna()].iloc[0]
+        raise ValueError(
+            f"Failed to parse {bad_count} MXAK AIS timestamp(s); "
+            f"first unparseable value: {example!r}"
+        )
+
     return parsed.dt.tz_localize("UTC").dt.tz_localize(None)
