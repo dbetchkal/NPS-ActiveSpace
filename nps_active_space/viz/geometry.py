@@ -96,9 +96,19 @@ def flat_sea_surface_polyline(linestring: LineString, offset_m: float) -> pv.Pol
     return create_polyline_3d(linestring, z=z)
 
 
-def track_points_to_linestring(track_points: gpd.GeoDataFrame) -> LineString:
-    """Connect ordered track points into a 2D line in the plot CRS."""
-    coords = [(geom.x, geom.y) for geom in track_points.geometry]
+def track_points_to_linestring(
+    track_points: gpd.GeoDataFrame,
+    *,
+    include_z: bool = False,
+) -> LineString:
+    """Connect ordered track points into a line in the plot CRS."""
+    if include_z and "z" in track_points.columns:
+        coords = [
+            (geom.x, geom.y, float(z) if np.isfinite(z) else 0.0)
+            for geom, z in zip(track_points.geometry, track_points["z"], strict=True)
+        ]
+    else:
+        coords = [(geom.x, geom.y) for geom in track_points.geometry]
     if len(coords) < 2:
         return LineString(coords)
     return LineString(coords)

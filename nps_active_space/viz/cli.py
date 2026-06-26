@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
+from nps_active_space.utils.enums import TrackSource
 from nps_active_space.viz.visualizer import Visualizer
 
 
@@ -65,17 +66,16 @@ def resolve_viz_plot_flags(
     active_space: bool = False,
     annotations: bool = False,
     audible_transits: bool = False,
-    vessels: bool = False,
+    track_source: TrackSource | None = None,
     plot_all: bool = False,
     annotation_file: str | None = None,
     transits_pkl: str | None = None,
-) -> tuple[bool, bool, bool, bool]:
+) -> tuple[bool, bool, bool, TrackSource | None]:
     """Map CLI flags to Visualizer layer toggles."""
     do_active = active_space or plot_all
     do_annotations = annotations or plot_all or annotation_file is not None
     do_transits = audible_transits or plot_all or transits_pkl is not None
-    do_vessels = vessels
-    return do_active, do_annotations, do_transits, do_vessels
+    return do_active, do_annotations, do_transits, track_source
 
 
 def main() -> None:
@@ -112,10 +112,10 @@ def main() -> None:
         help="If included, load and plot audible transits",
     )
     parser.add_argument(
-        "-v",
-        "--vessels",
-        action="store_true",
-        help="If included, load and plot MXAK AIS vessel tracks at sea level",
+        "--track-source",
+        type=TrackSource,
+        choices=list(TrackSource),
+        help="Load and plot tracks from GPS, ADSB, or AIS.",
     )
     parser.add_argument(
         "--all",
@@ -142,12 +142,12 @@ def main() -> None:
     parser.add_argument(
         "--start-date",
         type=lambda d: parse_iso_date(d, arg_name="--start-date"),
-        help="AIS query start date (YYYY-MM-DD). Default: Jan 1 of deployment year.",
+        help="Track query start date (YYYY-MM-DD). Default: Jan 1 of deployment year.",
     )
     parser.add_argument(
         "--end-date",
         type=lambda d: parse_iso_date(d, arg_name="--end-date"),
-        help="AIS query end date (YYYY-MM-DD). Default: Dec 31 of deployment year.",
+        help="Track query end date (YYYY-MM-DD). Default: Dec 31 of deployment year.",
     )
     parser.add_argument(
         "--terraced",
@@ -163,11 +163,11 @@ def main() -> None:
     args = parser.parse_args()
     unit, site, year = args.deployment
 
-    do_active, do_annotations, do_transits, do_vessels = resolve_viz_plot_flags(
+    do_active, do_annotations, do_transits, track_source = resolve_viz_plot_flags(
         active_space=args.active_space,
         annotations=args.annotations,
         audible_transits=args.audible_transits,
-        vessels=args.vessels,
+        track_source=args.track_source,
         plot_all=args.all,
         annotation_file=args.annotation_file,
         transits_pkl=args.transits_pkl,
@@ -182,7 +182,7 @@ def main() -> None:
         args.gain,
         do_annotations,
         do_transits,
-        do_vessels,
+        track_source,
         args.annotation_file,
         args.transits_pkl,
         args.start_date,

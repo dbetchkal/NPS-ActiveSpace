@@ -2,7 +2,7 @@ from argparse import ArgumentParser
 import os
 import iyore
 import nps_active_space.ground_truthing as app
-from nps_active_space.ground_truthing.load_tracks import load_tracks
+from nps_active_space.utils.load_tracks import load_tracks
 from nps_active_space.utils.enums import TrackSource
 from nps_active_space.utils.models import Nvspl
 import nps_active_space.utils.config as cfg

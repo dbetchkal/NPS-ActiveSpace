@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 from shapely.geometry import LineString, MultiLineString, Point
 
+from nps_active_space.utils.enums import TrackSource
 from nps_active_space.viz import (
     Visualizer,
     annotation_z_profile,
@@ -71,15 +72,23 @@ class TestParseExistingFile:
 class TestResolveVizPlotFlags:
     def test_annotation_file_implies_annotations(self):
         flags = resolve_viz_plot_flags(annotation_file="/tmp/a.geojson")
-        assert flags == (False, True, False, False)
+        assert flags == (False, True, False, None)
 
     def test_transits_pkl_implies_transits(self):
         flags = resolve_viz_plot_flags(transits_pkl="/tmp/t.pkl")
-        assert flags == (False, False, True, False)
+        assert flags == (False, False, True, None)
 
     def test_all_enables_standard_layers(self):
         flags = resolve_viz_plot_flags(plot_all=True)
-        assert flags == (True, True, True, False)
+        assert flags == (True, True, True, None)
+
+    def test_track_source_passed_through(self):
+        flags = resolve_viz_plot_flags(track_source=TrackSource.ADSB)
+        assert flags == (False, False, False, TrackSource.ADSB)
+
+    def test_ais_track_source(self):
+        flags = resolve_viz_plot_flags(track_source=TrackSource.AIS)
+        assert flags == (False, False, False, TrackSource.AIS)
 
 
 class TestParseMaxTracks:
@@ -273,6 +282,17 @@ class TestTrackPointsToLinestring:
         )
         line = track_points_to_linestring(gdf)
         assert len(line.coords) == 3
+
+    def test_include_z_adds_altitude_to_coords(self):
+        import geopandas as gpd
+
+        gdf = gpd.GeoDataFrame(
+            {"z": [1000.0, 1500.0, 2000.0]},
+            geometry=[Point(0, 0), Point(1, 0), Point(2, 0)],
+            crs="epsg:32608",
+        )
+        line = track_points_to_linestring(gdf, include_z=True)
+        assert line.coords[1] == pytest.approx((1.0, 0.0, 1500.0))
 
 
 class TestScriptsVizShim:

@@ -14,8 +14,8 @@ from tqdm import tqdm
 
 import nps_active_space.utils.config as cfg
 from nps_active_space.scripts.run_audible_transits import AudibleTransits
-from nps_active_space.utils.ais import query_ais_mxak
 from nps_active_space.utils.computation import NMSIM_bbox_utm
+from nps_active_space.utils.enums import TrackSource
 from nps_active_space.utils.helpers import (
     get_deployment,
     get_logger,
@@ -24,7 +24,8 @@ from nps_active_space.utils.helpers import (
     load_layered_activespace,
     load_studyarea,
 )
-from nps_active_space.utils.models import Annotations, Tracks
+from nps_active_space.utils.load_tracks import load_tracks
+from nps_active_space.utils.models import Annotations
 from nps_active_space.viz.annotations import format_annotation_summary
 from nps_active_space.viz.markers import (
     WINDOW_TITLE,
@@ -56,6 +57,7 @@ class Visualizer:
     inaudible_annotation_color = "red"
     audible_transits_color = "purple"
     vessel_track_color = "cyan"
+    flight_track_color = "yellow"
     z_scale_toggle_color = "black"  # button toggling z scale
     sea_surface_offset_m = 5.0
     sea_surface_densify_step_m = 100.0
@@ -70,11 +72,11 @@ class Visualizer:
         gain: float | None = None,
         do_annots: bool = False,
         do_transits: bool = False,
-        do_vessels: bool = False,
+        track_source: TrackSource | None = None,
         annotation_file: str | None = None,
         audible_transits_pkl: str | None = None,
-        vessel_start_date: str | None = None,
-        vessel_end_date: str | None = None,
+        track_start_date: str | None = None,
+        track_end_date: str | None = None,
         terraced: bool = False,
         fill_layers: bool = False,
         max_tracks: int = 1000,
@@ -104,8 +106,8 @@ class Visualizer:
             self.plot_annotations(annotation_file)
         if do_transits:
             self.plot_audible_transits(audible_transits_pkl)
-        if do_vessels:
-            self.plot_vessel_tracks(vessel_start_date, vessel_end_date)
+        if track_source is not None:
+            self.plot_tracks(track_source, track_start_date, track_end_date)
 
         self.plotter.enable_terrain_style()
         self.setup_z_scale()
@@ -512,53 +514,73 @@ class Visualizer:
             color_on="purple",
         )
 
-    def plot_vessel_tracks(
-        self, start_date: str | None = None, end_date: str | None = None
+    def _flight_track_polyline(self, linestring: LineString) -> pv.PolyData:
+        """Build a 3D polyline using stored MSL altitudes from flight tracks."""
+        return self._annotation_polyline(linestring)
+
+    def plot_tracks(
+        self,
+        source: TrackSource,
+        start_date: str | None = None,
+        end_date: str | None = None,
     ) -> None:
-        """Plot MXAK AIS vessel transits at the local sea surface."""
+        """Plot causal tracks from GPS, ADSB, or MXAK AIS for the study window."""
         start_date = start_date or f"{self.year}-01-01"
         end_date = end_date or f"{self.year}-12-31"
+        microphone = get_deployment(self.project_dir, self.unit, self.site, self.year)
 
+        print(f"Querying {source} tracks from {start_date} to {end_date}")
         try:
-            ais_path = cfg.read("data", "ais")
-        except KeyError:
-            print("No [data] ais path in config, skipping vessel tracks.")
-            return
-
-        print(f"Querying AIS tracks from {start_date} to {end_date}")
-        try:
-            raw_tracks = query_ais_mxak(
-                ais_path=ais_path,
+            loaded = load_tracks(
+                source,
                 start_date=start_date,
                 end_date=end_date,
-                mask=self.study_area,
+                study_area=self.study_area,
+                microphone=microphone,
             )
-        except AssertionError as exc:
-            print(f"No AIS tracks loaded: {exc}")
+        except (KeyError, AssertionError, ValueError) as exc:
+            print(f"No {source} tracks loaded: {exc}")
             return
-        tracks = Tracks(raw_tracks, id_col="event_id", datetime_col="TIME", z_col="altitude")
-        tracks = tracks.to_crs(self.crs)
+
+        tracks = loaded.tracks.to_crs(self.crs)
+        if tracks.empty:
+            print(f"No {source} tracks loaded.")
+            return
 
         track_ids = tracks["track_id"].drop_duplicates()
-        print(f"{len(track_ids)} vessel transits ({len(tracks)} points)")
+        print(f"{len(track_ids)} {source} tracks ({len(tracks)} points)")
         if len(track_ids) > self.max_tracks:
             print(f"More than {self.max_tracks}, sampling")
             selected = track_ids.sample(self.max_tracks, replace=False, random_state=3)
             tracks = tracks[tracks["track_id"].isin(selected)]
-            print(f"Showing {selected.nunique()} transits")
+            print(f"Showing {selected.nunique()} tracks")
 
+        color = (
+            self.vessel_track_color
+            if source is TrackSource.AIS
+            else self.flight_track_color
+        )
         actors = []
         for _track_id, group in tracks.groupby("track_id", sort=False):
             group = group.sort_values("point_dt")
-            line = track_points_to_linestring(group)
+            line = track_points_to_linestring(
+                group,
+                include_z=source is not TrackSource.AIS,
+            )
             if line.is_empty or line.length == 0:
                 continue
-            polyline = self._sea_surface_polyline(line)
-            actor = self._add_track_line(polyline, color=self.vessel_track_color)
+            match source:
+                case TrackSource.AIS:
+                    polyline = self._sea_surface_polyline(line)
+                case TrackSource.ADSB | TrackSource.GPS:
+                    polyline = self._flight_track_polyline(line)
+                case _:
+                    raise ValueError(f"Unknown track source: {source}")
+            actor = self._add_track_line(polyline, color=color)
             actors.append(actor)
 
         if not actors:
-            print("No vessel tracks to plot.")
+            print(f"No {source} tracks to plot.")
             return
 
         def toggle(flag):
@@ -570,7 +592,7 @@ class Visualizer:
             value=True,
             position=(10, 220),
             size=25,
-            color_on=self.vessel_track_color,
+            color_on=color,
         )
 
     def setup_orientation_widgets(self) -> None:
