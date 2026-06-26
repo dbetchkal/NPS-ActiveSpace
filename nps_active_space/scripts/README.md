@@ -188,7 +188,7 @@ This script is used to launch the ground truthing application to annotate the au
 | `-u`, `--unit`          | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                |
 | `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
 | `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                          |
-| `-t`, `--database-type` | **_default GPS -> {GPS, ADSB, AIS}_**<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
+| `-t`, `--track-source` | **_default GPS -> {GPS, ADSB, AIS}_**<br/>Which track source to use. Paths and login credentials for all source types are stored in config files |
 
 Example executions:
 
@@ -198,6 +198,12 @@ $ python -u -W ignore nps_active_space/scripts/run_ground_truthing.py -e product
 
 ```bash
 $ python -u -W ignore nps_active_space/scripts/run_ground_truthing.py -e production -u DENA -s TRLA -y 2018 -t ADSB
+```
+
+For marine deployments, use `-t AIS` and set `ais =` under `[data]` in your config to the full MXAK regional directory (e.g. `MXAK-AIS-GLBA` with daily `MXAK-AIS-GLBA-YYYYMMDD.csv` files). Ground truthing still requires a microphone deployment (`-u`, `-s`, `-y`); AIS is clipped to that site's study area and matched to its NVSPL dates.
+
+```bash
+$ python -u -W ignore nps_active_space/scripts/run_ground_truthing.py -e production -u GLBA -s SITE -y 2025 -t AIS
 ```
 
 ----

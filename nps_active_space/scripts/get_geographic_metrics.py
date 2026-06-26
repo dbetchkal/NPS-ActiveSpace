@@ -4,6 +4,7 @@ from argparse import ArgumentParser
 import matplotlib.pyplot as plt
 import pickle
 from nps_active_space.scripts.run_audible_transits import init_audible_transits, AudibleTransits, AudibleTransitsADSB, AudibleTransitsGPS
+from nps_active_space.utils.enums import TrackSource
 from nps_active_space.utils.metrics import get_obs_periods, get_all_geo_stats
 import nps_active_space.utils.config as cfg
 
@@ -22,7 +23,7 @@ def get_optimal_3d_gain(project_dir, unit, site, year):
     return gain_3d
 
 
-def get_geographic_metrics(unit, site, year, env, track_source, transits_pkl=None):
+def get_geographic_metrics(unit, site, year, env, track_source: TrackSource, transits_pkl=None):
     """
     Gets geographic metrics for the period(s) of time with overlapping acoustic and causal data.
     
@@ -36,8 +37,8 @@ def get_geographic_metrics(unit, site, year, env, track_source, transits_pkl=Non
         Four digit year. E.g. "2018"
     env: str
         The configuration environment to run the script in. E.g. "DENA_streamline"
-    track_source: str
-        'GPS', 'ADSB', or 'AIS'. Metrics will only be calculated for
+    track_source: TrackSource
+        GPS, ADSB, or AIS. Metrics will only be calculated for
         time periods with overlapping acoustic and track data.
     transits_pkl: str (Optional)
         If provided, path to a .pkl file to load audible transits from instead of the default.
@@ -47,7 +48,6 @@ def get_geographic_metrics(unit, site, year, env, track_source, transits_pkl=Non
     Tuple (stats, CIs, data, obs_periods)
         What is stored in the output .pkl file. See get_all_geo_stats() and get_obs_periods() for documentation.
     """
-    assert track_source in ["GPS", "ADSB", "AIS"], "Invalid track source"
     year = str(year)
     print(unit + site + year)
 
@@ -57,10 +57,11 @@ def get_geographic_metrics(unit, site, year, env, track_source, transits_pkl=Non
 
     # process track source
     adsb_dir = None
-    if track_source == "ADSB":
-        adsb_dir = cfg.read("data", "adsb")
-    elif track_source == "AIS":
-        raise NotImplementedError('Code for AIS is not ready yet.')
+    match track_source:
+        case TrackSource.ADSB:
+            adsb_dir = cfg.read("data", "adsb")
+        case TrackSource.AIS:
+            raise NotImplementedError('Code for AIS is not ready yet.')
     
     obs_periods = get_obs_periods(unit, site, year, nvspl_archive, adsb_dir)
     print(f"Time periods with acoustic and causal data:\n{obs_periods}")
@@ -119,9 +120,14 @@ if __name__ == "__main__":
     parser.add_argument("-u", "--unit", help="Four letter unit code. E.g. DENA")
     parser.add_argument("-s", "--site", help="Four letter site code. E.g. TRLA")
     parser.add_argument("-y", "--year",  help="Four digit year. E.g. 2018")
-    parser.add_argument('-t', '--track-source', default='GPS', choices=["GPS", "ADSB", "AIS"],
-                          help="Enter 'GPS', 'ADSB', or 'AIS'. Metrics will only be calculated for " \
-                          "time periods with overlapping acoustic and track data.")
+    parser.add_argument(
+        '-t', '--track-source',
+        default=TrackSource.GPS,
+        type=TrackSource,
+        choices=list(TrackSource),
+        help="Enter 'GPS', 'ADSB', or 'AIS'. Metrics will only be calculated for "
+        "time periods with overlapping acoustic and track data.",
+    )
     parser.add_argument("--transits-pkl", help="Path to .pkl file to load audible transits from, if not the default.")
 
     args = parser.parse_args()

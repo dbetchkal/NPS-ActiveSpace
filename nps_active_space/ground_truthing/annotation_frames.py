@@ -11,6 +11,7 @@ from nps_active_space.ground_truthing import dem
 from nps_active_space.ground_truthing import segments
 from nps_active_space.ground_truthing import track_context
 from nps_active_space.ground_truthing import vehicle_info
+from nps_active_space.utils.enums import TrackSource
 
 
 class _AnnotationLoadFrame(_AppFrame):
@@ -259,7 +260,7 @@ class _GroundTruthingFrame(_AppFrame):
         self.faa = vehicle_info.load_faa(
             self.master.faa_path,
             self.master.faa_corrections_path,
-            self.master.database_type,
+            self.master.track_source,
             self.master.tracks,
         )
 
@@ -416,7 +417,16 @@ class _GroundTruthingFrame(_AppFrame):
         mic_point = Point(float(self.master.mic.x), 
                           float(self.master.mic.y), 
                           float(self.master.mic.z))
-        spline = track_context.prepare_spline(points, mic_point)
+        try:
+            spline = track_context.prepare_spline(points, mic_point)
+        except ValueError as exc:
+            tk.messagebox.showwarning(
+                title='Data Warning',
+                message=f"Track {track_id} could not be interpolated ({exc}). Skipping...",
+                icon='warning'
+            )
+            self._store_annotation(track_id, points, valid=False, note='Spline failed')
+            return
 
         # Determine the closest spline point to the mic.
         closest_point, closest_time = track_context.closest_approach(spline)
@@ -445,10 +455,10 @@ class _GroundTruthingFrame(_AppFrame):
         if audible_ranges is None:
             return
         
-        # load FAA data if applicable
-        faa_row, aircraft_help_text, aircraft_type = vehicle_info.lookup_aircraft(
-            self.faa, self.master.database_type, track_id, points
+        vehicle = vehicle_info.lookup_track_vehicle(
+            self.faa, self.master.track_source, track_id, points
         )
+        self.vessel_name = vehicle.vessel_name
 
         # update track-specific state, stored in member variables
         # these are stored as member variables because _build_plot() might be called again later,
@@ -467,8 +477,11 @@ class _GroundTruthingFrame(_AppFrame):
         self.x_lims = x_lims
         self.lower_limit_start = lower_limit_start
         self.upper_limit_start = upper_limit_start
-        self.aircraft_help_text = aircraft_help_text if faa_row is not None else None
-        self.aircraft_type = aircraft_type
+        if vehicle.faa_row is not None or self.master.track_source is TrackSource.AIS:
+            self.aircraft_help_text = vehicle.help_text
+        else:
+            self.aircraft_help_text = None
+        self.aircraft_type = vehicle.vehicle_type
 
         self._build_plot()
 

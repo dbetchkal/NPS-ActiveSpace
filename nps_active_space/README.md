@@ -69,7 +69,7 @@ Currently, the template config file has the following data:
 TODO - check this / update this for new scripts. Explaining which scripts require what is a bit messy, especially with all the new scripts we added. Consider a better way to document this.
 
 ```text
-[database:overflights] - Values required if pulling tracks from the database in run_ground_truthing.py or run_audible_transits.py
+[database:overflights] - Values required if pulling GPS tracks from the database in run_ground_truthing.py or run_audible_transits.py
 name = Database name.
 username = Database credentials username.
 password = Database credentials password.
@@ -80,6 +80,7 @@ host = Database host.
 site_metadata = Absolute path to the the file containing site metadata. Value required for all run_ground_truthing.py and generate_active_space.py
 nvspl_archive = Absolute path to the directory where all NVSPL sound data is stored. Value required for all run_ground_truthing.py and generate_active_space.py
 adsb = Absolute path to the directory where ADSB track data is stored.  Value required if pulling ADSB tracks in run_ground_truthing.py or run_audible_transits.py
+ais = Absolute path to the MXAK AIS archive directory (e.g. MXAK-AIS-GLBA). Value required if pulling AIS tracks in run_ground_truthing.py with -t AIS
 dem = Absolute path to the DEM tif file to use for active space generation. Value required for generate_active_space.py and generate_active_space_mesh.py
 mennitt = Absolute path to the mennitt ambience tif. Value required for generate_active_space.py and generate_active_space_mesh.py
 

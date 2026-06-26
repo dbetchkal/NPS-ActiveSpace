@@ -20,7 +20,17 @@ import geopandas as gpd
 from tqdm import tqdm
 import warnings
 import nps_active_space.utils.config as cfg
-from nps_active_space.utils.helpers import get_deployment, get_logger, load_studyarea, query_adsb, query_tracks, load_DEM, load_activespace, load_layered_activespace
+from nps_active_space.utils.helpers import (
+    create_overflights_engine,
+    get_deployment,
+    get_logger,
+    load_studyarea,
+    query_adsb,
+    query_tracks,
+    load_DEM,
+    load_activespace,
+    load_layered_activespace,
+)
 from nps_active_space.utils.computation import NMSIM_bbox_utm, contiguous_regions, coords_to_utm, interpolate_spline
 from nps_active_space.utils.models import Tracks, FAAReleasable
 
@@ -2193,10 +2203,7 @@ class AudibleTransitsGPS(AudibleTransits):
         -------
         engine
         '''
-        d = cfg.read('database:overflights')
-        engine = sqlalchemy.create_engine(
-            f'postgresql://{d["username"]}:{d["password"]}@{d["host"]}:{d["port"]}/{d["name"]}')
-        return engine
+        return create_overflights_engine(cfg.read('database:overflights'))
 
     def remove_jets(self):
         pass

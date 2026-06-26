@@ -8,7 +8,9 @@ from matplotlib.dates import date2num, num2date
 from nps_active_space.ground_truthing.track_context import (
     audible_ranges_from_annotations,
     limit_line_bounds,
+    load_spectrogram,
 )
+from nps_active_space.utils.computation import interpolate_spline
 from helpers import make_track_points
 
 
@@ -30,6 +32,37 @@ def _annotations(
         geometry=[spline.geometry.iat[i] for i in range(len(valid))],
         crs=spline.crs,
     )
+
+
+class TestInterpolateSpline:
+    def test_duplicate_point_dt_raises_clear_error(self):
+        points = make_track_points(4)
+        points["point_dt"] = [
+            pd.Timestamp("2025-01-07 05:00:00"),
+            pd.Timestamp("2025-01-07 05:00:00"),
+            pd.Timestamp("2025-01-07 05:01:00"),
+            pd.Timestamp("2025-01-07 05:02:00"),
+        ]
+        points["z"] = 0.0
+        with pytest.raises(ValueError, match="unique timestamp"):
+            interpolate_spline(points)
+
+
+class TestLoadSpectrogram:
+    def test_slices_naive_nvspl_with_site_local_points(self):
+        nvspl_index = pd.date_range("2025-01-07 04:00", periods=180, freq="min")
+        nvspl = pd.DataFrame(
+            {"12.5": 40.0, "20000": 30.0},
+            index=nvspl_index,
+        )
+        point_dt = pd.date_range("2025-01-07 05:00", periods=6, freq="min")
+        points = make_track_points(6)
+        points["point_dt"] = point_dt
+        spectro = load_spectrogram(nvspl, points)
+        assert not spectro.empty
+        assert spectro.index.min() >= nvspl_index[0]
+        assert spectro.index.max() <= nvspl_index[-1]
+
 
 
 class TestLimitLineBounds:
