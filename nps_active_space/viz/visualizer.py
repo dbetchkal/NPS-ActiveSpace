@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import glob
+import configparser
 import os
 
 import geopandas as gpd
@@ -514,22 +515,23 @@ class Visualizer:
             color_on="purple",
         )
 
-    def _flight_track_polyline(self, linestring: LineString) -> pv.PolyData:
-        """Build a 3D polyline using stored MSL altitudes from flight tracks."""
-        return self._annotation_polyline(linestring)
-
     def plot_tracks(
         self,
         source: TrackSource,
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> None:
-        """Plot causal tracks from GPS, ADSB, or MXAK AIS for the study window."""
+        """Plot causal tracks from GPS, ADSB, or MXAK AIS for the study window.
+
+        Uses the same ``load_tracks`` loader as ground truthing but draws raw point
+        sequences (not annotation splines) and does not apply clock-drift correction.
+        Prefer explicit ``--start-date`` / ``--end-date``; default is the full year.
+        """
         start_date = start_date or f"{self.year}-01-01"
         end_date = end_date or f"{self.year}-12-31"
         microphone = get_deployment(self.project_dir, self.unit, self.site, self.year)
 
-        print(f"Querying {source} tracks from {start_date} to {end_date}")
+        self._status(f"Querying {source} tracks from {start_date} to {end_date}")
         try:
             loaded = load_tracks(
                 source,
@@ -537,23 +539,30 @@ class Visualizer:
                 end_date=end_date,
                 study_area=self.study_area,
                 microphone=microphone,
+                include_faa_paths=False,
             )
-        except (KeyError, AssertionError, ValueError) as exc:
-            print(f"No {source} tracks loaded: {exc}")
+        except (configparser.NoSectionError, configparser.NoOptionError) as exc:
+            self._status(f"No {source} tracks loaded: missing config option {exc!r}")
+            return
+        except KeyError as exc:
+            self._status(f"No {source} tracks loaded: {exc}")
+            return
+        except (AssertionError, ValueError) as exc:
+            self._status(f"No {source} tracks loaded: {exc}")
             return
 
         tracks = loaded.tracks.to_crs(self.crs)
         if tracks.empty:
-            print(f"No {source} tracks loaded.")
+            self._status(f"No {source} tracks loaded.")
             return
 
         track_ids = tracks["track_id"].drop_duplicates()
-        print(f"{len(track_ids)} {source} tracks ({len(tracks)} points)")
+        self._status(f"{len(track_ids)} {source} tracks ({len(tracks)} points)")
         if len(track_ids) > self.max_tracks:
-            print(f"More than {self.max_tracks}, sampling")
+            self._status(f"More than {self.max_tracks}, sampling")
             selected = track_ids.sample(self.max_tracks, replace=False, random_state=3)
             tracks = tracks[tracks["track_id"].isin(selected)]
-            print(f"Showing {selected.nunique()} tracks")
+            self._status(f"Showing {selected.nunique()} tracks")
 
         color = (
             self.vessel_track_color
@@ -573,14 +582,14 @@ class Visualizer:
                 case TrackSource.AIS:
                     polyline = self._sea_surface_polyline(line)
                 case TrackSource.ADSB | TrackSource.GPS:
-                    polyline = self._flight_track_polyline(line)
+                    polyline = self._annotation_polyline(line)
                 case _:
                     raise ValueError(f"Unknown track source: {source}")
             actor = self._add_track_line(polyline, color=color)
             actors.append(actor)
 
         if not actors:
-            print(f"No {source} tracks to plot.")
+            self._status(f"No {source} tracks to plot.")
             return
 
         def toggle(flag):

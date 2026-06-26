@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -78,6 +79,33 @@ def resolve_viz_plot_flags(
     return do_active, do_annotations, do_transits, track_source
 
 
+def resolve_track_source_args(
+    args: argparse.Namespace, parser: argparse.ArgumentParser
+) -> TrackSource | None:
+    """Apply deprecated vessel flags and validate track date options."""
+    track_source = args.track_source
+    if args.vessels:
+        if track_source is not None and track_source is not TrackSource.AIS:
+            parser.error(
+                "--vessels is an alias for --track-source AIS; "
+                "cannot combine with another --track-source"
+            )
+        if track_source is None:
+            print(
+                "Warning: -v/--vessels is deprecated; use --track-source AIS",
+                file=sys.stderr,
+            )
+            track_source = TrackSource.AIS
+
+    if (args.start_date or args.end_date) and track_source is None:
+        parser.error("--start-date and --end-date require --track-source")
+
+    if args.start_date and args.end_date and args.start_date > args.end_date:
+        parser.error("--start-date must be on or before --end-date")
+
+    return track_source
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
 
@@ -115,7 +143,13 @@ def main() -> None:
         "--track-source",
         type=TrackSource,
         choices=list(TrackSource),
-        help="Load and plot tracks from GPS, ADSB, or AIS.",
+        help="Load and plot causal tracks (GPS, ADSB, or AIS). Not included in --all.",
+    )
+    parser.add_argument(
+        "-v",
+        "--vessels",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--all",
@@ -127,7 +161,7 @@ def main() -> None:
         "--max-tracks",
         type=parse_max_tracks,
         default=500,
-        help="Maximum number of annotation tracks or audible transits to show.",
+        help="Maximum tracks to show (annotations, audible transits, or --track-source).",
     )
     parser.add_argument(
         "--annotation-file",
@@ -142,12 +176,12 @@ def main() -> None:
     parser.add_argument(
         "--start-date",
         type=lambda d: parse_iso_date(d, arg_name="--start-date"),
-        help="Track query start date (YYYY-MM-DD). Default: Jan 1 of deployment year.",
+        help="Track query start date (YYYY-MM-DD). Requires --track-source. Default: Jan 1 of deployment year.",
     )
     parser.add_argument(
         "--end-date",
         type=lambda d: parse_iso_date(d, arg_name="--end-date"),
-        help="Track query end date (YYYY-MM-DD). Default: Dec 31 of deployment year.",
+        help="Track query end date (YYYY-MM-DD). Requires --track-source. Default: Dec 31 of deployment year.",
     )
     parser.add_argument(
         "--terraced",
@@ -163,11 +197,12 @@ def main() -> None:
     args = parser.parse_args()
     unit, site, year = args.deployment
 
-    do_active, do_annotations, do_transits, track_source = resolve_viz_plot_flags(
+    track_source = resolve_track_source_args(args, parser)
+    do_active, do_annotations, do_transits, _ = resolve_viz_plot_flags(
         active_space=args.active_space,
         annotations=args.annotations,
         audible_transits=args.audible_transits,
-        track_source=args.track_source,
+        track_source=track_source,
         plot_all=args.all,
         annotation_file=args.annotation_file,
         transits_pkl=args.transits_pkl,

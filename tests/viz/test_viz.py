@@ -1,11 +1,17 @@
 import argparse
+from configparser import NoOptionError
 from pathlib import Path
+from unittest.mock import MagicMock
 
+import geopandas as gpd
 import numpy as np
+import pandas as pd
 import pytest
-from shapely.geometry import LineString, MultiLineString, Point
+from shapely.geometry import LineString, MultiLineString, Point, box
 
 from nps_active_space.utils.enums import TrackSource
+from nps_active_space.utils.load_tracks import LoadedTracks
+from nps_active_space.utils.models import Tracks
 from nps_active_space.viz import (
     Visualizer,
     annotation_z_profile,
@@ -18,6 +24,7 @@ from nps_active_space.viz import (
     parse_existing_file,
     parse_iso_date,
     parse_max_tracks,
+    resolve_track_source_args,
     resolve_viz_plot_flags,
     sea_surface_z_profile,
     track_points_to_linestring,
@@ -82,13 +89,76 @@ class TestResolveVizPlotFlags:
         flags = resolve_viz_plot_flags(plot_all=True)
         assert flags == (True, True, True, None)
 
-    def test_track_source_passed_through(self):
-        flags = resolve_viz_plot_flags(track_source=TrackSource.ADSB)
-        assert flags == (False, False, False, TrackSource.ADSB)
+    @pytest.mark.parametrize("source", list(TrackSource))
+    def test_track_source_passed_through(self, source: TrackSource) -> None:
+        flags = resolve_viz_plot_flags(track_source=source)
+        assert flags == (False, False, False, source)
 
-    def test_ais_track_source(self):
-        flags = resolve_viz_plot_flags(track_source=TrackSource.AIS)
-        assert flags == (False, False, False, TrackSource.AIS)
+
+class TestResolveTrackSourceArgs:
+    def test_dates_require_track_source(self) -> None:
+        parser = argparse.ArgumentParser()
+        args = argparse.Namespace(
+            track_source=None,
+            vessels=False,
+            start_date="2024-05-24",
+            end_date=None,
+        )
+        with pytest.raises(SystemExit):
+            resolve_track_source_args(args, parser)
+
+    def test_vessels_sets_ais_track_source(self, capsys: pytest.CaptureFixture[str]) -> None:
+        parser = argparse.ArgumentParser()
+        args = argparse.Namespace(
+            track_source=None,
+            vessels=True,
+            start_date=None,
+            end_date=None,
+        )
+        assert resolve_track_source_args(args, parser) is TrackSource.AIS
+        assert "deprecated" in capsys.readouterr().err
+
+    def test_rejects_vessels_with_other_track_source(self) -> None:
+        parser = argparse.ArgumentParser()
+        args = argparse.Namespace(
+            track_source=TrackSource.ADSB,
+            vessels=True,
+            start_date=None,
+            end_date=None,
+        )
+        with pytest.raises(SystemExit):
+            resolve_track_source_args(args, parser)
+
+    def test_rejects_inverted_date_range(self) -> None:
+        parser = argparse.ArgumentParser()
+        args = argparse.Namespace(
+            track_source=TrackSource.AIS,
+            vessels=False,
+            start_date="2024-05-25",
+            end_date="2024-05-24",
+        )
+        with pytest.raises(SystemExit):
+            resolve_track_source_args(args, parser)
+
+    def test_passes_through_track_source_with_dates(self) -> None:
+        parser = argparse.ArgumentParser()
+        args = argparse.Namespace(
+            track_source=TrackSource.ADSB,
+            vessels=False,
+            start_date="2024-05-24",
+            end_date="2024-05-25",
+        )
+        assert resolve_track_source_args(args, parser) is TrackSource.ADSB
+
+    def test_allows_vessels_with_ais_track_source(self) -> None:
+        parser = argparse.ArgumentParser()
+        args = argparse.Namespace(
+            track_source=TrackSource.AIS,
+            vessels=True,
+            start_date=None,
+            end_date=None,
+        )
+        assert resolve_track_source_args(args, parser) is TrackSource.AIS
 
 
 class TestParseMaxTracks:
@@ -293,6 +363,168 @@ class TestTrackPointsToLinestring:
         )
         line = track_points_to_linestring(gdf, include_z=True)
         assert line.coords[1] == pytest.approx((1.0, 0.0, 1500.0))
+
+
+class TestPlotTracksSourceRouting:
+    @staticmethod
+    def _stub_visualizer() -> Visualizer:
+        vis = Visualizer.__new__(Visualizer)
+        vis.unit, vis.site, vis.year = "GLBA", "LSTL", 2024
+        vis.project_dir = "/proj"
+        vis.max_tracks = 500
+        vis.crs = "epsg:32608"
+        vis.study_area = gpd.GeoDataFrame(
+            geometry=[box(500_000, 6_000_000, 510_000, 6_010_000)],
+            crs=vis.crs,
+        )
+        vis.plotter = MagicMock()
+        vis.logger = MagicMock()
+        vis._dem_sampler = MagicMock()
+        vis.dem = MagicMock()
+        vis.sea_surface_offset_m = 5.0
+        vis.sea_surface_densify_step_m = 100.0
+        vis.vessel_track_color = "cyan"
+        vis.flight_track_color = "yellow"
+        return vis
+
+    @staticmethod
+    def _loaded_tracks(*, flight: bool) -> LoadedTracks:
+        id_col = "flight_id" if flight else "event_id"
+        z = 5000.0 if flight else 0.0
+        gdf = gpd.GeoDataFrame(
+            {
+                id_col: ["t1", "t1"],
+                "TIME": [
+                    pd.Timestamp("2024-05-24 10:00"),
+                    pd.Timestamp("2024-05-24 10:05"),
+                ],
+                "altitude": [z, z],
+            },
+            geometry=gpd.points_from_xy([500_100.0, 500_200.0], [6_000_100.0, 6_000_200.0]),
+            crs="epsg:32608",
+        )
+        tracks = Tracks(gdf, id_col=id_col, datetime_col="TIME", z_col="altitude")
+        return LoadedTracks(tracks, None, None)
+
+    @pytest.mark.parametrize(
+        ("source", "expect_sea", "expect_flight", "use_flight_tracks"),
+        [
+            (TrackSource.AIS, True, False, False),
+            (TrackSource.ADSB, False, True, True),
+            (TrackSource.GPS, False, True, True),
+        ],
+    )
+    def test_routes_polyline_builder_by_source(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        source: TrackSource,
+        expect_sea: bool,
+        expect_flight: bool,
+        use_flight_tracks: bool,
+    ) -> None:
+        vis = self._stub_visualizer()
+        captured_lines: list[LineString] = []
+        sea = MagicMock(side_effect=lambda line: captured_lines.append(line) or MagicMock())
+        flight = MagicMock(side_effect=lambda line: captured_lines.append(line) or MagicMock())
+        monkeypatch.setattr(vis, "_sea_surface_polyline", sea)
+        monkeypatch.setattr(vis, "_annotation_polyline", flight)
+        monkeypatch.setattr(vis, "_add_track_line", lambda polyline, *, color: MagicMock())
+        monkeypatch.setattr(
+            "nps_active_space.viz.visualizer.get_deployment",
+            lambda *args, **kwargs: MagicMock(lat=58.4, lon=-136.0),
+        )
+        monkeypatch.setattr(
+            "nps_active_space.viz.visualizer.load_tracks",
+            lambda *args, **kwargs: self._loaded_tracks(flight=use_flight_tracks),
+        )
+
+        vis.plot_tracks(source, "2024-05-24", "2024-05-24")
+
+        assert sea.called is expect_sea
+        assert flight.called is expect_flight
+        coord_dim = len(captured_lines[0].coords[0])
+        if use_flight_tracks:
+            assert coord_dim == 3
+        else:
+            assert coord_dim == 2
+
+    def test_forwards_load_tracks_kwargs(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        vis = self._stub_visualizer()
+        calls: list[dict] = []
+        monkeypatch.setattr(vis, "_add_track_line", lambda polyline, *, color: MagicMock())
+        monkeypatch.setattr(
+            "nps_active_space.viz.visualizer.get_deployment",
+            lambda *args, **kwargs: MagicMock(lat=58.4, lon=-136.0),
+        )
+        monkeypatch.setattr(
+            "nps_active_space.viz.visualizer.load_tracks",
+            lambda *args, **kwargs: calls.append(kwargs) or self._loaded_tracks(flight=True),
+        )
+
+        vis.plot_tracks(TrackSource.ADSB, "2024-05-24", "2024-05-25")
+
+        assert calls[0]["start_date"] == "2024-05-24"
+        assert calls[0]["end_date"] == "2024-05-25"
+        assert calls[0]["include_faa_paths"] is False
+        assert calls[0]["study_area"] is vis.study_area
+
+    def test_defaults_to_deployment_year_dates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        vis = self._stub_visualizer()
+        calls: list[dict] = []
+        monkeypatch.setattr(vis, "_add_track_line", lambda polyline, *, color: MagicMock())
+        monkeypatch.setattr(
+            "nps_active_space.viz.visualizer.get_deployment",
+            lambda *args, **kwargs: MagicMock(lat=58.4, lon=-136.0),
+        )
+        monkeypatch.setattr(
+            "nps_active_space.viz.visualizer.load_tracks",
+            lambda *args, **kwargs: calls.append(kwargs) or self._loaded_tracks(flight=True),
+        )
+
+        vis.plot_tracks(TrackSource.ADSB, None, None)
+
+        assert calls[0]["start_date"] == "2024-01-01"
+        assert calls[0]["end_date"] == "2024-12-31"
+
+    def test_missing_config_reports_config_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        vis = self._stub_visualizer()
+        messages: list[str] = []
+        vis._status = lambda msg: messages.append(msg)
+        monkeypatch.setattr(
+            "nps_active_space.viz.visualizer.get_deployment",
+            lambda *args, **kwargs: MagicMock(lat=58.4, lon=-136.0),
+        )
+        monkeypatch.setattr(
+            "nps_active_space.viz.visualizer.load_tracks",
+            lambda *args, **kwargs: (_ for _ in ()).throw(NoOptionError("adsb", "data")),
+        )
+
+        vis.plot_tracks(TrackSource.ADSB, "2024-05-24", "2024-05-24")
+
+        assert any("missing config option" in msg for msg in messages)
+
+    def test_parse_key_error_is_not_labeled_missing_config(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vis = self._stub_visualizer()
+        messages: list[str] = []
+        vis._status = lambda msg: messages.append(msg)
+        monkeypatch.setattr(
+            "nps_active_space.viz.visualizer.get_deployment",
+            lambda *args, **kwargs: MagicMock(lat=58.4, lon=-136.0),
+        )
+        monkeypatch.setattr(
+            "nps_active_space.viz.visualizer.load_tracks",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                KeyError("MXAK AIS CSV lacks 'TIME' column")
+            ),
+        )
+
+        vis.plot_tracks(TrackSource.AIS, "2024-05-24", "2024-05-24")
+
+        assert messages[-1].startswith("No AIS tracks loaded:")
+        assert "TIME" in messages[-1]
+        assert not any("missing config option" in msg for msg in messages)
 
 
 class TestScriptsVizShim:

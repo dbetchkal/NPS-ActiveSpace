@@ -453,18 +453,18 @@ This script is used to visualize select geospatial objects relevant to the `nps_
 | command-line arg           | description                                                                                                                                      |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `deployment` (no flag)     | **required.**<br/>The deployment name, e.g., DENACATH2018                                                                                        |
-| `-e`, `--environment`      | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `-e`, `--environment`      | Config environment name (e.g. `production` for `production.config`). Default: `DENA_streamline`                                                    |
 | `-g`, `--gain`             | Active space gain, if not the optimal default found in `fits.csv`                                                                                |
 | `-s`, `--active-space`     | If included, load and plot the active space                                                                                                      |
 | `-a`, `--annotations`      | If included, load and plot annotations                                                                                                           |
 | `-t`, `--audible-transits` | If included, load and plot audible transits                                                                                                      |
-| `-v`, `--vessels`          | If included, load and plot MXAK AIS vessel tracks at sea level                                                                                 |
-| `--all`                    | Load and plot all geospatial objects (shorthand for `--active-space --annotations --audible-transits`)                                           |
-| `-m`, `--max-tracks`       | **_default 500_**<br>Maximum number of annotation tracks or audible transits to show                                                             |
+| `--track-source`           | Load and plot tracks from **{GPS, ADSB, AIS}**. Uses the same config paths as ground truthing (`[data]` ais/adsb, overflights DB for GPS). Not included in `--all`. Former `-v`/`--vessels` (AIS only) still works but is deprecated. |
+| `--all`                    | Load and plot active space, annotations, and audible transits (does **not** include `--track-source`) |
+| `-m`, `--max-tracks`       | **_default 500_**<br>Maximum number of annotation tracks, audible transits, or causal tracks to show                                               |
 | `--annotation-file`        | **_default to deployment dir_**<br/>Path to .geojson file from which to load annotations                                                         |
 | `--transits-pkl`           | **_default to deployment dir_**<br/>Path to .pkl file from which to load audible transits                                                        |
-| `--start-date`             | AIS query start date (YYYY-MM-DD). Default: Jan 1 of deployment year.                                                                            |
-| `--end-date`               | AIS query end date (YYYY-MM-DD). Default: Dec 31 of deployment year.                                                                             |
+| `--start-date`             | Track query start date (YYYY-MM-DD). **Requires `--track-source`.** Default: Jan 1 of deployment year. |
+| `--end-date`               | Track query end date (YYYY-MM-DD). **Requires `--track-source`.** Default: Dec 31 of deployment year. |
 | `--terraced`               | If included, render the active space as a terraced surface instead of contours                                                                   |
 | `--fill-layers`            | If included, fill the interior of each active space contour polygon                                                                              |
 
@@ -475,12 +475,24 @@ $ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production
 ```
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/viz.py GLBALSTL2024 -e production -s -a -v --terraced
+$ python -u -W ignore nps_active_space/scripts/viz.py GLBALSTL2024 -e production -s -a --track-source AIS --terraced
 ```
 
 ```bash
 $ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production -g 15.0 -s -a -m 700 --terraced
 ```
+
+```bash
+python -m nps_active_space.scripts.viz GLBALSTL2024 -e GLBA_example \
+  --track-source AIS --start-date 2024-05-24 --end-date 2024-05-24 -m 100
+
+python -m nps_active_space.scripts.viz DENATRLA2025 -e DENA_example \
+  --track-source ADSB --start-date 2025-06-23 --end-date 2025-06-23 -m 100
+```
+
+**Track plotting vs ground truthing:** viz uses the same `load_tracks` loader but draws raw point sequences (not annotation splines), does not apply clock-drift correction, and defaults to the full deployment year unless `--start-date` / `--end-date` are set. Ground truthing uses the NVSPL archive date span and drift files when present.
+
+**Note:** In viz, `-t` means audible transits; in ground truthing, `-t` means `--track-source`.
 
 ----
 

@@ -8,7 +8,7 @@ Examples days:
 
 Paths in the example configs should parse on Mac/Linux or Windows. However, the paths are relative, so scripts need to be run from the repository root.
 
-**Clock conventions:** MXAK AIS timestamps are UTC-naive; NVSPL and ship-visit times are site-local naive (e.g. GLBALSTL ≈ `America/Juneau`).
+**Clock conventions:** MXAK AIS CSV timestamps are UTC-naive; `load_tracks` converts them to site-local naive when a deployment microphone is provided (same clock as NVSPL and ship visits). ADS-B TSV Unix epochs are decoded to naive datetimes and used on the NVSPL clock without a site timezone shift (ground-truthing convention). Legacy pre-2020 ADS-B `.txt` (`EarlyAdsb`) is already naive local. NVSPL and ship-visit times are site-local naive (e.g. GLBALSTL ≈ `America/Juneau`). GPS overflights DB times (`ak_datetime`) are already site-local.
 
 ## Layout
 
@@ -51,7 +51,8 @@ Paths in the example configs should parse on Mac/Linux or Windows. However, the 
 | `nvspl_archive/.../NVSPL_DENATRLA_2025_06_23_*.txt` | DENATRLA | Hourly SPL for 2025-06-23 | Offline dev (`DENA_example.config`) |
 
 ## Local ground truthing (from repo root)
-Running the ground truthing script is a great way to view vessel/flight tracks alongside NVSPL data. The following commands should work out of the box after setting up the project virtual environment. 
+
+Running the ground truthing script is a great way to view vessel/flight tracks alongside NVSPL data. The following commands should work out of the box after setting up the project virtual environment.
 
 **GLBALSTL (AIS):** `-e GLBA_example`
 
@@ -68,3 +69,19 @@ python -m nps_active_space.scripts.run_ground_truthing \
 ```
 
 To rebuild `faa/MASTER_DENATRLA_20250623_sample.txt` after changing the example ADS-B day, extract rows from the full FAA `MASTER.txt` for the unique `ICAO_address` values in that day's TSV (see `FAAReleasable` in `utils/models.py`).
+
+## Local viz (from repo root)
+
+**GLBALSTL (AIS):** `-e GLBA_example`
+
+```bash
+python -m nps_active_space.scripts.viz GLBALSTL2024 -e GLBA_example \
+  --track-source AIS --start-date 2024-05-24 --end-date 2024-05-24 -m 100
+```
+
+**DENATRLA (ADS-B):** `-e DENA_example`
+
+```bash
+python -m nps_active_space.scripts.viz DENATRLA2025 -e DENA_example \
+  --track-source ADSB --start-date 2025-06-23 --end-date 2025-06-23 -m 100
+```

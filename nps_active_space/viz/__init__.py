@@ -7,6 +7,7 @@ from nps_active_space.viz.cli import (
     parse_existing_file,
     parse_iso_date,
     parse_max_tracks,
+    resolve_track_source_args,
     resolve_viz_plot_flags,
 )
 from nps_active_space.viz.markers import utm_orientation_axes_kwargs
@@ -42,6 +43,7 @@ __all__ = [
     "parse_existing_file",
     "parse_iso_date",
     "parse_max_tracks",
+    "resolve_track_source_args",
     "resolve_viz_plot_flags",
     "sea_surface_z_profile",
     "track_points_to_linestring",

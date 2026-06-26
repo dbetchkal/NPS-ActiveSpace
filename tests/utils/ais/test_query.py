@@ -9,7 +9,7 @@ from nps_active_space.utils.ais.query import query_ais_mxak
 from nps_active_space.utils.ais.reader import MxakAis
 
 REPO = Path(__file__).resolve().parents[3]
-AIS_FIXTURE = REPO / "example_data" / "AIS" / "MXAK-AIS-GLBA-20250107.csv"
+AIS_FIXTURE = REPO / "example_data" / "MXAK-AIS-GLBA" / "MXAK-AIS-GLBA-20250107.csv"
 AIS_DIR = AIS_FIXTURE.parent
 
 METADATA_COLS = ["TIME", "MMSI", "lat", "lon", "ship_name", "shiptype", "altitude", "event_id"]
