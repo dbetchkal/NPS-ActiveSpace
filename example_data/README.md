@@ -2,7 +2,11 @@
 
 Small, real-format samples for offline unit tests, local dev (`GLBA_example.config`, `DENA_example.config`), and manual debugging.
 
-Paths in those configs are **repo-relative** (`example_data/...`). Run CLI commands from the repository root on Mac or Windows. Use separate untracked production configs (absolute network paths) for on-network NPS workstations.
+Examples days:
+* The Glacier Bay example config points at May 25th, 2024 data for AIS vessel tracks and sound pressure level (NVSPL) at the Lower South Tidal (GLBALSTL) acoustic monitoring site.
+* The Denali example config points at June 23rd, 2025 data for ADS-B flight tracks and sound pressure level (NVSPL) at the Triple Lakes Trail (DENATRLA) acoustic monitoring site.
+
+Paths in those configs should parse on Mac/Linux or Windows. However, the paths are relative, so scripts need to be run from the repository root for them to work.
 
 **Clock conventions:** MXAK AIS timestamps are UTC-naive; NVSPL and ship-visit times are site-local naive (e.g. GLBALSTL ≈ `America/Juneau`).
 
@@ -12,10 +16,10 @@ Paths in those configs are **repo-relative** (`example_data/...`). Run CLI comma
 |------|---------|
 | `nvspl_archive/` | iyore NVSPL archive (`.structure.txt` + deployment folders) |
 | `site_projects/` | Per-site workspaces (`GLBALSTL/`, `DENATRLA/`) — DEM, study area, `.sit` |
-| `MXAK-AIS-GLBA/` | Daily MXAK AIS CSVs (archive-style directory) |
-| `ADS-B/healy_repeater/` | ADS-B TSV samples (Healy repeater) |
-| `faa/` | FAA type corrections + trimmed releasable-aircraft sample for DENATRLA example day |
-| `GLBALSTL_ship_visits.csv` | CPA windows for AIS/NVSPL alignment tests |
+| `MXAK-AIS-GLBA/` | Daily MXAK AIS CSVs for Glacier Bay |
+| `ADS-B/healy_repeater/` | ADS-B TSV samples (Healy Repeater in Denali) |
+| `faa/` | FAA type corrections + trimmed releasable-aircraft DB sample for DENATRLA example day |
+| `GLBALSTL_ship_visits.csv` | Extra file with closest passes of ships by the GLBALSTL site (for general reference and AIS/NVSPL alignment tests) |
 
 ### GLBALSTL 2024-05-24 slice (~50 MB total)
 
@@ -47,6 +51,7 @@ Paths in those configs are **repo-relative** (`example_data/...`). Run CLI comma
 | `nvspl_archive/.../NVSPL_DENATRLA_2025_06_23_*.txt` | DENATRLA | Hourly SPL for 2025-06-23 | Offline dev (`DENA_example.config`) |
 
 ## Local ground truthing (from repo root)
+Running the ground truthing script is a great way to view vessel/flight tracks alongside NVSPL data. The following commands should work out of the box after setting up the project virtual environment. 
 
 **GLBALSTL (AIS):** `-e GLBA_example`
 
