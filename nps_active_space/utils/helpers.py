@@ -28,6 +28,7 @@ from nps_active_space.setup.site_writer import (
     sit_file_path,
 )
 from nps_active_space.utils.computation import NMSIM_bbox_utm
+from nps_active_space.utils import paths as p
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
@@ -71,14 +72,12 @@ def omni_to_gain(omni_source: str) -> float:
 
 
 def load_layered_activespace(project_dir, unit, site, year, gain=None, crs="epsg:4326"):
-    prefix = os.path.join(project_dir, f"{unit}{site}", "Output_Data", "ACTIVESPACES")
     layer_dirs = {}
-    output_dirs = glob.glob(os.path.join(prefix, f"{unit}{site}{year}_*m"))
-    for dir in output_dirs:
+    for dir in p.activespace_layer_dirs(project_dir, unit, site, year):
         altitude = int(os.path.basename(dir).split("_")[1].split("m")[0])
         layer_dirs[altitude] = dir
     study_area = load_studyarea(project_dir, unit, site, year)
-    return LayeredActiveSpace(unit+site+year, layer_dirs, study_area, gain, crs)
+    return LayeredActiveSpace(p.deployment_id(unit, site, year), layer_dirs, study_area, gain, crs)
 
 
 def load_activespace(project_dir, unit, site, year, gain, altitude_m=None, crs=None):
@@ -109,11 +108,9 @@ def load_activespace(project_dir, unit, site, year, gain, altitude_m=None, crs=N
         A dataframe containing the geometry of the active space. Can be a single polygon or a multipolygon.
     """
 
-    prefix = os.path.join(project_dir, unit + site, "Output_Data", "ACTIVESPACES")
-
     # pick middle altitude if no altitude provided
     if altitude_m is None:
-        altitude_dirs = glob.glob(os.path.join(prefix, f"{unit}{site}{year}_*m"))
+        altitude_dirs = p.activespace_layer_dirs(project_dir, unit, site, year)
         altitudes = []
         for dir in altitude_dirs:
             altitudes.append(int(os.path.basename(dir).split("_")[1].split("m")[0]))
@@ -124,8 +121,7 @@ def load_activespace(project_dir, unit, site, year, gain, altitude_m=None, crs=N
     # read activespace
     sign = "-" if gain < 0 else "+"
     gain_string = str(np.abs(int(10*gain))).zfill(3)
-    usy = f"{unit}{site}{year}"
-    path = os.path.join(prefix, f"{usy}_{altitude_m}m", f"{usy}_O_{sign}{gain_string}.geojson")
+    path = p.activespace_geojson(project_dir, unit, site, year, altitude_m, sign, gain_string)
     active_space = gpd.read_file(path)
 
     if crs is not None:
@@ -154,16 +150,7 @@ def load_DEM(project_dir: str, unit: str, site: str):
         A rasterio Dataset object for reading the DEM data
     """
 
-    dem_glob = os.path.join(
-        project_dir, unit + site, "Input_Data", "01_ELEVATION", "elevation_m_nad83_utm*.tif"
-    )
-    raster_path = _glob_path_or_raise(
-        dem_glob,
-        description=(
-            f"elevation DEM for {unit}{site} "
-            f"(expected GeoTIFF in Input_Data/01_ELEVATION/elevation_m_nad83_utm*.tif)"
-        ),
-    )
+    raster_path = p.dem_raster(project_dir, unit, site)
     return rasterio.open(raster_path)
 
 
@@ -201,14 +188,7 @@ def load_studyarea(project_dir: str, unit: str, site: str, year: int, crs: str =
         A dataframe containing the geometry of the study area. A single polygon.
     """
 
-    study_glob = os.path.join(
-        project_dir, unit + site, f"{unit}{site}*study*area*.shp"
-    )
-    study_area_path = _glob_path_or_raise(
-        study_glob,
-        description=f"study area shapefile for {unit}{site}{year}",
-    )
-    study_area = gpd.read_file(study_area_path)
+    study_area = gpd.read_file(p.study_area_shapefile(project_dir, unit, site))
 
     if crs is not None:
         study_area = study_area.to_crs(crs)
@@ -438,7 +418,7 @@ def load_annotations(project_dir: str, unit: str, site: str, year: str, only_val
         An Annotations object containing the loaded annotations.
     """
     # Verify that annotation files exist for the unit/site location. If they do exist, load them into memory.
-    annotation_files = glob.glob(f"{project_dir}/{unit}{site}/{unit}{site}{year}*saved_annotations*.geojson")
+    annotation_files = p.annotation_files(project_dir, unit, site, year)
     print("Found these annotation files:", list(map(lambda f: os.path.basename(f), annotation_files)))
     if len(annotation_files) == 0:
         return gpd.GeoDataFrame()
