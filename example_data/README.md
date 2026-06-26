@@ -1,6 +1,8 @@
 # Example data
 
-Small, real-format samples for offline unit tests, Mac dev (`GLBA_mac.config`, `DENA_mac.config`), and manual debugging.
+Small, real-format samples for offline unit tests, local dev (`GLBA_example.config`, `DENA_example.config`), and manual debugging.
+
+Paths in those configs are **repo-relative** (`example_data/...`). Run CLI commands from the repository root on Mac or Windows. Use separate untracked production configs (absolute network paths) for on-network NPS workstations.
 
 **Clock conventions:** MXAK AIS timestamps are UTC-naive; NVSPL and ship-visit times are site-local naive (e.g. GLBALSTL ≈ `America/Juneau`).
 
@@ -42,25 +44,22 @@ Small, real-format samples for offline unit tests, Mac dev (`GLBA_mac.config`, `
 | `MXAK-AIS-GLBA/MXAK-AIS-GLBA-20210512-41.csv` | GLBA | Legacy-formatted MXAK AIS sample | n/a |
 | `GLBALSTL_ship_visits.csv` | GLBALSTL | Nearest AIS points at CPA for timing checks | `tests/utils/ais/test_alignment.py` |
 | `nvspl_archive/.../NVSPL_GLBALSTL_2024_05_24_*.txt` | GLBALSTL | Hourly SPL for 2024-05-24 | `tests/utils/ais/test_alignment.py` |
-| `nvspl_archive/.../NVSPL_DENATRLA_2025_06_23_*.txt` | DENATRLA | Hourly SPL for 2025-06-23 | Mac dev (`DENA_mac.config`) |
+| `nvspl_archive/.../NVSPL_DENATRLA_2025_06_23_*.txt` | DENATRLA | Hourly SPL for 2025-06-23 | Offline dev (`DENA_example.config`) |
 
-## Mac ground truthing / viz (from repo root)
+## Local ground truthing (from repo root)
 
-**GLBALSTL (AIS):**
+**GLBALSTL (AIS):** `-e GLBA_example`
 
 ```bash
-python -m nps_active_space.scripts.viz GLBALSTL2024 -e GLBA_mac -v \
-  --start-date 2024-05-24 --end-date 2024-05-24 -m 100
-
 python -m nps_active_space.scripts.run_ground_truthing \
-  -e GLBA_mac -u GLBA -s LSTL -y 2024 -t AIS
+  -e GLBA_example -u GLBA -s LSTL -y 2024 -t AIS
 ```
 
-**DENATRLA (ADS-B):** fully offline via `DENA_mac.config`.
+**DENATRLA (ADS-B):** `-e DENA_example`
 
 ```bash
 python -m nps_active_space.scripts.run_ground_truthing \
-  -e DENA_mac -u DENA -s TRLA -y 2025 -t ADSB
+  -e DENA_example -u DENA -s TRLA -y 2025 -t ADSB
 ```
 
 To rebuild `faa/MASTER_DENATRLA_20250623_sample.txt` after changing the example ADS-B day, extract rows from the full FAA `MASTER.txt` for the unique `ICAO_address` values in that day's TSV (see `FAAReleasable` in `utils/models.py`).
