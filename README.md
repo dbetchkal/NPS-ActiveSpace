@@ -38,6 +38,8 @@ consistent with observed audibility under specified environmental conditions.
 
 The repository has been tested with Python 3.12. Runtime dependencies are declared in `pyproject.toml` and installed automatically by pip (except GDAL on macOS/Linux, which requires a system library first).
 
+**NMSim on macOS / Linux:** Active space generation runs the Windows-only NMSim binary via **Docker + Wine** — see [docker/README.md](docker/README.md) (stage ~10 MB runtime locally, then `docker/build.sh`). For ground-truthing, fit, and viz on the host, follow the macOS/Linux steps below.
+
 Clone the repository, then follow the steps for your platform. The clone includes [`example_data/`](example_data/) (~75 MB) for local development and tests (see [`example_data/README.md`](example_data/README.md)).
 
 ```bash
@@ -113,12 +115,17 @@ python -c "import nps_active_space, geopandas, rasterio, iyore; print('NPS-Activ
 
 ### NMSIM (active space generation)
 
-Active space generation runs the NMSIM Nord2000 physics model as an external process. NMSIM is **not** installed by pip and is **not** included in this repository. Obtain the binary + required files separately (feel free to reach out to NPS-ActiveSpace maintainers) and set the path in your config:
+Active space generation runs the NMSIM Nord2000 physics model as an external process. NMSIM is **not** installed by pip and is **not** included in this repository.
+
+- **Windows:** Obtain the binary + required files separately (feel free to reach out to NPS-ActiveSpace maintainers) and set the path in your config.
+- **macOS / Linux:** Use [docker/README.md](docker/README.md) to stage the runtime and run the pipeline in Docker + Wine with `-e container`.
 
 ```text
 [project]
 nmsim = C:\path\to\Nord2000batch.exe
 ```
+
+On Windows, set the path in your config as above. In Docker, `container_example.config` points at the bind-mounted runtime under `/opt/nmsim`.
 
 Required for `generate_active_space.py`, `generate_3d_active_space.py`, and `generate_active_space_mesh.py`. **Not** required for ground-truthing, audible transits, or validation.
 
