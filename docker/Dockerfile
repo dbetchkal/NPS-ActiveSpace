@@ -35,10 +35,10 @@ RUN python3 -m venv "$VENV"
 ENV PATH="$VENV/bin:$PATH"
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-COPY requirements.linux.txt /tmp/requirements.linux.txt
+COPY requirements.container.txt /tmp/requirements.container.txt
 RUN pip install --no-cache-dir "numpy==2.3.1" \
  && pip install --no-cache-dir --no-build-isolation "GDAL==$(gdal-config --version)" \
- && pip install --no-cache-dir -r /tmp/requirements.linux.txt
+ && pip install --no-cache-dir -r /tmp/requirements.container.txt
 
 # ---- Wine shim so `project.nmsim` can be a plain command that calls the .exe ----
 COPY docker/nord2000 /usr/local/bin/nord2000

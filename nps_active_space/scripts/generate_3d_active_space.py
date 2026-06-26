@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from nps_active_space.utils.models import Nvspl
 from nps_active_space.utils.computation import ambience_from_nvspl
 import nps_active_space.utils.config as cfg
+from nps_active_space.utils import paths as p
 
 """
 This script creates a commands file for use with generate_active_space_batch.py, containing commands
@@ -52,7 +53,7 @@ if __name__ == "__main__":
 
     cfg.initialize(args.environment)
     project_dir = cfg.read("project", "dir")
-    site_dir = os.path.join(project_dir, args.unit + args.site)
+    site_dir = p.site_dir(project_dir, args.unit, args.site)
     usy = f"{args.unit}{args.site}{args.year}"
 
     # determine altitudes and print to console, so user can quickly verify we're doing what they wanted

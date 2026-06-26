@@ -1,0 +1,17 @@
+# Native Mac/Linux development (outside Docker): viz, fit, ground-truthing, etc.
+#
+# For the full NMSim active-space pipeline on Mac/Linux, use Docker instead —
+# see docker/README.md.
+#
+# 1) Install system geospatial libraries, e.g.:
+#      macOS:   brew install gdal proj geos
+#      Debian:  sudo apt install gdal-bin libgdal-dev
+# 2) Match the Python GDAL binding to the system library (same pattern as the image):
+#      pip install "numpy==2.3.1"
+#      pip install --no-build-isolation "GDAL==$(gdal-config --version)"
+# 3) Install the remaining dependencies:
+#      pip install -r requirements.native-unix.txt
+# 4) Editable install of this repo:
+#      pip install -e .
+#
+-r requirements.container.txt
