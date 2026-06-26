@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Wine shim for NMSim's Nord2000batch.exe so the NPS-ActiveSpace pipeline can call
+# the Windows binary unchanged via `project.nmsim` on Linux/Mac (in this container).
+#
+# NMSim resolves its runtime `RND/` folder (directories.ini, character files, ground
+# impedance) relative to the current working directory, so we cd into the NMSim install
+# dir before launching. The control/batch files the pipeline writes use ABSOLUTE paths,
+# so cwd does not affect input/output resolution.
+set -euo pipefail
+NMSIM_HOME="${NMSIM_HOME:-/opt/nmsim}"
+cd "$NMSIM_HOME"
+exec wine "$NMSIM_HOME/Nord2000batch.exe" "$@"

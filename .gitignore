@@ -22,6 +22,11 @@ nps_active_space/config/*
 !nps_active_space/config/template.config
 !nps_active_space/config/*_example.config
 
+# NMSim Windows binaries (not redistributable — see vendor/nmsim-runtime/README.md)
+vendor/nmsim-runtime/*
+!vendor/nmsim-runtime/README.md
+!vendor/nmsim-runtime/.gitkeep
+
 # Generated Index
 example_data/ADS-B/healy_repeater/index.txt
 example_data/faa/MASTER_index.json
