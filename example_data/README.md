@@ -6,7 +6,7 @@ Examples days:
 * The Glacier Bay example config points at May 25th, 2024 data for AIS vessel tracks and sound pressure level (NVSPL) at the Lower South Tidal (GLBALSTL) acoustic monitoring site.
 * The Denali example config points at June 23rd, 2025 data for ADS-B flight tracks and sound pressure level (NVSPL) at the Triple Lakes Trail (DENATRLA) acoustic monitoring site.
 
-Paths in those configs should parse on Mac/Linux or Windows. However, the paths are relative, so scripts need to be run from the repository root for them to work.
+Paths in the example configs should parse on Mac/Linux or Windows. However, the paths are relative, so scripts need to be run from the repository root.
 
 **Clock conventions:** MXAK AIS timestamps are UTC-naive; NVSPL and ship-visit times are site-local naive (e.g. GLBALSTL ≈ `America/Juneau`).
 
