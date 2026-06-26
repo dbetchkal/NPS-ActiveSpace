@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the NPS-ActiveSpace Linux/Wine image. Build context = repo root so the
-# Dockerfile can COPY requirements.linux.txt and docker/nord2000.
+# Dockerfile can COPY requirements.container.txt and docker/nord2000.
 #   docker/build.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."

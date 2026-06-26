@@ -11,7 +11,7 @@ includes Python 3.12 + GDAL and executes `Nord2000batch.exe` through Wine.
 # 1) Stage the NMSim runtime locally (~10 MB; not in git — see vendor/nmsim-runtime/README.md)
 docker/stage_nmsim_runtime.sh /path/to/NMSim-install
 
-# 2) Build the image (~13 min first time)
+# 2) Build the image (~13 min first time; installs requirements.container.txt)
 docker/build.sh
 
 # 3) Config (if not already present)

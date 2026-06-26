@@ -1,6 +1,11 @@
-# Linux/Mac requirements (container). Derived from requirements.txt.
-# GDAL is installed separately in the Docker image to match the system libgdal version.
-# Windows-only packages removed: pywin32, pipwin, pySmartDL, Js2Py, pyjsparser, and the cgohlke GDAL win_amd64 wheel.
+# Docker container only (docker/Dockerfile → nps-activespace:linux).
+#
+# Do not pip-install this file on the host for local Mac/Linux dev; use
+# requirements.native-unix.txt instead. This list is installed inside the image
+# after numpy and a system-matched GDAL binding (see docker/Dockerfile).
+#
+# Derived from requirements.txt with Windows-only packages removed:
+# pywin32, pipwin, pySmartDL, Js2Py, pyjsparser, and the cgohlke GDAL win_amd64 wheel.
 affine==2.4.0
 asttokens==3.0.0
 attrs==25.3.0
