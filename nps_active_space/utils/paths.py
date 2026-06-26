@@ -22,11 +22,6 @@ def site_dir(project_dir: str, unit: str, site: str) -> str:
     return join(project_dir, f"{unit}{site}")
 
 
-def data_root(project_dir: str) -> str:
-    """Parent directory of ``site_projects/`` (holds ``ground_truthing_annotations/``, etc.)."""
-    return os.path.dirname(project_dir)
-
-
 def site_path(project_dir: str, unit: str, site: str, *parts: str) -> str:
     return join(project_dir, f"{unit}{site}", *parts)
 
@@ -57,21 +52,10 @@ def activespace_geojson(project_dir: str, unit: str, site: str, year, altitude_m
 
 
 def annotation_files(project_dir: str, unit: str, site: str, year) -> List[str]:
+    """Annotation geojson files saved in the site directory root (ground-truthing output)."""
     usy = deployment_id(unit, site, year)
-    root = data_root(project_dir)
-    patterns = [
-        join(site_dir(project_dir, unit, site), f"{usy}*saved_annotations*.geojson"),
-        join(root, "ground_truthing_annotations", usy, f"{usy}*saved_annotations*.geojson"),
-        join(root, "ground_truthing_annotations", f"{unit}{site}", f"{usy}*saved_annotations*.geojson"),
-    ]
-    seen = set()
-    matches = []
-    for pattern in patterns:
-        for path in glob.glob(pattern):
-            if path not in seen:
-                seen.add(path)
-                matches.append(path)
-    return matches
+    pattern = join(site_dir(project_dir, unit, site), f"{usy}*saved_annotations*.geojson")
+    return glob.glob(pattern)
 
 
 def study_area_shapefile(project_dir: str, unit: str, site: str) -> str:
@@ -112,17 +96,5 @@ def altitude_histogram_plot(project_dir: str, unit: str, site: str, year) -> str
 
 
 def all_annotation_files(project_dir: str) -> List[str]:
-    """Find annotation geojson files under site folders or ground_truthing_annotations/."""
-    root = data_root(project_dir)
-    patterns = [
-        join(project_dir, "*", "*saved_annotations*.geojson"),
-        join(root, "ground_truthing_annotations", "*", "*saved_annotations*.geojson"),
-    ]
-    seen = set()
-    matches = []
-    for pattern in patterns:
-        for path in glob.glob(pattern):
-            if path not in seen:
-                seen.add(path)
-                matches.append(path)
-    return matches
+    """Find annotation geojson files under each site directory in ``project_dir``."""
+    return glob.glob(join(project_dir, "*", "*saved_annotations*.geojson"))
