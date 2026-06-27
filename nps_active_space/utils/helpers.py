@@ -615,3 +615,63 @@ def plot_activespace_fit(project_dir, unit, site, year, gain, altitude_m=None,
         )
     
     mic.plot(ax=ax, color="black", markersize=15, marker='o', zorder=10)
+
+
+def make(path):
+    """
+    Safely create a folder
+    """
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+
+def make_NMSIM_site_dir(projectDir):
+	"""
+	Create a canonical NMSIM project directory.
+	Inputs
+	------
+	projectDir (str): a path location where an NMSIM project directory will be created
+	"""
+	# a list of all the subfolders for a project
+	subfolders = [r"Input_Data", r"Input_Data\01_ELEVATION", r"Input_Data\02_IMPEDANCE", r"Input_Data\03_TRAJECTORY",
+	            r"Input_Data\04_LAYERS", r"Input_Data\05_SITES", r"Input_Data\06_AMBIENCE", r"Input_Data\07_WEATHER",
+	            r"Input_Data\08_TREES", r"Output_Data", r"Output_Data\ASCII", r"Output_Data\IMAGES", r"Output_Data\SITE", 
+	            r"Output_Data\TIG_TIS"]
+	# make all the subfolders
+	for folderExt in subfolders:
+        
+	    make(projectDir + os.sep + folderExt)
+
+
+def create_NMSIM_site_file(project_dir, unit, site, year, long_utm, lat_utm, height):
+
+    '''
+    Create an NMSIM site file for a given NPS monitoring deployment.
+    
+    Inputs
+    ------
+    
+    project_dir (str): a canonical NMSIM project directory
+    unit (str): 4-character NPS Alpha Code, e.g. "BITH", "YUCH"
+    site (str): alpha-numeric acoustic monitoring site code, e.g., "002", "TRLA"
+    long_utm (float): longitude in meters for the NMSIM project's UTM zone
+    lat_utm (float): latitude in meters for the NMSIM project's UTM zone
+    height (float): microphone height in meters
+    
+    Returns
+    -------
+    None
+    
+    '''
+    
+    # the full path to the eventual NMSIM site file
+    out_path = project_dir + os.sep + r"Input_Data\05_SITES" + os.sep + unit + site + str(year) + ".sit"
+    
+    # open a file and write to it
+    with open(out_path, 'w') as site_file:
+
+        site_file.write("    0\n")
+        site_file.write("    1\n")
+        site_file.write("{0:19.0f}.{1:9.0f}.{2:10.5f} {3:20}\n".format(long_utm, lat_utm, height, unit+site))
+        site_file.write(glob.glob(project_dir + os.sep + r"Input_Data\01_ELEVATION\*.flt")[0]+"\n")
+

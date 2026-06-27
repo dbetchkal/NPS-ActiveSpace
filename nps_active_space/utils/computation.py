@@ -89,7 +89,7 @@ def coords_to_utm(lat: float, lon: float) -> str:
 
     # 269 = northern hemisphere, 327 = southern hemisphere
     utm_proj = 'epsg:269{:02d}'.format(utm_zone) if lat > 0 else 'epsg:327{:02d}'.format(utm_zone)
-    return utm_proj
+    return utm_proj, utm_zone
 
 
 def climb_angle(v: Iterable) -> np.ndarray:
