@@ -1,0 +1,29 @@
+# version 2.3
+# update 2018 01 12: adds endpoint for cardinal photographs
+# update 2018 03 28: adds flexibility for GLBA data
+ 
+dataDir: (?P<year>\d{4}) (?P<unit>\w{4})(?P<site>[a-zA-Z0-9]{3,6}) (?P<name>.*)
+    01 DATA
+        AUDIO
+            audio: (?P<unit>\w{4})(?P<site>[a-zA-Z0-9]{3,6})_(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})_(?P<hour>\d{2})(?P<min>\d{2})(?P<sec>\d{2})\..*
+        Metadata
+        NVSPL
+            nvspl: NVSPL_(?P<unit>\w{4})(?P<site>[a-zA-Z0-9]{3,6})_(?P<year>\d{4})_(?P<month>\d{2})_(?P<day>\d{2})_(?P<hour>\d{2})\.txt
+        PNG
+            png: (?P<unit>\w{4})(?P<site>[a-zA-Z0-9]{3,6})_(?P<year>\d{4})_(?P<month>\d{2})_(?P<day>\d{2})_HD\.png
+        SPL
+        PHOTOS
+            cardinal: CardinalPhotoComposite_(?P<unit>\w{4})(?P<site>[a-zA-Z0-9]{3,6})_(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})\..*
+        iButtons
+            iButton: (?P<site>[a-zA-Z0-9]{3,6})_iButton_Site(?P<button>\d{2})_Data_(?P<year>\d{4})_(?P<month>\d{2})_(?P<day>\d{2}).csv
+    02 ANALYSIS
+        SPL Analysis
+            srcid: SRCID_(?P<unit>\w{4})(?P<site>[a-zA-Z0-9]{3,6})\.txt
+            metrics: METRICS_(?P<unit>\w{4})(?P<site>[a-zA-Z0-9]{3,6})\.txt
+            dailypa: DAILYPA_(?P<unit>\w{4})(?P<site>[a-zA-Z0-9]{3,6})\.txt
+            loudevents: LOUDEVENTS_(?P<unit>\w{4})(?P<site>[a-zA-Z0-9]{3,6})\.txt
+        wav: WAV Analysis
+            microarray: Microarray
+                microarrayFiles: (?P<filename>.+)\.(?P<ext>.+)
+            dayAudibility: (?P<unit>\w{4})(?P<site>[a-zA-Z0-9]{3,6})_DayAudibilityEntry_(?P<year>\d{4})_(?P<month>\d{1,2})_(?P<day>\d{1,2})-(?P<listen_year>\d{4})(?P<listen_month>\d{2})_(?P<listen_day>\d{2})\.xls
+            audibility: LA_(?P<unit>\w{4})(?P<site>[a-zA-Z0-9]{3,6})_(?P<year>\d{4})_(?P<month>\d{2})_(?P<day>\d{2})_(?P<listener>\w+)\.txt

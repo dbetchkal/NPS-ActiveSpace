@@ -21,7 +21,7 @@ filelock==3.18.0
 fiona==1.10.1
 fonttools==4.58.5
 future==1.0.0
-GDAL @ https://github.com/cgohlke/geospatial-wheels/releases/download/v2025.7.4/gdal-3.11.1-cp313-cp313-win_amd64.whl#sha256=a233e533689df3388ca990f11306dc9e68bf080c34b7460dc4b954500528187e
+GDAL @ https://github.com/cgohlke/geospatial-wheels/releases/download/v2025.7.4/gdal-3.11.1-cp312-cp312-win_amd64.whl#sha256=e328c144311ae5dda09805a9fd77517ed5568177a993e23aa84af05b37e140bc
 geographiclib==2.0
 geopandas==1.1.1
 geopy==2.4.1
