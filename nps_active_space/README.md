@@ -9,14 +9,14 @@ cd NPS-ActiveSpace
 
 ### Set Up a Virtual Environment.
 
-Install Python, either via Anaconda/Miniconda, or directly. The repository has been tested with Python version 3.13.5.
+Install Python, either via Anaconda/Miniconda, or directly. The repository has been tested with Python version 3.12.
 
 You can use a Conda environment if you want, but all installation is managed by pip.
 
 With Conda:
 
 ```
-conda create --name active python=3.13.5
+conda create --name active python=3.12.12
 conda activate active
 ```
 
@@ -44,7 +44,7 @@ pip install -r requirements.txt
 ```
 
 Historical note:
-The GDAL dependency comes from a `.whl` file published [here](https://github.com/cgohlke/geospatial-wheels/releases). If the Python version is updated, the GDAL wheel URL in `requirements.txt` may need to be changed to reflect the updated version. For example, `gdal-3.11.1-cp313-cp313-win_amd64.whl` is GDAL version 3.11.1 for Python 3.13.
+The GDAL dependency comes from a `.whl` file published [here](https://github.com/cgohlke/geospatial-wheels/releases). If the Python version is updated, the GDAL wheel URL in `requirements.txt` may need to be changed to reflect the updated version. For example, `gdal-3.11.1-cp312-cp312-win_amd64.whl` is GDAL version 3.11.1 for Python 3.12.
 
 ### Install NPS-ActiveSpace
 
