@@ -625,12 +625,12 @@ def make(path):
         os.makedirs(path)
 
 
-def make_NMSIM_site_dir(projectDir):
+def make_NMSIM_site_dir(siteDir):
 	"""
-	Create a canonical NMSIM project directory.
+	Create a canonical NMSIM site directory.
 	Inputs
 	------
-	projectDir (str): a path location where an NMSIM project directory will be created
+	siteDir (str): a path location where an NMSIM site directory will be created
 	"""
 	# a list of all the subfolders for a project
 	subfolders = [r"Input_Data", r"Input_Data\01_ELEVATION", r"Input_Data\02_IMPEDANCE", r"Input_Data\03_TRAJECTORY",
@@ -640,7 +640,7 @@ def make_NMSIM_site_dir(projectDir):
 	# make all the subfolders
 	for folderExt in subfolders:
         
-	    make(projectDir + os.sep + folderExt)
+	    make(siteDir + os.sep + folderExt)
 
 
 def create_NMSIM_site_file(project_dir, unit, site, year, long_utm, lat_utm, height):
@@ -675,3 +675,4 @@ def create_NMSIM_site_file(project_dir, unit, site, year, long_utm, lat_utm, hei
         site_file.write("{0:19.0f}.{1:9.0f}.{2:10.5f} {3:20}\n".format(long_utm, lat_utm, height, unit+site))
         site_file.write(glob.glob(project_dir + os.sep + r"Input_Data\01_ELEVATION\*.flt")[0]+"\n")
 
+    print(f"NMSIM site file, .sit, has been written to {out_path}.")

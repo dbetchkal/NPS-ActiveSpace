@@ -61,7 +61,9 @@ def NMSIM_bbox_utm(study_area: gpd.GeoDataFrame) -> str:
     lat = study_area_bbox[3]  # maxy
     lon = study_area_bbox[0]  # minx
 
-    return coords_to_utm(lat, lon)
+    utm_proj,_ = coords_to_utm(lat, lon)
+
+    return utm_proj
 
 
 def coords_to_utm(lat: float, lon: float) -> str:
@@ -306,7 +308,7 @@ def create_overlapping_mesh(area: gpd.GeoDataFrame, spacing: int = 1,
     An overlapping mesh of squares that cover the requested area.
     A GeoDataFrame of the center points used to create the mesh squares.
     """
-    equal_area_crs = coords_to_utm(area.centroid.iat[0].y, area.centroid.iat[0].x)
+    equal_area_crs,_ = coords_to_utm(area.centroid.iat[0].y, area.centroid.iat[0].x)
     area_m = area.to_crs(equal_area_crs)
 
     minx, miny, maxx, maxy = area_m.total_bounds
