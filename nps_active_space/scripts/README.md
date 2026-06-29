@@ -35,6 +35,7 @@ These are the steps for the **primary use case**: synthesizing a 3D active space
 ```mermaid
 graph LR
 
+project_setup.py --> run_ground_truthing.py
 run_ground_truthing.py --> generate_3d_active_space.py
 plot_altitudes.py --> generate_3d_active_space.py
 generate_3d_active_space.py --> run_audible_transits.py
@@ -68,6 +69,7 @@ Make sure the data you want to visualize exist beforehand. The script won't look
 ```mermaid
 graph LR
 
+project_setup.py --> run_ground_truthing.py
 run_ground_truthing.py --> generate_active_space.py
 generate_active_space.py --> fit_3d_active_space.py
 fit_3d_active_space.py --> fits.csv
@@ -82,6 +84,7 @@ Alternative: 2D audible transits supports more precise track clipping. If you wa
 ```mermaid
 graph LR
 
+project_setup.py --> run_ground_truthing.py
 run_ground_truthing.py --> generate_active_space.py
 generate_active_space.py --> run_audible_transits.py
 run_audible_transits.py --> get_geographic_metrics.py
@@ -110,6 +113,7 @@ graph LR
 
    %% Groups
    subgraph Per_Deployment
+      project_setup.py[(project_setup.py)]
       run_ground_truthing.py[(run_ground_truthing.py)]
       plot_altitudes.py[(plot_altitudes.py)]
       generate_3d_active_space.py[(generate_3d_active_space.py)]
@@ -126,6 +130,7 @@ graph LR
       generate_active_space_batch.py[(generate_active_space_batch.py)]
    end
 
+project_setup.py --> run_ground_truthing.py
 run_ground_truthing.py --> generate_3d_active_space.py
 plot_altitudes.py --> generate_3d_active_space.py
 generate_3d_active_space.py --> Command_File
@@ -152,6 +157,7 @@ graph LR
 
    %% Groups
    subgraph Per_Deployment
+      project_setup.py[(project_setup.py)]
       run_ground_truthing.py[(run_ground_truthing.py)]
       fit_3d_active_space.py[(fit_3d_active_space.py)]
       fits.csv[(fits.csv)]
@@ -166,6 +172,7 @@ graph LR
       generate_active_space_batch.py[(generate_active_space_batch.py)]
    end
 
+project_setup.py --> run_ground_truthing.py
 run_ground_truthing.py --> Command_File
 Command_File --> Combined_Command_File
 Combined_Command_File --> generate_active_space_batch.py
