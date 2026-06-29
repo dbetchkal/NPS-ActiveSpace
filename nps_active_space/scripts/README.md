@@ -4,6 +4,7 @@ The `nps_active_space` [toolkit architecture](https://github.com/dbetchkal/NPS-A
 
 This directory contains the scripts along with instruction for their use via a command line interface. See [below](#use-cases) for the most common use cases, and [further below](#script-usage) for detailed documentation of each script.
 
+- [project_setup.py](#project-setup)
 - [run_ground_truthing.py](#run-ground-truthing)
 - [plot_altitudes.py](#plot-altitudes)
 - [generate_3d_active_space.py](#generate-3d-active-space)
@@ -177,6 +178,27 @@ check_study_duration_robustness.py
 ```
 
 # Script Usage
+
+
+### Project Setup
+
+This script initializes an `NPS-ActiveSpace` project, including a standard directory. Fundemental geospatial files are created as well.
+
+| command-line arg        | description                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `-u`, `--unit`          | **required.**<br/>The 4 letter NPS unit code. _Ex_: Glacier Bay = GLBA                                                                                |
+| `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Willoughby Island SE = WILL                                                                                 |
+| `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2025                                                                                          |
+| `--mic-coord` | **required.**<br/>The x,y coordinates of the listening location / microphone (in WGS84). _Ex_: -136.088360 58.569310 |
+| `--studyarea-sw` | **required.**<br/>The x,y coordinates of the study area's southwest (lower left) corner (in WGS84). _Ex_: -136.088360 58.569310 |
+| `--studyarea-ne` | **required.**<br/>The x,y coordinates of the study area's northeast (upper right) corner (in WGS84). _Ex_: -135.818994 58.706095 |
+
+Example executions:
+
+```bash
+$ python -u -W ignore nps_active_space/scripts/project_setup.py -e production -u DENA -s CNTW -y 2021 --mic-coord -148.98987 63.39493 --studyarea-sw  -149.060585 63.345825 --studyarea-ne  -148.770107 63.462577
+```
 
 ### Run Ground Truthing
 
