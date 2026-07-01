@@ -236,7 +236,7 @@ class AudibleTransits:
 
     def update_track_parameters(self, tracks='self'):
         '''
-        Updates physical paramters of each track. 
+        Updates physical parameters of each track.
         Includes the following:
                                 - entry_time and exit_time: datetimes at the beginning and end of a track
                                 - entry_position and exit_position: Shapely Points at the beginning and end of a track
@@ -2383,7 +2383,7 @@ class AudibleTransitsADSB(AudibleTransits):
         print("Sinuosity>=1.1 takeoffs/landings: ", sinu)
         print("Slow speeds takeoffs/landings: ", slow)
 
-        # Add/update columns related to takeoff/landing paramters and booleans
+        # Add/update columns related to takeoff/landing parameters and booleans
         tracks['takeoff'] = takeoffs
         tracks['landing'] = landings
         tracks['needs_extrapolation'] = updated_needs_extrapolation
