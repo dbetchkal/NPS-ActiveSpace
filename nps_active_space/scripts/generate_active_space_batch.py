@@ -266,7 +266,8 @@ if __name__ == "__main__":
             continue
 
         # assemble and run the command
-        cmd = Rf"python -u -W ignore '{ACTIVE_SPACE_DIR}\scripts\generate_active_space.py' {options}"
+        script_path = os.path.join(ACTIVE_SPACE_DIR, "scripts", "generate_active_space.py")
+        cmd = f"python -u -W ignore '{script_path}' {options}"
         result_series = run_deployment(designator, cmd)
         # if it ran with no errors, save the results
         if result_series is not None:
