@@ -193,7 +193,7 @@ class ActiveSpaceGenerator:
         gdal.Translate(flt_filename, dem_file, options="-ot Float32 -of ehdr -a_nodata -9999")
 
         # the header file doesn't write correctly... manually overwrite this:
-        old_hdr = pd.read_csv(flt_header_filename, header=None, delim_whitespace=True, index_col=0).T
+        old_hdr = pd.read_csv(flt_header_filename, header=None, sep=r'\s+', index_col=0).T
 
         # compute new lower left corner y-val
         yllcorner = float(old_hdr.ULYMAP) - float(old_hdr.NROWS) * float(old_hdr.XDIM)

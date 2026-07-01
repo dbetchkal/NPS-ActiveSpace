@@ -1423,7 +1423,7 @@ def create_NMSIM_flt(src, dst=None,
 
     # the header file doesn't write correctly... manually overwrite this:
     hdr = os.path.splitext(src)[0] + '.hdr'  # removes the .tif file extension and appends '.hdr'
-    old_hdr = pd.read_csv(hdr, header=None, delim_whitespace=True, index_col=0).T
+    old_hdr = pd.read_csv(hdr, header=None, sep=r'\s+', index_col=0).T
 
     # compute new lower left corner y-val
     yllcorner = float(old_hdr.ULYMAP) - float(old_hdr.NROWS) * float(old_hdr.XDIM)
