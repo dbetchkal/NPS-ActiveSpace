@@ -1,0 +1,62 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in the details below
+        so we can reproduce and fix the issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear summary of the bug.
+      placeholder: What happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can we trigger this bug?
+      placeholder: |
+        1. Load a DEM raster with ...
+        2. Call `active_space.compute(...)` with ...
+        3. See error ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        Please share your setup so we can try to reproduce the issue.
+      placeholder: |
+        - OS: e.g. Windows 11, macOS 14, Ubuntu 22.04
+        - Python version: e.g. 3.12
+        - GDAL version: e.g. 3.8.4
+        - NPS-ActiveSpace version or commit: e.g. v0.1.0 / abc1234
+        - Relevant park/site data (if applicable)
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Output / Logs
+      description: Paste any traceback or log output here.
+      render: shell
+    validations:
+      required: false
