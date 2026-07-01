@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import geopandas as gpd
 import numpy as np
 import sqlalchemy
+from sqlalchemy import text
 from sqlalchemy.engine import URL
 from tqdm import tqdm
 import re
@@ -313,7 +314,9 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
     data : gpd.GeoDataFrame
         A GeoDataFrame of flight track points.
     """
-    wheres = [f"fp.ak_datetime::date BETWEEN '{start_date}' AND '{end_date}'"]  # start and end date are inclusive
+    # Use bound parameters for date values to prevent SQL injection
+    wheres = ["fp.ak_datetime::date BETWEEN :start_date AND :end_date"]
+    params = {"start_date": start_date, "end_date": end_date}
 
     if mask is not None:
         if mask.crs.to_epsg() != 4326:  # If mask is not already in WGS84, project it.
@@ -322,21 +325,23 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
             ak_albers_mask = mask.to_crs(epsg=3338)
             mask.geometry = ak_albers_mask.buffer(
                 mask_buffer_distance).to_crs(epsg=4326)
+        # Spatial filter uses internally-generated WKT from the mask geometry,
+        # not external user input, so literal interpolation is acceptable here.
         wheres.append(
             f"ST_Intersects(geom, ST_GeomFromText('{mask.union_all().wkt}', 4326))")
 
-    query = f"""
+    query = text(f"""
         SELECT
             f.flight_id as flight_id,
             fp.altitude_ft * 0.3048 as altitude_m,
             fp.ak_datetime,
-            fp.geom, 
+            fp.geom,
             date_trunc('hour', fp.ak_datetime) as ak_hourtime
         FROM flight_points as fp
         JOIN flights f ON f.id = fp.flight_id
         WHERE {' AND '.join(wheres)}
         ORDER BY fp.ak_datetime asc
-        """
+        """).bindparams(**params)
 
     flight_tracks = gpd.GeoDataFrame.from_postgis(
         query, engine, geom_col='geom', crs='epsg:4326')
