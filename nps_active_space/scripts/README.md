@@ -23,7 +23,7 @@ This directory contains the scripts along with instruction for their use via a c
 These are the steps for the **primary use case**: synthesizing a 3D active space $\rightarrow$ using it to predict acoustic metrics geographically.
 
 1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#installation).
-2. Use `run_ground_truthing.py` to annotate audible track segments. This GUI-based tool establishes a spatio-temporal $\text{JOIN}$ of vechicle positions (cause) and acoustic records (effect).
+2. Use `run_ground_truthing.py` to annotate audible track segments. This GUI-based tool establishes a spatio-temporal $\text{JOIN}$ of vehicle positions (cause) and acoustic records (effect).
 3. Use `plot_altitudes.py` to scope the altitudes spanned by aircraft traffic traversing the study area.
 4. Use `generate_3d_active_space.py` to create a batch commands file based on the altitude range, generate active space layers, and fit the optimal gain. The fit results will be stored in `fits.csv` in the project directory.
 5. Use `run_audible_transits.py` to predict audible transits based on the active space.
@@ -89,7 +89,7 @@ check_study_duration_robustness.py
 
 ## Batch Generation
 
-If you want to generate many active spaces at the same time, you can leverate the batch script to do so. This is useful for running it overnight or while you do other work.
+If you want to generate many active spaces at the same time, you can leverage the batch script to do so. This is useful for running it overnight or while you do other work.
 
 ### Batch 3D Active Space
 

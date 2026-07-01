@@ -188,7 +188,7 @@ for _id, start, end in temporal_boundaries:
             tracks = tracks[tracks["id"] != _id]
 
         else:
-            print("\tUnknown error has occured, proceeding with other data...")
+            print("\tUnknown error has occurred, proceeding with other data...")
 
         continue  # skip the rest of this track
 
