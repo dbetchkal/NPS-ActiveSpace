@@ -520,7 +520,7 @@ def contiguous_regions(condition):
     
     """
 
-    # Find the indicies of changes in "condition"
+    # Find the indices of changes in "condition"
     d = np.diff(condition)
     idx, = d.nonzero() 
 

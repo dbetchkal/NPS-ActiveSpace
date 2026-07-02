@@ -428,7 +428,7 @@ def get_all_geo_stats(tracks, periods, months=list(range(1,13)), quantiles=.5):
         A dictionary where keys are metric names, and values are pd.Series representing the data.
     """
 
-    # Input validation. Both 'quantiles' and 'months' paramters must be converted to lists
+    # Input validation. Both 'quantiles' and 'months' parameters must be converted to lists
     quantiles = [quantiles] if type(quantiles)!=type([]) else quantiles
     months = [months] if type(months)!=type([]) else months
 
@@ -598,7 +598,7 @@ def get_all_srcid_stats(src_data, periods, months=list(range(1,13)), quantiles=.
         A dictionary where keys are metric names, and values are pd.Series representing the data.
     """
 
-    # Input validation. Both 'quantiles' and 'months' paramters must be converted to lists
+    # Input validation. Both 'quantiles' and 'months' parameters must be converted to lists
     quantiles = [quantiles] if type(quantiles)!=type([]) else quantiles
     months = [months] if type(months)!=type([]) else months
 

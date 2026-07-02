@@ -2400,7 +2400,7 @@ class AudibleTransitsADSB(AudibleTransits):
         logger.debug(f"Sinuosity>=1.1 takeoffs/landings: {sinu}")
         logger.debug(f"Slow speeds takeoffs/landings: {slow}")
 
-        # Add/update columns related to takeoff/landing paramters and booleans
+        # Add/update columns related to takeoff/landing parameters and booleans
         tracks['takeoff'] = takeoffs
         tracks['landing'] = landings
         tracks['needs_extrapolation'] = updated_needs_extrapolation

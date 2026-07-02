@@ -482,7 +482,7 @@ def contiguous_regions(condition):
 
     """
 
-    # Find the indicies of changes in "condition"
+    # Find the indices of changes in "condition"
     d = np.diff(condition)
     idx, = d.nonzero() 
 
@@ -535,7 +535,7 @@ def audibility_to_interval(aud, invert=False):
     if invert == True:
         aud = np.invert(aud) # invert detection mappings
     
-    # compute naiive intervals
+    # compute naive intervals
     noise_intervals = contiguous_regions(aud == True)
     noise_free_intervals_naiive = contiguous_regions(aud == False)
     
@@ -860,9 +860,9 @@ def atmospheric_absorption(frequency, atm_pressure, air_temp_celsius=25., percen
     atm_pressure: float
         The atmospheric pressure, in kPa
     air_temp_celsius: float
-        The air temperature, in degrees Celsius. Defautl 25
+        The air temperature, in degrees Celsius. Default 25
     percent_relative_humidity: float
-        The relative humidty. Should be between 0 and 100, inclusive. Default 75
+        The relative humidity. Should be between 0 and 100, inclusive. Default 75
 
     Returns
     -------
