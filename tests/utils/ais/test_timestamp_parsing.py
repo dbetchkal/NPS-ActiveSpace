@@ -97,7 +97,7 @@ class TestParseMxakAisTimestamps:
             ]
         )
         out = parse_mxak_ais_timestamps(time)
-        assert_series_equal(out, expected, check_dtype=False)
+        assert_series_equal(out, expected)
 
     def test_mixed_akst_akdt_march_dst_fallback(self):
         """March spring-forward day: mixed AKDT/AKST rows trigger DST fallback."""
@@ -115,7 +115,7 @@ class TestParseMxakAisTimestamps:
             ]
         )
         out = parse_mxak_ais_timestamps(time)
-        assert_series_equal(out, expected, check_dtype=False)
+        assert_series_equal(out, expected)
 
     def test_unrecognized_format_raises_value_error(self):
         time = pd.Series(["not-a-timestamp"])
