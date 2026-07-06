@@ -70,33 +70,52 @@ python -m venv .venv
 source .venv\Scripts\activate.bat
 ```
 
-### Step 3: Install Dependencies
+### Step 3: Install NPS-ActiveSpace
 
-Make sure you are inside your virtual environment, then:
+Make sure you are inside your virtual environment, then upgrade pip and install from `pyproject.toml`:
+
+**From a local clone (editable, recommended for development):**
 
 ```
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -e ".[dev]"
 ```
 
-Historical note:
-The GDAL dependency comes from a `.whl` file published [here](https://github.com/cgohlke/geospatial-wheels/releases). If the Python version is updated, the GDAL wheel URL in `requirements.txt` may need to be changed to reflect the updated version. For example, `gdal-3.11.1-cp312-cp312-win_amd64.whl` is GDAL version 3.11.1 for Python 3.12.
+The `[dev]` extra adds `pytest` for running the test suite. Omit it for deployment-only installs: `pip install -e .`
 
-### Step 4: Install NPS-ActiveSpace
-
-From the repository's root directory, inside the virtual environment:
+**Directly from GitHub (no clone):**
 
 ```
+python -m pip install --upgrade pip
+pip install "NPS-ActiveSpace @ git+https://github.com/dbetchkal/NPS-ActiveSpace.git"
+```
+
+Add `[dev]` for tests: `pip install "NPS-ActiveSpace[dev] @ git+https://github.com/dbetchkal/NPS-ActiveSpace.git"`
+
+**Platform notes**
+
+| Platform | GDAL |
+|----------|------|
+| **Windows** | Installed automatically from the CGohlke wheel declared in `pyproject.toml` (Python 3.12, win_amd64). |
+| **Linux / macOS** | Install system GDAL first, match the Python binding, then install the package: |
+
+```bash
+# Linux example (CI uses the same pattern)
+sudo apt-get install gdal-bin libgdal-dev
+GDAL_VERSION=$(gdal-config --version)
+pip install "GDAL==${GDAL_VERSION}"
 pip install -e .
 ```
 
-Try importing a python module to make sure this install worked, e.g. in a python file:
+If the Python version changes, update the GDAL wheel URL in `pyproject.toml` to a matching build from [cgohlke/geospatial-wheels](https://github.com/cgohlke/geospatial-wheels/releases) (e.g. `gdal-3.11.1-cp312-cp312-win_amd64.whl` for Python 3.12).
+
+Try importing a module to confirm the install:
 
 ```
 from nps_active_space.active_space import ActiveSpaceGenerator
 ```
 
-### Step 5: Create Config File
+### Step 4: Create Config File
 
 All scripts require a configuration file saved in the config directory `nps_active_space/config`. Please copy the template config file, fill in the values required for the script(s) you will be running, and save it to the config directory as `<environment name>.config`. For example, a configuration file for Denali National Park and Preserve might be named `DENA.config` while a configuration file for Hawaii Volcanoes National Park might be named `HAVO.config` and have a different value for where the DEM file is stored than `DENA.config`
 

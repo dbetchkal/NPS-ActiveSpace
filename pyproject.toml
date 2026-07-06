@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=61.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,9 @@ name = "NPS-ActiveSpace"
 version = "2.0"
 description = "An NPS Sound Active Space Project."
 requires-python = ">=3.12"
+readme = "README.md"
+license = "CC0-1.0"
+license-files = ["LICENSE.md"]
 authors = [
     {name="Kirby Heck"},
     {name="Adina Zucker"},
@@ -16,8 +19,46 @@ maintainers = [
     {name="Davyd Betchkal", email="davyd_betchkal@nps.gov"}
 ]
 
+dependencies = [
+    "geopandas>=1.1.1",
+    "geopy>=2.4.1",
+    "iyore @ git+https://github.com/nationalparkservice/iyore.git@b3b1e3fd025a392bf63bf6c4a8a4eebb887291ec",
+    "KDEpy>=1.1.12",
+    "matplotlib>=3.10.3",
+    "numpy>=2.3.1",
+    "pandas>=2.2,<3",
+    "pillow>=11.3.0",
+    "pyproj>=3.7.1",
+    "pyvista>=0.46.3",
+    "rasterio>=1.4.3",
+    "scipy>=1.16.0",
+    "shapely>=2.1.1",
+    "SQLAlchemy>=2.0.41",
+    "timezonefinder>=8.2.4",
+    "tqdm>=4.67.1",
+    "fiona>=1.10.1",
+    "psycopg2>=2.9.10 ; sys_platform == 'win32'",
+    "psycopg2-binary>=2.9.10 ; sys_platform != 'win32'",
+    "GDAL @ https://github.com/cgohlke/geospatial-wheels/releases/download/v2025.7.4/gdal-3.11.1-cp312-cp312-win_amd64.whl ; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
 [project.urls]
 repository = "https://github.com/dbetchkal/NPS-ActiveSpace"
 
-[tool.setuptools]
-py-modules = ['nps_active_space']
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nps_active_space*"]
+exclude = ["src*", "legacy_code*", "tests*", "example_data*"]
+
+[tool.setuptools.package-data]
+nps_active_space = [
+    "config/template.config",
+    "config/*_example.config",
+    "data/**/*",
+    "img/*",
+]
