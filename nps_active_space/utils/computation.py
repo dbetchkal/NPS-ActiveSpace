@@ -154,7 +154,8 @@ def interpolate_spline(points: 'Tracks', ds: int = 1, s: float = None) -> gpd.Ge
     try:
         tck, u = interpolate.splprep(x=coords, u=elapsed_seconds, k=k, s=s)
     except ValueError as exc:
-        if "invalid" in str(exc).lower():
+        msg = str(exc).lower()
+        if "invalid" in msg or "error on input data" in msg:
             raise ValueError(
                 "Spline interpolation failed for this track: duplicate or "
                 "non-increasing point_dt values. Each track point needs a "

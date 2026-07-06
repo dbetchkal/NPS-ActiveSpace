@@ -19,8 +19,15 @@ from nps_active_space.utils.models import Nvspl
 from nps_active_space.utils.time_utils import site_timezone_name, utc_naive_to_site_naive
 
 REPO = Path(__file__).resolve().parents[3]
-AIS_MAY24 = REPO / "example_data" / "AIS" / "MXAK-AIS-GLBA-20240524.csv"
-NVSPL_DIR = REPO / "example_data" / "NVSPL" / "GLBALSTL_2024"
+AIS_MAY24 = REPO / "example_data" / "MXAK-AIS-GLBA" / "MXAK-AIS-GLBA-20240524.csv"
+NVSPL_DIR = (
+    REPO
+    / "example_data"
+    / "nvspl_archive"
+    / "2024 GLBALSTL Lower South Tidal Inlet"
+    / "01 DATA"
+    / "NVSPL"
+)
 SHIP_VISITS = REPO / "example_data" / "GLBALSTL_ship_visits.csv"
 
 GLBALSTL_LAT, GLBALSTL_LON = 58.78, -136.32
