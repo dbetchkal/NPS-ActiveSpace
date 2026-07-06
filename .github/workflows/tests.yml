@@ -34,9 +34,9 @@ jobs:
           GDAL_VERSION=$(gdal-config --version)
           pip install "GDAL==${GDAL_VERSION}"
 
-          pip install numpy scipy pandas geopandas shapely pyproj rasterio fiona
+          pip install "numpy" "scipy" "pandas>=2.2,<3" geopandas shapely pyproj rasterio fiona
           pip install matplotlib KDEpy timezonefinder tqdm
-          pip install sqlalchemy beautifulsoup4 requests geopy pyvista
+          pip install sqlalchemy psycopg2-binary beautifulsoup4 requests geopy pyvista
           pip install "iyore @ git+https://github.com/nationalparkservice/iyore.git"
           pip install pytest
 
