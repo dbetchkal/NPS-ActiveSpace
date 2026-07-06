@@ -69,8 +69,8 @@ class ActiveSpaceGenerator:
         assert os.path.exists(NMSIM), "NMSIM not found"
         assert os.path.exists(dem_src), "DEM not found"
         assert os.path.exists(root_dir), "Root directory not found"
-        assert (type(ambience) == float) or isinstance(ambience, pd.Series), "Improper ambience input"
-        if type(ambience) == float:
+        assert isinstance(ambience, (float, int)) or isinstance(ambience, pd.Series), "Improper ambience input"
+        if isinstance(ambience, (float, int)):
             warn("Using broadband ambience. This feature has not been maintained and has possible buggy, incorrect, "
                  "or unexpected behavior. Only use if you know what you are doing.", UserWarning)
 
@@ -423,7 +423,7 @@ class ActiveSpaceGenerator:
             depending on the point's audibility.
         """
         # Check to see if any of the frequency bands are louder than the ambient levels.
-        if type(self.ambience) == float:
+        if isinstance(self.ambience, (float, int)):
             # broadband ambience
             audible = nmsim_df.loc[:, "A"] > self.ambience
         else:

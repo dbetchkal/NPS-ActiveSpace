@@ -214,14 +214,14 @@ class AudibleTransits(ABC):
                     corrections_file = cfg.read("project", "FAA_type_corrections")
                     print("Using FAA corrections path from config file")
                     self.paths["aircraft corrections"] = corrections_file
-                except:
+                except KeyError:
                     pass
             if not "ADSB" in self.paths and metadata["database type"] == "ADSB":
                 try:
                     adsb_dir = cfg.read("data", "adsb")
                     print("Using ADSB path from config file")
                     self.paths["ADSB"] = adsb_dir
-                except:
+                except KeyError:
                     pass
         
         if metadata["database type"] == "ADSB":

@@ -237,7 +237,7 @@ def cleanup(site_dir, max_tries=5):
             os.remove(file)
         for file in glob.glob(f"{site_dir}/Output_Data/TIG_TIS/*.tis"):
             os.remove(file)
-    except:
+    except OSError:
         if max_tries > 0:
             time.sleep(1)
             cleanup(site_dir, max_tries-1)
