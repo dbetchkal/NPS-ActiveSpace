@@ -7,9 +7,6 @@ from shapely.geometry import Point
 import os
 from scipy.signal import correlate
 from scipy.ndimage import sobel
-import pandas as pd
-import numpy as np
-from shapely.geometry import Point
 
 from nps_active_space.utils.enums import TrackSource
 from nps_active_space.utils.models import FAAReleasable, Nvspl, Tracks

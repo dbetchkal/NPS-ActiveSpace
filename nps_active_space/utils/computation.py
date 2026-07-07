@@ -566,7 +566,6 @@ def audibility_to_interval(aud, invert=False):
         # ...the last noise free interval stays the same, and equals zero
         # the rest are - 1
         save = nfi_ends[-1]
-        print(save)
         nfi_ends = nfi_ends - 1
         nfi_ends[-1] = save
 
