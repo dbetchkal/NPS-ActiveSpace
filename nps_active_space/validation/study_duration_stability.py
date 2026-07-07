@@ -1,3 +1,4 @@
+import logging
 import geopandas as gpd
 from tqdm import tqdm
 import pandas as pd
@@ -9,6 +10,8 @@ import os
 from shapely.geometry import Point
 from nps_active_space.utils.helpers import load_annotations, load_studyarea, load_layered_activespace
 from nps_active_space.utils.computation import normalize_point_density, NMSIM_bbox_utm
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "get_csv_name",
@@ -44,11 +47,11 @@ def fit_varying_n_tracks(project_dir, unit, site, year):
         Year as a string. E.g. "2025".
     """
     deployment = f"{unit}{site}{year}"
-    print(deployment)
+    logger.info(f"Processing deployment: {deployment}")
 
     savefile = get_csv_name(project_dir, unit+site+year)
     if os.path.exists(savefile):
-        print(f"Skipping, found existing results in {savefile}")
+        logger.info(f"Skipping, found existing results in {savefile}")
         return
 
     study_area = load_studyarea(project_dir, unit, site, year)
@@ -73,7 +76,7 @@ def fit_varying_n_tracks(project_dir, unit, site, year):
     areas = {}
     layers = list(model.layer_dirs.keys())
     mid_layer = layers[len(layers) // 2]
-    print(f"Using {mid_layer}m for areas")
+    logger.info(f"Using {mid_layer}m for areas")
     for gain in tqdm(model.all_activespaces, desc="Computing areas"):
         active = model.all_activespaces[gain][mid_layer]
         active_equal_area = active.to_crs("epsg:3338")  # albers AK equal area
@@ -148,11 +151,11 @@ def fit_varying_n_tracks(project_dir, unit, site, year):
     
     # Convert results to proper dataframe and save
     results = pd.DataFrame(result_rows)
-    print(results)
+    logger.info(f"Results:\n{results}")
 
     os.makedirs(os.path.dirname(savefile), exist_ok=True)
     results.to_csv(savefile, index=False)
-    print(f"Saved to {savefile}")
+    logger.info(f"Saved to {savefile}")
 
 
 
@@ -238,4 +241,4 @@ def plot_stability(project_dir, deployments, col="area", top_k=10, max_n_tracks=
     else:
         filename = os.path.join(project_dir, f"{col}_stability.png")
     plt.savefig(filename)
-    print(f"Saved plot to {filename}")
+    logger.info(f"Saved plot to {filename}")

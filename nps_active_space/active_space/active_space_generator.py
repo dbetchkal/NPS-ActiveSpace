@@ -1,4 +1,5 @@
 import glob
+import logging
 import multiprocessing as mp
 import os
 import subprocess
@@ -38,6 +39,8 @@ human_hearing_threshold = pd.Series({
     "2500": -4.2, "3150": -6.0, "4000": -5.4, "5000": -1.5, "6300": 6.0, "8000": 12.6,
     "10000": 13.9, "12500": 12.3
 })
+
+logger = logging.getLogger(__name__)
 
 class PolygonCreationError(Exception):
     pass
@@ -647,7 +650,7 @@ class ActiveSpaceGenerator:
             stdout, stderr = process.communicate()
             if stderr:
                 for s in stderr.decode("utf-8").split("\r\n"):
-                    print(s.strip())
+                    logger.error(s.strip())
 
             # Read NMSIM outputs and remove unneeded .trj and .tis file
             new_nmsim_df = self._postprocess_trj_tis(
@@ -849,7 +852,7 @@ class ActiveSpaceGenerator:
             
             source_pts = self._preprocess_source_points(source_pts, valid_query_region, tested_pts)
             if source_pts.empty:
-                print(f"Mesh step {j+1}: no source points, skipping")
+                logger.info(f"Mesh step {j+1}: no source points, skipping")
                 break
             
             new_audibility_pts = self._run_nmsim(
@@ -1011,7 +1014,7 @@ class ActiveSpaceGenerator:
 
         pbar = tqdm(desc='Study Area', unit='study area', colour='green', total=study_areas.shape[0], leave=True)
         _update_pbar = lambda _: pbar.update()
-        _handle_error = lambda error: print(f'Error: {error}', flush=True)
+        _handle_error = lambda error: logger.error(f'Error: {error}')
 
         with mp.Pool(n_cpus) as pool:
             processes = []
