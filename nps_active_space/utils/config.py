@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from configparser import ConfigParser
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.utils.enums import SourceElevationUnits
@@ -111,6 +111,77 @@ def read_dem_elevation_units() -> SourceElevationUnits:
     return SourceElevationUnits.FEET
 
 
+def _check_loaded(config: Optional[ConfigParser]) -> List[str]:
+    """Return a single error if the config has not been loaded or is empty."""
+    if config is None or not config.sections():
+        return [
+            "No configuration loaded. Call initialize() first, and make "
+            "sure the .config file exists and is not empty."
+        ]
+    return []
+
+
+def _check_unknown_sections(
+    loaded: Set[str], expected: Set[str]
+) -> List[str]:
+    """Flag sections present in the file but not in the schema."""
+    errors: List[str] = []
+    for section in sorted(loaded - expected):
+        errors.append(f"Unknown section [{section}] - possible typo?")
+    return errors
+
+
+def _check_missing_sections(
+    loaded: Set[str], expected: Set[str]
+) -> List[str]:
+    """Flag required sections that are absent from the file."""
+    errors: List[str] = []
+    for section in sorted(expected - loaded):
+        errors.append(f"Missing required section [{section}]")
+    return errors
+
+
+def _check_section_keys(
+    config: ConfigParser,
+    section: str,
+    expected_keys: List[str],
+    path_keys: Set[str],
+    required_values: Set[str],
+) -> List[str]:
+    """Validate keys, required values, and path existence for one section."""
+    errors: List[str] = []
+    actual_keys = set(dict(config.items(section)).keys())
+    expected_set = set(expected_keys)
+
+    for key in sorted(actual_keys - expected_set):
+        errors.append(f"Unknown key '{key}' in [{section}] - possible typo?")
+
+    for key in sorted(expected_set - actual_keys):
+        errors.append(f"Missing key '{key}' in [{section}]")
+
+    for key in sorted(required_values):
+        if key not in actual_keys:
+            continue
+        value = config.get(section, key).strip()
+        if not value:
+            errors.append(
+                f"[{section}] {key} must not be empty - "
+                f"set it to a valid path in your .config file"
+            )
+
+    for key in sorted(path_keys):
+        if key not in actual_keys:
+            continue
+        value = config.get(section, key).strip()
+        if value and not os.path.exists(value):
+            errors.append(
+                f"[{section}] {key} = '{value}' - "
+                f"path does not exist"
+            )
+
+    return errors
+
+
 def validate(verbose: bool = True) -> List[str]:
     """
     Validate the currently loaded configuration.
@@ -143,85 +214,33 @@ def validate(verbose: bool = True) -> List[str]:
     if errors:
         print(f"Found {len(errors)} config problem(s)")
     """
-    errors: List[str] = []
-
-    if _config is None or not _config.sections():
-        msg = (
-            "No configuration loaded. Call initialize() first, and make "
-            "sure the .config file exists and is not empty."
-        )
-        errors.append(msg)
+    load_errors = _check_loaded(_config)
+    if load_errors:
         if verbose:
-            print(msg)
-        return errors
+            for msg in load_errors:
+                print(msg)
+        return load_errors
 
     loaded_sections = set(_config.sections())
     expected_sections = set(EXPECTED_SCHEMA.keys())
 
-    # --- unknown sections (typo detection) ---
-    for section in sorted(loaded_sections - expected_sections):
-        msg = f"Unknown section [{section}] - possible typo?"
-        errors.append(msg)
-        if verbose:
-            print(msg)
+    errors: List[str] = []
+    errors.extend(_check_unknown_sections(loaded_sections, expected_sections))
+    errors.extend(_check_missing_sections(loaded_sections, expected_sections))
 
-    # --- missing sections ---
-    for section in sorted(expected_sections - loaded_sections):
-        msg = f"Missing required section [{section}]"
-        errors.append(msg)
-        if verbose:
-            print(msg)
-
-    # --- per-section key checks ---
     for section, expected_keys in EXPECTED_SCHEMA.items():
         if section not in loaded_sections:
-            continue  # already reported above
+            continue
+        errors.extend(_check_section_keys(
+            _config,
+            section,
+            expected_keys,
+            _PATH_KEYS.get(section, set()),
+            _REQUIRED_VALUES.get(section, set()),
+        ))
 
-        actual_keys = set(dict(_config.items(section)).keys())
-        expected_set = set(expected_keys)
-
-        # unknown keys
-        for key in sorted(actual_keys - expected_set):
-            msg = f"Unknown key '{key}' in [{section}] - possible typo?"
-            errors.append(msg)
-            if verbose:
-                print(msg)
-
-        # missing keys
-        for key in sorted(expected_set - actual_keys):
-            msg = f"Missing key '{key}' in [{section}]"
-            errors.append(msg)
-            if verbose:
-                print(msg)
-
-        # required-value checks
-        required = _REQUIRED_VALUES.get(section, set())
-        for key in sorted(required):
-            if key not in actual_keys:
-                continue  # already flagged as missing key
-            value = _config.get(section, key).strip()
-            if not value:
-                msg = (
-                    f"[{section}] {key} must not be empty - "
-                    f"set it to a valid path in your .config file"
-                )
-                errors.append(msg)
-                if verbose:
-                    print(msg)
-
-        # path existence checks (only for non-empty values)
-        path_keys = _PATH_KEYS.get(section, set())
-        for key in sorted(path_keys):
-            if key not in actual_keys:
-                continue
-            value = _config.get(section, key).strip()
-            if value and not os.path.exists(value):
-                msg = (
-                    f"[{section}] {key} = '{value}' - "
-                    f"path does not exist"
-                )
-                errors.append(msg)
-                if verbose:
-                    print(msg)
+    if verbose:
+        for msg in errors:
+            print(msg)
 
     return errors

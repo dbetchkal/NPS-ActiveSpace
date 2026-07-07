@@ -100,6 +100,7 @@ class TestValidateMissingSections:
         """)
         errors = cfg.validate(verbose=False)
         assert any("Missing required section [project]" in e for e in errors)
+        assert len(errors) == 1
 
     def test_missing_data_section(self, tmp_path):
         project_dir = tmp_path / "projects"
@@ -120,6 +121,7 @@ class TestValidateMissingSections:
         """)
         errors = cfg.validate(verbose=False)
         assert any("Missing required section [data]" in e for e in errors)
+        assert len(errors) == 1
 
 
 class TestValidateMissingKeys:
@@ -151,6 +153,7 @@ class TestValidateMissingKeys:
         key_names = " ".join(missing)
         assert "faa_releasable_db" in key_names.lower()
         assert "faa_type_corrections" in key_names.lower()
+        assert len(errors) == 2
 
 
 class TestValidateUnknownSectionsAndKeys:
@@ -163,6 +166,7 @@ foo = bar
 """)
         errors = cfg.validate(verbose=False)
         assert any("Unknown section [bogus]" in e for e in errors)
+        assert len(errors) == 1
 
     def test_unknown_key(self, tmp_path):
         project_dir = tmp_path / "projects"
@@ -174,6 +178,7 @@ foo = bar
         _write_config(tmp_path, text)
         errors = cfg.validate(verbose=False)
         assert any("Unknown key 'typo_key' in [project]" in e for e in errors)
+        assert len(errors) == 1
 
 
 class TestValidateRequiredValues:
@@ -184,6 +189,7 @@ class TestValidateRequiredValues:
             "[project] dir must not be empty" in e
             for e in errors
         )
+        assert len(errors) == 1
 
 
 class TestValidatePathExistence:
@@ -196,6 +202,7 @@ class TestValidatePathExistence:
             "path does not exist" in e and "[project] dir" in e
             for e in errors
         )
+        assert len(errors) == 1
 
     def test_nonexistent_data_path(self, tmp_path):
         project_dir = tmp_path / "projects"
@@ -210,6 +217,7 @@ class TestValidatePathExistence:
             "path does not exist" in e and "nvspl_archive" in e
             for e in errors
         )
+        assert len(errors) == 1
 
     def test_existing_path_no_error(self, tmp_path):
         project_dir = tmp_path / "projects"
