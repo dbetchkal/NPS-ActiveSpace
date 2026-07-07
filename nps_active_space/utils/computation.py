@@ -1,4 +1,5 @@
 import datetime as dt
+import logging
 import math
 from typing import Iterable, List, Optional, Tuple, TYPE_CHECKING
 
@@ -16,6 +17,8 @@ from KDEpy import FFTKDE
 
 if TYPE_CHECKING:
     from nps_active_space.utils.models import Microphone, Nvspl, Tracks
+
+logger = logging.getLogger(__name__)
 
 
 __all__ = [
@@ -566,7 +569,7 @@ def audibility_to_interval(aud, invert=False):
         # ...the last noise free interval stays the same, and equals zero
         # the rest are - 1
         save = nfi_ends[-1]
-        print(save)
+        logger.debug(f"NFI end boundary value: {save}")
         nfi_ends = nfi_ends - 1
         nfi_ends[-1] = save
 
@@ -694,7 +697,7 @@ def select_optimal(unit: str, site: str, year: int,
         detection_results.loc[omni, "gain"] = numeric_gain
 
         if verbose:
-            print(f"omni: {omni} --> F-{beta_}: {fbeta:0.3f} precision: {precision:0.3f} recall: {recall:0.3f}")
+            logger.info(f"omni: {omni} --> F-{beta_}: {fbeta:0.3f} precision: {precision:0.3f} recall: {recall:0.3f}")
         
         if fbeta > max_fbeta:
             max_fbeta = fbeta
@@ -791,7 +794,7 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
     rng = np.random.default_rng(seed=random_seed)
     keep = rng.random(len(points)) <= p_keep
     points = points[keep]
-    print(f"Went from {n_before} to {len(points)} points when normalizing point density")
+    logger.info(f"Went from {n_before} to {len(points)} points when normalizing point density")
 
     if visualize:
         # run it again to visualize the difference

@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -15,7 +16,9 @@ from nps_active_space.utils.enums import TrackSource
 from nps_active_space.utils.models import FAAReleasable, Nvspl, Tracks
 from nps_active_space.utils.computation import expected_Lp, NMSIM_bbox_utm, audible_time_delay, ambience_from_nvspl, interpolate_spline
 from nps_active_space.utils.helpers import load_studyarea, get_deployment
-    
+
+logger = logging.getLogger(__name__)
+
 
 def logsum(df, axis=1):
     """Take a dataframe with columns representing SPL time series and logsum them together"""
@@ -71,14 +74,14 @@ class ClockDriftFixer():
         if plot_dir is not None:
             os.makedirs(plot_dir, exist_ok=True)
 
-        print("Loading site data")
+        logger.info("Loading site data")
         studyarea = load_studyarea(project_dir, unit, site, year)
         utm_zone = NMSIM_bbox_utm(studyarea)
         mic = get_deployment(project_dir, unit, site, year).to_crs(utm_zone)
         mic_pt = Point(mic.x, mic.y, mic.z)
         self.nvspl = nvspl
 
-        print("Filtering for only fixed-wing and helicopters")
+        logger.info("Filtering for only fixed-wing and helicopters")
         ids = pts["track_id"].str.split("_").str[0]  # ids will be either N-numbers or ICAO addresses
         uses_n_numbers = ids[0].startswith("N")
         if uses_n_numbers:
@@ -101,7 +104,7 @@ class ClockDriftFixer():
             pts.geometry.x, pts.geometry.y, pts.z)
         
         # Interpolate points. This is essential for GPS, and seems to help smooth stuff out for ADSB too
-        print("Interpolating points")
+        logger.info("Interpolating points")
         interp_list = []
         for track_id, group in pts.groupby("track_id"):
             if len(group) < 3:  # need at least 3 points to interpolate
@@ -112,12 +115,12 @@ class ClockDriftFixer():
         pts = pd.concat(interp_list, axis=0, ignore_index=True)
 
         # compute expected time and magnitude of audiblity
-        print("Computing audibility")
+        logger.info("Computing audibility")
         pts = expected_Lp(pts, mic_pt)
         pts = audible_time_delay(pts, "point_dt", mic_pt)
         self.pts = pts
 
-        print("Initialization Done")
+        logger.info("Initialization done")
 
 
     def get_clock_drift(self, start_dt, end_dt, max_clock_drift=pd.Timedelta(minutes=5)):
@@ -138,14 +141,14 @@ class ClockDriftFixer():
         # get the nvspl data corresponding to this time period
         full_index = pd.date_range(start_dt, end_dt, freq="s", inclusive="left")
         if len(self.nvspl.index.intersection(full_index)) < len(full_index):
-            print("NVSPL doesn't cover full period")
+            logger.warning("NVSPL doesn't cover full period")
             return np.nan
         nvspl_section = self.nvspl.loc[full_index]
 
         # get the track points corresponding to this time period
         pts_section = self.pts[(self.pts["point_dt"] > start_dt) & (self.pts["point_dt"] < end_dt)]
         if pts_section.empty:
-            print("No track points")
+            logger.warning("No track points")
             return np.nan
 
         # Correlating with NVSPL broadband SPL has issues with wind noise obscuring the aircraft signal.
@@ -207,7 +210,7 @@ class ClockDriftFixer():
             f"{len(correlation)} != {2 * max_clock_drift.total_seconds() + 1}"
         max_idx = np.argmax(correlation)
         if max_idx == 0 or max_idx == len(correlation)-1:
-            print("Max correlation at boundary, not true maximum")
+            logger.warning("Max correlation at boundary, not true maximum")
             return None  # boundary-limited, not true peak
         drifts = np.arange(-max_clock_drift.total_seconds(), max_clock_drift.total_seconds() + 1)
         clock_drift = drifts[max_idx]
@@ -260,7 +263,7 @@ class ClockDriftFixer():
         period_bounds = pd.date_range(start_dt.ceil(freq), end_dt.floor(freq), freq=freq)
         drifts = []
         for i in range(len(period_bounds)-1):
-            print(period_bounds[i], period_bounds[i+1])
+            logger.debug(f"{period_bounds[i]} to {period_bounds[i+1]}")
             drifts.append(self.get_clock_drift(period_bounds[i], period_bounds[i+1], max_clock_drift))
         
         # use the center of the period as the time anchor for each period's drift
@@ -364,12 +367,12 @@ class ClockDriftFixer():
             file_entries_list.append(pd.DataFrame({"Time": new_times, "Seconds": y_new}))
 
             plt.plot(new_times, y_new, color="black")
-            print(f"{period_start} to {period_end}, clock drift {slope:.3f} sec per day")
+            logger.info(f"{period_start} to {period_end}, clock drift {slope:.3f} sec per day")
         
         self.drift_fits = pd.DataFrame(fits_list)
         file_entries = pd.concat(file_entries_list, ignore_index=True)
         file_entries.to_csv(clock_drift_file, index=False)
-        print(file_entries)
+        logger.debug(f"Clock drift file entries:\n{file_entries}")
 
         if self.plot_dir is not None:
             plt.savefig(os.path.join(self.plot_dir, "Fitted Lines.png"))

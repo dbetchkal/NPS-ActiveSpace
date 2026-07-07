@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -14,6 +15,8 @@ import os
 from nps_active_space.utils.computation import contiguous_regions
 from nps_active_space.utils.models import Srcid
 import iyore
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     'clip_events_to_time_period',
@@ -70,7 +73,7 @@ def get_obs_periods(unit, site, year, nvspl_archive, adsb_dir=None):
         src_obj = Srcid(paths[0])
         src_obs_periods = src_obj.get_observation_periods()
     else:
-        print("No SPLAT annotation data")
+        logger.info("No SPLAT annotation data")
         src_obs_periods = None
 
     # load ADSB record periods if applicable
@@ -254,7 +257,7 @@ def get_noise_events(df, start_col, end_col, start_date, end_date, min_dur=10, m
     event_start_times = entry_times_cp[~short_events]
     event_end_times = exit_times_cp[~short_events]
     if short_events.sum() > 0:
-        print(f"Filtered out {short_events.sum()} events shorter than {min_dur} seconds")
+        logger.info(f"Filtered out {short_events.sum()} events shorter than {min_dur} seconds")
     
     # Account for event-less time at beginning and end of timeframe in question
     # This is needed for the inaudible_begins and inaudible_ends indices to match up properly so we can subtract to compute durations.
@@ -377,7 +380,7 @@ def _agg_conf_intervals(series: pd.Series, agg_funcs: list):
                                     confidence_level=0.95, n_resamples=1000, method="percentile")
             out[f.__name__] = result.confidence_interval
         except Exception as e:
-            print(f"Error with function {f.__name__}: {e}")
+            logger.error(f"Error with function {f.__name__}: {e}")
             out[f.__name__] = (pd.NA, pd.NA)
     return pd.Series(out)
 
@@ -435,7 +438,7 @@ def get_all_geo_stats(tracks, periods, months=list(range(1,13)), quantiles=.5):
     # Make sure months are between 1 and 12
     for month in months:
         if (month < 1) | (month > 12):
-            print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
+            logger.warning("Invalid months. Must be a list of integers from 1-12. Ignoring months parameter.")
             months=list(range(1,13))
     
     # get events and NFIs for the whole study time
@@ -605,7 +608,7 @@ def get_all_srcid_stats(src_data, periods, months=list(range(1,13)), quantiles=.
     # Make sure months are between 1 and 12
     for month in months:
         if (month < 1) | (month > 12):
-            print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
+            logger.warning("Invalid months. Must be a list of integers from 1-12. Ignoring months parameter.")
             months=list(range(1,13))
 
     # add start and end time fields
@@ -881,7 +884,7 @@ def endpoints_around_active(active, tracks, distance_delta, peak_distance, endpo
     elif endpoint_type == 'exit':
         peak_indices = find_circular_peaks(active_gdf.exits, distance_delta, peak_distance)
     else:
-        print("error: endpoint_type must be 'entry' or 'exit'")
+        logger.error("endpoint_type must be 'entry' or 'exit'")
         return 0
                                             
     return active_gdf, peak_indices
@@ -912,8 +915,8 @@ def identify_stereotypical_tracks(active, tracks, distance_delta=100, peak_dista
     peak_indices : numpy array of ints
         Array containing the indices of the peaks, sorted by descending peak height.
     '''
-    print("Identifying stereotypical tracks...")
-    print(" - finding common entries and exits")
+    logger.info("Identifying stereotypical tracks...")
+    logger.info("Finding common entries and exits")
     
     # Identify common entry points and generate segmented active space boundary
     active_gdf, peak_entry_indices = endpoints_around_active(active, tracks, distance_delta, peak_distance, endpoint_type='entry')
@@ -945,7 +948,7 @@ def identify_stereotypical_tracks(active, tracks, distance_delta=100, peak_dista
         common_endpoints_gdf = common_endpoints_gdf[common_endpoints_gdf.transit_length > 2000]
     common_endpoints_gdf = common_endpoints_gdf.sort_values(by='number_of_corresponding_tracks', ascending=False)
 
-    print(f" - of {len(common_endpoints_gdf)}, identifying possible stereotypical tracks")
+    logger.info(f"Of {len(common_endpoints_gdf)} candidates, identifying possible stereotypical tracks")
     
     all_tracks = tracks.copy()
     stereotype_locs = []   # list to store gdf indices of stereotypical tracks
@@ -967,11 +970,11 @@ def identify_stereotypical_tracks(active, tracks, distance_delta=100, peak_dista
         # Calculate number of tracks that could be bundled up with each possible stereotypical track
         possible_tracks['bundle_count'] = possible_tracks.interp_geometry.apply([lambda track: all_tracks.within(track.buffer(1000)).sum()])
         # The maximum bundle count for each entry/exit pair will be the representative track for a given path
-        print(len(possible_tracks), len(all_tracks))
+        logger.debug(f"Possible tracks: {len(possible_tracks)}, all tracks: {len(all_tracks)}")
         stereotype_locs.append(possible_tracks[possible_tracks.bundle_count == possible_tracks.bundle_count.max()].index[0])
         bundle_count.append(possible_tracks.bundle_count.max())
 
-    print(" - narrowing down results")
+    logger.info("Narrowing down results")
     
     stereotypical_tracks = all_tracks.loc[stereotype_locs]
     stereotypical_tracks['represents_pct'] = np.array(bundle_count)/len(all_tracks) * 100
