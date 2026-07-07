@@ -664,7 +664,6 @@ def create_NMSIM_site_file(project_dir, unit, site, year, long_utm, lat_utm, hei
     
     '''
     
-    # the full path to the eventual NMSIM site file
     out_path = project_dir + os.sep + r"Input_Data\05_SITES" + os.sep + unit + site + str(year) + ".sit"
     
     # open a file and write to it
