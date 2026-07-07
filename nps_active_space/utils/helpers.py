@@ -64,9 +64,9 @@ def omni_to_gain(omni_source: str) -> float:
 
 
 def load_layered_activespace(project_dir, unit, site, year, gain=None, crs="epsg:4326"):
-    prefix = Rf"{project_dir}\{unit}{site}\Output_Data\ACTIVESPACES"
+    prefix = os.path.join(project_dir, f"{unit}{site}", "Output_Data", "ACTIVESPACES")
     layer_dirs = {}
-    output_dirs = glob.glob(Rf"{prefix}\{unit}{site}{year}_*m")
+    output_dirs = glob.glob(os.path.join(prefix, f"{unit}{site}{year}_*m"))
     for dir in output_dirs:
         altitude = int(os.path.basename(dir).split("_")[1].split("m")[0])
         layer_dirs[altitude] = dir
@@ -106,7 +106,7 @@ def load_activespace(project_dir, unit, site, year, gain, altitude_m=None, crs=N
 
     # pick middle altitude if no altitude provided
     if altitude_m is None:
-        altitude_dirs = glob.glob(Rf"{prefix}\{unit}{site}{year}_*m")
+        altitude_dirs = glob.glob(os.path.join(prefix, f"{unit}{site}{year}_*m"))
         altitudes = []
         for dir in altitude_dirs:
             altitudes.append(int(os.path.basename(dir).split("_")[1].split("m")[0]))
@@ -118,7 +118,7 @@ def load_activespace(project_dir, unit, site, year, gain, altitude_m=None, crs=N
     sign = "-" if gain < 0 else "+"
     gain_string = str(np.abs(int(10*gain))).zfill(3)
     usy = f"{unit}{site}{year}"
-    path = Rf"{prefix}\{usy}_{altitude_m}m\{usy}_O_{sign}{gain_string}.geojson"
+    path = os.path.join(prefix, f"{usy}_{altitude_m}m", f"{usy}_O_{sign}{gain_string}.geojson")
     active_space = gpd.read_file(path)
 
     if crs is not None:
@@ -553,14 +553,14 @@ def get_omni_sources(lower: float, upper: float) -> List[str]:
     assert upper % .5 == 0, "Invalid upper limit. Value must be divisible by 0.5."
     assert lower % .5 == 0, "Invalid lower limit. Value must be divisible by 0.5."
 
-    omni_source_dir = f"{ACTIVE_SPACE_DIR}\\data\\tuning"
+    omni_source_dir = os.path.join(ACTIVE_SPACE_DIR, "data", "tuning")
     omni_sources = []
 
     for i in range(int(lower*10), int(upper*10+5), 5):
         if i < 0:
-            omni_sources.append(f"{omni_source_dir}\\O_{i:04}.src")
+            omni_sources.append(os.path.join(omni_source_dir, f"O_{i:04}.src"))
         elif i >= 0:
-            omni_sources.append(f"{omni_source_dir}\\O_+{i:03}.src")
+            omni_sources.append(os.path.join(omni_source_dir, f"O_+{i:03}.src"))
 
     return omni_sources
 
