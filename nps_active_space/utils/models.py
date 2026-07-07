@@ -130,6 +130,27 @@ class Nvspl(pd.DataFrame):
 
     octave_regex = re.compile(r"^H[0-9]+$|^H[0-9]+p[0-9]$")
 
+    # Column dtypes for read_csv so pandas skips per-file type inference.
+    # STime is omitted because it is consumed by index_col + parse_dates.
+    _NVSPL_DTYPES = {
+        'SiteID': 'object',
+        'H12p5': 'float32', 'H15p8': 'float32', 'H20': 'float32',
+        'H25': 'float32', 'H31p5': 'float32', 'H40': 'float32',
+        'H50': 'float32', 'H63': 'float32', 'H80': 'float32',
+        'H100': 'float32', 'H125': 'float32', 'H160': 'float32',
+        'H200': 'float32', 'H250': 'float32', 'H315': 'float32',
+        'H400': 'float32', 'H500': 'float32', 'H630': 'float32',
+        'H800': 'float32', 'H1000': 'float32', 'H1250': 'float32',
+        'H1600': 'float32', 'H2000': 'float32', 'H2500': 'float32',
+        'H3150': 'float32', 'H4000': 'float32', 'H5000': 'float32',
+        'H6300': 'float32', 'H8000': 'float32', 'H10000': 'float32',
+        'H12500': 'float32', 'H16000': 'float32', 'H20000': 'float32',
+        'dbA': 'float32', 'dbC': 'float32', 'dbF': 'float32',
+        'Voltage': 'float32', 'WindSpeed': 'float32',
+        'WindDir': 'float32', 'TempIns': 'float32',
+        'TempOut': 'float32', 'Humidity': 'float32',
+    }
+
     def __init__(self, filepaths_or_data: Union[List[str], str, pd.DataFrame]):
         if isinstance(filepaths_or_data, list) and len(filepaths_or_data) == 0:
             raise ValueError("No NVSPL files found")
@@ -146,7 +167,8 @@ class Nvspl(pd.DataFrame):
                             engine='c',
                             parse_dates=True,
                             index_col=index_index,
-                            usecols=columns
+                            usecols=columns,
+                            dtype=self._NVSPL_DTYPES,
                             )
         except Exception as e:
             print(f" (!!!) Error occurred reading {nvsplFileEntry}")
@@ -169,8 +191,8 @@ class Nvspl(pd.DataFrame):
             ]
             presentNumericCols = df.columns.intersection(numericCols)
             if len(presentNumericCols) > 0:
-                df[presentNumericCols].astype(
-                    'float32', copy=False, errors='ignore')
+                df[presentNumericCols] = df[presentNumericCols].apply(
+                    pd.to_numeric, errors='coerce').astype('float32')
 
         except KeyError:
             pass
@@ -181,8 +203,6 @@ class Nvspl(pd.DataFrame):
     def _read(self, filepaths_or_data: Union[List[str], str, pd.DataFrame, GeneratorType]):
         """
         Read in and validate the NVSPL data.
-
-        # TODO: for speed and memory improvements, use usecols, define datatypes, and drop empty columns.
 
         Parameters
         ----------
@@ -219,6 +239,7 @@ class Nvspl(pd.DataFrame):
                     filepaths_or_data), unit="NVSPL files"))
 
             data = pd.concat(parts)
+            data = data.dropna(axis=1, how='all')
 
         octave_columns = {c: c.replace('H', '').replace(
             'p', '.') for c in filter(self.octave_regex.match, data.columns)}
