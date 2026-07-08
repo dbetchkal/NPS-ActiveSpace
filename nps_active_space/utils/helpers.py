@@ -618,11 +618,8 @@ def plot_activespace_fit(project_dir, unit, site, year, gain, altitude_m=None,
 
 
 def make(path):
-    """
-    Safely create a folder
-    """
-    if not os.path.exists(path):
-        os.makedirs(path)
+    """Safely create a folder."""
+    Path(path).mkdir(parents=True, exist_ok=True)
 
 
 def make_NMSIM_site_dir(siteDir):
@@ -630,18 +627,28 @@ def make_NMSIM_site_dir(siteDir):
 	Create a canonical NMSIM site directory.
 	Inputs
 	------
-	siteDir (str): a path location where an NMSIM site directory will be created
+	siteDir (str|Path): a path location where an NMSIM site directory will be created
 	"""
-	# a list of all the subfolders for a project
-	subfolders = [r"Input_Data", r"Input_Data\01_ELEVATION", r"Input_Data\02_IMPEDANCE", r"Input_Data\03_TRAJECTORY",
-	            r"Input_Data\04_LAYERS", r"Input_Data\05_SITES", r"Input_Data\06_AMBIENCE", r"Input_Data\07_WEATHER",
-	            r"Input_Data\08_TREES", r"Output_Data", r"Output_Data\ASCII", r"Output_Data\IMAGES", r"Output_Data\SITE", 
-	            r"Output_Data\TIG_TIS"]
-	# make all the subfolders
-	for folderExt in subfolders:
-        
-	    make(siteDir + os.sep + folderExt)
+    siteDir = Path(siteDir)
+    subfolders = [
+            "Input_Data",
+            "Input_Data/01_ELEVATION",
+            "Input_Data/02_IMPEDANCE",
+            "Input_Data/03_TRAJECTORY",
+            "Input_Data/04_LAYERS",
+            "Input_Data/05_SITES",
+            "Input_Data/06_AMBIENCE",
+            "Input_Data/07_WEATHER",
+            "Input_Data/08_TREES",
+            "Output_Data",
+            "Output_Data/ASCII",
+            "Output_Data/IMAGES",
+            "Output_Data/SITE",
+            "Output_Data/TIG_TIS",
+    ]
 
+    for folderExt in subfolders:
+        make(siteDir / folderExt)
 
 def create_NMSIM_site_file(project_dir, unit, site, year, long_utm, lat_utm, height):
 
@@ -664,7 +671,10 @@ def create_NMSIM_site_file(project_dir, unit, site, year, long_utm, lat_utm, hei
     
     '''
     
-    out_path = project_dir + os.sep + r"Input_Data\05_SITES" + os.sep + unit + site + str(year) + ".sit"
+    out_path = Path(project_dir) / "Input_Data" / "05_SITES" / (unit + site + str(year) + ".sit")
+    elev_dir = Path(project_dir) / "Input_Data" / "01_ELEVATION"
+    matches = list(elev_dir.glob("*.flt"))
+    assert matches, f"No .flt files found in {elev_dir}"
     
     # open a file and write to it
     with open(out_path, 'w') as site_file:
@@ -672,6 +682,6 @@ def create_NMSIM_site_file(project_dir, unit, site, year, long_utm, lat_utm, hei
         site_file.write("    0\n")
         site_file.write("    1\n")
         site_file.write("{0:19.0f}.{1:9.0f}.{2:10.5f} {3:20}\n".format(long_utm, lat_utm, height, unit+site))
-        site_file.write(glob.glob(project_dir + os.sep + r"Input_Data\01_ELEVATION\*.flt")[0]+"\n")
+        site_file.write(str(next(elev_dir.glob("*.flt")))+"\n")
 
     print(f"NMSIM site file, .sit, has been written to {out_path}.")
