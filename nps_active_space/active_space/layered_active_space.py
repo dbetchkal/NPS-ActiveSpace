@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from __future__ import annotations
 
 import numpy as np
 import os
@@ -12,18 +12,18 @@ from nps_active_space.utils.computation import normalize_point_density
 
 
 class LayeredActiveSpace():
-    def __init__(self, designator: str, layer_dirs: Dict[int, str], study_area: gpd.GeoDataFrame,
-                 gain: Optional[float] = None, crs: str = "epsg:4326") -> None:
+    def __init__(self, designator: str, layer_dirs: dict[int, str], study_area: gpd.GeoDataFrame,
+                 gain: float | None = None, crs: str = "epsg:4326") -> None:
         self.designator: str = designator
-        self.layer_dirs: Dict[int, str] = dict(sorted(layer_dirs.items()))
+        self.layer_dirs: dict[int, str] = dict(sorted(layer_dirs.items()))
         self.study_area: gpd.GeoDataFrame = study_area
-        self.activespaces: Dict[int, gpd.GeoDataFrame] = {}
-        self.all_activespaces: Dict[float, Optional[Dict[int, gpd.GeoDataFrame]]] = {}  # set by self.preload_all_activespaces()
+        self.activespaces: dict[int, gpd.GeoDataFrame] = {}
+        self.all_activespaces: dict[float, dict[int, gpd.GeoDataFrame] | None] = {}  # set by self.preload_all_activespaces()
         self.crs: str = crs
-        self.gain: Optional[float] = None
+        self.gain: float | None = None
         if gain is not None:
             self.set_gain(gain)
-        self.fit_pbar: Optional[tqdm] = None
+        self.fit_pbar: tqdm | None = None
 
         # determine min and max gain - import here to avoid circular import
         from nps_active_space.utils.helpers import omni_to_gain
@@ -33,14 +33,14 @@ class LayeredActiveSpace():
         self.min_gain: float = min(gains)
         self.max_gain: float = max(gains)
     
-    def load_activespaces(self, gain: float) -> Optional[Dict[int, gpd.GeoDataFrame]]:
+    def load_activespaces(self, gain: float) -> dict[int, gpd.GeoDataFrame] | None:
         if gain in self.all_activespaces:
             return self.all_activespaces[gain]
         
         sign = "-" if gain < 0 else "+"
         gain_string = str(np.abs(int(10*gain))).zfill(3)
 
-        activespaces: Dict[int, gpd.GeoDataFrame] = {}
+        activespaces: dict[int, gpd.GeoDataFrame] = {}
         for altitude, dir in self.layer_dirs.items():
             glob_result = glob.glob(os.path.join(dir, f"*_O_{sign}{gain_string}.geojson"))
             if len(glob_result) == 0:
@@ -61,7 +61,7 @@ class LayeredActiveSpace():
         self.gain = gain
 
     def fit(self, annotations: gpd.GeoDataFrame, beta: float = 1., plot: bool = True,
-            plot_savepath: Optional[str] = None) -> pd.Series:
+            plot_savepath: str | None = None) -> pd.Series:
 
         # Extract all valid points from their LineStrings. These will be needed for calculating fbeta scores later.
         valid_points_lst = []
@@ -74,7 +74,7 @@ class LayeredActiveSpace():
         return result
 
     def fit_points(self, points: gpd.GeoDataFrame, min_gain: float = -10., max_gain: float = 40.,
-                   beta: float = 1., plot: bool = True, plot_savepath: Optional[str] = None) -> pd.Series:
+                   beta: float = 1., plot: bool = True, plot_savepath: str | None = None) -> pd.Series:
         assert min_gain <= max_gain
 
         # Reduce point density to median density, so very dense areas (e.g. airports) don't skew the fit
