@@ -1,76 +1,22 @@
-# Contributing to NPS-ActiveSpace
+# Contributing
 
-Thank you for your interest in contributing to this project. Whether you're fixing
-a bug, adding a feature, or improving documentation, your help is welcome.
+## Setup
 
-## Getting started
+Install as described in the [README](README.md#installation). Use `pip install -e ".[dev]"` to include test tools.
 
-1. Fork and clone the repository:
+## Workflow
 
-   ```
-   git clone https://github.com/<your-username>/NPS-ActiveSpace.git
-   cd NPS-ActiveSpace
-   ```
+1. Fork and create a branch — `feature/description` or `fix/description`.
+2. New logic should ship with tests. See [Style Guide](AGENTS.md) for more details.
+3. Ensure existing and new tests pass before marking a PR ready for review. GitHub actions will run against PRs pointing at main.
+4. Open a pull request against `main` with a clear title and description of what changed and why. Reference any related issues.
 
-2. Create a virtual environment (Python 3.12+):
-
-   ```
-   python -m venv .venv
-   source .venv/bin/activate
-   ```
-
-3. Install system dependencies. On Ubuntu/Debian:
-
-   ```
-   sudo apt-get install gdal-bin libgdal-dev
-   ```
-
-   On macOS with Homebrew: `brew install gdal`. The GDAL Python binding version
-   must match your system GDAL version.
-
-4. Install the project and its dependencies:
-
-   ```
-   pip install --upgrade pip
-   pip install -r requirements.txt
-   pip install -e .
-   pip install pytest
-   ```
-
-5. Run the test suite to make sure everything works:
-
-   ```
-   pytest tests/ -v
-   ```
-
-## Making changes
-
-- Create a feature branch from `main` (e.g. `feature/my-improvement` or `fix/issue-description`).
-- Write tests for new functionality when possible. Tests live in the `tests/` directory.
-- Keep commits focused. One logical change per commit is easier to review.
-
-## Pull requests
-
-When you're ready to submit your work:
-
-- Give the PR a clear, descriptive title.
-- Explain what the change does and why it's needed in the PR description.
-- Make sure CI passes (the test suite runs automatically on PRs to `main`).
-- If your change relates to an open issue, reference it in the description.
-
-Smaller, well-scoped PRs are easier to review and more likely to be merged quickly.
+Prefer small, focused PRs with a concise, clear description.
 
 ## Code style
 
-- Follow the patterns you see in the existing codebase.
-- Python 3.12+ features are fine to use.
-- Add type hints where practical, especially for function signatures.
-- Configuration files use the ConfigParser `.config` format (see `nps_active_space/config/`
-  for examples).
+See [`AGENTS.md`](AGENTS.md) for Python conventions, naming, type hints, testing patterns, and git workflow.
 
 ## License
 
-This project is in the public domain within the United States under
-[CC0 1.0 Universal](LICENSE.md). All contributions will be released under the
-same terms. By submitting a pull request, you agree to this waiver of copyright
-interest.
+This project is [public domain (CC0)](LICENSE.md). By submitting a pull request you waive any copyright interest in your contribution.
