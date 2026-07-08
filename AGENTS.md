@@ -26,6 +26,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for PR workflow.
 - Prefer `match`/`case` for handling enum values or exhaustive case matching.
 - Name DataFrames for what they hold (e.g. `sorted_mxak_points`, `flight_tracks`), not just `df`.
 - Use `pathlib` and ensure cross-platform path support for any code dealing with file system paths.
+- Timestamps are currently stored as tz-naive. Data parsers should return UTC-naive. See our [UTC standardization issue](https://github.com/dbetchkal/NPS-ActiveSpace/issues/96) for desired future state.
 
 ## Testing
 
