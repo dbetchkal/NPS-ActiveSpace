@@ -1,5 +1,9 @@
 # Contributing
 
+If you're not sure where to start, take a scan through our [GitHub Issues](https://github.com/dbetchkal/NPS-ActiveSpace/issues) and see if anything catches your eye!
+
+If you're interested in making a larger-scale change, please consider creating a new issue or commenting on existing one to discuss with the repo maintainers. We'd love to meet you and hear about what you're interested in working on!
+
 ## Setup
 
 Install as described in the [README](README.md#installation). Use `pip install -e ".[dev]"` to include test tools.
