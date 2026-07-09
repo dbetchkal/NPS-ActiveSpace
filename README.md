@@ -40,6 +40,8 @@ The repository has been tested with Python 3.12. Runtime dependencies are declar
 
 **NMSim on macOS / Linux:** Active space generation runs the Windows-only NMSim binary via **Docker + Wine** — see [docker/README.md](docker/README.md) (stage ~10 MB runtime locally, then `docker/build.sh`). For ground-truthing, fit, and viz on the host, follow the macOS/Linux steps below.
 
+Bundled sample data: [example_data/README.md](example_data/README.md).
+
 Clone the repository, then follow the steps for your platform. The clone includes [`example_data/`](example_data/) (~75 MB) for local development and tests (see [`example_data/README.md`](example_data/README.md)).
 
 ```bash
@@ -229,7 +231,7 @@ As an observer-based audibility model, each `nps_active_space` site directory (a
 
 The overarching input of `nps_active_space` is a study area. It is a required input. It must be contained within the root project directory and named similar to `UNITSITE_study_area.shp` (ESRI shapefile), where the variable geographic prefix `UNITSITE` matches the name of the project directory. It is recommended that study area geometries are saved using `NMSIM`'s native coordinate reference system (crs), NAD83 GCS North American (EPSG:4269).
 
-After their creation, the annotation outputs of `.ground_truthing` (.geojson) also belong in the root of the project directory. Clock drift correction files produced via [the `.utils\clock_drift.py` utility](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/nps_active_space/utils/clock_drift.py) also belong in the root of the project directory.
+After their creation, the annotation outputs of `.ground_truthing` (.geojson) belong in the **site directory root** (alongside the study area shapefile), e.g. `UNITSITE_A/DENATRLA2025_saved_annotations.geojson`. Clock drift correction files produced via [the `.utils\clock_drift.py` utility](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/nps_active_space/utils/clock_drift.py) also belong in the root of the project directory.
 
 ##### Within `01_ELEVATION`:
 

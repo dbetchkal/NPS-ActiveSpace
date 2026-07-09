@@ -22,6 +22,7 @@ from warnings import warn
 
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.setup.site_writer import create_site_dir, write_listener_site_file
+from nps_active_space.utils.constants import IS_WINDOWS
 from nps_active_space.utils.models import Microphone
 from nps_active_space.utils.computation import (
     build_src_point_mesh,
@@ -54,7 +55,7 @@ def _nmsim_control_path(path: str) -> str:
     NMSIM falls back to its cwd and fails. Convert absolute POSIX paths to Wine drive paths
     (``Z:`` maps to ``/`` by default) using backslash separators.
     """
-    if os.name == 'nt':
+    if IS_WINDOWS:
         return path
     return "Z:" + os.path.abspath(path).replace("/", "\\")
 

@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 """
-Phase-4 integration check for running NMSim through Wine inside the Linux/Mac container.
+TODO split into some functions and add type hints
+Integration check for running NMSim through Wine inside the Linux/Mac container.
 
-This drives ActiveSpaceGenerator.generate() directly for a single site, gain, altitude
+This script uses ActiveSpaceGenerator.generate() directly for a single site, gain, altitude
 and heading, so it exercises the real NMSim-via-wine path (control/batch file creation,
 the `project.nmsim` shim, .tis parsing, audibility) WITHOUT requiring ground-truth
 annotations (those are only used by generate_active_space.py for gain auto-selection and
-precision/recall scoring, not to compute an active space).
+precision/recall scoring, not to run the basic active space computation step).
 
 Run inside the container, e.g.:
   docker/run_activespace.sh docker/validate_active_space.py -u DENA -s TRLA -y 2025 \
