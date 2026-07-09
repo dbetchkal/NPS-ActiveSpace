@@ -61,12 +61,12 @@ def NMSIM_bbox_utm(study_area: gpd.GeoDataFrame) -> str:
     lat = study_area_bbox[3]  # maxy
     lon = study_area_bbox[0]  # minx
 
-    utm_proj,_ = coords_to_utm(lat, lon)
+    utm_proj, _ = coords_to_utm(lat, lon)
 
     return utm_proj
 
 
-def coords_to_utm(lat: float, lon: float) -> str:
+def coords_to_utm(lat: float, lon: float) -> tuple[str, int]:
     """
     Takes the latitude and longitude of a point and outputs the EPSG code corresponding to the UTM zone of the point.
 
