@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "NPS-ActiveSpace"
-version = "2.0"
-description = "An NPS Sound Active Space Project."
+version = "3.0"
+description = "NPS software tooling for acoustic modeling of active spaces"
 requires-python = ">=3.12"
 readme = "README.md"
 license = "CC0-1.0"
@@ -16,7 +16,8 @@ authors = [
     {name="Davyd Betchkal"}
 ]
 maintainers = [
-    {name="Davyd Betchkal", email="davyd_betchkal@nps.gov"}
+    {name="Davyd Betchkal", email="davyd_betchkal@nps.gov"},
+    {name="Elliott Ruebush", email="eruebush@gmail.com"}
 ]
 
 dependencies = [
@@ -53,7 +54,7 @@ repository = "https://github.com/dbetchkal/NPS-ActiveSpace"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["nps_active_space*"]
-exclude = ["src*", "legacy_code*", "tests*", "example_data*"]
+exclude = ["legacy_code*", "tests*", "example_data*"]
 
 [tool.setuptools.package-data]
 nps_active_space = [

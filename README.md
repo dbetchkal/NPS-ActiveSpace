@@ -36,84 +36,110 @@ consistent with observed audibility under specified environmental conditions.
 
 ## Installation
 
-### Step 1: Clone the NPS-ActiveSpace repository.
+The repository has been tested with Python 3.12. Runtime dependencies are declared in `pyproject.toml` and installed automatically by pip (except GDAL on macOS/Linux, which requires a system library first).
 
-```
+Choose the option that fits how you plan to use the toolkit:
+
+- **Using the toolkit**: install from GitHub into a virtual environment. No clone needed.
+- **Developing**: clone the repository and install in editable mode (`-e`). Best if you are editing code, using example data, or running the test suite.
+
+For **developing**, clone first (then follow the platform steps below):
+
+```bash
 git clone https://github.com/dbetchkal/NPS-ActiveSpace.git
 cd NPS-ActiveSpace
 ```
 
-### Step 2: Set Up a Virtual Environment.
+### Windows
 
-Install Python, either via Anaconda/Miniconda, or directly. The repository has been tested with Python version 3.12.
+GDAL is installed automatically from a pre-built wheel in `pyproject.toml`.
 
-You can use a Conda environment if you want, but all installation is managed by pip.
-
-With Conda:
-
-```
-conda create --name active python=3.12.12
-conda activate active
-```
-
-With venv in a Git Bash terminal:
-
-```
+```bat
 python -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install --upgrade pip
+```
+
+**Using the toolkit** (no clone): `pip install "NPS-ActiveSpace @ git+https://github.com/dbetchkal/NPS-ActiveSpace.git"`
+
+**Developing** (clone first, then from repo root): `pip install -e ".[dev]"`
+
+> **Ground-truthing GUI:** `run_ground_truthing.py` uses tkinter. Include "tcl/tk and IDLE" when installing from [python.org](https://www.python.org/downloads/). Verify with `python -c "import tkinter; print('ok')"`.
+
+---
+
+### macOS / Linux
+
+Install [GDAL](https://gdal.org/en/stable/) as a system library first, then match the Python binding:
+
+```bash
+# macOS (Homebrew)
+brew install gdal
+
+# Linux (Debian/Ubuntu)
+sudo apt-get install gdal-bin libgdal-dev
+```
+
+> **Ground-truthing GUI:** also install tkinter — macOS: `brew install python-tk@3.12` · Linux: `sudo apt-get install python3.12-tk`
+
+```bash
+python3.12 -m venv .venv
 source .venv/bin/activate
-```
-
-With venv in a Windows Command Prompt terminal:
-
-```
-python -m venv .venv
-source .venv\Scripts\activate.bat
-```
-
-### Step 3: Install NPS-ActiveSpace
-
-Make sure you are inside your virtual environment, then upgrade pip and install from `pyproject.toml`:
-
-**From a local clone (editable, recommended for development):**
-
-```
 python -m pip install --upgrade pip
-pip install -e ".[dev]"
+GDAL_VERSION=$(gdal-config --version)
+pip install "GDAL==${GDAL_VERSION}"
 ```
 
-The `[dev]` extra adds `pytest` for running the test suite. Omit it for deployment-only installs: `pip install -e .`
+**Using the toolkit** (no clone): `pip install "NPS-ActiveSpace @ git+https://github.com/dbetchkal/NPS-ActiveSpace.git"`
 
-**Directly from GitHub (no clone):**
+**Developing** (clone first, then from repo root): `pip install -e ".[dev]"`
 
-```
-python -m pip install --upgrade pip
+#### Alternative: Conda
+
+If managing GDAL via Homebrew or apt is difficult, Conda can provide the geospatial stack in one step:
+
+```bash
+conda create -n active -c conda-forge python=3.12 gdal geopandas rasterio fiona shapely pyproj
+conda activate active
 pip install "NPS-ActiveSpace @ git+https://github.com/dbetchkal/NPS-ActiveSpace.git"
 ```
 
-Add `[dev]` for tests: `pip install "NPS-ActiveSpace[dev] @ git+https://github.com/dbetchkal/NPS-ActiveSpace.git"`
+For development, clone the repo first and use `pip install -e ".[dev]"` instead.
 
-**Platform notes**
+---
 
-| Platform | GDAL |
-|----------|------|
-| **Windows** | Installed automatically from the CGohlke wheel declared in `pyproject.toml` (Python 3.12, win_amd64). |
-| **Linux / macOS** | Install system GDAL first, match the Python binding, then install the package: |
+### Running scripts
+
+Scripts are run as Python modules. From any directory (not inside the cloned repo):
 
 ```bash
-# Linux example (CI uses the same pattern)
-sudo apt-get install gdal-bin libgdal-dev
-GDAL_VERSION=$(gdal-config --version)
-pip install "GDAL==${GDAL_VERSION}"
-pip install -e .
+python -m nps_active_space.scripts.run_ground_truthing -e production -u DENA -s MOOS -y 2018
 ```
 
-If the Python version changes, update the GDAL wheel URL in `pyproject.toml` to a matching build from [cgohlke/geospatial-wheels](https://github.com/cgohlke/geospatial-wheels/releases) (e.g. `gdal-3.11.1-cp312-cp312-win_amd64.whl` for Python 3.12).
+See [`nps_active_space/scripts/README.md`](nps_active_space/scripts/README.md) for the full list of scripts and their arguments.
 
-Try importing a module to confirm the install:
+**Verify the install:**
 
+```bash
+python -c "import nps_active_space, geopandas, rasterio, iyore; print('NPS-ActiveSpace OK')"
 ```
-from nps_active_space.active_space import ActiveSpaceGenerator
+
+If the Python version changes on Windows, update the GDAL wheel URL in `pyproject.toml` to a matching build from [cgohlke/geospatial-wheels](https://github.com/cgohlke/geospatial-wheels/releases) (e.g. `gdal-3.11.1-cp312-cp312-win_amd64.whl` for Python 3.12).
+
+#### NMSIM (active space generation)
+
+Active space generation runs the NMSIM Nord2000 batch propagator as an external process. NMSIM is **not** installed by pip and is **not** included in this repository, Obtain it separately (feel free to reach out to NPS-ActiveSpace maintainers) and set the path in your config:
+
+```text
+[project]
+nmsim = C:\path\to\Nord2000batch.exe
 ```
+
+Required for `generate_active_space.py`, `generate_3d_active_space.py`, and `generate_active_space_mesh.py`. **Not** required for ground-truthing, audible transits, or validation.
+
+#### Example data
+
+The repository includes [`example_data/`](example_data/) (~75 MB of real-format NVSPL, AIS, ADS-B, and site-project samples) for local development and tests. It is **not** installed by `pip install` — only a full `git clone` includes it. See [`example_data/README.md`](example_data/README.md) for layout and usage.
 
 ### Step 4: Create Config File
 
