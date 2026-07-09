@@ -6,7 +6,6 @@ import glob
 import pyvista as pv
 import rasterio
 import pyproj
-import sys
 from shapely.geometry import box, Polygon, MultiPolygon, LineString, MultiLineString
 from nps_active_space.utils.helpers import get_deployment, load_annotations, load_DEM, load_layered_activespace, load_studyarea
 from nps_active_space.scripts.run_audible_transits import AudibleTransits
