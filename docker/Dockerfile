@@ -1,3 +1,5 @@
+# TODO: update with pyproject.toml-based install (can see the tests.yml 
+# github action + readme for details)
 # NPS-ActiveSpace on Linux/Mac: Debian + Wine (for the Windows NMSim binary) +
 # Python geospatial stack (GDAL/rasterio/geopandas/...).
 #
@@ -8,9 +10,8 @@
 # The NMSim runtime (Nord2000batch.exe + DLLs + RND/ + Sources/) is NOT baked in;
 # it is bind-mounted at /opt/nmsim at run time (see docker/run_activespace.sh).
 #
-# Python 3.12 matches the project's target interpreter (the codebase uses PEP 701
-# nested-quote f-strings, which require >= 3.12). The base is still Debian bookworm
-# under the hood, so the proven i386/Wine setup is unchanged.
+# The current version of NPS ActiveSpace targets Python 3.12. 
+# This Dockerfile should be updated if we move to a newer version of Python
 FROM --platform=linux/amd64 python:3.12-slim-bookworm
 
 # ---- System packages: Wine (i386 for 32-bit NMSim) + GDAL/PROJ/GEOS + build tools ----
@@ -55,6 +56,7 @@ ENV HOME=/home/wineuser \
     NMSIM_HOME=/opt/nmsim \
     PYTHONPATH=/work
 
+# TODO: understand the below/what is Mono/Gecko
 # Initialize the Wine prefix at build time so first run is fast (no Mono/Gecko prompts).
 RUN wineboot --init && wineserver -w || true
 
