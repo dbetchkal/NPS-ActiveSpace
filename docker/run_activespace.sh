@@ -1,19 +1,33 @@
 #!/usr/bin/env bash
-# Run an NPS-ActiveSpace script inside the Linux/Wine container.
-#
-# Mounts:
-#   repo            -> /work        (read-write)
-#   NMSim runtime   -> /opt/nmsim   (read-only; see vendor/nmsim-runtime/README.md)
-#   data drive      -> /data        (read-only, optional — only if DATA_DRIVE is set)
-#
-# Usage:
-#   docker/run_activespace.sh nps_active_space/scripts/generate_active_space.py -e container ...
-#   docker/run_activespace.sh bash
-#
-# Environment:
-#   NMSIM_RUNTIME   path to Nord2000batch.exe + RND/ (default: ./vendor/nmsim-runtime)
-#   DATA_DRIVE      optional host path mounted at /data (no default)
 set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Run a script inside the nps-activespace:linux container (Python + Wine + NMSim).
+
+Usage:
+  docker/run_activespace.sh [-h] <script.py> [args...]
+  docker/run_activespace.sh [-h] bash
+
+Mounts:
+  repo          -> /work      (read-write)
+  NMSim runtime -> /opt/nmsim (read-only)
+  DATA_DRIVE    -> /data      (optional, read-only)
+
+Environment:
+  NMSIM_RUNTIME   path to Nord2000batch.exe + RND/ (default: ./vendor/nmsim-runtime)
+  DATA_DRIVE      optional host data directory
+
+Examples:
+  docker/run_activespace.sh docker/validate_active_space.py -u DENA -s TRLA -y 2025
+  docker/run_activespace.sh nps_active_space/scripts/generate_active_space.py -e container ...
+EOF
+}
+
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+esac
+
 cd "$(dirname "$0")/.."
 REPO="$(pwd)"
 NMSIM_RUNTIME="${NMSIM_RUNTIME:-$REPO/vendor/nmsim-runtime}"
@@ -43,5 +57,23 @@ if [[ "$1" == *.py ]]; then
   set -- /opt/venv/bin/python -u -W ignore "$@"
 fi
 
-exec docker run --rm --platform=linux/amd64 "${mounts[@]}" -w /work nps-activespace:linux \
-  bash -c 'exec "$@"' _ "$@"
+docker_cmd=(
+  docker run --rm --platform=linux/amd64
+  -e PYTHONUNBUFFERED=1
+  -e MPLBACKEND=Agg
+  -e MPLCONFIGDIR=/tmp/matplotlib
+  "${mounts[@]}"
+  -w /work nps-activespace:linux
+  bash -c 'exec "$@"' _
+  "$@"
+)
+
+{
+  printf '[run] docker run --rm --platform=linux/amd64 -e PYTHONUNBUFFERED=1 -e MPLBACKEND=Agg -e MPLCONFIGDIR=/tmp/matplotlib'
+  for m in "${mounts[@]}"; do printf ' %q' "$m"; done
+  printf ' -w /work nps-activespace:linux bash -c %q _' 'exec "$@"'
+  for arg in "$@"; do printf ' %q' "$arg"; done
+  echo
+} >&2
+echo '[run] launching container...' >&2
+exec "${docker_cmd[@]}"

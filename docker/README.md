@@ -3,11 +3,9 @@
 NMSim is Windows-only. On Mac/Linux, we can run the full pipeline inside a container that
 includes Python 3.12 + GDAL and executes the `Nord2000batch.exe` Windows binary through Wine.
 
-Note that there are some performance implications here given the additional layers of indirection to run the docker setup.
-# TODO: do some more testing to precisely quantify the performance difference if we can do that easily.
+Note that given the additional layers of indirection to run the docker setup, there may be performance slowdowns vs. running natively on Windows.
 
-**Prerequisites:** Docker Desktop; on Apple Silicon enable Rosetta for amd64 emulation.
-# TODO: should we have instructions on how to install this? Maybe at least a link to the docker install page.
+**Prerequisites:** [Docker Desktop](https://docs.docker.com/get-started/get-docker/) for running the containerized Wine setup; on Apple Silicon enable Rosetta for amd64 emulation.
 
 ## One-time setup
 
@@ -15,7 +13,7 @@ Note that there are some performance implications here given the additional laye
 # 1) Stage the NMSim runtime locally (~10 MB; not in git — see vendor/nmsim-runtime/README.md)
 docker/stage_nmsim_runtime.sh /path/to/NMSim-install
 
-# 2) Build the image (~13 min first time; installs requirements.container.txt)
+# 2) Build the image (~13 min first time; installs deps from pyproject.toml)
 docker/build.sh
 
 # 3) Config (if not already present)
