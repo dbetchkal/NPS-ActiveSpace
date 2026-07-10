@@ -38,7 +38,7 @@ consistent with observed audibility under specified environmental conditions.
 
 The repository has been tested with Python 3.12. Runtime dependencies are declared in `pyproject.toml` and installed automatically by pip (except GDAL on macOS/Linux, which requires a system library first).
 
-Clone the repository, then follow the steps for your platform. The clone includes [`example_data/`](example_data/) (~75 MB) for local development and tests — see [`example_data/README.md`](example_data/README.md).
+Clone the repository, then follow the steps for your platform. The clone includes [`example_data/`](example_data/) (~75 MB) for local development and tests (see [`example_data/README.md`](example_data/README.md)).
 
 ```bash
 git clone https://github.com/dbetchkal/NPS-ActiveSpace.git
@@ -49,10 +49,15 @@ cd NPS-ActiveSpace
 
 GDAL is installed automatically from a pre-built wheel in `pyproject.toml`.
 
+Create virtual environment with updated pip
 ```bat
 python -m venv .venv
 .venv\Scripts\activate.bat
 python -m pip install --upgrade pip
+```
+
+Install required Python packages
+```bat
 pip install -e ".[dev]"
 ```
 
@@ -60,7 +65,7 @@ pip install -e ".[dev]"
 
 ### macOS / Linux
 
-Install [GDAL](https://gdal.org/en/stable/) as a system library first, then match the Python binding:
+Install [GDAL](https://gdal.org/en/stable/) as a system library first
 
 ```bash
 # macOS (Homebrew)
@@ -72,16 +77,21 @@ sudo apt-get install gdal-bin libgdal-dev
 
 > **Ground-truthing GUI:** also install tkinter — macOS: `brew install python-tk@3.12` · Linux: `sudo apt-get install python3.12-tk`
 
+Create virtual environment with updated `pip`
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
+```
+
+Install required Python packages (including appropriate GDAL Python binding)
+```
 GDAL_VERSION=$(gdal-config --version)
 pip install "GDAL==${GDAL_VERSION}"
 pip install -e ".[dev]"
 ```
 
-**Using without a clone:** you can install directly from GitHub with `pip install "NPS-ActiveSpace @ git+https://github.com/dbetchkal/NPS-ActiveSpace.git"` (on macOS/Linux, complete the GDAL steps above first). Config files go in the installed package's `config/` directory — find it with `python -c "import nps_active_space, os; print(os.path.join(nps_active_space.ACTIVE_SPACE_DIR, 'config'))"`. Run scripts from outside the repo so Python uses the installed package, not a local checkout.
+**Note: Using without a clone:** you can install directly from GitHub with `pip install "NPS-ActiveSpace @ git+https://github.com/dbetchkal/NPS-ActiveSpace.git"` (on macOS/Linux, complete the GDAL steps above first). Config files go in the installed package's `config/` directory — find it with `python -c "import nps_active_space, os; print(os.path.join(nps_active_space.ACTIVE_SPACE_DIR, 'config'))"`. Run scripts using `python -m ...` from outside the repo so Python uses the installed package, not a local checkout.
 
 ---
 
