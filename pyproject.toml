@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "NPS-ActiveSpace"
 version = "3.0"
 description = "NPS software tooling for acoustic modeling of active spaces"
-requires-python = ">=3.12"
+requires-python = ">=3.12"  # Windows GDAL wheel below is pinned for cp312 — update its URL when bumping Python
 readme = "README.md"
 license = "CC0-1.0"
 license-files = ["LICENSE.md"]
