@@ -7,7 +7,7 @@ Note that given the additional layers of indirection to run the docker setup, th
 
 **Prerequisites:** [Docker Desktop](https://docs.docker.com/get-started/get-docker/) for running the containerized Wine setup; on Apple Silicon enable Rosetta for amd64 emulation.
 
-## One-time setup
+## One-time setup (or when changing NMSim binaries)
 
 ```bash
 # 1) Stage the NMSim runtime locally (~10 MB; not in git — see vendor/nmsim-runtime/README.md)
@@ -40,6 +40,6 @@ DATA_DRIVE=/Volumes/NPS_ADSB_Data docker/run_activespace.sh ...
 
 Override runtime location: `NMSIM_RUNTIME=/path/to/runtime docker/run_activespace.sh ...`
 
-Use `-e container` with absolute `/work/...` paths in config. Native viz and ground-truthing on the host use `-e DENA_example` (or your own config) and a local venv — see [example_data/README.md](../example_data/README.md).
+Use `-e container` with absolute `/repo/...` paths in config. Native viz and ground-truthing on the host use `-e DENA_example` (or your own config) and a local venv — see [example_data/README.md](../example_data/README.md).
 
 Windows setup is unchanged — see root [README.md](../README.md) Installation.

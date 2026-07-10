@@ -1,0 +1,10 @@
+example_data/
+vendor/nmsim-runtime/*
+!vendor/nmsim-runtime/README.md
+tests/
+legacy_code/
+.git/
+**/__pycache__/
+*.egg-info/
+.venv*/
+.DS_Store

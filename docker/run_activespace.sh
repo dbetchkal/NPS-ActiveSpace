@@ -10,7 +10,7 @@ Usage:
   docker/run_activespace.sh [-h] bash
 
 Mounts:
-  repo          -> /work      (read-write)
+  repo          -> /repo      (read-write)
   NMSim runtime -> /opt/nmsim (read-only)
   DATA_DRIVE    -> /data      (optional, read-only)
 
@@ -43,7 +43,7 @@ if [[ ! -e "$NMSIM_RUNTIME/RND/directories.ini" ]]; then
   exit 1
 fi
 
-mounts=(-v "$REPO:/work" -v "$NMSIM_RUNTIME:/opt/nmsim:ro")
+mounts=(-v "$REPO:/repo" -v "$NMSIM_RUNTIME:/opt/nmsim:ro")
 if [[ -n "${DATA_DRIVE:-}" ]]; then
   if [[ -d "$DATA_DRIVE" ]]; then
     mounts+=(-v "$DATA_DRIVE:/data:ro")
@@ -63,7 +63,7 @@ docker_cmd=(
   -e MPLBACKEND=Agg
   -e MPLCONFIGDIR=/tmp/matplotlib
   "${mounts[@]}"
-  -w /work nps-activespace:linux
+  -w /repo nps-activespace:linux
   bash -c 'exec "$@"' _
   "$@"
 )
@@ -71,7 +71,7 @@ docker_cmd=(
 {
   printf '[run] docker run --rm --platform=linux/amd64 -e PYTHONUNBUFFERED=1 -e MPLBACKEND=Agg -e MPLCONFIGDIR=/tmp/matplotlib'
   for m in "${mounts[@]}"; do printf ' %q' "$m"; done
-  printf ' -w /work nps-activespace:linux bash -c %q _' 'exec "$@"'
+  printf ' -w /repo nps-activespace:linux bash -c %q _' 'exec "$@"'
   for arg in "$@"; do printf ' %q' "$arg"; done
   echo
 } >&2

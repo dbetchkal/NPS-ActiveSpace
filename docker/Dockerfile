@@ -32,8 +32,9 @@ RUN python3 -m venv "$VENV"
 ENV PATH="$VENV/bin:$PATH"
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-WORKDIR /work
-COPY pyproject.toml README.md LICENSE.md nps_active_space/ ./
+WORKDIR /repo
+COPY pyproject.toml README.md LICENSE.md ./
+COPY nps_active_space/ ./nps_active_space/
 RUN pip install --no-cache-dir "GDAL==$(gdal-config --version)" \
  && pip install --no-cache-dir -e .
 
@@ -53,7 +54,7 @@ ENV HOME=/home/wineuser \
     WINEDEBUG=-all \
     WINEDLLOVERRIDES="mscoree,mshtml=" \
     NMSIM_HOME=/opt/nmsim \
-    PYTHONPATH=/work
+    PYTHONPATH=/repo
 
 # Initialize the Wine prefix at build time so first run is fast (no install prompts).
 RUN wineboot --init && wineserver -w || true
