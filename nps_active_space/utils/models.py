@@ -11,7 +11,6 @@ import re
 import os
 import csv
 import json
-import matplotlib.pyplot as plt
 from warnings import warn
 from dataclasses import dataclass, field
 from typing import List, Optional, Union
@@ -22,6 +21,7 @@ from shapely.geometry import Point, box
 import numpy as np
 import pandas as pd
 from .computation import contiguous_regions
+
 pd.options.mode.copy_on_write = True
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -829,6 +829,8 @@ class Adsb(gpd.GeoDataFrame):
                     polys.append(cell)
         
         if visualize:
+            import matplotlib.pyplot as plt
+
             fig, ax = plt.subplots(figsize=(8,8))
             grid_gdf = gpd.GeoDataFrame(geometry=polys, crs=region.crs)
             region.plot(ax=ax, color='lightblue', edgecolor='blue', label='Original Geometry')

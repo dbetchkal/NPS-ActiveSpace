@@ -4,22 +4,19 @@ import os
 from pathlib import Path
 from typing import List, Optional, TYPE_CHECKING, Union
 import pandas as pd
-import matplotlib.pyplot as plt
 
 import geopandas as gpd
 import numpy as np
+import re
 import sqlalchemy
 from sqlalchemy import text
 from sqlalchemy.engine import URL
-from tqdm import tqdm
-import re
 import rasterio
 import rasterio.plot
 from pyproj import Transformer
 from shapely.geometry import box
 
 from nps_active_space import ACTIVE_SPACE_DIR
-from nps_active_space.active_space import LayeredActiveSpace
 from nps_active_space.utils.models import Adsb, EarlyAdsb, Microphone, Annotations
 from nps_active_space.setup.site_decoder import decode_sit_geographic_coords, read_sit_file
 from nps_active_space.setup.site_writer import (
@@ -29,6 +26,7 @@ from nps_active_space.setup.site_writer import (
 )
 from nps_active_space.utils.computation import NMSIM_bbox_utm
 from nps_active_space.utils import paths as p
+from tqdm import tqdm
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
@@ -72,6 +70,8 @@ def omni_to_gain(omni_source: str) -> float:
 
 
 def load_layered_activespace(project_dir, unit, site, year, gain=None, crs="epsg:4326"):
+    from nps_active_space.active_space import LayeredActiveSpace
+
     layer_dirs = {}
     for dir in p.activespace_layer_dirs(project_dir, unit, site, year):
         altitude = int(os.path.basename(dir).split("_")[1].split("m")[0])
@@ -570,6 +570,8 @@ def estimate_line_count(filename, sample_size=1024 * 1024):
 
 def plot_activespace_fit(project_dir, unit, site, year, gain, altitude_m=None,
                          ax=None, dem=None, mic=None, active=None, annotations=None):
+    import matplotlib.pyplot as plt
+
     if ax is None:
         fig, ax = plt.subplots()
 
