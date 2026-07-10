@@ -1,20 +1,33 @@
 #!/usr/bin/env bash
-# Stage a minimal NMSim runtime into vendor/nmsim-runtime/ for Docker+Wine runs.
-#
-# Usage:
-#   docker/stage_nmsim_runtime.sh /path/to/NMSim-install
-#   NMSIM_SOURCE=/Volumes/NPS_ADSB_Data/.../binaries/NMSim docker/stage_nmsim_runtime.sh
-#
-# Copies: Nord2000batch.exe, *.dll, RND/ (required). Does not copy example cases.
 set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Stage a minimal NMSim runtime into vendor/nmsim-runtime/ for Docker+Wine runs.
+
+Usage:
+  docker/stage_nmsim_runtime.sh [-h] /path/to/NMSim-install
+  NMSIM_SOURCE=/path/to/NMSim docker/stage_nmsim_runtime.sh
+
+Environment:
+  NMSIM_SOURCE    source install dir (alternative to positional arg)
+  NMSIM_RUNTIME   destination (default: ./vendor/nmsim-runtime)
+
+Copies Nord2000batch.exe, *.dll, and RND/ (not example cases).
+EOF
+}
+
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+esac
+
 cd "$(dirname "$0")/.."
 REPO="$(pwd)"
 DEST="${NMSIM_RUNTIME:-$REPO/vendor/nmsim-runtime}"
 SRC="${1:-${NMSIM_SOURCE:-}}"
 
 if [[ -z "$SRC" ]]; then
-  echo "Usage: $0 /path/to/NMSim-install" >&2
-  echo "  or set NMSIM_SOURCE=/path/to/NMSim-install" >&2
+  usage >&2
   exit 1
 fi
 if [[ ! -e "$SRC/Nord2000batch.exe" ]]; then
