@@ -9,13 +9,12 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import rasterio
 import os
+import rasterio
 from osgeo import gdal
 from scipy import interpolate
 from scipy.spatial import KDTree
 from shapely.geometry import Point
-from KDEpy import FFTKDE
 
 if TYPE_CHECKING:
     from nps_active_space.utils.models import Microphone, Nvspl, Tracks
@@ -753,6 +752,8 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
     points: gpd.GeoDataFrame
         Copy of the input points with some points removed.
     """
+    from KDEpy import FFTKDE
+
     # convert to UTM because we are doing distance-based processing
     orig_crs = points.crs  # remember this so we can project back later
     crs = NMSIM_bbox_utm(study_area)
