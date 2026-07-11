@@ -25,13 +25,15 @@ dependencies = [
     "geopandas>=1.1.1",
     "geopy>=2.4.1",
     "iyore @ git+https://github.com/nationalparkservice/iyore.git@b3b1e3fd025a392bf63bf6c4a8a4eebb887291ec",
-    "KDEpy>=1.1.12",
+    # Pinned: scipy>=1.17 hangs importing scipy.signal under Docker linux/amd64 on Apple
+    # Silicon (QEMU/Rosetta), which blocks KDEpy FFTKDE in normalize_point_density().
+    "KDEpy==1.1.12",
     "matplotlib>=3.10.3",
-    "numpy>=2.3.1",
+    "numpy==2.3.1",
     "pandas>=2.2,<3",
     "pillow>=11.3.0",
     "pyvista>=0.46.3",
-    "scipy>=1.16.0",
+    "scipy==1.16.0",
     "shapely>=2.1.1",
     "SQLAlchemy>=2.0.41",
     "timezonefinder>=8.2.4",
