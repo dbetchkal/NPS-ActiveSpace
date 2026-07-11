@@ -27,6 +27,10 @@ vendor/nmsim-runtime/*
 !vendor/nmsim-runtime/README.md
 !vendor/nmsim-runtime/.gitkeep
 
+# AAM runtime (not redistributable — see docker/README.md)
+vendor/aam-runtime/*
+!vendor/aam-runtime/.gitkeep
+
 # Generated Index
 example_data/ADS-B/healy_repeater/index.txt
 example_data/faa/MASTER_index.json
