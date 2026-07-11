@@ -1,26 +1,28 @@
-# Mac / Linux: Docker + Wine for NMSim
+# Mac / Linux: Docker + Wine for acoustic models
 
-NMSim is Windows-only. On Mac/Linux, we can run the full pipeline inside a container that
-includes Python 3.12 + GDAL and executes the `Nord2000batch.exe` Windows binary through Wine.
+NMSim (and optionally AAM) are Windows-only. On Mac/Linux, we run inside a container with
+Python 3.12 + GDAL and execute the Windows binaries through Wine.
 
 Note that given the additional layers of indirection to run the docker setup, there may be performance slowdowns vs. running natively on Windows.
 
 **Prerequisites:** [Docker Desktop](https://docs.docker.com/get-started/get-docker/) for running the containerized Wine setup; on Apple Silicon enable Rosetta for amd64 emulation.
 
-## One-time setup (or when changing NMSim binaries)
+## One-time setup
 
 ```bash
-# 1) Stage the NMSim runtime locally (~10 MB; not in git — see vendor/nmsim-runtime/README.md)
+# NMSim runtime (~10 MB; not in git — populate vendor/nmsim-runtime/)
 docker/stage_nmsim_runtime.sh /path/to/NMSim-install
 
-# 2) Build the image (~13 min first time; installs deps from pyproject.toml)
+# Build the image (~13 min first time; installs deps from pyproject.toml)
 docker/build.sh
 
-# 3) Config (if not already present)
+# Config (if not already present)
 cp nps_active_space/config/container_example.config nps_active_space/config/container.config
 ```
 
-## Run
+NMSim and AAM binaries are **not redistributable** (NPS internal). Do not commit them to a public repo.
+
+## Run (NMSim — default)
 
 ```bash
 # Smoke test (DENATRLA example data, no annotations required)
@@ -43,3 +45,27 @@ Override runtime location: `NMSIM_RUNTIME=/path/to/runtime docker/run_activespac
 Use `-e container` with absolute `/repo/...` paths in config. Native viz and ground-truthing on the host use `-e DENA_example` (or your own config) and a local venv — see [example_data/README.md](../example_data/README.md).
 
 Windows setup is unchanged — see root [README.md](../README.md) Installation.
+
+## AAM smoke test (not wired into pipeline)
+
+AAM runtime lives in `vendor/aam-runtime/` (gitignored). Stage from a directory that
+includes `AAM_3.0.0.exe`, `NCfiles/`, and `noisecon.inp` (e.g. experiments
+`runs/aam_noisecon/` or the vendor install):
+
+```bash
+docker/stage_aam_runtime.sh /path/to/AAM_v3_dec2020
+# or: docker/stage_aam_runtime.sh ~/dev/nmsim-aam-experiments/runs/aam_noisecon
+
+docker/run_activespace.sh -m aam docker/validate_aam_smoke.py
+```
+
+Model selection is a **CLI flag** on `run_activespace.sh` (`-m nmsim|aam`), not a separate
+config file — the pipeline still uses `container.config` with `project.nmsim` only.
+
+| | NMSim (default) | AAM |
+|-|-------|-----|
+| Select | `docker/run_activespace.sh ...` | `docker/run_activespace.sh -m aam ...` |
+| Staging | `docker/stage_nmsim_runtime.sh` | `docker/stage_aam_runtime.sh` |
+| Local dir | `vendor/nmsim-runtime/` | `vendor/aam-runtime/` |
+| Mount | `/opt/nmsim` | `/opt/aam` |
+| Shim | `/usr/local/bin/nord2000` | `/usr/local/bin/aam` |

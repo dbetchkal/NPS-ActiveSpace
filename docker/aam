@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Wine shim for AAM (Advanced Acoustic Model).
+#
+# Unlike NMSim, AAM resolves inputs and outputs relative to the CALLER'S cwd.
+# Do NOT cd to AAM_HOME. The noise database is located via env vars pointing at
+# NCfiles/ (Wine path with a trailing backslash).
+#
+# This shim is intentionally agnostic to how .inp files are produced (hand-written,
+# AAM_inp, compare/scenario.py, etc.) — it only launches the Windows binary.
+set -euo pipefail
+
+AAM_HOME="${AAM_HOME:-/opt/aam}"
+AAM_EXE="${AAM_EXE:-AAM_3.0.0.exe}"
+NC_ROOT="${AAM_NC:-$AAM_HOME/NCfiles}"
+
+if [[ ! -f "$AAM_HOME/$AAM_EXE" ]]; then
+  echo "[aam] ERROR: $AAM_HOME/$AAM_EXE not found" >&2
+  exit 1
+fi
+if [[ ! -d "$NC_ROOT" ]]; then
+  echo "[aam] ERROR: NCfiles not found at $NC_ROOT" >&2
+  exit 1
+fi
+
+NC="$(winepath -w "$NC_ROOT")\\"
+export ROTOR_NOISE="$NC" FWING_NOISE="$NC" QUARRY_NOISE="$NC"
+exec wine "$AAM_HOME/$AAM_EXE" "$@"

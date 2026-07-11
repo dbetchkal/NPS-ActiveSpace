@@ -1,12 +1,12 @@
-# NPS-ActiveSpace on Linux/Mac: Debian + Wine (for the Windows NMSim binary) +
+# NPS-ActiveSpace on Linux/Mac: Debian + Wine (for Windows acoustic-model binaries) +
 # Python geospatial stack (GDAL/rasterio/geopandas/...).
 #
 # Built for linux/amd64; on Apple Silicon it runs under Docker Desktop's Rosetta
 # emulation. Linux Wine has real 32-bit (i386) support, which the 32-bit
 # Nord2000batch.exe (NMSim) needs.
 #
-# The NMSim runtime (Nord2000batch.exe + DLLs + RND/ + Sources/) is NOT baked in;
-# it is bind-mounted at /opt/nmsim at run time (see docker/run_activespace.sh).
+# Acoustic-model runtimes (NMSim, AAM) are NOT baked in; they are bind-mounted at
+# run time (see docker/run_activespace.sh and ACOUSTIC_MODEL).
 #
 # The current version of NPS ActiveSpace targets Python 3.12.
 # This Dockerfile should be updated if we move to a newer version of Python
@@ -38,9 +38,10 @@ COPY nps_active_space/ ./nps_active_space/
 RUN pip install --no-cache-dir "GDAL==$(gdal-config --version)" \
  && pip install --no-cache-dir -e .
 
-# ---- Wine shim so `project.nmsim` can be a plain command that calls the .exe ----
+# ---- Wine shims (binaries are bind-mounted at run time) ----
 COPY docker/nord2000 /usr/local/bin/nord2000
-RUN chmod +x /usr/local/bin/nord2000
+COPY docker/aam /usr/local/bin/aam
+RUN chmod +x /usr/local/bin/nord2000 /usr/local/bin/aam
 
 # ---- Non-root user (Wine dislikes running as root) ----
 # Mono is part of Wine used for running .NET applications.
@@ -54,6 +55,7 @@ ENV HOME=/home/wineuser \
     WINEDEBUG=-all \
     WINEDLLOVERRIDES="mscoree,mshtml=" \
     NMSIM_HOME=/opt/nmsim \
+    AAM_HOME=/opt/aam \
     PYTHONPATH=/repo
 
 # Initialize the Wine prefix at build time so first run is fast (no install prompts).

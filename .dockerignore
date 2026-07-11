@@ -1,6 +1,7 @@
 example_data/
 vendor/nmsim-runtime/*
 !vendor/nmsim-runtime/README.md
+vendor/aam-runtime/*
 tests/
 legacy_code/
 .git/
