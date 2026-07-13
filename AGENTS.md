@@ -1,6 +1,6 @@
 # NPS-ActiveSpace — Code conventions for humans and LLM agents
 
-NPS-ActiveSpace is a scientific Python package for modeling geographic extent of audibility from a given point using sound pressure level and causal data. It also includes related library functionality and visualization capabilities.
+NPS-ActiveSpace is a scientific Python package for modeling the geographic extent of audibility from a given point using sound pressure level and causal data. It also includes related library functionality and visualization capabilities.
 
 See [README.md](README.md) for detailed background and installation instructions. 
 
