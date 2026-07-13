@@ -430,5 +430,5 @@ def correct_clock_drift(tracks: Tracks, clock_drift_file: str, inplace: bool=Tru
         return tracks
     else:
         track_copy = tracks.copy()
-        track_copy["point_dt"] = correct_clock_drift
+        track_copy["point_dt"] = correct_point_dt
         return track_copy
