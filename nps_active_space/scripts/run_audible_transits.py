@@ -1,6 +1,5 @@
 import os
 import copy
-import sqlalchemy
 from scipy.ndimage import median_filter
 import pickle
 import pandas as pd

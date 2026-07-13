@@ -4,7 +4,7 @@ import multiprocessing as mp
 import os
 import subprocess
 from functools import partial
-from typing import Iterable, List, Optional, Tuple, Union
+from typing import Optional, Tuple, Union
 from uuid import uuid4
 
 import geopandas as gpd
@@ -15,7 +15,7 @@ import pandas as pd
 from osgeo import gdal
 from pyproj import Transformer
 import rasterio
-from shapely.geometry import Point, Polygon, box
+from shapely.geometry import Polygon, box
 from shapely.validation import make_valid
 from tqdm import tqdm
 from warnings import warn
