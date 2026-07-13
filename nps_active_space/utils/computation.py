@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import datetime as dt
 import logging
 import math
-from typing import Iterable, List, Optional, Tuple, TYPE_CHECKING
+from typing import Iterable, TYPE_CHECKING
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -219,7 +221,7 @@ def audible_time_delay(points: gpd.GeoDataFrame, time_col: str, target: Point,
     return points
 
 
-def expected_Lp(points: gpd.GeoDataFrame, target: Point, Lw: float = 140, atm_abs: float = -0.002, new_col_name: str = "Lp_est"):
+def expected_Lp(points: gpd.GeoDataFrame, target: Point, Lw: float = 140, atm_abs: float = -0.002, new_col_name: str = "Lp_est") -> gpd.GeoDataFrame:
     """Get expected Lp values for a set of points and a target observer location, using a crude acoustic propagation model.
     
     **IMPORTANT**: The points GeoDataFrame and the target Point should be in the same crs for accurate calculations.
@@ -248,7 +250,7 @@ def expected_Lp(points: gpd.GeoDataFrame, target: Point, Lw: float = 140, atm_ab
     return points
 
 
-def round_points(points: gpd.GeoDataFrame, precision: int):
+def round_points(points: gpd.GeoDataFrame, precision: int) -> None:
     """Rounds the coordinates of a GeoDataFrame of points to a certain precision, in place."""
     x = points.geometry.x.round(precision)
     y = points.geometry.y.round(precision)
@@ -258,7 +260,7 @@ def round_points(points: gpd.GeoDataFrame, precision: int):
     else:
         points.geometry = gpd.points_from_xy(x, y)
 
-def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Optional[int] = None) -> gpd.GeoDataFrame:
+def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: int | None = None) -> gpd.GeoDataFrame:
     """
     Given a polygon and a density, create a square mesh of evenly spaced points throughout the polygon.
 
@@ -294,7 +296,7 @@ def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: Op
 
 
 def create_overlapping_mesh(area: gpd.GeoDataFrame, spacing: int = 1,
-                            mesh_size: int = 25) -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+                            mesh_size: int = 25) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
     """
     Create a mesh of polygons as close to size mesh_size x mesh_size as possible over a specific area.
 
@@ -336,7 +338,7 @@ def create_overlapping_mesh(area: gpd.GeoDataFrame, spacing: int = 1,
     return mesh.to_crs(area.crs), mesh_points.to_crs(area.crs)
 
 
-def project_raster(input_raster: str, output_raster: str, crs: str):
+def project_raster(input_raster: str, output_raster: str, crs: str) -> None:
     """
     Project a raster to a new crs
 
@@ -377,7 +379,7 @@ def ambience_from_raster(ambience_src: str, mic: 'Microphone') -> float:
 
 
 def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50,
-                        low_hz: float = "12.5", high_hz: float = "20000", broadband: bool = False):
+                        low_hz: float = "12.5", high_hz: float = "20000", broadband: bool = False) -> float | pd.Series:
     """
 
     Parameters
@@ -410,7 +412,7 @@ def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50,
 
 
 def compute_fbeta(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame,
-                  beta: float = 1.0) -> Tuple[float, float, float, int]:
+                  beta: float = 1.0) -> tuple[float, float, float, int]:
     """
     Given a set of annotated points and an active space geometry, compute accuracy metrics such as F1 score, precision,
     and recall.
@@ -469,7 +471,7 @@ def compute_fbeta(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame
     return fbeta, precision, recall, n_tot
 
 
-def contiguous_regions(condition):
+def contiguous_regions(condition: np.ndarray) -> np.ndarray:
 
     """
     Finds contiguous True regions of an input boolean array. 
@@ -510,7 +512,7 @@ def contiguous_regions(condition):
     return idx
 
 
-def audibility_to_interval(aud, invert=False):
+def audibility_to_interval(aud: np.ndarray, invert: bool = False) -> tuple[np.ndarray, np.ndarray]:
 
     '''
     Given an audibility time series in 1-D binary format (e.g., detection/non-detection sequence)
@@ -581,7 +583,7 @@ def audibility_to_interval(aud, invert=False):
     return noise_intervals, noise_free_intervals
 
 
-def calculate_duration_summary(noise_intervals):
+def calculate_duration_summary(noise_intervals: np.ndarray) -> tuple[np.ndarray, float, float, float, float]:
 
     '''
     Compute durations from interval-based noise event data. 
@@ -626,8 +628,8 @@ def calculate_duration_summary(noise_intervals):
 
 
 def select_optimal(unit: str, site: str, year: int,
-                   valid_points, active_space_polygons: list, beta_=1.0,
-                   verbose=True, plot=True, plot_savepath=None):
+                   valid_points: gpd.GeoDataFrame, active_space_polygons: list, beta_: float = 1.0,
+                   verbose: bool = True, plot: bool = True, plot_savepath: str | None = None) -> tuple[str | None, float, float, float, pd.DataFrame]:
     """
     From a ground-truthed causal dataset and a set of active space polygons, 
     select the optimal geospatial prediction of observed audibility.
@@ -727,7 +729,7 @@ def select_optimal(unit: str, site: str, year: int,
     return best_omni, max_fbeta, best_precision, best_recall, detection_results
 
 
-def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFrame, bandwidth: float=100.0, cellsize: float=100.0, random_seed=None, visualize=False):
+def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFrame, bandwidth: float = 100.0, cellsize: float = 100.0, random_seed: int | None = None, visualize: bool = False) -> gpd.GeoDataFrame:
     """
     Drop points from a dataframe that are in very dense areas, to normalize the point density.
     This uses kernel density estimation to get a density for each point, specifically FFTKDE from KDEpy,
@@ -824,7 +826,7 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
     return points
 
 
-def barometric_pressure(h):
+def barometric_pressure(h: float) -> float:
     """
     An implementation of the "first" barometric formula https://en.wikipedia.org/wiki/Barometric_formula#Derivation
      which predicts Earth's atmospheric pressure at altitude.
@@ -856,7 +858,7 @@ def barometric_pressure(h):
     return patm
 
 
-def atmospheric_absorption(frequency, atm_pressure, air_temp_celsius=25., percent_relative_humidity=75.):
+def atmospheric_absorption(frequency: float | np.ndarray, atm_pressure: float, air_temp_celsius: float = 25., percent_relative_humidity: float = 75.) -> float | np.ndarray:
     """Calculate atmospheric acoustic absorption coefficient, in dB/m
     
     Parameters
