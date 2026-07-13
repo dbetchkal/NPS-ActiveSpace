@@ -142,7 +142,7 @@ class ActiveSpaceGenerator:
         study_area_filename_prefix = f"{self.root_dir}/Input_Data/01_ELEVATION/study_area{suffix}_{uuid4()}"
         study_area_filename = f"{study_area_filename_prefix}.shp"
         if buffer:
-            equal_area_crs = coords_to_utm(study_area.centroid.iat[0].y, study_area.centroid.iat[0].x)
+            equal_area_crs,_ = coords_to_utm(study_area.centroid.iat[0].y, study_area.centroid.iat[0].x)
             study_area_m = study_area.to_crs(equal_area_crs)
             study_area_m = study_area_m.buffer(buffer*1000)
             study_area = study_area_m.to_crs(study_area.crs)
