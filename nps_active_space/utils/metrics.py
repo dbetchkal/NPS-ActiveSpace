@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from collections.abc import Iterator
+import logging
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -14,6 +18,8 @@ import os
 from nps_active_space.utils.computation import contiguous_regions
 from nps_active_space.utils.models import Srcid
 import iyore
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     'clip_events_to_time_period',
@@ -34,7 +40,7 @@ __all__ = [
 
 # SHARED - ACOUSTIC AND GEOGRAPHIC ---------------------------------------
 
-def get_obs_periods(unit, site, year, nvspl_archive, adsb_dir=None):
+def get_obs_periods(unit: str, site: str, year: str, nvspl_archive: str, adsb_dir: str | None = None) -> np.ndarray:
     """
     Get periods of time in which we have overlapping acoustic and causal observations.
     A full day with no SPLAT annotations is considered acoustic data missing.
@@ -70,7 +76,7 @@ def get_obs_periods(unit, site, year, nvspl_archive, adsb_dir=None):
         src_obj = Srcid(paths[0])
         src_obs_periods = src_obj.get_observation_periods()
     else:
-        print("No SPLAT annotation data")
+        logger.info("No SPLAT annotation data")
         src_obs_periods = None
 
     # load ADSB record periods if applicable
@@ -127,7 +133,7 @@ def get_obs_periods(unit, site, year, nvspl_archive, adsb_dir=None):
         return np.datetime_as_string(obs_periods, unit="D")
 
 
-def clip_events_to_time_period(df, start_col, end_col, start_dt, end_dt, months=None):
+def clip_events_to_time_period(df: pd.DataFrame, start_col: str, end_col: str, start_dt: np.datetime64, end_dt: np.datetime64, months: list[int] | None = None) -> pd.DataFrame:
     """Clips events to only fall within a time period and within ceratin months.
     Events that partially overlap the time period boundaries are shortened to only include the section within the time period.
     
@@ -164,7 +170,7 @@ def clip_events_to_time_period(df, start_col, end_col, start_dt, end_dt, months=
     return df
 
 
-def get_noise_events(df, start_col, end_col, start_date, end_date, min_dur=10, min_gap_dur=30):
+def get_noise_events(df: pd.DataFrame, start_col: str, end_col: str, start_date: str, end_date: str, min_dur: int = 10, min_gap_dur: int = 30) -> tuple[pd.DataFrame, pd.DataFrame, float]:
     """
     Converts a set of events that might overlap into a sequence of non-overlapping events,
     separated by a minimum separation duration. Also filters out short events.
@@ -256,7 +262,7 @@ def get_noise_events(df, start_col, end_col, start_date, end_date, min_dur=10, m
     event_start_times = entry_times_cp[~short_events]
     event_end_times = exit_times_cp[~short_events]
     if short_events.sum() > 0:
-        print(f"Filtered out {short_events.sum()} events shorter than {min_dur} seconds")
+        logger.info(f"Filtered out {short_events.sum()} events shorter than {min_dur} seconds")
     
     # Account for event-less time at beginning and end of timeframe in question
     # This is needed for the inaudible_begins and inaudible_ends indices to match up properly so we can subtract to compute durations.
@@ -285,7 +291,7 @@ def get_noise_events(df, start_col, end_col, start_date, end_date, min_dur=10, m
     return event_df, NFI_df, TA
 
 
-def _split_events(df, freq):
+def _split_events(df: pd.DataFrame, freq: str) -> pd.DataFrame:
     """Split events that span hour/day/etc boundaries into consecutive events.
     
     Parameters
@@ -321,7 +327,7 @@ def _split_events(df, freq):
     return pd.DataFrame(split_rows)
 
 
-def _time_binned_df(event_df, start_dt, end_dt, months, freq):
+def _time_binned_df(event_df: pd.DataFrame, start_dt: np.datetime64, end_dt: np.datetime64, months: list[int], freq: str) -> pd.DataFrame:
     """Calculates time audible and event count for each time chunk (e.g. hourly) in a given time period.
     
     Parameters
@@ -371,7 +377,7 @@ def _time_binned_df(event_df, start_dt, end_dt, months, freq):
     return periods_df
 
 
-def _agg_conf_intervals(series: pd.Series, agg_funcs: list):
+def _agg_conf_intervals(series: pd.Series, agg_funcs: list) -> pd.Series:
     out = {}
     for f in agg_funcs:
         try:
@@ -379,7 +385,7 @@ def _agg_conf_intervals(series: pd.Series, agg_funcs: list):
                                     confidence_level=0.95, n_resamples=1000, method="percentile")
             out[f.__name__] = result.confidence_interval
         except Exception as e:
-            print(f"Error with function {f.__name__}: {e}")
+            logger.error(f"Error with function {f.__name__}: {e}")
             out[f.__name__] = (pd.NA, pd.NA)
     return pd.Series(out)
 
@@ -387,17 +393,17 @@ def _agg_conf_intervals(series: pd.Series, agg_funcs: list):
 # nice trick for aggregating quantiles cleanly, inspired from here:
 # https://skeptric.com/pandas-aggregate-quantile/
 class Quantile:
-    def __init__(self, q):
+    def __init__(self, q: float) -> None:
         self.q = q
         self.__name__ = f"{int(100*q)}% quantile"
-    
-    def __call__(self, series: pd.Series):
+
+    def __call__(self, series: pd.Series) -> float:
         return series.quantile(self.q)
 
 
 # GEOGRAPHIC --------------------------------------------------------------
 
-def get_all_geo_stats(tracks, periods, months=None, quantiles=.5):
+def get_all_geo_stats(tracks: gpd.GeoDataFrame, periods: np.ndarray, months: list[int] | None = None, quantiles: float | list[float] = .5) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Calculates all event statistics, given tracks from the Audible Transits module.
 
     Parameters
@@ -439,7 +445,7 @@ def get_all_geo_stats(tracks, periods, months=None, quantiles=.5):
     # Make sure months are between 1 and 12
     for month in months:
         if (month < 1) | (month > 12):
-            print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
+            logger.warning("Invalid months. Must be a list of integers from 1-12. Ignoring months parameter.")
             months=list(range(1,13))
     
     # get events and NFIs for the whole study time
@@ -496,7 +502,7 @@ def get_all_geo_stats(tracks, periods, months=None, quantiles=.5):
     return pd.DataFrame(statistics), pd.DataFrame(conf_intervals), values    
 
 
-def calculate_spatial_stats(tracks, active):
+def calculate_spatial_stats(tracks: gpd.GeoDataFrame, active: gpd.GeoDataFrame) -> pd.DataFrame:
     '''
     Calculates spatial statistics on audible transits through a given active space. 
     On an event-wise basis, the displacement distance that could render the track inaudible:
@@ -542,7 +548,7 @@ def calculate_spatial_stats(tracks, active):
 
 # ACOUSTIC ----------------------------------------------------------------
 
-def clip_srcid_to_time_period(src_data, start_dt, end_dt, months=None):
+def clip_srcid_to_time_period(src_data: pd.DataFrame, start_dt: np.datetime64, end_dt: np.datetime64, months: list[int] | None = None) -> pd.DataFrame:
     """A wrapper function around `clip_events_to_time_period` to clip SRCID data.
     Requires src_data to have fields "start_time" and "end_time"
     """
@@ -566,7 +572,7 @@ def clip_srcid_to_time_period(src_data, start_dt, end_dt, months=None):
     return src_clipped
 
 
-def get_all_srcid_stats(src_data, periods, months=None, quantiles=.5, src_list=None):
+def get_all_srcid_stats(src_data: pd.DataFrame, periods: np.ndarray, months: list[int] | None = None, quantiles: float | list[float] = .5, src_list: list[float] | None = None) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Calculates all event statistics, given a set of events and corresponding noise free intervals (NFIs).
     
     Parameters
@@ -615,8 +621,8 @@ def get_all_srcid_stats(src_data, periods, months=None, quantiles=.5, src_list=N
     # Make sure months are between 1 and 12
     for month in months:
         if (month < 1) | (month > 12):
-            print("Warning: Invalid months. Must be a list of integers from 1-12. Ignoring months parameter...")
-            months = list(range(1, 13))
+            logger.warning("Invalid months. Must be a list of integers from 1-12. Ignoring months parameter.")
+            months=list(range(1,13))
 
     # add start and end time fields
     src_data = src_data.copy()
@@ -691,7 +697,7 @@ def get_all_srcid_stats(src_data, periods, months=None, quantiles=.5, src_list=N
 
 ## ========================================== VISUALIZATION =============================================== ##
 
-def _split_interval_by_hour(start, end):
+def _split_interval_by_hour(start: pd.Timestamp, end: pd.Timestamp) -> Iterator[tuple[pd.Timestamp, pd.Timestamp]]:
     """Yield (segment_start, segment_end) tuples split at each hour boundary."""
     while start < end:
         next_hour = (start + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
@@ -700,7 +706,7 @@ def _split_interval_by_hour(start, end):
         start = segment_end
         
 
-def plot_events(start_times, end_times, title="Events", colors=None, labels=False, savepath=None):
+def plot_events(start_times: pd.Series, end_times: pd.Series, title: str = "Events", colors: list | None = None, labels: bool = False, savepath: str | None = None) -> None:
     """Plot events on a timeline that wraps around at each hour.
     
     Parameters
@@ -762,7 +768,7 @@ def plot_events(start_times, end_times, title="Events", colors=None, labels=Fals
 
 ## ========================================== STEREOTYPICAL TRACKS ======================================== ##
 
-def circular_sliding_avg(vector, window_len):
+def circular_sliding_avg(vector: np.ndarray, window_len: int) -> np.ndarray:
     '''
     Smooth circular data by calculating sliding averages on a circular array. 
     Used to create an integrated map of entry/exit points around the boundary of an active space.
@@ -789,7 +795,7 @@ def circular_sliding_avg(vector, window_len):
     return smoothed
 
 
-def find_circular_peaks(column, distance_delta, peak_distance):
+def find_circular_peaks(column: pd.Series, distance_delta: int, peak_distance: int) -> np.ndarray:
     '''
     A specific adaptation of SciPy.Signal's 'find_peaks' algorithm for use on an active space polygon.
     Critical to implementation is the ability to wrap the input array. In this case, we use a minimum-distance
@@ -832,7 +838,7 @@ def find_circular_peaks(column, distance_delta, peak_distance):
     return sorted_peak_indices
 
 
-def endpoints_around_active(active, tracks, distance_delta, peak_distance, endpoint_type):
+def endpoints_around_active(active: gpd.GeoDataFrame, tracks: gpd.GeoDataFrame, distance_delta: int, peak_distance: int, endpoint_type: str) -> tuple[gpd.GeoDataFrame, np.ndarray]:
     '''
     Function to calculate the position of the most frequent entry and exit points through an active space.
     (e.g., transportation fluxes along the polygon). A sliding average is applied to spatially smooth
@@ -891,13 +897,13 @@ def endpoints_around_active(active, tracks, distance_delta, peak_distance, endpo
     elif endpoint_type == 'exit':
         peak_indices = find_circular_peaks(active_gdf.exits, distance_delta, peak_distance)
     else:
-        print("error: endpoint_type must be 'entry' or 'exit'")
+        logger.error("endpoint_type must be 'entry' or 'exit'")
         return 0
                                             
     return active_gdf, peak_indices
 
 
-def identify_stereotypical_tracks(active, tracks, distance_delta=100, peak_distance=1000):
+def identify_stereotypical_tracks(active: gpd.GeoDataFrame, tracks: gpd.GeoDataFrame, distance_delta: int = 100, peak_distance: int = 1000) -> gpd.GeoDataFrame:
     '''
     Function to identify stereotypical tracks across an active space. 
     Picks out specific paths that closely resemble the most tracks.
@@ -922,8 +928,8 @@ def identify_stereotypical_tracks(active, tracks, distance_delta=100, peak_dista
     peak_indices : numpy array of ints
         Array containing the indices of the peaks, sorted by descending peak height.
     '''
-    print("Identifying stereotypical tracks...")
-    print(" - finding common entries and exits")
+    logger.info("Identifying stereotypical tracks...")
+    logger.info("Finding common entries and exits")
     
     # Identify common entry points and generate segmented active space boundary
     active_gdf, peak_entry_indices = endpoints_around_active(active, tracks, distance_delta, peak_distance, endpoint_type='entry')
@@ -955,7 +961,7 @@ def identify_stereotypical_tracks(active, tracks, distance_delta=100, peak_dista
         common_endpoints_gdf = common_endpoints_gdf[common_endpoints_gdf.transit_length > 2000]
     common_endpoints_gdf = common_endpoints_gdf.sort_values(by='number_of_corresponding_tracks', ascending=False)
 
-    print(f" - of {len(common_endpoints_gdf)}, identifying possible stereotypical tracks")
+    logger.info(f"Of {len(common_endpoints_gdf)} candidates, identifying possible stereotypical tracks")
     
     all_tracks = tracks.copy()
     stereotype_locs = []   # list to store gdf indices of stereotypical tracks
@@ -977,11 +983,11 @@ def identify_stereotypical_tracks(active, tracks, distance_delta=100, peak_dista
         # Calculate number of tracks that could be bundled up with each possible stereotypical track
         possible_tracks['bundle_count'] = possible_tracks.interp_geometry.apply([lambda track: all_tracks.within(track.buffer(1000)).sum()])
         # The maximum bundle count for each entry/exit pair will be the representative track for a given path
-        print(len(possible_tracks), len(all_tracks))
+        logger.debug(f"Possible tracks: {len(possible_tracks)}, all tracks: {len(all_tracks)}")
         stereotype_locs.append(possible_tracks[possible_tracks.bundle_count == possible_tracks.bundle_count.max()].index[0])
         bundle_count.append(possible_tracks.bundle_count.max())
 
-    print(" - narrowing down results")
+    logger.info("Narrowing down results")
     
     stereotypical_tracks = all_tracks.loc[stereotype_locs]
     stereotypical_tracks['represents_pct'] = np.array(bundle_count)/len(all_tracks) * 100

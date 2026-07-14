@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 import os
 import geopandas as gpd
@@ -7,6 +8,8 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from shapely.geometry import Point
 from nps_active_space.utils.computation import normalize_point_density
+
+logger = logging.getLogger(__name__)
 
 
 class LayeredActiveSpace():
@@ -41,7 +44,7 @@ class LayeredActiveSpace():
         for altitude, dir in self.layer_dirs.items():
             glob_result = glob.glob(os.path.join(dir, f"*_O_{sign}{gain_string}.geojson"))
             if len(glob_result) == 0:
-                print(f"Couldn't find active space for gain {gain} in {dir}")
+                logger.warning(f"Couldn't find active space for gain {gain} in {dir}")
                 return
             activespace_file = glob_result[0]
             activespaces[altitude] = gpd.read_file(activespace_file).to_crs(self.crs)
@@ -81,11 +84,11 @@ class LayeredActiveSpace():
         if points.crs != self.crs:
             points = points.to_crs(self.crs)
         
-        print("Assigning points to their closest layer")
+        logger.info("Assigning points to their closest layer")
         points = self.assign_layers(points)
 
         # Compute precision, recall, and F-Beta for each gain
-        print(f"Computing performance for each gain {min_gain}dB to {max_gain}dB")
+        logger.info(f"Computing performance for each gain {min_gain}dB to {max_gain}dB")
         detection_results = pd.DataFrame([])
         self.fit_pbar = tqdm(np.arange(min_gain, max_gain + 0.5, 0.5), unit=" Gain Values")
         for gain in self.fit_pbar:
@@ -115,7 +118,7 @@ class LayeredActiveSpace():
 
         best_gain = detection_results[f"F{beta}"].idxmax()
         best = detection_results.loc[best_gain]
-        print(f"Best gain: {best_gain}dB, F{beta} = {best[f"F{beta}"]}")
+        logger.info(f"Best gain: {best_gain}dB, F{beta} = {best[f"F{beta}"]}")
 
         self.set_gain(best_gain)
 
