@@ -114,7 +114,8 @@ host = Database host.
 site_metadata = Absolute path to the the file containing site metadata. Value required for all run_ground_truthing.py and generate_active_space.py
 nvspl_archive = Absolute path to the directory where all NVSPL sound data is stored. Value required for all run_ground_truthing.py and generate_active_space.py
 adsb = Absolute path to the directory where ADSB track data is stored.  Value required if pulling ADSB tracks in run_ground_truthing.py or run_audible_transits.py
-dem = Absolute path to the DEM tif file to use for active space generation. Value required for generate_active_space.py and generate_active_space_mesh.py
+dem = Absolute path to the source DEM GeoTIFF for project_setup and active space generation. Required for project_setup.py, generate_active_space.py, and generate_active_space_mesh.py
+dem_elevation_units = Vertical units of the source DEM raster: ``feet`` or ``meters``. Defaults to ``feet``. Used by project_setup.py when clipping/reprojecting elevation to a site location.
 mennitt = Absolute path to the mennitt ambience tif. Value required for generate_active_space.py and generate_active_space_mesh.py
 
 [project]
