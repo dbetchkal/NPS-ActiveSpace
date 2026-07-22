@@ -20,7 +20,12 @@ from shapely.geometry import box
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.active_space import LayeredActiveSpace
 from nps_active_space.utils.models import Adsb, EarlyAdsb, Microphone, Annotations
-from nps_active_space.setup.site import NMSIM_SITES_DIR, deployment_sit_name, parse_sit_coords_line, sit_file_path
+from nps_active_space.setup.site_decoder import decode_sit_geographic_coords, parse_sit_coords_line
+from nps_active_space.setup.site_writer import (
+    NMSIM_SITES_DIR,
+    deployment_sit_name,
+    sit_file_path,
+)
 from nps_active_space.utils.computation import NMSIM_bbox_utm
 
 if TYPE_CHECKING:
@@ -257,8 +262,15 @@ def get_deployment(project_dir: str, unit: str, site: str, year: int, elevation:
     # get lat/lon so we can initialize a Microphone object, need to get crs of the .SIT file first
     study_area = load_studyarea(project_dir, unit, site, year)
     mic_crs = NMSIM_bbox_utm(study_area)
-    proj = Transformer.from_crs(mic_crs, "epsg:4326", always_xy=True)
-    lon, lat = proj.transform(x, y)
+    lon, lat = decode_sit_geographic_coords(
+        x,
+        y,
+        study_area,
+        sit_path=mic_location_path,
+        unit=unit,
+        site=site,
+        year=year,
+    )
 
     # calculate elevation from the DEM if necessary
     if elevation:

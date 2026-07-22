@@ -21,7 +21,7 @@ from tqdm import tqdm
 from warnings import warn
 
 from nps_active_space import ACTIVE_SPACE_DIR
-from nps_active_space.setup.site import create_site_dir, write_listener_site_file
+from nps_active_space.setup.site_writer import create_site_dir, write_listener_site_file
 from nps_active_space.utils.models import Microphone
 from nps_active_space.utils.computation import (
     build_src_point_mesh,

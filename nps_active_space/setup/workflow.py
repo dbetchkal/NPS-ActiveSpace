@@ -22,14 +22,14 @@ from nps_active_space.setup.elevation import (
     create_elevation_tif,
     write_gridfloat,
 )
-from nps_active_space.setup.site import (
+from nps_active_space.setup.site_writer import (
     create_site_dir,
     create_site_file,
     create_study_area,
     deployment_sit_name,
     sit_file_path,
 )
-from nps_active_space.utils.computation import coords_to_utm
+from nps_active_space.utils.computation import NMSIM_bbox_utm, coords_to_utm
 from nps_active_space.utils.enums import SourceElevationUnits
 
 
@@ -105,12 +105,12 @@ def setup_site(
         study_area_ne_corner=studyarea_ne,
     )
 
-    # to create a .sit file, we will eventually need the UTM coordinates of the microphone...
-    utm_epsg, _ = coords_to_utm(lat=mic_coord[1], lon=mic_coord[0])
-    mic_utm = gpd.GeoSeries([Point(mic_coord)], crs="EPSG:4326").to_crs(utm_epsg)
+    # NMSIM references the project to the UTM zone of the study area's western edge; use that same CRS
+    # for both the elevation GridFloat and the microphone coordinates in the .sit file.
+    study_area_nad83 = study_area_wgs84.to_crs(epsg=4269)
+    project_utm = NMSIM_bbox_utm(study_area_nad83)
+    mic_utm = gpd.GeoSeries([Point(mic_coord)], crs="EPSG:4326").to_crs(project_utm)
 
-    # quirk: `NMSIM` expects the elevation input's spatial reference to be the UTM Zone of the westernmost exent
-    #         this is occasionally different than the microphone's UTM Zone in the .sit file
     _, utm_zone_str = coords_to_utm(lat=studyarea_sw[1], lon=studyarea_sw[0])
     output_base = site_dir / "Input_Data" / "01_ELEVATION" / f"elevation_m_nad83_utm{utm_zone_str}"
     output_tif = output_base.with_suffix(".tif")

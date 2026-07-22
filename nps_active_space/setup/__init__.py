@@ -9,14 +9,14 @@ from nps_active_space.setup.elevation import (
     parse_source_elevation_units,
     write_gridfloat,
 )
-from nps_active_space.setup.site import (
+from nps_active_space.setup.site_decoder import parse_sit_coords_line
+from nps_active_space.setup.site_writer import (
     NMSIM_SITE_SUBFOLDERS,
     NMSIM_SITES_DIR,
     create_site_dir,
     create_site_file,
     create_study_area,
     deployment_sit_name,
-    parse_sit_coords_line,
     sit_file_path,
     write_listener_site_file,
     write_site_file,

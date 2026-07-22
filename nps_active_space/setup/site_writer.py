@@ -1,8 +1,7 @@
-"""NMSIM site directory, study area, and .sit file helpers."""
+"""Create NMSIM site directory layout, study area shapefiles, and ``.sit`` listener files."""
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import geopandas as gpd
@@ -29,12 +28,10 @@ NMSIM_SITE_SUBFOLDERS = [
 
 
 def deployment_sit_name(unit: str, site: str, year: int) -> str:
-    """Return the canonical NMSIM ``.sit`` basename (without extension) for a deployment."""
     return f"{unit}{site}{year}"
 
 
 def sit_file_path(site_dir: str | Path, sit_name: str) -> Path:
-    """Return ``{site_dir}/Input_Data/05_SITES/{sit_name}.sit``."""
     return Path(site_dir) / NMSIM_SITES_DIR / f"{sit_name}.sit"
 
 
@@ -168,9 +165,9 @@ def create_site_file(
     year : int
         Four digit deployment year, e.g. 2018.
     easting_m : float
-        UTM easting in meters (microphone's UTM zone).
+        UTM easting in meters (project UTM zone from the study area's western edge).
     northing_m : float
-        UTM northing in meters (microphone's UTM zone).
+        UTM northing in meters (project UTM zone from the study area's western edge).
     height : float
         Microphone height in meters; defaults to ANSI standard, 1.5 meters.
     dem_flt_path : str | Path, optional
@@ -198,9 +195,3 @@ def create_site_file(
         dem_flt_path,
         label=unit + site,
     )
-
-
-def parse_sit_coords_line(line: str) -> tuple[float, float, float]:
-    """Parse easting, northing, and height (m) from a ``.sit`` coordinates line."""
-    coords_str = re.split(r"\s+", line.strip())[0:3]
-    return float(coords_str[0]), float(coords_str[1]), float(coords_str[2])
