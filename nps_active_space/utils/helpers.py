@@ -20,7 +20,7 @@ from shapely.geometry import box
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.active_space import LayeredActiveSpace
 from nps_active_space.utils.models import Adsb, EarlyAdsb, Microphone, Annotations
-from nps_active_space.setup.site_decoder import decode_sit_geographic_coords, parse_sit_coords_line
+from nps_active_space.setup.site_decoder import decode_sit_geographic_coords, read_sit_file
 from nps_active_space.setup.site_writer import (
     NMSIM_SITES_DIR,
     deployment_sit_name,
@@ -249,15 +249,8 @@ def get_deployment(project_dir: str, unit: str, site: str, year: int, elevation:
             f"Microphone site file not found:\n  {mic_location_path}\n"
             f"Expected NMSIM .sit file at {NMSIM_SITES_DIR}/{deployment_sit_name(unit, site, year)}.sit"
         )
-    raw_text = Path(mic_location_path).read_text()
-    sit_lines = raw_text.splitlines()
-    if len(sit_lines) < 3:
-        raise ValueError(
-            f"Microphone site file has invalid format (expected coordinates on line 3):\n"
-            f"  {mic_location_path}"
-        )
-    coords_line = sit_lines[2]
-    x, y, z_agl = parse_sit_coords_line(coords_line)
+    sit_contents = read_sit_file(mic_location_path)
+    x, y, z_agl = sit_contents.easting_m, sit_contents.northing_m, sit_contents.height_agl_m
 
     # get lat/lon so we can initialize a Microphone object, need to get crs of the .SIT file first
     study_area = load_studyarea(project_dir, unit, site, year)

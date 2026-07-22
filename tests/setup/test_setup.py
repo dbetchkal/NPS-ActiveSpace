@@ -11,13 +11,10 @@ import rasterio
 from affine import Affine
 from shapely.geometry import Point, box
 
-from nps_active_space.setup import (
-    NMSIM_DST_CRS,
-    create_site_file,
-    parse_sit_coords_line,
-    setup_site,
-)
+from nps_active_space.setup import NMSIM_DST_CRS, setup_site
 from nps_active_space.setup.elevation import NODATA_INT16, create_elevation_tif, write_gridfloat
+from nps_active_space.setup.site_decoder import parse_sit_coords_line
+from nps_active_space.setup.site_writer import create_site_file
 from nps_active_space.utils.computation import NMSIM_bbox_utm, coords_to_utm
 from nps_active_space.utils.enums import SourceElevationUnits
 from nps_active_space.utils.helpers import get_deployment, load_studyarea

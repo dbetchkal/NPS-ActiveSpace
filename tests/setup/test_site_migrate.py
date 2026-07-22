@@ -8,7 +8,8 @@ import geopandas as gpd
 import pytest
 from shapely.geometry import Point, box
 
-from nps_active_space.setup import create_site_file, setup_site
+from nps_active_space.setup import setup_site
+from nps_active_space.setup.site_writer import create_site_file
 from nps_active_space.setup.site_decoder import (
     diagnose_sit_coords,
     read_sit_file,
