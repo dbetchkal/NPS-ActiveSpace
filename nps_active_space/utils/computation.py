@@ -115,7 +115,7 @@ def climb_angle(v: Iterable) -> np.ndarray:
         Corresponding climb angle value in degrees.
     """
     n = np.array([0, 0, 1])  # A unit normal vector perpendicular to the xy plane
-    degrees = np.degrees(np.arcsin(np.dot(n, v) / np.linalg.norm(n) * np.linalg.norm(v)))
+    degrees = np.degrees(np.arcsin(np.dot(n, v) / (np.linalg.norm(n) * np.linalg.norm(v))))
     return degrees
 
 
