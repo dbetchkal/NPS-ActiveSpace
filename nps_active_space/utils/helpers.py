@@ -20,6 +20,12 @@ from shapely.geometry import box
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.active_space import LayeredActiveSpace
 from nps_active_space.utils.models import Adsb, EarlyAdsb, Microphone, Annotations
+from nps_active_space.setup.site_decoder import decode_sit_geographic_coords, read_sit_file
+from nps_active_space.setup.site_writer import (
+    NMSIM_SITES_DIR,
+    deployment_sit_name,
+    sit_file_path,
+)
 from nps_active_space.utils.computation import NMSIM_bbox_utm
 
 if TYPE_CHECKING:
@@ -234,30 +240,30 @@ def get_deployment(project_dir: str, unit: str, site: str, year: int, elevation:
     """
 
     # Read the .SIT file containing x, y, and z AGL in NMSIM's CRS
-    mic_location_path = os.path.join(
-        project_dir, unit + site, "Input_Data", "05_SITES", f"{unit}{site}{year}.sit"
+    mic_location_path = sit_file_path(
+        Path(project_dir) / (unit + site),
+        deployment_sit_name(unit, site, year),
     )
-    if not os.path.isfile(mic_location_path):
+    if not mic_location_path.is_file():
         raise FileNotFoundError(
             f"Microphone site file not found:\n  {mic_location_path}\n"
-            f"Expected NMSIM .sit file at Input_Data/05_SITES/{unit}{site}{year}.sit"
+            f"Expected NMSIM .sit file at {NMSIM_SITES_DIR}/{deployment_sit_name(unit, site, year)}.sit"
         )
-    raw_text = Path(mic_location_path).read_text()
-    sit_lines = raw_text.splitlines()
-    if len(sit_lines) < 3:
-        raise ValueError(
-            f"Microphone site file has invalid format (expected coordinates on line 3):\n"
-            f"  {mic_location_path}"
-        )
-    coords_line = sit_lines[2]
-    coords_str = re.split(r'\s+', coords_line)[1:-1]
-    x, y, z_agl = [float(i) for i in coords_str[:3]]
+    sit_contents = read_sit_file(mic_location_path)
+    x, y, z_agl = sit_contents.easting_m, sit_contents.northing_m, sit_contents.height_agl_m
 
     # get lat/lon so we can initialize a Microphone object, need to get crs of the .SIT file first
     study_area = load_studyarea(project_dir, unit, site, year)
     mic_crs = NMSIM_bbox_utm(study_area)
-    proj = Transformer.from_crs(mic_crs, "epsg:4326", always_xy=True)
-    lon, lat = proj.transform(x, y)
+    lon, lat = decode_sit_geographic_coords(
+        x,
+        y,
+        study_area,
+        sit_path=mic_location_path,
+        unit=unit,
+        site=site,
+        year=year,
+    )
 
     # calculate elevation from the DEM if necessary
     if elevation:

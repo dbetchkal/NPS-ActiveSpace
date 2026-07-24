@@ -1,11 +1,16 @@
+from __future__ import annotations
+
 from configparser import ConfigParser
 from typing import Any, Dict, Optional, Union
+
 from nps_active_space import ACTIVE_SPACE_DIR
+from nps_active_space.utils.enums import SourceElevationUnits
 import os
 
 __all__ = [
     'initialize',
-    'read'
+    'read',
+    'read_dem_elevation_units',
 ]
 
 _config = None
@@ -67,3 +72,18 @@ def read(section: str, option: Optional[str] = None) -> Union[Dict, Any]:
         return _config.get(section, option)
     else:
         return dict(_config.items(section))
+
+
+def read_dem_elevation_units() -> SourceElevationUnits:
+    """
+    Read ``dem_elevation_units`` from the loaded config's ``[data]`` section.
+
+    Defaults to ``"feet"`` when the option is missing or blank.
+    """
+    assert _config, "Config file initialization required before reading."
+
+    if _config.has_option("data", "dem_elevation_units"):
+        raw = _config.get("data", "dem_elevation_units").strip()
+        if raw:
+            return SourceElevationUnits.parse_config_value(raw)
+    return SourceElevationUnits.FEET
