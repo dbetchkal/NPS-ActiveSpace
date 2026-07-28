@@ -14,6 +14,9 @@
 # .egg-info
 *.egg-info/
 
+# macOS files
+.DS_Store
+
 # config files (environment-specific; keep credentials out of repo)
 nps_active_space/config/*
 !nps_active_space/config/template.config
