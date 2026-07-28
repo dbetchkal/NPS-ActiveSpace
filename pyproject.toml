@@ -18,8 +18,7 @@ authors = [
     {name="Arpit Jain"},
 ]
 maintainers = [
-    {name="Davyd Betchkal", email="davyd_betchkal@nps.gov"},
-    {name="Elliott Ruebush", email="eruebush@gmail.com"}
+    {name="Davyd Betchkal", email="davyd_betchkal@nps.gov"}
 ]
 
 dependencies = [
