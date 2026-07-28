@@ -4,7 +4,7 @@ import multiprocessing as mp
 import os
 import subprocess
 from functools import partial
-from typing import Iterable, List, Optional, Tuple, Union
+from typing import Optional, Tuple, Union
 from uuid import uuid4
 
 import geopandas as gpd
@@ -15,12 +15,13 @@ import pandas as pd
 from osgeo import gdal
 from pyproj import Transformer
 import rasterio
-from shapely.geometry import Point, Polygon, box
+from shapely.geometry import Polygon, box
 from shapely.validation import make_valid
 from tqdm import tqdm
 from warnings import warn
 
 from nps_active_space import ACTIVE_SPACE_DIR
+from nps_active_space.setup.site_writer import create_site_dir, write_listener_site_file
 from nps_active_space.utils.models import Microphone
 from nps_active_space.utils.computation import (
     build_src_point_mesh,
@@ -87,29 +88,7 @@ class ActiveSpaceGenerator:
         self._flt_file = None
         self._site_file = None
 
-        self._make_dir_tree()
-
-    def _make_dir_tree(self):
-        """Create a canonical NMSIM project directory. Copied from NMSIM_Create_Base_Layers.py"""
-        directories = [
-            "Input_Data",
-            "Input_Data/01_ELEVATION",
-            "Input_Data/02_IMPEDANCE",
-            "Input_Data/03_TRAJECTORY",
-            "Input_Data/04_LAYERS",
-            "Input_Data/05_SITES",
-            "Input_Data/06_AMBIENCE",
-            "Input_Data/07_WEATHER",
-            "Input_Data/08_TREES",
-            "Output_Data",
-            "Output_Data/ASCII",
-            "Output_Data/IMAGES",
-            "Output_Data/SITE",
-            "Output_Data/TIG_TIS"
-        ]
-        for directory in directories:
-            if not os.path.exists(f"{self.root_dir}/{directory}"):
-                os.makedirs(f"{self.root_dir}/{directory}")
+        create_site_dir(self.root_dir)
 
     def _mask_dem_file(self, dem_src: str, study_area: gpd.GeoDataFrame, project: bool = False,
                        buffer: Optional[int] = None, suffix: str = '') -> str:
@@ -142,7 +121,7 @@ class ActiveSpaceGenerator:
         study_area_filename_prefix = f"{self.root_dir}/Input_Data/01_ELEVATION/study_area{suffix}_{uuid4()}"
         study_area_filename = f"{study_area_filename_prefix}.shp"
         if buffer:
-            equal_area_crs = coords_to_utm(study_area.centroid.iat[0].y, study_area.centroid.iat[0].x)
+            equal_area_crs,_ = coords_to_utm(study_area.centroid.iat[0].y, study_area.centroid.iat[0].x)
             study_area_m = study_area.to_crs(equal_area_crs)
             study_area_m = study_area_m.buffer(buffer*1000)
             study_area = study_area_m.to_crs(study_area.crs)
@@ -299,14 +278,9 @@ class ActiveSpaceGenerator:
         -------
         The name of the site file.
         """
-        site_filename = f"{self.root_dir}/Input_Data/05_SITES/{mic.name}.sit"
-        with open(site_filename, 'w') as site_file:
-            site_file.write("    0\n")
-            site_file.write("    1\n")
-            site_file.write("{0:19.0f}.{1:9.0f}.{2:10.5f} {3:20}\n".format(mic.x, mic.y, mic.z, mic.name))
-            site_file.write(f"{dem_file}\n")
-
-        return site_filename
+        return str(write_listener_site_file(
+            self.root_dir, mic.name, mic.x, mic.y, mic.z, dem_file
+        ))
 
     def _create_instruction_files(self, flt_file: str, site_file: str, trajectory_file: str,
                                   omni_source_file: str) -> str:

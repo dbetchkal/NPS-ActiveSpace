@@ -1,6 +1,5 @@
 import os
 import copy
-import sqlalchemy
 from scipy.ndimage import median_filter
 import pickle
 import pandas as pd
@@ -31,7 +30,7 @@ from nps_active_space.utils.helpers import (
     load_activespace,
     load_layered_activespace,
 )
-from nps_active_space.utils.computation import NMSIM_bbox_utm, contiguous_regions, coords_to_utm, interpolate_spline
+from nps_active_space.utils.computation import NMSIM_bbox_utm, contiguous_regions, interpolate_spline
 from nps_active_space.utils.models import Tracks, FAAReleasable
 
 pd.set_option('future.no_silent_downcasting', True)

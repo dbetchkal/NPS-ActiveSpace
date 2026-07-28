@@ -4,6 +4,8 @@ The `nps_active_space` [toolkit architecture](https://github.com/dbetchkal/NPS-A
 
 This directory contains the scripts along with instruction for their use via a command line interface. See [below](#use-cases) for the most common use cases, and [further below](#script-usage) for detailed documentation of each script.
 
+- [project_setup.py](#project-setup)
+- [migrate_project_sites.py](#migrate-project-sites)
 - [run_ground_truthing.py](#run-ground-truthing)
 - [plot_altitudes.py](#plot-altitudes)
 - [generate_3d_active_space.py](#generate-3d-active-space)
@@ -34,6 +36,7 @@ These are the steps for the **primary use case**: synthesizing a 3D active space
 ```mermaid
 graph LR
 
+project_setup.py --> run_ground_truthing.py
 run_ground_truthing.py --> generate_3d_active_space.py
 plot_altitudes.py --> generate_3d_active_space.py
 generate_3d_active_space.py --> run_audible_transits.py
@@ -67,6 +70,7 @@ Make sure the data you want to visualize exist beforehand. The script won't look
 ```mermaid
 graph LR
 
+project_setup.py --> run_ground_truthing.py
 run_ground_truthing.py --> generate_active_space.py
 generate_active_space.py --> fit_3d_active_space.py
 fit_3d_active_space.py --> fits.csv
@@ -81,6 +85,7 @@ Alternative: 2D audible transits supports more precise track clipping. If you wa
 ```mermaid
 graph LR
 
+project_setup.py --> run_ground_truthing.py
 run_ground_truthing.py --> generate_active_space.py
 generate_active_space.py --> run_audible_transits.py
 run_audible_transits.py --> get_geographic_metrics.py
@@ -109,6 +114,7 @@ graph LR
 
    %% Groups
    subgraph Per_Deployment
+      project_setup.py[(project_setup.py)]
       run_ground_truthing.py[(run_ground_truthing.py)]
       plot_altitudes.py[(plot_altitudes.py)]
       generate_3d_active_space.py[(generate_3d_active_space.py)]
@@ -125,6 +131,7 @@ graph LR
       generate_active_space_batch.py[(generate_active_space_batch.py)]
    end
 
+project_setup.py --> run_ground_truthing.py
 run_ground_truthing.py --> generate_3d_active_space.py
 plot_altitudes.py --> generate_3d_active_space.py
 generate_3d_active_space.py --> Command_File
@@ -151,6 +158,7 @@ graph LR
 
    %% Groups
    subgraph Per_Deployment
+      project_setup.py[(project_setup.py)]
       run_ground_truthing.py[(run_ground_truthing.py)]
       fit_3d_active_space.py[(fit_3d_active_space.py)]
       fits.csv[(fits.csv)]
@@ -165,6 +173,7 @@ graph LR
       generate_active_space_batch.py[(generate_active_space_batch.py)]
    end
 
+project_setup.py --> run_ground_truthing.py
 run_ground_truthing.py --> Command_File
 Command_File --> Combined_Command_File
 Combined_Command_File --> generate_active_space_batch.py
@@ -177,6 +186,50 @@ check_study_duration_robustness.py
 ```
 
 # Script Usage
+
+
+### Project Setup
+
+This script initializes an `NPS-ActiveSpace` project, including a standard directory. Fundemental geospatial files are created as well.
+
+| command-line arg        | description                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `-u`, `--unit`          | **required.**<br/>The 4 letter NPS unit code. _Ex_: Glacier Bay = GLBA                                                                                |
+| `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Willoughby Island SE = WILL                                                                                 |
+| `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2025                                                                                          |
+| `--mic-coord` | **required.**<br/>The x,y coordinates of the listening location / microphone (in WGS84). _Ex_: -136.088360 58.569310 |
+| `--studyarea-sw` | **required.**<br/>The x,y coordinates of the study area's southwest (lower left) corner (in WGS84). _Ex_: -136.088360 58.569310 |
+| `--studyarea-ne` | **required.**<br/>The x,y coordinates of the study area's northeast (upper right) corner (in WGS84). _Ex_: -135.818994 58.706095 |
+
+Example executions:
+
+```bash
+$ python -u -W ignore nps_active_space/scripts/project_setup.py -e production -u DENA -s CNTW -y 2021 --mic-coord -148.98987 63.39493 --studyarea-sw  -149.060585 63.345825 --studyarea-ne  -148.770107 63.462577
+```
+
+### Migrate Project Sites
+
+Rewrites legacy `.sit` microphone coordinates to the NMSIM project UTM zone (western study-area edge). Use this when on-disk deployments were created before the project-zone `.sit` fix. Updates only the `.sit` file; it does not re-clip elevation data.
+
+| command-line arg        | description                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `--all`                 | Migrate every deployment found under the configured project directory. Mutually exclusive with `-u`/`-s`/`-y`.                                   |
+| `-u`, `--unit`          | Four letter NPS unit code. Required with `-s` and `-y` when not using `--all`.                                                                     |
+| `-s`, `--site`          | Four letter site code. Required with `-u` and `-y` when not using `--all`.                                                                       |
+| `-y`, `--year`          | Deployment year, YYYY. Required with `-u` and `-s` when not using `--all`.                                                                         |
+| `--dry-run`             | Report legacy `.sit` files without writing changes.                                                                                              |
+
+Example executions:
+
+```bash
+$ python -m nps_active_space.scripts.migrate_project_sites -e DENA -u DENA -s BULL -y 2019
+```
+
+```bash
+$ python -m nps_active_space.scripts.migrate_project_sites -e DENA --all --dry-run
+```
 
 ### Run Ground Truthing
 
