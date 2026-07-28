@@ -13,7 +13,9 @@ license-files = ["LICENSE.md"]
 authors = [
     {name="Kirby Heck"},
     {name="Adina Zucker"},
-    {name="Davyd Betchkal"}
+    {name="Davyd Betchkal"},
+    {name="Elliott Ruebush"},
+    {name="Arpit Jain"},
 ]
 maintainers = [
     {name="Davyd Betchkal", email="davyd_betchkal@nps.gov"},
