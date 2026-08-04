@@ -40,7 +40,8 @@ class ClockDriftFixer():
     """
     
     def __init__(self, project_dir: str, unit: str, site: str, year: str,
-                 pts: Tracks, nvspl: Nvspl, database_type: TrackSource, plot_dir: str = None):
+                 pts: Tracks, nvspl: Nvspl, database_type: TrackSource,
+                 faa_path: str, faa_corrections_path: str, plot_dir: str = None):
         """Constructor for the ClockDriftFixer class. Loads data and computes predicted audibility of causal data.
 
         Parameters
@@ -63,6 +64,10 @@ class ClockDriftFixer():
             with pts as much as possible. Any partial days will be excluded from analysis.
         database_type: TrackSource
             Causal track feed (GPS, ADSB, or AIS). Used only for the default clock drift filename.
+        faa_path: str
+            Path to the FAA releasable aircraft database (MASTER.txt).
+        faa_corrections_path: str
+            Path to FAA aircraft type corrections JSON.
         plot_dir: str, Optional
             If provided, intermediate plots will be saved to this directory. This is very helpful for
             doing quality control, and is highly recommended.
@@ -86,8 +91,8 @@ class ClockDriftFixer():
         uses_n_numbers = ids[0].startswith("N")
         if uses_n_numbers:
             ids = ids.str[1:]  # the track id lists N-numbers like: N12345, but FAA uses just 12345
-        faa = FAAReleasable(R"V:\Noncanonical Data\ReleasableAircraft\MASTER.txt",
-                            R"V:\Noncanonical Data\ReleasableAircraft\FAA_AircraftCorrections.json",
+        faa = FAAReleasable(faa_path,
+                            faa_corrections_path,
                             n_numbers=ids.unique() if uses_n_numbers else [],
                             icao_addresses=ids.unique() if not uses_n_numbers else [],
                             warnings=False).data
@@ -252,7 +257,8 @@ class ClockDriftFixer():
         plt.ylabel("Estimated Clock Drift (sec)")
     
 
-    def drift_time_series(self, start_dt=None, end_dt=None, max_clock_drift=pd.Timedelta(minutes=5)):
+    def drift_time_series(self, start_dt=None, end_dt=None, max_clock_drift=pd.Timedelta(minutes=5),
+                          show_plots: bool = True):
         """Compute clock drift each day over an extended period of time to determine patterns over time."""
         if start_dt is None:
             start_dt = self.nvspl.index.min()
@@ -281,7 +287,10 @@ class ClockDriftFixer():
                 label += 1
         if self.plot_dir is not None:
             plt.savefig(os.path.join(self.plot_dir, "Clock Drift Time Series.png"))
-        plt.show()
+        if show_plots:
+            plt.show()
+        else:
+            plt.close()
 
         return self.times, self.drifts
     
@@ -294,7 +303,8 @@ class ClockDriftFixer():
     
 
     def fit_drift_lines(self, indices_to_use, clock_drift_file=None,
-                        maintenance_times=[], start_dt=None, end_dt=None):
+                        maintenance_times=[], start_dt=None, end_dt=None,
+                        show_plots: bool = True):
         """
         Clock drift tends to be linear (for ADSB particularly).
         This function fits lines for each time period between maintenance visits,
@@ -376,7 +386,10 @@ class ClockDriftFixer():
 
         if self.plot_dir is not None:
             plt.savefig(os.path.join(self.plot_dir, "Fitted Lines.png"))
-        plt.show()
+        if show_plots:
+            plt.show()
+        else:
+            plt.close()
 
         return self.drift_fits
 

@@ -51,7 +51,14 @@ Paths in the example configs should parse on Mac/Linux or Windows. However, the 
 | `nvspl_archive/.../NVSPL_DENATRLA_2025_06_23_*.txt` | DENATRLA | Hourly SPL for 2025-06-23 | Offline dev (`DENA_example.config`) |
 
 ## Local ground truthing (from repo root)
-Running the ground truthing script is a great way to view vessel/flight tracks alongside NVSPL data. The following commands should work out of the box after setting up the project virtual environment. 
+Running the ground truthing script is a great way to view vessel/flight tracks alongside NVSPL data. The following commands should work out of the box after setting up the project virtual environment.
+
+**ADSB clock drift (run before ground truthing):** For ADSB deployments, estimate and fit clock drift first so `run_ground_truthing.py` can auto-apply the correction CSV.
+
+```bash
+python -m nps_active_space.scripts.run_clock_drift \
+  -e DENA_example -u DENA -s TRLA -y 2025 -t ADSB --no-show
+```
 
 **GLBALSTL (AIS):** `-e GLBA_example`
 

@@ -6,6 +6,7 @@ This directory contains the scripts along with instruction for their use via a c
 
 - [project_setup.py](#project-setup)
 - [migrate_project_sites.py](#migrate-project-sites)
+- [run_clock_drift.py](#run-clock-drift)
 - [run_ground_truthing.py](#run-ground-truthing)
 - [plot_altitudes.py](#plot-altitudes)
 - [generate_3d_active_space.py](#generate-3d-active-space)
@@ -230,6 +231,36 @@ $ python -m nps_active_space.scripts.migrate_project_sites -e DENA -u DENA -s BU
 ```bash
 $ python -m nps_active_space.scripts.migrate_project_sites -e DENA --all --dry-run
 ```
+
+### Run Clock Drift
+
+Estimate and fit clock drift between NVSPL and causal track data. Run this before ADSB ground truthing when track timestamps may drift relative to the acoustic record. The workflow is two-phase: (1) estimate daily drifts and review QC plots, (2) re-run with `--fit --indices` to write the correction CSV that `run_ground_truthing.py` auto-applies.
+
+| command-line arg        | description                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
+| `-u`, `--unit`          | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                |
+| `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Triple Lakes = TRLA                                                                                 |
+| `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2025                                                                                          |
+| `-t`, `--track-source` | **_default ADSB -> {GPS, ADSB, AIS}_**<br/>Which track source to use. ADSB is the primary use case for clock drift correction. |
+| `--plot-dir`            | Directory for QC plots. Default: `<site_dir>/clock_drift_qc/`.                                                                                   |
+| `--no-show`             | Skip `plt.show()` (useful for CI/automation).                                                                                                    |
+| `--max-drift-minutes`   | **_default 5_**<br/>Maximum expected clock drift magnitude in minutes.                                                                           |
+| `--fit`                 | Fit linear drift lines and write the clock drift CSV.                                                                                            |
+| `--indices`             | **required with `--fit`.**<br/>Comma-separated credible point indices from the estimate plot.                                                    |
+| `--maintenance-times`   | Optional comma-separated maintenance visit dates (`YYYY-MM-DD`) for piecewise fits.                                                              |
+
+Example executions:
+
+```bash
+$ python -m nps_active_space.scripts.run_clock_drift -e DENA_example -u DENA -s TRLA -y 2025 -t ADSB --no-show
+```
+
+```bash
+$ python -m nps_active_space.scripts.run_clock_drift -e production -u DENA -s TRLA -y 2025 -t ADSB --fit --indices 0,2,4,6
+```
+
+----
 
 ### Run Ground Truthing
 
