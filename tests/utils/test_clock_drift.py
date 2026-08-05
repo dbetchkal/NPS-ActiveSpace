@@ -13,6 +13,7 @@ import pytest
 
 from nps_active_space.utils.clock_drift import (
     _find_acoustic_peaks,
+    _format_missing_time_ranges,
     _predicted_flight_peaks,
     match_single_event,
 )
@@ -107,6 +108,8 @@ class TestMatchSingleEvent:
         assert match_info["track_id"] == "A"
         assert match_info["acoustic_time"] == acoustic_time
         assert match_info["predicted_time"] == predicted_time
+        assert match_info["confidence"] == match_info["prominence"]
+        assert match_info["confidence"] > 0
 
     def test_no_match_without_acoustic_peak(self):
         signal = _make_sobel_signal([])
@@ -145,3 +148,14 @@ class TestMatchSingleEvent:
 
         assert match_info["track_id"] == "loud_flight"
         assert drift_sec == pytest.approx(-1.0)
+
+
+class TestFormatMissingTimeRanges:
+    def test_single_contiguous_gap(self):
+        missing = pd.date_range("2025-06-23 12:00:00", "2025-06-23 12:00:05", freq="s", inclusive="left")
+        summary = _format_missing_time_ranges(missing)
+        assert "2025-06-23 12:00:00" in summary
+        assert "2025-06-23 12:00:05" in summary
+
+    def test_empty_returns_none(self):
+        assert _format_missing_time_ranges(pd.DatetimeIndex([])) == "none"

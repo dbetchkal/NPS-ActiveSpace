@@ -26,6 +26,29 @@ def logsum(df, axis=1):
     return 10 * np.log10(pressure_sum)
 
 
+def _format_missing_time_ranges(missing_times: pd.DatetimeIndex, max_ranges: int = 5) -> str:
+    """Summarize missing timestamps as contiguous ranges for log messages."""
+    if len(missing_times) == 0:
+        return "none"
+    missing_times = missing_times.sort_values()
+    ranges: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+    range_start = missing_times[0]
+    range_end = missing_times[0]
+    for timestamp in missing_times[1:]:
+        if timestamp - range_end <= pd.Timedelta(seconds=1):
+            range_end = timestamp
+        else:
+            ranges.append((range_start, range_end + pd.Timedelta(seconds=1)))
+            range_start = timestamp
+            range_end = timestamp
+    ranges.append((range_start, range_end + pd.Timedelta(seconds=1)))
+
+    parts = [f"{start} to {end}" for start, end in ranges[:max_ranges]]
+    if len(ranges) > max_ranges:
+        parts.append(f"... and {len(ranges) - max_ranges} more range(s)")
+    return "; ".join(parts)
+
+
 def _find_acoustic_peaks(sobel_signal: pd.Series, min_prominence_db: float, min_isolation_sec: int) -> pd.DataFrame:
     """Find prominent, well-isolated peaks in a Sobel-filtered NVSPL signal.
 
@@ -110,9 +133,10 @@ def match_single_event(
     drift_sec: float or None
         Seconds to add to the track time to align with the acoustic time, or None
         if no confident single-event match was found.
-    match_info: dict or None
-        Details about the match (acoustic_time, predicted_time, track_id, prominence),
-        useful for QC plotting. None if no match was found.
+        match_info: dict or None
+        Details about the match (acoustic_time, predicted_time, track_id, prominence,
+        confidence), useful for QC plotting and logging. None if no match was found.
+        ``confidence`` is the acoustic peak prominence in dB.
     """
     acoustic_peaks = _find_acoustic_peaks(sobel_signal, min_prominence_db, min_isolation_sec)
     if acoustic_peaks.empty:
@@ -134,11 +158,13 @@ def match_single_event(
         # which flight produced this acoustic peak
         best_candidate = candidates.loc[candidates["Lp_est"].idxmax()]
         drift_sec = (acoustic_peak["time"] - best_candidate["time"]).total_seconds()
+        prominence = float(acoustic_peak["prominence"])
         match_info = {
             "acoustic_time": acoustic_peak["time"],
             "predicted_time": best_candidate["time"],
             "track_id": best_candidate["track_id"],
-            "prominence": acoustic_peak["prominence"],
+            "prominence": prominence,
+            "confidence": prominence,
         }
         return drift_sec, match_info
 
@@ -280,15 +306,28 @@ class ClockDriftFixer():
         """
         # get the nvspl data corresponding to this time period
         full_index = pd.date_range(start_dt, end_dt, freq="s", inclusive="left")
-        if len(self.nvspl.index.intersection(full_index)) < len(full_index):
-            logger.warning("NVSPL doesn't cover full period")
+        available_index = self.nvspl.index.intersection(full_index)
+        if len(available_index) < len(full_index):
+            missing_index = full_index.difference(available_index)
+            logger.warning(
+                "NVSPL doesn't cover full period %s to %s: missing %d of %d seconds (%s)",
+                start_dt,
+                end_dt,
+                len(missing_index),
+                len(full_index),
+                _format_missing_time_ranges(missing_index),
+            )
             return np.nan
         nvspl_section = self.nvspl.loc[full_index]
 
         # get the track points corresponding to this time period
         pts_section = self.pts[(self.pts["point_dt"] > start_dt) & (self.pts["point_dt"] < end_dt)]
         if pts_section.empty:
-            logger.warning("No track points")
+            logger.warning(
+                "No track points for period %s to %s (exclusive end)",
+                start_dt,
+                end_dt,
+            )
             return np.nan
 
         # Correlating with NVSPL broadband SPL has issues with wind noise obscuring the aircraft signal.
@@ -309,8 +348,22 @@ class ClockDriftFixer():
                 min_prominence_db=min_prominence_db, min_isolation_sec=min_isolation_sec,
             )
             if drift_sec is None:
-                logger.warning("No confident single-event peak match found")
+                logger.warning(
+                    "No confident single-event peak match found for period %s to %s",
+                    start_dt,
+                    end_dt,
+                )
                 return None
+            logger.info(
+                "Peak match for %s to %s: acoustic_time=%s, drift=%.1f s, "
+                "track=%s, confidence=%.1f dB prominence",
+                start_dt,
+                end_dt,
+                match_info["acoustic_time"],
+                drift_sec,
+                match_info["track_id"],
+                match_info["confidence"],
+            )
             if self.plot_dir is not None:
                 self._plot_peak_match(start_dt, end_dt, sobel_signal, match_info, drift_sec)
             return drift_sec
@@ -362,7 +415,11 @@ class ClockDriftFixer():
             f"{len(correlation)} != {2 * max_clock_drift.total_seconds() + 1}"
         max_idx = np.argmax(correlation)
         if max_idx == 0 or max_idx == len(correlation)-1:
-            logger.warning("Max correlation at boundary, not true maximum")
+            logger.warning(
+                "Max correlation at boundary for period %s to %s, not true maximum",
+                start_dt,
+                end_dt,
+            )
             return None  # boundary-limited, not true peak
         drifts = np.arange(-max_clock_drift.total_seconds(), max_clock_drift.total_seconds() + 1)
         clock_drift = drifts[max_idx]
@@ -432,6 +489,17 @@ class ClockDriftFixer():
             start_dt = self.nvspl.index.min()
         if end_dt is None:
             end_dt = self.nvspl.index.max()
+
+        logger.info(
+            "Estimating daily clock drift using method=%s from %s to %s "
+            "(max_drift=%s, min_prominence_db=%.1f, min_isolation_sec=%d)",
+            method,
+            start_dt,
+            end_dt,
+            max_clock_drift,
+            min_prominence_db,
+            min_isolation_sec,
+        )
 
         freq = "d"
         period_bounds = pd.date_range(start_dt.ceil(freq), end_dt.floor(freq), freq=freq)

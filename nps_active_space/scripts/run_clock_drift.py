@@ -164,7 +164,7 @@ def main(argv: list[str] | None = None) -> None:
 
     logger.info(
         f"Beginning clock drift workflow for {args.unit}{args.site}{year_str} "
-        f"({args.track_source})..."
+        f"({args.track_source}), method={args.method}..."
     )
 
     archive = iyore.Dataset(cfg.read("data", "nvspl_archive"))
