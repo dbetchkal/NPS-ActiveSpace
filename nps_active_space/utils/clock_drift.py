@@ -502,7 +502,11 @@ class ClockDriftFixer():
         )
 
         freq = "d"
-        period_bounds = pd.date_range(start_dt.ceil(freq), end_dt.floor(freq), freq=freq)
+        period_start = start_dt.ceil(freq)
+        period_end = end_dt.floor(freq) + pd.Timedelta(days=1)
+        if period_end <= period_start:
+            period_end = period_start + pd.Timedelta(days=1)
+        period_bounds = pd.date_range(period_start, period_end, freq=freq)
         drifts = []
         for i in range(len(period_bounds)-1):
             logger.debug(f"{period_bounds[i]} to {period_bounds[i+1]}")

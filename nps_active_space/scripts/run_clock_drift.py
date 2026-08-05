@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from argparse import ArgumentParser
 
 import iyore
@@ -14,6 +15,16 @@ from nps_active_space.utils.clock_drift import ClockDriftFixer
 from nps_active_space.utils.enums import TrackSource
 from nps_active_space.utils.helpers import get_deployment, get_logger, load_studyarea
 from nps_active_space.utils.models import Nvspl
+
+CLOCK_DRIFT_MODULE_LOGGER = "nps_active_space.utils.clock_drift"
+
+
+def attach_module_logging(script_logger: logging.Logger, module_name: str) -> None:
+    """Route a library module's log records to the script logger's console handlers."""
+    module_logger = logging.getLogger(module_name)
+    module_logger.handlers = script_logger.handlers
+    module_logger.setLevel(script_logger.level)
+    module_logger.propagate = False
 
 
 def parse_indices(indices_str: str) -> list[int]:
@@ -50,11 +61,18 @@ def print_drift_summary(times: pd.DatetimeIndex, drifts: np.ndarray) -> None:
             drift_str = "NaN" if drift is None or np.isnan(drift) else str(drift)
         rows.append((index_label, str(anchor), drift_str, status))
 
+    if not rows:
+        print("No daily drift estimates were produced.")
+        return
+
+    def column_width(header: str, values: list[str]) -> int:
+        return max([len(header), *(len(value) for value in values)])
+
     col_widths = (
-        max(len("index"), *(len(r[0]) for r in rows)),
-        max(len("anchor"), *(len(r[1]) for r in rows)),
-        max(len("drift_sec"), *(len(r[2]) for r in rows)),
-        max(len("status"), *(len(r[3]) for r in rows)),
+        column_width("index", [r[0] for r in rows]),
+        column_width("anchor", [r[1] for r in rows]),
+        column_width("drift_sec", [r[2] for r in rows]),
+        column_width("status", [r[3] for r in rows]),
     )
     header = (
         f"{'index':>{col_widths[0]}}  "
@@ -154,6 +172,7 @@ def main(argv: list[str] | None = None) -> None:
 
     cfg.initialize(environment=args.environment)
     logger = get_logger("CLOCK-DRIFT")
+    attach_module_logging(logger, CLOCK_DRIFT_MODULE_LOGGER)
 
     project_dir = cfg.read("project", "dir")
     site_dir = f"{project_dir}/{args.unit}{args.site}"

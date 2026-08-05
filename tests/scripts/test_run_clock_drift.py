@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from nps_active_space.scripts.run_clock_drift import (
+    attach_module_logging,
     build_parser,
     format_drift_status,
     parse_indices,
@@ -51,6 +52,10 @@ class TestRunClockDriftHelpers:
         assert "invalid" in output
         assert "2.50" in output
 
+    def test_print_drift_summary_handles_empty_results(self, capsys):
+        print_drift_summary(pd.DatetimeIndex([]), np.array([]))
+        assert "No daily drift estimates were produced." in capsys.readouterr().out
+
 
 class TestRunClockDriftArgparse:
     def test_default_track_source_is_adsb(self):
@@ -70,3 +75,18 @@ class TestRunClockDriftArgparse:
                     "--fit",
                 ]
             )
+
+    def test_attach_module_logging_routes_records(self, capsys):
+        import logging
+
+        script_logger = logging.getLogger("test-clock-drift-script")
+        script_logger.handlers.clear()
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        script_logger.addHandler(handler)
+        script_logger.setLevel(logging.INFO)
+
+        attach_module_logging(script_logger, "nps_active_space.utils.clock_drift")
+        logging.getLogger("nps_active_space.utils.clock_drift").info("peak match success")
+        captured = capsys.readouterr()
+        assert "peak match success" in captured.out + captured.err
