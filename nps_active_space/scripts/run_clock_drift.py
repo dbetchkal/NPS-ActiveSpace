@@ -107,6 +107,29 @@ def build_parser() -> ArgumentParser:
         help="Maximum expected clock drift magnitude in minutes (default: 5).",
     )
     parser.add_argument(
+        "--method",
+        default="correlation",
+        choices=["correlation", "peak_match"],
+        help=(
+            "Estimation method (default: correlation). 'correlation' cross-correlates the "
+            "whole day's signal, which can flip sign on quiet/windy days. 'peak_match' is an "
+            "experimental alternative that only estimates drift on days with one clear, "
+            "isolated acoustic event matched to a predicted flight arrival."
+        ),
+    )
+    parser.add_argument(
+        "--min-prominence-db",
+        type=float,
+        default=6.0,
+        help="Only used by --method peak_match. Minimum acoustic peak prominence in dB (default: 6).",
+    )
+    parser.add_argument(
+        "--min-isolation-sec",
+        type=int,
+        default=30,
+        help="Only used by --method peak_match. Minimum separation between acoustic peaks in seconds (default: 30).",
+    )
+    parser.add_argument(
         "--fit",
         action="store_true",
         help="Fit linear drift lines and write the clock drift CSV.",
@@ -203,6 +226,9 @@ def main(argv: list[str] | None = None) -> None:
     times, drifts = fixer.drift_time_series(
         max_clock_drift=max_clock_drift,
         show_plots=show_plots,
+        method=args.method,
+        min_prominence_db=args.min_prominence_db,
+        min_isolation_sec=args.min_isolation_sec,
     )
 
     print("\nDaily clock drift estimates:")
