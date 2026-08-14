@@ -7,6 +7,11 @@ name = "NPS-ActiveSpace"
 version = "2.0"
 description = "An NPS Sound Active Space Project."
 requires-python = ">=3.12"
+dependencies = [
+    "SQLAlchemy>=2.0.41",
+    "psycopg2>=2.9.10 ; sys_platform == 'win32'",
+    "psycopg2-binary>=2.9.10 ; sys_platform != 'win32'",
+]
 authors = [
     {name="Kirby Heck"},
     {name="Adina Zucker"},
@@ -14,6 +19,11 @@ authors = [
 ]
 maintainers = [
     {name="Davyd Betchkal", email="davyd_betchkal@nps.gov"}
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
 ]
 
 [project.urls]

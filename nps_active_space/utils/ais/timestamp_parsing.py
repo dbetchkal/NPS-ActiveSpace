@@ -33,14 +33,24 @@ def _parse_ak_local_with_dst_fallback(
         # AKST and AKDT rows (November AKST→AKDT, March AKDT→AKST).
         akst = time.loc[time.str.endswith("AKST")]
         akdt = time.loc[time.str.endswith("AKDT")]
-        parsed = pd.Series(index=time.index, dtype="datetime64[ns]")
-        parsed.loc[akst.index] = (
-            pd.to_datetime(akst, format=_MXAK_TIMESTAMP_PATTERNS[4]) + _AKST_UTC_OFFSET
-        )
-        parsed.loc[akdt.index] = (
-            pd.to_datetime(akdt, format=_MXAK_TIMESTAMP_PATTERNS[5]) + _AKDT_UTC_OFFSET
-        )
-        return parsed
+        parsed = pd.Series(pd.NaT, index=time.index)
+        result_dtype = None
+        if not akst.empty:
+            akst_parsed = (
+                pd.to_datetime(akst, format=_MXAK_TIMESTAMP_PATTERNS[4])
+                + _AKST_UTC_OFFSET
+            )
+            parsed.loc[akst.index] = akst_parsed
+            result_dtype = akst_parsed.dtype
+        if not akdt.empty:
+            akdt_parsed = (
+                pd.to_datetime(akdt, format=_MXAK_TIMESTAMP_PATTERNS[5])
+                + _AKDT_UTC_OFFSET
+            )
+            parsed.loc[akdt.index] = akdt_parsed
+            result_dtype = akdt_parsed.dtype
+        # .loc assignment widens to datetime64[ns]; restore pd.to_datetime resolution.
+        return parsed.astype(result_dtype)
 
 
 def parse_mxak_ais_timestamps(time: pd.Series) -> pd.Series:
