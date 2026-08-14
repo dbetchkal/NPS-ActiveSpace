@@ -53,7 +53,7 @@ class TestTrackAltitudeSummary:
         summary = _track_altitude_summary(points, Point(0.0, 0.0, 125.0))
         assert summary == (
             "Track altitude: 100–200 m MSL (mean 150)\n"
-            "Closest approach: 125 m MSL\n"
+            "Closest point altitude: 125 m MSL\n"
         )
 
     def test_returns_empty_when_no_altitude(self):

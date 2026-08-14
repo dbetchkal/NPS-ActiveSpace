@@ -295,7 +295,7 @@ class _GroundTruthingFrame(_AppFrame):
             width=10,
             font=('Avenir', 12, 'bold')
         )
-        self.unknown_button = tk.Button(
+        self.ignore_button = tk.Button(
             self,
             text='Ignore >>',
             bg='yellow',
@@ -377,7 +377,7 @@ class _GroundTruthingFrame(_AppFrame):
         self.track_label.grid(row=0, column=1, pady=10)
         self.time_label.grid(row=1, column=1, pady=10)
         self.submit_button.grid(row=2, column=1, sticky='n')
-        self.unknown_button.grid(row=2, column=1, sticky='s')
+        self.ignore_button.grid(row=2, column=1, sticky='s')
         
         self.nav_buttons.grid(row=3, column=1)
         self.back_button.pack(side=tk.LEFT, padx=10)
@@ -585,7 +585,7 @@ class _GroundTruthingFrame(_AppFrame):
         """
         # Deactivate the decision buttons.
         self.submit_button.config(state=tk.DISABLED)
-        self.unknown_button.config(state=tk.DISABLED)
+        self.ignore_button.config(state=tk.DISABLED)
 
         gdf = segments.build_annotation_segments(
             track_id, points, audible_ranges=audible_ranges, valid=valid, note=note

@@ -107,7 +107,7 @@ def _track_altitude_summary(points: Any, closest_point_geometry: Any) -> str:
     ]
     closest_alt = _point_altitude_m(closest_point_geometry)
     if closest_alt is not None:
-        lines.append(f"Closest approach: {closest_alt:.0f} m MSL")
+        lines.append(f"Closest point altitude: {closest_alt:.0f} m MSL")
     return "\n".join(lines) + "\n"
 
 
@@ -320,7 +320,7 @@ def build_plot(frame: "_GroundTruthingFrame") -> None:
                                  f"\nValid: {frame.valid}")
     frame.progress_label.config(text=f"{frame.i+1}/{frame.master.tracks.track_id.nunique()}")
     frame.submit_button.config(command=lambda: frame._store_annotation(frame.track_id, frame.spline, frame.audible_ranges), state=tk.NORMAL)
-    frame.unknown_button.config(command=lambda: frame._store_annotation(frame.track_id, frame.spline, valid=False), state=tk.NORMAL)
+    frame.ignore_button.config(command=lambda: frame._store_annotation(frame.track_id, frame.spline, valid=False), state=tk.NORMAL)
     frame.time_label.config(text="")
     canvas.mpl_connect("motion_notify_event", lambda event: on_mouse_move(frame, event))
     canvas.mpl_connect("button_press_event", lambda event: on_mouse_down(frame, event))
