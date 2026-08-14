@@ -1,6 +1,5 @@
 import os
 import copy
-import sqlalchemy
 from scipy.ndimage import median_filter
 import pickle
 import pandas as pd
@@ -31,12 +30,12 @@ from nps_active_space.utils.helpers import (
     load_activespace,
     load_layered_activespace,
 )
-from nps_active_space.utils.computation import NMSIM_bbox_utm, contiguous_regions, coords_to_utm, interpolate_spline
+from nps_active_space.utils.computation import NMSIM_bbox_utm, contiguous_regions, interpolate_spline
 from nps_active_space.utils.models import Tracks, FAAReleasable
 
 pd.set_option('future.no_silent_downcasting', True)
 
-def init_audible_transits(metadata, paths={}, raw_tracks = None):
+def init_audible_transits(metadata, paths=None, raw_tracks=None):
     '''
     Main function for initialization. Decides which AudibleTransits subclass to initialize based on the metadata provided.
 
@@ -86,6 +85,8 @@ def init_audible_transits(metadata, paths={}, raw_tracks = None):
     ValueError if invalid database type is entered
     '''
 
+    if paths is None:
+        paths = {}
     assert "database type" in metadata, "Metadata must contain a 'database type' field"
 
     if metadata["database type"] == "ADSB":

@@ -1,3 +1,4 @@
+import logging
 import time
 from datetime import datetime
 from types import GeneratorType
@@ -23,6 +24,8 @@ import pandas as pd
 from .computation import contiguous_regions
 pd.options.mode.copy_on_write = True
 pd.set_option('future.no_silent_downcasting', True)
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     'Microphone',
@@ -149,7 +152,7 @@ class Nvspl(pd.DataFrame):
                             usecols=columns
                             )
         except Exception as e:
-            print(f" (!!!) Error occurred reading {nvsplFileEntry}")
+            logger.error(f"Error occurred reading {nvsplFileEntry}")
             raise e
 
         # Make column names slightly nicer
@@ -353,7 +356,7 @@ class Adsb(gpd.GeoDataFrame):
 
         dataframes = []
         for dir in dirs:
-            print(f"Loading ADSB files in {dir}")
+            logger.info(f"Loading ADSB files in {dir}")
             dir_files = dirs[dir]
 
             # attempt to load that directory's index file (which may or may not exist)
@@ -1165,7 +1168,7 @@ class FAAReleasable():
         to_save["database_last_modified"] = os.path.getmtime(self.FAA_path)
         with open(self.index_path, "w") as f:
             json.dump(to_save, f)
-        print(
+        logger.info(
             f"Saved FAA database index to {os.path.abspath(self.index_path)}")
 
         # filter data

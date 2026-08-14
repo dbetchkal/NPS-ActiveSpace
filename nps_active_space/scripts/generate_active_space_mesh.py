@@ -3,6 +3,7 @@ import os
 from argparse import ArgumentParser
 from pathlib import Path
 
+import pandas as pd
 import geopandas as gpd
 from tqdm import tqdm
 
@@ -73,7 +74,7 @@ if __name__ == '__main__':
         if active_spaces is None:
             active_spaces = active_space
         else:
-            active_spaces = active_spaces.append(active_space, ignore_index=True)
+            active_spaces = pd.concat([active_spaces, active_space], ignore_index=True)
 
         if active_space_mics is None:  # We only need to save the centroids once.
             active_space_mics = mics

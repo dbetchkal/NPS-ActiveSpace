@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import geopandas as gpd
 import numpy as np
 import sqlalchemy
+from sqlalchemy import text
 from sqlalchemy.engine import URL
 from tqdm import tqdm
 import re
@@ -20,6 +21,12 @@ from shapely.geometry import box
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.active_space import LayeredActiveSpace
 from nps_active_space.utils.models import Adsb, EarlyAdsb, Microphone, Annotations
+from nps_active_space.setup.site_decoder import decode_sit_geographic_coords, read_sit_file
+from nps_active_space.setup.site_writer import (
+    NMSIM_SITES_DIR,
+    deployment_sit_name,
+    sit_file_path,
+)
 from nps_active_space.utils.computation import NMSIM_bbox_utm
 
 if TYPE_CHECKING:
@@ -64,7 +71,7 @@ def omni_to_gain(omni_source: str) -> float:
 
 
 def load_layered_activespace(project_dir, unit, site, year, gain=None, crs="epsg:4326"):
-    prefix = os.path.join(project_dir, unit + site, "Output_Data", "ACTIVESPACES")
+    prefix = os.path.join(project_dir, f"{unit}{site}", "Output_Data", "ACTIVESPACES")
     layer_dirs = {}
     output_dirs = glob.glob(os.path.join(prefix, f"{unit}{site}{year}_*m"))
     for dir in output_dirs:
@@ -240,30 +247,30 @@ def get_deployment(project_dir: str, unit: str, site: str, year: int, elevation:
     """
 
     # Read the .SIT file containing x, y, and z AGL in NMSIM's CRS
-    mic_location_path = os.path.join(
-        project_dir, unit + site, "Input_Data", "05_SITES", f"{unit}{site}{year}.sit"
+    mic_location_path = sit_file_path(
+        Path(project_dir) / (unit + site),
+        deployment_sit_name(unit, site, year),
     )
-    if not os.path.isfile(mic_location_path):
+    if not mic_location_path.is_file():
         raise FileNotFoundError(
             f"Microphone site file not found:\n  {mic_location_path}\n"
-            f"Expected NMSIM .sit file at Input_Data/05_SITES/{unit}{site}{year}.sit"
+            f"Expected NMSIM .sit file at {NMSIM_SITES_DIR}/{deployment_sit_name(unit, site, year)}.sit"
         )
-    raw_text = Path(mic_location_path).read_text()
-    sit_lines = raw_text.splitlines()
-    if len(sit_lines) < 3:
-        raise ValueError(
-            f"Microphone site file has invalid format (expected coordinates on line 3):\n"
-            f"  {mic_location_path}"
-        )
-    coords_line = sit_lines[2]
-    coords_str = re.split(r'\s+', coords_line)[1:-1]
-    x, y, z_agl = [float(i) for i in coords_str[:3]]
+    sit_contents = read_sit_file(mic_location_path)
+    x, y, z_agl = sit_contents.easting_m, sit_contents.northing_m, sit_contents.height_agl_m
 
     # get lat/lon so we can initialize a Microphone object, need to get crs of the .SIT file first
     study_area = load_studyarea(project_dir, unit, site, year)
     mic_crs = NMSIM_bbox_utm(study_area)
-    proj = Transformer.from_crs(mic_crs, "epsg:4326", always_xy=True)
-    lon, lat = proj.transform(x, y)
+    lon, lat = decode_sit_geographic_coords(
+        x,
+        y,
+        study_area,
+        sit_path=mic_location_path,
+        unit=unit,
+        site=site,
+        year=year,
+    )
 
     # calculate elevation from the DEM if necessary
     if elevation:
@@ -319,7 +326,9 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
     data : gpd.GeoDataFrame
         A GeoDataFrame of flight track points.
     """
-    wheres = [f"fp.ak_datetime::date BETWEEN '{start_date}' AND '{end_date}'"]  # start and end date are inclusive
+    # Use bound parameters for date values to prevent SQL injection
+    wheres = ["fp.ak_datetime::date BETWEEN :start_date AND :end_date"]
+    params = {"start_date": start_date, "end_date": end_date}
 
     if mask is not None:
         if mask.crs.to_epsg() != 4326:  # If mask is not already in WGS84, project it.
@@ -328,21 +337,23 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
             ak_albers_mask = mask.to_crs(epsg=3338)
             mask.geometry = ak_albers_mask.buffer(
                 mask_buffer_distance).to_crs(epsg=4326)
+        # Spatial filter uses internally-generated WKT from the mask geometry,
+        # not external user input, so literal interpolation is acceptable here.
         wheres.append(
             f"ST_Intersects(geom, ST_GeomFromText('{mask.union_all().wkt}', 4326))")
 
-    query = f"""
+    query = text(f"""
         SELECT
             f.flight_id as flight_id,
             fp.altitude_ft * 0.3048 as altitude_m,
             fp.ak_datetime,
-            fp.geom, 
+            fp.geom,
             date_trunc('hour', fp.ak_datetime) as ak_hourtime
         FROM flight_points as fp
         JOIN flights f ON f.id = fp.flight_id
         WHERE {' AND '.join(wheres)}
         ORDER BY fp.ak_datetime asc
-        """
+        """).bindparams(**params)
 
     flight_tracks = gpd.GeoDataFrame.from_postgis(
         query, engine, geom_col='geom', crs='epsg:4326')
@@ -559,14 +570,14 @@ def get_omni_sources(lower: float, upper: float) -> List[str]:
     assert upper % .5 == 0, "Invalid upper limit. Value must be divisible by 0.5."
     assert lower % .5 == 0, "Invalid lower limit. Value must be divisible by 0.5."
 
-    omni_source_dir = f"{ACTIVE_SPACE_DIR}\\data\\tuning"
+    omni_source_dir = os.path.join(ACTIVE_SPACE_DIR, "data", "tuning")
     omni_sources = []
 
     for i in range(int(lower*10), int(upper*10+5), 5):
         if i < 0:
-            omni_sources.append(f"{omni_source_dir}\\O_{i:04}.src")
+            omni_sources.append(os.path.join(omni_source_dir, f"O_{i:04}.src"))
         elif i >= 0:
-            omni_sources.append(f"{omni_source_dir}\\O_+{i:03}.src")
+            omni_sources.append(os.path.join(omni_source_dir, f"O_+{i:03}.src"))
 
     return omni_sources
 
@@ -621,3 +632,4 @@ def plot_activespace_fit(project_dir, unit, site, year, gain, altitude_m=None,
         )
     
     mic.plot(ax=ax, color="black", markersize=15, marker='o', zorder=10)
+

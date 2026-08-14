@@ -12,7 +12,6 @@ from nps_active_space.utils.helpers import (
     load_DEM,
     load_studyarea,
 )
-from nps_active_space.utils.computation import coords_to_utm
 from nps_active_space.utils.clock_drift import correct_clock_drift
 
 
@@ -100,7 +99,7 @@ if __name__ == '__main__':
         tracks=tracks,
         nvspl=nvspl,
         mic=microphone,
-        crs=coords_to_utm(microphone.lat, microphone.lon),
+        crs=microphone.crs,
         study_area=study_area,
         track_source=args.track_source,
         dem=dem,

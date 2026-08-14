@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import logging
 import numpy as np
 import os
 import geopandas as gpd
@@ -8,19 +11,22 @@ from tqdm import tqdm
 from shapely.geometry import Point
 from nps_active_space.utils.computation import normalize_point_density
 
+logger = logging.getLogger(__name__)
+
 
 class LayeredActiveSpace():
-    def __init__(self, designator, layer_dirs, study_area, gain=None, crs="epsg:4326"):
-        self.designator = designator
-        self.layer_dirs = dict(sorted(layer_dirs.items()))
-        self.study_area = study_area
-        self.activespaces = {}
-        self.all_activespaces = {}  # set by self.preload_all_activespaces()
-        self.crs = crs
-        self.gain = None
+    def __init__(self, designator: str, layer_dirs: dict[int, str], study_area: gpd.GeoDataFrame,
+                 gain: float | None = None, crs: str = "epsg:4326") -> None:
+        self.designator: str = designator
+        self.layer_dirs: dict[int, str] = dict(sorted(layer_dirs.items()))
+        self.study_area: gpd.GeoDataFrame = study_area
+        self.activespaces: dict[int, gpd.GeoDataFrame] = {}
+        self.all_activespaces: dict[float, dict[int, gpd.GeoDataFrame] | None] = {}  # set by self.preload_all_activespaces()
+        self.crs: str = crs
+        self.gain: float | None = None
         if gain is not None:
             self.set_gain(gain)
-        self.fit_pbar = None
+        self.fit_pbar: tqdm | None = None
 
         if not self.layer_dirs:
             raise FileNotFoundError(
@@ -38,37 +44,38 @@ class LayeredActiveSpace():
                 + "\n".join(f"  {d}" for d in self.layer_dirs.values())
             )
         gains = [omni_to_gain(path) for path in active_names]
-        self.min_gain = min(gains)
-        self.max_gain = max(gains)
+        self.min_gain: float = min(gains)
+        self.max_gain: float = max(gains)
     
-    def load_activespaces(self, gain):
+    def load_activespaces(self, gain: float) -> dict[int, gpd.GeoDataFrame] | None:
         if gain in self.all_activespaces:
             return self.all_activespaces[gain]
         
         sign = "-" if gain < 0 else "+"
         gain_string = str(np.abs(int(10*gain))).zfill(3)
 
-        activespaces = {}
+        activespaces: dict[int, gpd.GeoDataFrame] = {}
         for altitude, dir in self.layer_dirs.items():
             glob_result = glob.glob(os.path.join(dir, f"*_O_{sign}{gain_string}.geojson"))
             if len(glob_result) == 0:
-                print(f"Couldn't find active space for gain {gain} in {dir}")
-                return
+                logger.warning(f"Couldn't find active space for gain {gain} in {dir}")
+                return None
             activespace_file = glob_result[0]
             activespaces[altitude] = gpd.read_file(activespace_file).to_crs(self.crs)
         
         return activespaces
 
-    def preload_all_activespaces(self):
+    def preload_all_activespaces(self) -> None:
         self.all_activespaces = {}
         for gain in tqdm(np.arange(self.min_gain, self.max_gain + 0.5, 0.5), desc="Loading all active spaces"):
             self.all_activespaces[gain] = self.load_activespaces(gain)
 
-    def set_gain(self, gain):
+    def set_gain(self, gain: float) -> None:
         self.activespaces = self.load_activespaces(gain)
         self.gain = gain
 
-    def fit(self, annotations, beta=1., plot=True, plot_savepath=None):
+    def fit(self, annotations: gpd.GeoDataFrame, beta: float = 1., plot: bool = True,
+            plot_savepath: str | None = None) -> pd.Series:
 
         # Extract all valid points from their LineStrings. These will be needed for calculating fbeta scores later.
         valid_points_lst = []
@@ -80,7 +87,8 @@ class LayeredActiveSpace():
         result["Number of valid annotated segments"] = len(annotations)
         return result
 
-    def fit_points(self, points, min_gain=-10., max_gain=40., beta=1., plot=True, plot_savepath=None):
+    def fit_points(self, points: gpd.GeoDataFrame, min_gain: float = -10., max_gain: float = 40.,
+                   beta: float = 1., plot: bool = True, plot_savepath: str | None = None) -> pd.Series:
         assert min_gain <= max_gain
 
         # Reduce point density to median density, so very dense areas (e.g. airports) don't skew the fit
@@ -92,11 +100,11 @@ class LayeredActiveSpace():
         if points.crs != self.crs:
             points = points.to_crs(self.crs)
         
-        print("Assigning points to their closest layer")
+        logger.info("Assigning points to their closest layer")
         points = self.assign_layers(points)
 
         # Compute precision, recall, and F-Beta for each gain
-        print(f"Computing performance for each gain {min_gain}dB to {max_gain}dB")
+        logger.info(f"Computing performance for each gain {min_gain}dB to {max_gain}dB")
         detection_results = pd.DataFrame([])
         self.fit_pbar = tqdm(np.arange(min_gain, max_gain + 0.5, 0.5), unit=" Gain Values")
         for gain in self.fit_pbar:
@@ -126,7 +134,7 @@ class LayeredActiveSpace():
 
         best_gain = detection_results[f"F{beta}"].idxmax()
         best = detection_results.loc[best_gain]
-        print(f"Best gain: {best_gain}dB, F{beta} = {best[f"F{beta}"]}")
+        logger.info(f"Best gain: {best_gain}dB, F{beta} = {best[f"F{beta}"]}")
 
         self.set_gain(best_gain)
 
@@ -153,20 +161,20 @@ class LayeredActiveSpace():
             f"F{beta}": best[f"F{beta}"]
         })
 
-    def assign_layers(self, points):
+    def assign_layers(self, points: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         """
         Returns a copy of points with a new column added representing the active space layer
         each point belongs to (which layer is closest to the point's z value)
         """
         points = points.copy()
         altitudes = list(self.layer_dirs.keys())
-        def closest_layer(z):
+        def closest_layer(z: float) -> int:
             return min(altitudes, key=lambda alt: abs(alt - z))
         points["layer"] = points.geometry.z.apply(closest_layer)
         return points
 
 
-    def predict(self, points):
+    def predict(self, points: gpd.GeoDataFrame) -> pd.Series:
         """Given a GeoDataFrame of 3D points, predict whether they are audible.
         
         Returns

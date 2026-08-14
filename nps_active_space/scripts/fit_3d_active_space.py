@@ -26,7 +26,7 @@ if __name__ == "__main__":
     # fit active space model using annotations
     model = load_layered_activespace(project_dir, unit, site, year)
     annots = load_annotations(project_dir, unit, site, year)
-    plot_savepath = Rf"{project_dir}/{unit}{site}/precision_recall_3d_f1_{unit}{site}{year}.png"
+    plot_savepath = os.path.join(project_dir, f"{unit}{site}", f"precision_recall_3d_f1_{unit}{site}{year}.png")
     result = model.fit(annots, plot_savepath=plot_savepath)
     
     # save to output csv
