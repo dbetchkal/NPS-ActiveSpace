@@ -472,10 +472,10 @@ class _GroundTruthingFrame(_AppFrame):
         self.spectro = spectro
         self.audible_ranges = audible_ranges
         self.spline = spline
-        typical_t_diff = spline["time_audible"].diff().median()
-        self.typical_t_diff = typical_t_diff
         self.spline_time_num = date2num(spline["time_audible"].to_numpy())
-        self.snap_threshold_days = snap_threshold_days(typical_t_diff)
+        self.snap_threshold_days = snap_threshold_days(
+            spline["time_audible"].diff().median()
+        )
         self.closest_point = closest_point
         self.closest_time = closest_time
         self.x_lims = x_lims

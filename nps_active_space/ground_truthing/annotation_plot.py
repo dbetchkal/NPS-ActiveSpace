@@ -152,7 +152,7 @@ def build_plot(frame: "_GroundTruthingFrame") -> None:
     frame.canvas = canvas
     frame.bg = None
     frame._plot_updating = False
-    frame._cursor_status_text = None
+    frame._last_cursor_status_text = None
     frame.slider_axes = slider_axes
     frame.spectro_ax = spectro_ax
     frame.map_ax = map_ax
@@ -321,6 +321,7 @@ def build_plot(frame: "_GroundTruthingFrame") -> None:
     frame.progress_label.config(text=f"{frame.i+1}/{frame.master.tracks.track_id.nunique()}")
     frame.submit_button.config(command=lambda: frame._store_annotation(frame.track_id, frame.spline, frame.audible_ranges), state=tk.NORMAL)
     frame.unknown_button.config(command=lambda: frame._store_annotation(frame.track_id, frame.spline, valid=False), state=tk.NORMAL)
+    frame.time_label.config(text="")
     canvas.mpl_connect("motion_notify_event", lambda event: on_mouse_move(frame, event))
     canvas.mpl_connect("button_press_event", lambda event: on_mouse_down(frame, event))
     canvas.mpl_connect("draw_event", lambda event: on_draw(frame, event))
@@ -382,8 +383,8 @@ def on_mouse_move(frame: "_GroundTruthingFrame", event: Any) -> None:
             if within_snap else None
         )
         status_text = _cursor_status_text(cursor_time, altitude_m)
-        if status_text != frame._cursor_status_text:
-            frame._cursor_status_text = status_text
+        if status_text != frame._last_cursor_status_text:
+            frame._last_cursor_status_text = status_text
             frame.time_label.config(text=status_text)
 
         if within_snap:
