@@ -1,8 +1,10 @@
+import datetime as dt
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+import shapely
 import tkinter as tk
 from matplotlib.dates import date2num, DateFormatter, num2date
 from matplotlib.gridspec import GridSpec
@@ -39,6 +41,24 @@ def _track_label_type_lines(
             )
             name_line = ""
     return type_line, name_line
+
+
+def _cursor_status_text(cursor_time: dt.datetime, altitude_m: float | None) -> str:
+    """Format cursor time and optional track altitude for the side panel."""
+    text = f"Cursor Time: {cursor_time.strftime('%H:%M:%S')}"
+    if altitude_m is not None and np.isfinite(altitude_m):
+        text += f"\nAltitude: {altitude_m:.0f} m MSL"
+    return text
+
+
+def _point_altitude_m(point_geometry: Any) -> float | None:
+    """Return MSL altitude from a shapely point, or None when unavailable."""
+    if not shapely.has_z(point_geometry):
+        return None
+    z = shapely.get_z(point_geometry)
+    if not np.isfinite(z):
+        return None
+    return float(z)
 
 
 def build_plot(frame: "_GroundTruthingFrame") -> None:
@@ -287,12 +307,14 @@ def on_mouse_move(frame: "_GroundTruthingFrame", event: Any) -> None:
     if event.inaxes == frame.spectro_ax or event.inaxes in frame.slider_axes:
         dt = num2date(event.xdata).replace(tzinfo=None)
 
-        # update time display
-        frame.time_label.config(text=f"Cursor Time: {dt.strftime('%H:%M:%S')}")
-
         # get closest spline point to the mouse position
         closest_idx = (frame.spline["time_audible"] - dt).abs().idxmin()
         closest_pt = frame.spline.loc[closest_idx]
+
+        frame.time_label.config(text=_cursor_status_text(
+            dt,
+            _point_altitude_m(closest_pt.geometry),
+        ))
 
         # if the mouse is close enough to a point, display the marker on the map
         if abs(closest_pt["time_audible"] - dt) > frame.typical_t_diff:
