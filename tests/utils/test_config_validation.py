@@ -323,6 +323,35 @@ def repo_root():
     return Path(__file__).resolve().parents[2]
 
 
+class TestTemplateSchemaSync:
+    def test_template_sections_match_expected_schema(self):
+        from configparser import ConfigParser
+
+        from nps_active_space import ACTIVE_SPACE_DIR
+
+        parser = ConfigParser()
+        template_path = Path(ACTIVE_SPACE_DIR) / "config" / "template.config"
+        parser.read(template_path)
+        assert set(parser.sections()) == set(cfg.EXPECTED_SCHEMA.keys())
+
+    def test_template_keys_match_expected_schema(self):
+        from configparser import ConfigParser
+
+        from nps_active_space import ACTIVE_SPACE_DIR
+
+        parser = ConfigParser()
+        template_path = Path(ACTIVE_SPACE_DIR) / "config" / "template.config"
+        parser.read(template_path)
+        for section, expected_keys in cfg.EXPECTED_SCHEMA.items():
+            assert set(parser[section].keys()) == set(expected_keys)
+
+    def test_path_and_required_keys_are_in_schema(self):
+        for section, path_keys in cfg._PATH_KEYS.items():
+            assert path_keys <= set(cfg.EXPECTED_SCHEMA[section])
+        for section, required_keys in cfg._REQUIRED_VALUES.items():
+            assert required_keys <= set(cfg.EXPECTED_SCHEMA[section])
+
+
 class TestExampleConfigs:
     @pytest.mark.parametrize("environment", ["DENA_example", "GLBA_example"])
     def test_shipped_example_configs_validate(
