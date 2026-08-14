@@ -30,7 +30,6 @@ port = 5432
 host = localhost
 
 [data]
-site_metadata =
 nvspl_archive =
 adsb =
 ais =
@@ -93,7 +92,6 @@ class TestValidateMissingSections:
         host =
 
         [data]
-        site_metadata =
         nvspl_archive =
         adsb =
         ais =
@@ -140,7 +138,6 @@ class TestValidateMissingKeys:
         host =
 
         [data]
-        site_metadata =
         nvspl_archive =
         adsb =
         ais =

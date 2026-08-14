@@ -21,13 +21,13 @@ _config = None
 # so that validate() can check whether those paths exist on disk.
 EXPECTED_SCHEMA = {
     'database:overflights': ['name', 'username', 'password', 'port', 'host'],
-    'data': ['site_metadata', 'nvspl_archive', 'adsb', 'ais', 'dem', 'dem_elevation_units', 'mennitt'],
+    'data': ['nvspl_archive', 'adsb', 'ais', 'dem', 'dem_elevation_units', 'mennitt'],
     'project': ['dir', 'nmsim', 'faa_releasable_db', 'faa_type_corrections'],
 }
 
 # Keys whose non-empty values should point to an existing file or directory.
 _PATH_KEYS = {
-    'data': {'site_metadata', 'nvspl_archive', 'adsb', 'ais', 'dem', 'mennitt'},
+    'data': {'nvspl_archive', 'adsb', 'ais', 'dem', 'mennitt'},
     'project': {'dir', 'nmsim', 'faa_releasable_db', 'faa_type_corrections'},
 }
 
