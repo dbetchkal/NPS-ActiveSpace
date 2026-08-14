@@ -133,7 +133,7 @@ def get_obs_periods(unit: str, site: str, year: str, nvspl_archive: str, adsb_di
         return np.datetime_as_string(obs_periods, unit="D")
 
 
-def clip_events_to_time_period(df: pd.DataFrame, start_col: str, end_col: str, start_dt: np.datetime64, end_dt: np.datetime64, months: list[int] = list(range(1,13))) -> pd.DataFrame:
+def clip_events_to_time_period(df: pd.DataFrame, start_col: str, end_col: str, start_dt: np.datetime64, end_dt: np.datetime64, months: list[int] | None = None) -> pd.DataFrame:
     """Clips events to only fall within a time period and within ceratin months.
     Events that partially overlap the time period boundaries are shortened to only include the section within the time period.
     
@@ -158,6 +158,8 @@ def clip_events_to_time_period(df: pd.DataFrame, start_col: str, end_col: str, s
         A copy of the input DataFrame, only containing the events within the time period,
         with modified start / end times if the event overlapped the time period boundaries.
     """
+    if months is None:
+        months = list(range(1, 13))
     df = df.copy()
     during_time_period = (df[end_col] > start_dt) & (df[start_col] < end_dt)
     during_correct_months = df[start_col].dt.month.isin(months) | df[end_col].dt.month.isin(months)
@@ -401,9 +403,9 @@ class Quantile:
 
 # GEOGRAPHIC --------------------------------------------------------------
 
-def get_all_geo_stats(tracks: gpd.GeoDataFrame, periods: np.ndarray, months: list[int] = list(range(1,13)), quantiles: float | list[float] = .5) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+def get_all_geo_stats(tracks: gpd.GeoDataFrame, periods: np.ndarray, months: list[int] | None = None, quantiles: float | list[float] = .5) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Calculates all event statistics, given tracks from the Audible Transits module.
-    
+
     Parameters
     ----------
     tracks: gpd.GeoDataFrame
@@ -412,17 +414,17 @@ def get_all_geo_stats(tracks: gpd.GeoDataFrame, periods: np.ndarray, months: lis
         containing a start and end date string formatted 'yyyy-mm-dd'. The start and end dates are included in the period.
         This is important for stats like NFI and time audible.
     months : int or list of ints (between 1 and 12)
-        Default is the full year, an optional input to specify the months of interest as a list of integers, 1-12. 
+        Default is the full year, an optional input to specify the months of interest as a list of integers, 1-12.
         This is helpful for highly seasonal flight patterns, such as Denali's summer vs winter splits.
     quantiles : float or list of floats (between 0 and 1)
         Default is .5 (the median), specifies which quantiles to output. E.g., [.1, .5., .9] will output 10th, 50th, and 90th quantiles
-    
+
     Returns
     -------
     statistics: pd.DataFrame.
         DataFrame containing computed statistics.
         Columns represent the metrics that statistics are computed for: event_duration, NFI_duration, daily_time_audible, daily_event_count, hourly_time_audible, hourly_event_count
-        Rows represent the statistic: mean, quantiles, min, max, std, median_abs_deviation 
+        Rows represent the statistic: mean, quantiles, min, max, std, median_abs_deviation
 
     confidence_intervals: pd.DataFrame.
         DataFrame containing 95% percentile confidence intervals for the mean and quantiles, computed using bootstrapping.
@@ -435,8 +437,10 @@ def get_all_geo_stats(tracks: gpd.GeoDataFrame, periods: np.ndarray, months: lis
     """
 
     # Input validation. Both 'quantiles' and 'months' parameters must be converted to lists
-    quantiles = [quantiles] if type(quantiles)!=type([]) else quantiles
-    months = [months] if type(months)!=type([]) else months
+    if months is None:
+        months = list(range(1, 13))
+    quantiles = [quantiles] if not isinstance(quantiles, list) else quantiles
+    months = [months] if not isinstance(months, list) else months
 
     # Make sure months are between 1 and 12
     for month in months:
@@ -544,14 +548,16 @@ def calculate_spatial_stats(tracks: gpd.GeoDataFrame, active: gpd.GeoDataFrame) 
 
 # ACOUSTIC ----------------------------------------------------------------
 
-def clip_srcid_to_time_period(src_data: pd.DataFrame, start_dt: np.datetime64, end_dt: np.datetime64, months: list[int] = list(range(1,13))) -> pd.DataFrame:
+def clip_srcid_to_time_period(src_data: pd.DataFrame, start_dt: np.datetime64, end_dt: np.datetime64, months: list[int] | None = None) -> pd.DataFrame:
     """A wrapper function around `clip_events_to_time_period` to clip SRCID data.
     Requires src_data to have fields "start_time" and "end_time"
     """
 
+    if months is None:
+        months = list(range(1, 13))
     assert "start_time" in src_data.columns
     assert "end_time" in src_data.columns
-    
+
     src_clipped = clip_events_to_time_period(src_data,
                                              start_col = "start_time",
                                              end_col = "end_time",
@@ -566,7 +572,7 @@ def clip_srcid_to_time_period(src_data: pd.DataFrame, start_dt: np.datetime64, e
     return src_clipped
 
 
-def get_all_srcid_stats(src_data: pd.DataFrame, periods: np.ndarray, months: list[int] = list(range(1,13)), quantiles: float | list[float] = .5, src_list: list[float] = [1.2]) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+def get_all_srcid_stats(src_data: pd.DataFrame, periods: np.ndarray, months: list[int] | None = None, quantiles: float | list[float] = .5, src_list: list[float] | None = None) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Calculates all event statistics, given a set of events and corresponding noise free intervals (NFIs).
     
     Parameters
@@ -605,8 +611,12 @@ def get_all_srcid_stats(src_data: pd.DataFrame, periods: np.ndarray, months: lis
     """
 
     # Input validation. Both 'quantiles' and 'months' parameters must be converted to lists
-    quantiles = [quantiles] if type(quantiles)!=type([]) else quantiles
-    months = [months] if type(months)!=type([]) else months
+    if months is None:
+        months = list(range(1, 13))
+    if src_list is None:
+        src_list = [1.2]
+    quantiles = [quantiles] if not isinstance(quantiles, list) else quantiles
+    months = [months] if not isinstance(months, list) else months
 
     # Make sure months are between 1 and 12
     for month in months:

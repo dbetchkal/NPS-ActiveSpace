@@ -35,7 +35,7 @@ from nps_active_space.utils.models import Tracks, FAAReleasable
 
 pd.set_option('future.no_silent_downcasting', True)
 
-def init_audible_transits(metadata, paths={}, raw_tracks = None):
+def init_audible_transits(metadata, paths=None, raw_tracks=None):
     '''
     Main function for initialization. Decides which AudibleTransits subclass to initialize based on the metadata provided.
 
@@ -85,6 +85,8 @@ def init_audible_transits(metadata, paths={}, raw_tracks = None):
     ValueError if invalid database type is entered
     '''
 
+    if paths is None:
+        paths = {}
     assert "database type" in metadata, "Metadata must contain a 'database type' field"
 
     if metadata["database type"] == "ADSB":
