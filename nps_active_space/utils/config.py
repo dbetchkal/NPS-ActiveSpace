@@ -49,6 +49,12 @@ def initialize(environment: str, *, validate_config: bool = True):
     validate_config : bool, default True
         When True, run :func:`validate` after loading and raise if errors are found.
 
+    Notes
+    -----
+    Relative path values in the config are checked against the current working
+    directory. Run scripts from the repo root when using relative paths such as
+    ``example_data/...`` (see the bundled ``*_example.config`` files).
+
     Raises
     ------
     ValueError
@@ -228,6 +234,11 @@ def validate(verbose: bool = True) -> List[str]:
     5. Non-empty path values point to an existing file or directory.
     6. Unknown sections or keys are flagged (catches typos).
     7. Non-empty ``dem_elevation_units`` values are ``feet`` or ``meters``.
+
+    Notes
+    -----
+    Non-absolute path values are resolved with :func:`os.path.exists` relative
+    to the current working directory, not the config file location.
 
     Parameters
     ----------

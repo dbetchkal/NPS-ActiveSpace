@@ -4,6 +4,7 @@ The `nps_active_space` [toolkit architecture](https://github.com/dbetchkal/NPS-A
 
 This directory contains the scripts along with instruction for their use via a command line interface. See [below](#use-cases) for the most common use cases, and [further below](#script-usage) for detailed documentation of each script.
 
+- [validate_config.py](#validate-config)
 - [project_setup.py](#project-setup)
 - [migrate_project_sites.py](#migrate-project-sites)
 - [run_ground_truthing.py](#run-ground-truthing)
@@ -187,6 +188,23 @@ check_study_duration_robustness.py
 
 # Script Usage
 
+### Validate Config
+
+Check an environment config for structural problems and missing paths before running a pipeline script.
+
+| command-line arg | description |
+| ---------------- | ----------- |
+| `-e`, `--environment` | **required.** Config environment to validate (e.g. `DENA_example`). |
+
+Example:
+
+```bash
+python nps_active_space/scripts/validate_config.py -e DENA_example
+```
+
+Run from the repo root when the config uses relative paths such as `example_data/...`.
+
+----
 
 ### Project Setup
 
