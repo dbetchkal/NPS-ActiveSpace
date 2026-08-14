@@ -234,7 +234,11 @@ $ python -m nps_active_space.scripts.migrate_project_sites -e DENA --all --dry-r
 
 ### Run Clock Drift
 
-Estimate and fit clock drift between NVSPL and causal track data. Run this before ADSB ground truthing when track timestamps may drift relative to the acoustic record. The workflow is two-phase: (1) estimate daily drifts and review QC plots, (2) re-run with `--fit --indices` to write the correction CSV that `run_ground_truthing.py` auto-applies.
+Estimate and fit clock drift between NVSPL and causal track data. Run this before ADSB ground truthing when track timestamps may drift relative to the acoustic record.
+
+**Correlation workflow (historical TRLA method):** two-phase — (1) estimate daily drifts and review QC plots, (2) re-run with `--fit --indices` to write the correction CSV that `run_ground_truthing.py` auto-applies.
+
+**Constant drift workflow:** write a piecewise-linear correction CSV directly from assumed drift rates and optional maintenance visits. Verify alignment in the ground truthing GUI.
 
 | command-line arg        | description                                                                                                                                      |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -243,12 +247,16 @@ Estimate and fit clock drift between NVSPL and causal track data. Run this befor
 | `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Triple Lakes = TRLA                                                                                 |
 | `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2025                                                                                          |
 | `-t`, `--track-source` | **_default ADSB -> {GPS, ADSB, AIS}_**<br/>Which track source to use. ADSB is the primary use case for clock drift correction. |
+| `--method`              | **_default correlation -> {correlation, constant_drift}_**<br/>`correlation` estimates daily drift from NVSPL/track cross-correlation. `constant_drift` writes a CSV from assumed rates and maintenance visits. |
 | `--plot-dir`            | Directory for QC plots. Default: `<site_dir>/clock_drift_qc/`.                                                                                   |
 | `--no-show`             | Skip `plt.show()` (useful for CI/automation).                                                                                                    |
-| `--max-drift-minutes`   | **_default 5_**<br/>Maximum expected clock drift magnitude in minutes.                                                                           |
-| `--fit`                 | Fit linear drift lines and write the clock drift CSV.                                                                                            |
+| `--max-drift-minutes`   | **_default 5_**<br/>Maximum expected clock drift magnitude in minutes (correlation method).                                                      |
+| `--drift-sec-per-day`   | **_default -9_**<br/>Assumed drift rate in sec/day (`constant_drift` only).                                                                      |
+| `--season-start-drift-sec` | **_default -5_**<br/>Drift at season start before the first maintenance visit (`constant_drift` only).                                       |
+| `--post-reset-drift-sec` | **_default -8_**<br/>Drift immediately after each maintenance visit (`constant_drift` only).                                                  |
+| `--fit`                 | Fit linear drift lines and write the clock drift CSV (`correlation` only).                                                                       |
 | `--indices`             | **required with `--fit`.**<br/>Comma-separated credible point indices from the estimate plot.                                                    |
-| `--maintenance-times`   | Optional comma-separated maintenance visit dates (`YYYY-MM-DD`) for piecewise fits.                                                              |
+| `--maintenance-times`   | Optional comma-separated maintenance visit datetimes (ISO format). Used by `constant_drift` and optional piecewise correlation fits.             |
 
 Example executions:
 
@@ -258,6 +266,12 @@ $ python -m nps_active_space.scripts.run_clock_drift -e DENA_example -u DENA -s 
 
 ```bash
 $ python -m nps_active_space.scripts.run_clock_drift -e production -u DENA -s TRLA -y 2025 -t ADSB --fit --indices 0,2,4,6
+```
+
+```bash
+$ python -m nps_active_space.scripts.run_clock_drift -e production -u DENA -s TRLA -y 2025 -t ADSB \
+    --method constant_drift \
+    --maintenance-times 2025-07-18T11:13:00,2025-08-12T12:07:00
 ```
 
 ----

@@ -11,7 +11,15 @@ import pandas as pd
 
 import nps_active_space.utils.config as cfg
 from nps_active_space.ground_truthing.load_tracks import load_tracks
-from nps_active_space.utils.clock_drift import ClockDriftFixer
+from nps_active_space.utils.clock_drift import (
+    DEFAULT_DRIFT_SEC_PER_DAY,
+    DEFAULT_POST_RESET_DRIFT_SEC,
+    DEFAULT_SEASON_START_DRIFT_SEC,
+    ClockDriftFixer,
+    default_clock_drift_file_path,
+    infer_correction_period,
+    write_constant_drift_csv,
+)
 from nps_active_space.utils.enums import TrackSource
 from nps_active_space.utils.helpers import get_deployment, get_logger, load_studyarea
 from nps_active_space.utils.models import Nvspl
@@ -33,7 +41,7 @@ def parse_indices(indices_str: str) -> list[int]:
 
 
 def parse_maintenance_times(times_str: str | None) -> list[pd.Timestamp]:
-    """Parse optional comma-separated maintenance visit dates."""
+    """Parse optional comma-separated maintenance visit datetimes."""
     if not times_str:
         return []
     return [pd.Timestamp(t.strip()) for t in times_str.split(",")]
@@ -127,30 +135,45 @@ def build_parser() -> ArgumentParser:
     parser.add_argument(
         "--method",
         default="correlation",
-        choices=["correlation", "peak_match"],
+        choices=["correlation", "constant_drift"],
         help=(
-            "Estimation method (default: correlation). 'correlation' cross-correlates the "
-            "whole day's signal, which can flip sign on quiet/windy days. 'peak_match' is an "
-            "experimental alternative that only estimates drift on days with one clear, "
-            "isolated acoustic event matched to a predicted flight arrival."
+            "Workflow to use (default: correlation). 'correlation' estimates daily drift from "
+            "NVSPL/track cross-correlation and requires --fit --indices to write the CSV. "
+            "'constant_drift' writes a piecewise-linear CSV from assumed drift rates and optional "
+            "maintenance visits."
         ),
     )
     parser.add_argument(
-        "--min-prominence-db",
+        "--drift-sec-per-day",
         type=float,
-        default=6.0,
-        help="Only used by --method peak_match. Minimum acoustic peak prominence in dB (default: 6).",
+        default=DEFAULT_DRIFT_SEC_PER_DAY,
+        help=(
+            "Only used by --method constant_drift. Assumed ADS-B clock drift rate in sec/day "
+            f"(default: {DEFAULT_DRIFT_SEC_PER_DAY})."
+        ),
     )
     parser.add_argument(
-        "--min-isolation-sec",
-        type=int,
-        default=30,
-        help="Only used by --method peak_match. Minimum separation between acoustic peaks in seconds (default: 30).",
+        "--season-start-drift-sec",
+        type=float,
+        default=DEFAULT_SEASON_START_DRIFT_SEC,
+        help=(
+            "Only used by --method constant_drift. Drift at season start before the first "
+            f"maintenance visit (default: {DEFAULT_SEASON_START_DRIFT_SEC})."
+        ),
+    )
+    parser.add_argument(
+        "--post-reset-drift-sec",
+        type=float,
+        default=DEFAULT_POST_RESET_DRIFT_SEC,
+        help=(
+            "Only used by --method constant_drift. Drift immediately after each maintenance "
+            f"visit (default: {DEFAULT_POST_RESET_DRIFT_SEC}, based on DENATRLA history)."
+        ),
     )
     parser.add_argument(
         "--fit",
         action="store_true",
-        help="Fit linear drift lines and write the clock drift CSV.",
+        help="Fit linear drift lines and write the clock drift CSV (correlation method only).",
     )
     parser.add_argument(
         "--indices",
@@ -158,17 +181,54 @@ def build_parser() -> ArgumentParser:
     )
     parser.add_argument(
         "--maintenance-times",
-        help="Comma-separated maintenance visit dates (YYYY-MM-DD) for piecewise fits.",
+        help=(
+            "Comma-separated maintenance visit datetimes (ISO format, e.g. "
+            "2025-07-18T11:13:00). Used by constant_drift and optional piecewise correlation fits."
+        ),
     )
     return parser
+
+
+def run_constant_drift(
+    project_dir: str,
+    unit: str,
+    site: str,
+    year_str: str,
+    track_source: TrackSource,
+    nvspl_dates: list[str],
+    tracks: pd.DataFrame,
+    maintenance_times: list[pd.Timestamp],
+    drift_sec_per_day: float,
+    season_start_drift_sec: float,
+    post_reset_drift_sec: float,
+) -> str:
+    """Build and write a constant-drift correction CSV."""
+    start_dt, end_dt = infer_correction_period(nvspl_dates, tracks)
+    clock_drift_file = default_clock_drift_file_path(
+        project_dir, unit, site, year_str, track_source,
+    )
+    write_constant_drift_csv(
+        clock_drift_file=clock_drift_file,
+        start_dt=start_dt,
+        end_dt=end_dt,
+        maintenance_times=maintenance_times,
+        drift_sec_per_day=drift_sec_per_day,
+        season_start_drift_sec=season_start_drift_sec,
+        post_reset_drift_sec=post_reset_drift_sec,
+    )
+    return clock_drift_file
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.fit and not args.indices:
-        parser.error("--indices is required when using --fit")
+    if args.method == "correlation":
+        if args.fit and not args.indices:
+            parser.error("--indices is required when using --fit")
+    elif args.method == "constant_drift":
+        if args.fit or args.indices:
+            parser.error("--fit and --indices are only used with --method correlation")
 
     cfg.initialize(environment=args.environment)
     logger = get_logger("CLOCK-DRIFT")
@@ -180,6 +240,7 @@ def main(argv: list[str] | None = None) -> None:
     show_plots = not args.no_show
     max_clock_drift = pd.Timedelta(minutes=args.max_drift_minutes)
     year_str = str(args.year)
+    maintenance_times = parse_maintenance_times(args.maintenance_times)
 
     logger.info(
         f"Beginning clock drift workflow for {args.unit}{args.site}{year_str} "
@@ -216,6 +277,26 @@ def main(argv: list[str] | None = None) -> None:
         f"({len(tracks)} points) from {nvspl_dates[0]} to {nvspl_dates[-1]}"
     )
 
+    if args.method == "constant_drift":
+        clock_drift_file = run_constant_drift(
+            project_dir=project_dir,
+            unit=args.unit,
+            site=args.site,
+            year_str=year_str,
+            track_source=args.track_source,
+            nvspl_dates=nvspl_dates,
+            tracks=tracks,
+            maintenance_times=maintenance_times,
+            drift_sec_per_day=args.drift_sec_per_day,
+            season_start_drift_sec=args.season_start_drift_sec,
+            post_reset_drift_sec=args.post_reset_drift_sec,
+        )
+        print(f"\nWrote clock drift file: {clock_drift_file}")
+        print(
+            "Verify alignment in the ground truthing GUI before relying on this correction."
+        )
+        return
+
     logger.info("Loading NVSPL for full deployment year...")
     nvspl_files = [
         e.path
@@ -245,9 +326,6 @@ def main(argv: list[str] | None = None) -> None:
     times, drifts = fixer.drift_time_series(
         max_clock_drift=max_clock_drift,
         show_plots=show_plots,
-        method=args.method,
-        min_prominence_db=args.min_prominence_db,
-        min_isolation_sec=args.min_isolation_sec,
     )
 
     print("\nDaily clock drift estimates:")
@@ -255,7 +333,6 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.fit:
         indices = parse_indices(args.indices)
-        maintenance_times = parse_maintenance_times(args.maintenance_times)
         fixer.fit_drift_lines(
             indices_to_use=indices,
             maintenance_times=maintenance_times,

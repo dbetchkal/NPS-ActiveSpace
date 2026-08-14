@@ -6,11 +6,8 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Point
 import os
-from scipy.signal import correlate, find_peaks
+from scipy.signal import correlate
 from scipy.ndimage import sobel
-import pandas as pd
-import numpy as np
-from shapely.geometry import Point
 
 from nps_active_space.utils.enums import TrackSource
 from nps_active_space.utils.models import FAAReleasable, Nvspl, Tracks
@@ -49,126 +46,151 @@ def _format_missing_time_ranges(missing_times: pd.DatetimeIndex, max_ranges: int
     return "; ".join(parts)
 
 
-def _find_acoustic_peaks(sobel_signal: pd.Series, min_prominence_db: float, min_isolation_sec: int) -> pd.DataFrame:
-    """Find prominent, well-isolated peaks in a Sobel-filtered NVSPL signal.
-
-    Used by the "peak_match" clock drift method as an alternative to whole-day
-    cross-correlation: rather than forcing a match every day (which can lock onto
-    wind/ambient noise on quiet days), this only surfaces acoustic events that
-    are unambiguously louder than their surroundings.
-
-    Returns
-    -------
-    pd.DataFrame
-        Columns "time" and "prominence", sorted by descending prominence so the
-        most credible candidate event is first. Empty if no peak clears the
-        prominence/isolation thresholds.
-    """
-    peak_positions, properties = find_peaks(
-        sobel_signal.to_numpy(),
-        prominence=min_prominence_db,
-        distance=max(min_isolation_sec, 1),
-    )
-    if len(peak_positions) == 0:
-        return pd.DataFrame(columns=["time", "prominence"])
-    peaks = pd.DataFrame({
-        "time": sobel_signal.index[peak_positions],
-        "prominence": properties["prominences"],
-    })
-    return peaks.sort_values("prominence", ascending=False).reset_index(drop=True)
+SECONDS_PER_DAY = 86_400
+DEFAULT_DRIFT_SEC_PER_DAY = -9.0
+DEFAULT_SEASON_START_DRIFT_SEC = -5.0
+DEFAULT_POST_RESET_DRIFT_SEC = -8.0
 
 
-def _predicted_flight_peaks(pts_section: gpd.GeoDataFrame) -> pd.DataFrame:
-    """For each flight, find its predicted closest-approach time (peak predicted Lp).
-
-    Returns
-    -------
-    pd.DataFrame
-        Columns "track_id", "time", "Lp_est" -- one row per flight in `pts_section`.
-    """
-    rows = []
-    for track_id, group in pts_section.groupby("track_id"):
-        peak_idx = group["Lp_est"].idxmax()
-        rows.append({
-            "track_id": track_id,
-            "time": group.loc[peak_idx, "time_audible"],
-            "Lp_est": group.loc[peak_idx, "Lp_est"],
-        })
-    return pd.DataFrame(rows, columns=["track_id", "time", "Lp_est"])
+def _drift_sec_at(
+    timestamp: pd.Timestamp,
+    anchor_time: pd.Timestamp,
+    anchor_drift_sec: float,
+    drift_sec_per_day: float,
+) -> float:
+    elapsed_days = (timestamp - anchor_time).total_seconds() / SECONDS_PER_DAY
+    return anchor_drift_sec + drift_sec_per_day * elapsed_days
 
 
-def match_single_event(
-    sobel_signal: pd.Series,
-    pts_section: gpd.GeoDataFrame,
-    max_clock_drift: pd.Timedelta,
-    min_prominence_db: float = 6.0,
-    min_isolation_sec: int = 30,
-) -> tuple[float | None, dict | None]:
-    """Estimate clock drift by matching a single confident acoustic peak to the
-    nearest predicted flight arrival, instead of cross-correlating an entire day.
+def _noon_samples_between(period_start: pd.Timestamp, period_end: pd.Timestamp) -> list[pd.Timestamp]:
+    """Daily noon timestamps strictly inside (period_start, period_end)."""
+    if period_end <= period_start:
+        return []
+    first_day = period_start.normalize()
+    last_day = (period_end - pd.Timedelta(nanoseconds=1)).normalize()
+    day_starts = pd.date_range(first_day, last_day, freq="D")
+    samples = []
+    for day_start in day_starts:
+        noon = day_start + pd.Timedelta(hours=12)
+        if noon > period_start and noon < period_end:
+            samples.append(noon)
+    return samples
 
-    Whole-day correlation is forced to pick a "best" lag even on quiet or windy
-    days with no real aircraft signal, which is a likely source of daily drift
-    estimates that implausibly flip sign. This alternative only returns a drift
-    estimate when there is one clear, isolated acoustic peak with an unambiguous
-    predicted flight nearby; otherwise it returns None, the same way boundary-limited
-    correlation matches are rejected today.
+
+def build_constant_drift_csv(
+    start_dt: pd.Timestamp,
+    end_dt: pd.Timestamp,
+    maintenance_times: list[pd.Timestamp],
+    drift_sec_per_day: float = DEFAULT_DRIFT_SEC_PER_DAY,
+    season_start_drift_sec: float = DEFAULT_SEASON_START_DRIFT_SEC,
+    post_reset_drift_sec: float = DEFAULT_POST_RESET_DRIFT_SEC,
+) -> pd.DataFrame:
+    """Build a piecewise-linear clock drift CSV from assumed drift rates and maintenance visits.
+
+    Drift is defined as seconds to add to track ``point_dt`` to align with NVSPL. Between
+    maintenance visits the ADS-B clock is modeled as drifting linearly at ``drift_sec_per_day``
+    (negative for a slow receiver). Each maintenance visit resets drift to
+    ``post_reset_drift_sec``. The first segment of a season starts at ``season_start_drift_sec``.
 
     Parameters
     ----------
-    sobel_signal: pd.Series
-        Sobel-filtered, transportation-band NVSPL signal indexed by time (as computed
-        in `ClockDriftFixer.get_clock_drift`).
-    pts_section: gpd.GeoDataFrame
-        Track points for the period, with "track_id", "time_audible", and "Lp_est" columns.
-    max_clock_drift: pd.Timedelta
-        Only consider predicted flight peaks within this distance of the acoustic peak.
-    min_prominence_db: float, default 6.0
-        Minimum peak prominence (dB) for an acoustic peak to be considered credible.
-    min_isolation_sec: int, default 30
-        Minimum separation (seconds) enforced between acoustic peaks.
-
-    Returns
-    -------
-    drift_sec: float or None
-        Seconds to add to the track time to align with the acoustic time, or None
-        if no confident single-event match was found.
-        match_info: dict or None
-        Details about the match (acoustic_time, predicted_time, track_id, prominence,
-        confidence), useful for QC plotting and logging. None if no match was found.
-        ``confidence`` is the acoustic peak prominence in dB.
+    start_dt: pd.Timestamp
+        Start of the correction period (inclusive). Should be on or before the earliest track time.
+    end_dt: pd.Timestamp
+        End of the correction period (inclusive). Should be on or after the latest track time.
+    maintenance_times: list[pd.Timestamp]
+        Clock-reset times during the season, in any order.
+    drift_sec_per_day: float
+        Assumed drift rate between resets (default -9 sec/day for DENATRLA ADS-B).
+    season_start_drift_sec: float
+        Drift immediately at ``start_dt`` for the opening segment (default -5 sec).
+    post_reset_drift_sec: float
+        Drift immediately after each maintenance visit (default -8 sec).
     """
-    acoustic_peaks = _find_acoustic_peaks(sobel_signal, min_prominence_db, min_isolation_sec)
-    if acoustic_peaks.empty:
-        return None, None
+    start_dt = pd.Timestamp(start_dt)
+    end_dt = pd.Timestamp(end_dt)
+    maintenance_times = sorted(pd.Timestamp(t) for t in maintenance_times)
+    maintenance_times = [t for t in maintenance_times if start_dt < t <= end_dt]
 
-    flight_peaks = _predicted_flight_peaks(pts_section)
-    if flight_peaks.empty:
-        return None, None
+    period_boundaries = [start_dt] + maintenance_times + [end_dt]
+    file_entries_list: list[pd.DataFrame] = []
 
-    for _, acoustic_peak in acoustic_peaks.iterrows():
-        window_start = acoustic_peak["time"] - max_clock_drift
-        window_end = acoustic_peak["time"] + max_clock_drift
-        candidates = flight_peaks[
-            (flight_peaks["time"] >= window_start) & (flight_peaks["time"] <= window_end)
+    for segment_index in range(len(period_boundaries) - 1):
+        period_start = period_boundaries[segment_index]
+        period_end = period_boundaries[segment_index + 1]
+        anchor_drift = season_start_drift_sec if segment_index == 0 else post_reset_drift_sec
+        is_final_segment = segment_index == len(period_boundaries) - 2
+
+        segment_times = [period_start, *_noon_samples_between(period_start, period_end)]
+        if period_end > period_start:
+            if is_final_segment:
+                segment_times.append(period_end)
+            else:
+                segment_times.append(period_end - pd.Timedelta(milliseconds=100))
+
+        seconds = [
+            _drift_sec_at(timestamp, period_start, anchor_drift, drift_sec_per_day)
+            for timestamp in segment_times
         ]
-        if candidates.empty:
-            continue
-        # the loudest predicted flight in the window is our best guess for
-        # which flight produced this acoustic peak
-        best_candidate = candidates.loc[candidates["Lp_est"].idxmax()]
-        drift_sec = (acoustic_peak["time"] - best_candidate["time"]).total_seconds()
-        prominence = float(acoustic_peak["prominence"])
-        match_info = {
-            "acoustic_time": acoustic_peak["time"],
-            "predicted_time": best_candidate["time"],
-            "track_id": best_candidate["track_id"],
-            "prominence": prominence,
-            "confidence": prominence,
-        }
-        return drift_sec, match_info
+        file_entries_list.append(pd.DataFrame({"Time": segment_times, "Seconds": seconds}))
 
-    return None, None
+    return pd.concat(file_entries_list, ignore_index=True)
+
+
+def infer_correction_period(
+    nvspl_dates: list[str],
+    tracks: pd.DataFrame,
+) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """Infer clock-drift CSV start/end from NVSPL archive coverage and track times."""
+    start_dt = min(tracks["point_dt"].min().floor("d"), pd.Timestamp(nvspl_dates[0]))
+    nvspl_end = pd.Timestamp(nvspl_dates[-1]) + pd.Timedelta(days=1) - pd.Timedelta(milliseconds=100)
+    track_end = tracks["point_dt"].max().ceil("d") - pd.Timedelta(milliseconds=100)
+    end_dt = max(nvspl_end, track_end)
+    return start_dt, end_dt
+
+
+def default_clock_drift_file_path(
+    project_dir: str,
+    unit: str,
+    site: str,
+    year: str,
+    track_source: TrackSource,
+) -> str:
+    """Default path for a deployment clock drift CSV."""
+    return os.path.join(
+        project_dir,
+        f"{unit}{site}",
+        f"{unit}{site}{year}_clock_drift_{track_source}.csv",
+    )
+
+
+def write_constant_drift_csv(
+    clock_drift_file: str,
+    start_dt: pd.Timestamp,
+    end_dt: pd.Timestamp,
+    maintenance_times: list[pd.Timestamp],
+    drift_sec_per_day: float = DEFAULT_DRIFT_SEC_PER_DAY,
+    season_start_drift_sec: float = DEFAULT_SEASON_START_DRIFT_SEC,
+    post_reset_drift_sec: float = DEFAULT_POST_RESET_DRIFT_SEC,
+) -> pd.DataFrame:
+    """Build and write a constant-drift correction CSV."""
+    file_entries = build_constant_drift_csv(
+        start_dt=start_dt,
+        end_dt=end_dt,
+        maintenance_times=maintenance_times,
+        drift_sec_per_day=drift_sec_per_day,
+        season_start_drift_sec=season_start_drift_sec,
+        post_reset_drift_sec=post_reset_drift_sec,
+    )
+    file_entries.to_csv(clock_drift_file, index=False)
+    logger.info(
+        "Wrote constant drift file %s (%d rows, %.2f sec/day, %d maintenance visit(s))",
+        clock_drift_file,
+        len(file_entries),
+        drift_sec_per_day,
+        len(maintenance_times),
+    )
+    return file_entries
 
 
 class ClockDriftFixer():
@@ -273,9 +295,7 @@ class ClockDriftFixer():
         logger.info("Initialization done")
 
 
-    def get_clock_drift(self, start_dt, end_dt, max_clock_drift=pd.Timedelta(minutes=5),
-                        method: str = "correlation", min_prominence_db: float = 6.0,
-                        min_isolation_sec: int = 30):
+    def get_clock_drift(self, start_dt, end_dt, max_clock_drift=pd.Timedelta(minutes=5)):
         """
         Gets clock drift during a period of time by comparing the acoustic and causal records.
         
@@ -289,20 +309,6 @@ class ClockDriftFixer():
             The maximum expected magnitude of clock drift. Will only check for drifts less than this
             in magnitude. This helps to avoid situations where the most powerful predicted Lp peaks happen
             to line up well two hours in the future, but we know clock drift isn't two hours.
-        method: {"correlation", "peak_match"}, default "correlation"
-            "correlation" cross-correlates the whole day's Sobel-filtered NVSPL signal against the
-            predicted SPL signal, picking the lag with the highest correlation. This can produce
-            implausible day-to-day sign flips on quiet or windy days with no real aircraft signal
-            to lock onto, since a "best" lag is always chosen even when it's just noise.
-            "peak_match" instead finds the single most prominent, isolated acoustic peak that day
-            and pairs it with the nearest predicted flight arrival (see `match_single_event`),
-            returning None on days without one clear, unambiguous event rather than guessing.
-        min_prominence_db: float, default 6.0
-            Only used by method="peak_match". Minimum peak prominence (dB) for an acoustic peak
-            to be considered credible.
-        min_isolation_sec: int, default 30
-            Only used by method="peak_match". Minimum separation (seconds) enforced between
-            acoustic peaks.
         """
         # get the nvspl data corresponding to this time period
         full_index = pd.date_range(start_dt, end_dt, freq="s", inclusive="left")
@@ -341,32 +347,6 @@ class ClockDriftFixer():
         sobel_signal = np.abs(sobel(spectro, axis=1))
         sobel_signal = pd.DataFrame(sobel_signal, index=spectro.index, columns=spectro.columns)
         sobel_signal = logsum(sobel_signal.loc[:,"80":"1250"])  # transportation band
-
-        if method == "peak_match":
-            drift_sec, match_info = match_single_event(
-                sobel_signal, pts_section, max_clock_drift,
-                min_prominence_db=min_prominence_db, min_isolation_sec=min_isolation_sec,
-            )
-            if drift_sec is None:
-                logger.warning(
-                    "No confident single-event peak match found for period %s to %s",
-                    start_dt,
-                    end_dt,
-                )
-                return None
-            logger.info(
-                "Peak match for %s to %s: acoustic_time=%s, drift=%.1f s, "
-                "track=%s, confidence=%.1f dB prominence",
-                start_dt,
-                end_dt,
-                match_info["acoustic_time"],
-                drift_sec,
-                match_info["track_id"],
-                match_info["confidence"],
-            )
-            if self.plot_dir is not None:
-                self._plot_peak_match(start_dt, end_dt, sobel_signal, match_info, drift_sec)
-            return drift_sec
 
         # Set up an index that will be used for the predicted signal.
         # This contains each second of the time period, minus a period at the beginning and end
@@ -451,23 +431,6 @@ class ClockDriftFixer():
         
         return clock_drift
 
-
-    def _plot_peak_match(self, start_dt, end_dt, sobel_signal: pd.Series, match_info: dict, drift_sec: float) -> None:
-        """Save a QC plot for a single-event peak match (used when method="peak_match")."""
-        fig, ax = plt.subplots(figsize=(18, 6))
-        fig.suptitle(f"{self.deployment}: {start_dt} - {end_dt} (peak match, drift={drift_sec:.1f}s)")
-        ax.set_title("NVSPL Sobel Filter Signal")
-        ax.set_ylabel("Sobel Filter Signal")
-        sobel_signal.plot(ax=ax, color="black", linewidth=0.5)
-        ax.axvline(match_info["acoustic_time"], color="red", linestyle="--", label="Acoustic peak")
-        ax.axvline(match_info["predicted_time"], color="blue", linestyle="--",
-                  label=f"Predicted arrival ({match_info['track_id']})")
-        ax.legend()
-        fig.tight_layout()
-        fig.savefig(os.path.join(self.plot_dir, f"{start_dt.date()}_peak_match.png"))
-        plt.close(fig)
-    
-
     def _init_time_series_plot(self):
         """Utility for setting up a time series plot of clock drifts"""
         plt.subplots(figsize=(14, 6))
@@ -478,27 +441,18 @@ class ClockDriftFixer():
     
 
     def drift_time_series(self, start_dt=None, end_dt=None, max_clock_drift=pd.Timedelta(minutes=5),
-                          show_plots: bool = True, method: str = "correlation",
-                          min_prominence_db: float = 6.0, min_isolation_sec: int = 30):
-        """Compute clock drift each day over an extended period of time to determine patterns over time.
-
-        See `ClockDriftFixer.get_clock_drift` for a description of `method`, `min_prominence_db`,
-        and `min_isolation_sec`.
-        """
+                          show_plots: bool = True):
+        """Compute clock drift each day over an extended period of time to determine patterns over time."""
         if start_dt is None:
             start_dt = self.nvspl.index.min()
         if end_dt is None:
             end_dt = self.nvspl.index.max()
 
         logger.info(
-            "Estimating daily clock drift using method=%s from %s to %s "
-            "(max_drift=%s, min_prominence_db=%.1f, min_isolation_sec=%d)",
-            method,
+            "Estimating daily clock drift from %s to %s (max_drift=%s)",
             start_dt,
             end_dt,
             max_clock_drift,
-            min_prominence_db,
-            min_isolation_sec,
         )
 
         freq = "d"
@@ -512,7 +466,6 @@ class ClockDriftFixer():
             logger.debug(f"{period_bounds[i]} to {period_bounds[i+1]}")
             drifts.append(self.get_clock_drift(
                 period_bounds[i], period_bounds[i+1], max_clock_drift,
-                method=method, min_prominence_db=min_prominence_db, min_isolation_sec=min_isolation_sec,
             ))
         
         # use the center of the period as the time anchor for each period's drift

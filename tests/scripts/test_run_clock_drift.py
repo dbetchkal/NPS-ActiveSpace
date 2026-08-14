@@ -87,6 +87,30 @@ class TestRunClockDriftArgparse:
         script_logger.setLevel(logging.INFO)
 
         attach_module_logging(script_logger, "nps_active_space.utils.clock_drift")
-        logging.getLogger("nps_active_space.utils.clock_drift").info("peak match success")
+        logging.getLogger("nps_active_space.utils.clock_drift").info("clock drift success")
         captured = capsys.readouterr()
-        assert "peak match success" in captured.out + captured.err
+        assert "clock drift success" in captured.out + captured.err
+
+    def test_constant_drift_method_is_available(self):
+        parser = build_parser()
+        args = parser.parse_args(
+            [
+                "-e", "DENA_example", "-u", "DENA", "-s", "TRLA", "-y", "2025",
+                "--method", "constant_drift",
+            ]
+        )
+        assert args.method == "constant_drift"
+        assert args.drift_sec_per_day == -9.0
+        assert args.post_reset_drift_sec == -8.0
+
+    def test_constant_drift_rejects_fit(self):
+        from nps_active_space.scripts.run_clock_drift import main
+
+        with pytest.raises(SystemExit):
+            main(
+                [
+                    "-e", "DENA_example", "-u", "DENA", "-s", "TRLA", "-y", "2025",
+                    "--method", "constant_drift",
+                    "--fit",
+                ]
+            )
