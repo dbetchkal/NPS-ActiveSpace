@@ -180,9 +180,15 @@ class _InstructionsFrame(_AppFrame):
         )
         instructions = tk.Label(
             self,
-            text='Use the range slider to adjust what section of each track is audible, inaudible, or unknown.',
+            text=(
+                'Mark audible periods with the range sliders under the spectrogram.\n'
+                'Use "Add Sound Event" to annotate multiple audible segments on one track.\n'
+                'Remove all audible extents and click Submit to mark a fully inaudible track.\n'
+                'Click Ignore to exclude a track from analysis when the data should not be used.'
+            ),
             font=('Avenir', 12),
-            bg='ivory2'
+            bg='ivory2',
+            justify='center',
         )
         save_reminder = tk.Label(
             self,
@@ -291,7 +297,7 @@ class _GroundTruthingFrame(_AppFrame):
         )
         self.unknown_button = tk.Button(
             self,
-            text='Unknown >>',
+            text='Ignore >>',
             bg='yellow',
             fg='black',
             width=10,
