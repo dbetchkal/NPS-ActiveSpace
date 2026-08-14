@@ -171,15 +171,17 @@ class _InstructionsFrame(_AppFrame):
     def __init__(self, master: tk.Tk) -> None:
         super().__init__(master)
 
+        content = tk.Frame(self, bg='ivory2')
+
         # Define widgets.
         frame_label = tk.Label(
-            self,
+            content,
             text='Instructions:',
             font=('Avenir', 14, 'bold'),
             bg='ivory2'
         )
         instructions = tk.Label(
-            self,
+            content,
             text=(
                 'Mark audible periods with the range sliders under the spectrogram.\n'
                 'Use "Add Sound Event" to annotate multiple audible segments on one track.\n'
@@ -191,7 +193,7 @@ class _InstructionsFrame(_AppFrame):
             justify='center',
         )
         save_reminder = tk.Label(
-            self,
+            content,
             text='As always, make sure to save intermittently!',
             font=('Avenir', 12),
             bg='ivory2'
@@ -213,10 +215,12 @@ class _InstructionsFrame(_AppFrame):
             command=lambda: self.master.switch_frame(_AnnotationLoadFrame)
         )
 
+        frame_label.pack(pady=(0, 8))
+        instructions.pack(pady=(0, 16))
+        save_reminder.pack()
+
         # Place widgets.
-        frame_label.place(relx=0.5, rely=0.35, anchor='center')
-        instructions.place(relx=0.5, rely=0.45, anchor='center')
-        save_reminder.place(relx=0.5, rely=0.5, anchor='center')
+        content.place(relx=0.5, rely=0.45, anchor='center')
         start_button.place(relx=0.9, rely=0.9, anchor='center')
         back_button.place(relx=0.1, rely=0.9, anchor='center')
 
