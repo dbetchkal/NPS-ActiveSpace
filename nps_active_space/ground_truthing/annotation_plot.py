@@ -61,6 +61,34 @@ def _point_altitude_m(point_geometry: Any) -> float | None:
     return float(z)
 
 
+def _track_altitudes_m(points: Any) -> np.ndarray:
+    """Return finite MSL altitudes for raw track points."""
+    if "z" in points.columns:
+        altitudes = points["z"].to_numpy(dtype=float)
+    else:
+        altitudes = np.array(
+            [_point_altitude_m(geom) for geom in points.geometry],
+            dtype=float,
+        )
+    return altitudes[np.isfinite(altitudes)]
+
+
+def _track_altitude_summary(points: Any, closest_point_geometry: Any) -> str:
+    """Format static track altitude stats for the side panel."""
+    altitudes = _track_altitudes_m(points)
+    if altitudes.size == 0:
+        return ""
+
+    lines = [
+        f"Track altitude: {altitudes.min():.0f}–{altitudes.max():.0f} m MSL "
+        f"(mean {altitudes.mean():.0f})"
+    ]
+    closest_alt = _point_altitude_m(closest_point_geometry)
+    if closest_alt is not None:
+        lines.append(f"Closest approach: {closest_alt:.0f} m MSL")
+    return "\n".join(lines) + "\n"
+
+
 def build_plot(frame: "_GroundTruthingFrame") -> None:
     """
     Build the matplotlib GridSpec plot for a track, using class state set by _load_index().
@@ -254,11 +282,16 @@ def build_plot(frame: "_GroundTruthingFrame") -> None:
         frame.aircraft_type,
         getattr(frame, "vessel_name", None),
     )
+    altitude_line = _track_altitude_summary(
+        frame.points,
+        frame.closest_point.geometry.iat[0],
+    )
 
     frame.track_label.config(text=f"Microphone: {frame.master.mic.name}\n\n" + \
                                  f"Track Id: {frame.track_id}\n" + \
                                  (f"{frame.aircraft_help_text}\n" if frame.aircraft_help_text is not None else "") + \
                                  name_line + type_line + \
+                                 altitude_line + \
                                  f"\nAnnotated: {frame.track_annotated}" + \
                                  f"\nValid: {frame.valid}")
     frame.progress_label.config(text=f"{frame.i+1}/{frame.master.tracks.track_id.nunique()}")
