@@ -1,6 +1,7 @@
 """Tests for nps_active_space.utils.config.validate()."""
 
 import textwrap
+from pathlib import Path
 
 import pytest
 
@@ -34,6 +35,7 @@ nvspl_archive =
 adsb =
 ais =
 dem =
+dem_elevation_units = feet
 mennitt =
 
 [project]
@@ -96,6 +98,7 @@ class TestValidateMissingSections:
         adsb =
         ais =
         dem =
+        dem_elevation_units = feet
         mennitt =
         """)
         errors = cfg.validate(verbose=False)
@@ -142,6 +145,7 @@ class TestValidateMissingKeys:
         adsb =
         ais =
         dem =
+        dem_elevation_units = feet
         mennitt =
 
         [project]
@@ -245,3 +249,97 @@ class TestValidateVerboseOutput:
         cfg.validate(verbose=False)
         captured = capsys.readouterr()
         assert captured.out == ""
+
+
+class TestValidateDemElevationUnits:
+    def test_invalid_dem_elevation_units(self, tmp_path):
+        project_dir = tmp_path / "projects"
+        project_dir.mkdir()
+        text = VALID_CONFIG.format(project_dir=project_dir).replace(
+            "dem_elevation_units = feet",
+            "dem_elevation_units = yards",
+        )
+        _write_config(tmp_path, text)
+        errors = cfg.validate(verbose=False)
+        assert any(
+            "[data] dem_elevation_units must be 'feet' or 'meters', got 'yards'"
+            in e
+            for e in errors
+        )
+        assert len(errors) == 1
+
+    def test_blank_dem_elevation_units_is_fine(self, tmp_path):
+        project_dir = tmp_path / "projects"
+        project_dir.mkdir()
+        text = VALID_CONFIG.format(project_dir=project_dir).replace(
+            "dem_elevation_units = feet",
+            "dem_elevation_units =",
+        )
+        _write_config(tmp_path, text)
+        errors = cfg.validate(verbose=False)
+        assert errors == []
+
+
+class TestInitializeValidation:
+    def _write_env_config(self, tmp_path, name: str, body: str) -> None:
+        config_dir = tmp_path / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / f"{name}.config").write_text(textwrap.dedent(body))
+
+    def test_initialize_raises_on_invalid_config(self, tmp_path, monkeypatch):
+        project_dir = tmp_path / "projects"
+        project_dir.mkdir()
+        self._write_env_config(
+            tmp_path,
+            "invalid_units",
+            VALID_CONFIG.format(project_dir=project_dir).replace(
+                "dem_elevation_units = feet",
+                "dem_elevation_units = bad",
+            ),
+        )
+        monkeypatch.setattr(cfg, "ACTIVE_SPACE_DIR", str(tmp_path))
+        with pytest.raises(ValueError, match="Configuration validation failed"):
+            cfg.initialize("invalid_units", validate_config=True)
+
+    def test_initialize_skips_validation_when_disabled(self, tmp_path, monkeypatch):
+        project_dir = tmp_path / "projects"
+        project_dir.mkdir()
+        self._write_env_config(
+            tmp_path,
+            "invalid_units",
+            VALID_CONFIG.format(project_dir=project_dir).replace(
+                "dem_elevation_units = feet",
+                "dem_elevation_units = bad",
+            ),
+        )
+        monkeypatch.setattr(cfg, "ACTIVE_SPACE_DIR", str(tmp_path))
+        cfg.initialize("invalid_units", validate_config=False)
+        errors = cfg.validate(verbose=False)
+        assert len(errors) >= 1
+
+
+@pytest.fixture
+def repo_root():
+    return Path(__file__).resolve().parents[2]
+
+
+class TestExampleConfigs:
+    @pytest.mark.parametrize("environment", ["DENA_example", "GLBA_example"])
+    def test_shipped_example_configs_validate(
+        self, environment, repo_root, monkeypatch
+    ):
+        monkeypatch.chdir(repo_root)
+        cfg.initialize(environment, validate_config=False)
+        errors = cfg.validate(verbose=False)
+        assert errors == []
+
+    def test_full_example_data_fixture_validates(self, repo_root, monkeypatch):
+        from configparser import ConfigParser
+
+        monkeypatch.chdir(repo_root)
+        fixture_path = repo_root / "tests" / "fixtures" / "full_example_data.config"
+        parser = ConfigParser()
+        parser.read(str(fixture_path))
+        cfg._config = parser
+        errors = cfg.validate(verbose=False)
+        assert errors == []
