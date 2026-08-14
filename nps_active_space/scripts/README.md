@@ -510,8 +510,8 @@ This script is used to visualize select geospatial objects relevant to the `nps_
 | `-g`, `--gain`             | Active space gain, if not the optimal default found in `fits.csv`                                                                                |
 | `-s`, `--active-space`     | If included, load and plot the active space                                                                                                      |
 | `-a`, `--annotations`      | If included, load and plot annotations                                                                                                           |
-| `-t`, `--audible-transits` | If included, load and plot audible transits                                                                                                      |
-| `--track-source`           | Load and plot tracks from **{GPS, ADSB, AIS}**. Uses the same config paths as ground truthing (`[data]` ais/adsb, overflights DB for GPS). Not included in `--all`. Former `-v`/`--vessels` (AIS only) still works but is deprecated. |
+| `--audible-transits`       | If included, load and plot audible transits                                                                                                      |
+| `-t`, `--track-source`     | Load and plot tracks from **{GPS, ADSB, AIS}**. Uses the same config paths as ground truthing (`[data]` ais/adsb, overflights DB for GPS). Not included in `--all`. |
 | `--all`                    | Load and plot active space, annotations, and audible transits (does **not** include `--track-source`) |
 | `-m`, `--max-tracks`       | **_default 500_**<br>Maximum number of annotation tracks, audible transits, or causal tracks to show                                               |
 | `--annotation-file`        | **_default to deployment dir_**<br/>Path to .geojson file from which to load annotations                                                         |
@@ -544,8 +544,6 @@ python -m nps_active_space.scripts.viz DENATRLA2025 -e DENA_example \
 ```
 
 **Track plotting vs ground truthing:** viz uses the same `load_tracks` loader but draws raw point sequences (not annotation splines), does not apply clock-drift correction, and defaults to the full deployment year unless `--start-date` / `--end-date` are set. Ground truthing uses the NVSPL archive date span and drift files when present.
-
-**Note:** In viz, `-t` means audible transits; in ground truthing, `-t` means `--track-source`.
 
 ----
 

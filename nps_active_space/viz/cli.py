@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -82,23 +81,11 @@ def resolve_viz_plot_flags(
 def resolve_track_source_args(
     args: argparse.Namespace, parser: argparse.ArgumentParser
 ) -> TrackSource | None:
-    """Apply deprecated vessel flags and validate track date options."""
+    """Validate track source and date options."""
     track_source = args.track_source
-    if args.vessels:
-        if track_source is not None and track_source is not TrackSource.AIS:
-            parser.error(
-                "--vessels is an alias for --track-source AIS; "
-                "cannot combine with another --track-source"
-            )
-        if track_source is None:
-            print(
-                "Warning: -v/--vessels is deprecated; use --track-source AIS",
-                file=sys.stderr,
-            )
-            track_source = TrackSource.AIS
 
     if (args.start_date or args.end_date) and track_source is None:
-        parser.error("--start-date and --end-date require --track-source")
+        parser.error("--start-date and --end-date require -t/--track-source")
 
     if args.start_date and args.end_date and args.start_date > args.end_date:
         parser.error("--start-date must be on or before --end-date")
@@ -134,22 +121,16 @@ def main() -> None:
         help="If included, load and plot annotations",
     )
     parser.add_argument(
-        "-t",
         "--audible-transits",
         action="store_true",
         help="If included, load and plot audible transits",
     )
     parser.add_argument(
+        "-t",
         "--track-source",
         type=TrackSource,
         choices=list(TrackSource),
         help="Load and plot causal tracks (GPS, ADSB, or AIS). Not included in --all.",
-    )
-    parser.add_argument(
-        "-v",
-        "--vessels",
-        action="store_true",
-        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--all",
@@ -171,17 +152,17 @@ def main() -> None:
     parser.add_argument(
         "--transits-pkl",
         type=lambda p: parse_existing_file(p, arg_name="--transits-pkl"),
-        help="Path to .pkl audible transits (implies -t).",
+        help="Path to .pkl audible transits (implies --audible-transits).",
     )
     parser.add_argument(
         "--start-date",
         type=lambda d: parse_iso_date(d, arg_name="--start-date"),
-        help="Track query start date (YYYY-MM-DD). Requires --track-source. Default: Jan 1 of deployment year.",
+        help="Track query start date (YYYY-MM-DD). Requires -t/--track-source. Default: Jan 1 of deployment year.",
     )
     parser.add_argument(
         "--end-date",
         type=lambda d: parse_iso_date(d, arg_name="--end-date"),
-        help="Track query end date (YYYY-MM-DD). Requires --track-source. Default: Dec 31 of deployment year.",
+        help="Track query end date (YYYY-MM-DD). Requires -t/--track-source. Default: Dec 31 of deployment year.",
     )
     parser.add_argument(
         "--terraced",

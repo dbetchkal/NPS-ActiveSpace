@@ -100,30 +100,7 @@ class TestResolveTrackSourceArgs:
         parser = argparse.ArgumentParser()
         args = argparse.Namespace(
             track_source=None,
-            vessels=False,
             start_date="2024-05-24",
-            end_date=None,
-        )
-        with pytest.raises(SystemExit):
-            resolve_track_source_args(args, parser)
-
-    def test_vessels_sets_ais_track_source(self, capsys: pytest.CaptureFixture[str]) -> None:
-        parser = argparse.ArgumentParser()
-        args = argparse.Namespace(
-            track_source=None,
-            vessels=True,
-            start_date=None,
-            end_date=None,
-        )
-        assert resolve_track_source_args(args, parser) is TrackSource.AIS
-        assert "deprecated" in capsys.readouterr().err
-
-    def test_rejects_vessels_with_other_track_source(self) -> None:
-        parser = argparse.ArgumentParser()
-        args = argparse.Namespace(
-            track_source=TrackSource.ADSB,
-            vessels=True,
-            start_date=None,
             end_date=None,
         )
         with pytest.raises(SystemExit):
@@ -133,7 +110,6 @@ class TestResolveTrackSourceArgs:
         parser = argparse.ArgumentParser()
         args = argparse.Namespace(
             track_source=TrackSource.AIS,
-            vessels=False,
             start_date="2024-05-25",
             end_date="2024-05-24",
         )
@@ -144,21 +120,10 @@ class TestResolveTrackSourceArgs:
         parser = argparse.ArgumentParser()
         args = argparse.Namespace(
             track_source=TrackSource.ADSB,
-            vessels=False,
             start_date="2024-05-24",
             end_date="2024-05-25",
         )
         assert resolve_track_source_args(args, parser) is TrackSource.ADSB
-
-    def test_allows_vessels_with_ais_track_source(self) -> None:
-        parser = argparse.ArgumentParser()
-        args = argparse.Namespace(
-            track_source=TrackSource.AIS,
-            vessels=True,
-            start_date=None,
-            end_date=None,
-        )
-        assert resolve_track_source_args(args, parser) is TrackSource.AIS
 
 
 class TestParseMaxTracks:
