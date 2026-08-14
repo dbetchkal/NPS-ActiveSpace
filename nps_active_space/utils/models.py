@@ -212,14 +212,7 @@ class Nvspl(pd.DataFrame):
                     filepaths_or_data), unit="NVSPL files"))
 
             data = pd.concat(parts)
-            data = data.dropna(axis=1, how='all')
-            numeric_cols = list(data.columns.intersection(self._NUMERIC_COLS))
-            if numeric_cols:
-                object_cols = [c for c in numeric_cols if data[c].dtype == object]
-                if object_cols:
-                    data[object_cols] = data[object_cols].apply(
-                        pd.to_numeric, errors='coerce')
-                data[numeric_cols] = data[numeric_cols].astype('float32')
+            data = self._finalize_concatenated_files(data)
 
         octave_columns = {c: c.replace('H', '').replace(
             'p', '.') for c in filter(self.octave_regex.match, data.columns)}
@@ -229,6 +222,26 @@ class Nvspl(pd.DataFrame):
         # this avoids a `KeyError` when selecting using position report timestamps later on
         data.sort_index(inplace=True)
 
+        return data
+
+    def _finalize_concatenated_files(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Trim unused columns and downcast numeric SPL/weather data after hourly files are combined.
+
+        Empty metadata columns (all NaN across files) are dropped to save memory. Numeric columns
+        are stored as float32; object-dtyped values (e.g. "-Infinity" strings) are coerced first.
+        """
+        data = data.dropna(axis=1, how='all')
+
+        numeric_cols = list(data.columns.intersection(self._NUMERIC_COLS))
+        if not numeric_cols:
+            return data
+
+        object_cols = [col for col in numeric_cols if data[col].dtype == object]
+        if object_cols:
+            data[object_cols] = data[object_cols].apply(pd.to_numeric, errors='coerce')
+
+        data[numeric_cols] = data[numeric_cols].astype('float32')
         return data
 
     def _validate(self, columns: List[str], verifyNonStandardOctave):
