@@ -2,12 +2,17 @@ import datetime as dt
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
+import pytest
+from matplotlib.dates import date2num
 from shapely.geometry import Point
 
 from nps_active_space.ground_truthing.annotation_plot import (
     _cursor_status_text,
     _point_altitude_m,
     _track_altitude_summary,
+    closest_spline_at_cursor,
+    snap_threshold_days,
 )
 from helpers import make_track_points
 
@@ -54,3 +59,22 @@ class TestTrackAltitudeSummary:
     def test_returns_empty_when_no_altitude(self):
         points = make_track_points(2)
         assert _track_altitude_summary(points, Point(0.0, 0.0)) == ""
+
+
+class TestClosestSplineAtCursor:
+    def test_snaps_to_track_end_when_cursor_is_in_padding(self):
+        spline_time_num = date2num(
+            pd.date_range("2020-01-01 12:00:00", periods=5, freq="s")
+        )
+        cursor_x = spline_time_num[-1] + (120.0 / 86400.0)
+        closest_idx, delta_days = closest_spline_at_cursor(spline_time_num, cursor_x)
+        assert closest_idx == len(spline_time_num) - 1
+        assert delta_days == pytest.approx(120.0 / 86400.0)
+
+
+class TestSnapThresholdDays:
+    def test_defaults_to_one_second_when_spacing_unknown(self):
+        assert snap_threshold_days(pd.NaT) == pytest.approx(1.0 / 86400.0)
+
+    def test_converts_median_spacing(self):
+        assert snap_threshold_days(pd.Timedelta(seconds=2)) == pytest.approx(2.0 / 86400.0)

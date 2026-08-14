@@ -73,6 +73,28 @@ def _track_altitudes_m(points: Any) -> np.ndarray:
     return altitudes[np.isfinite(altitudes)]
 
 
+def snap_threshold_days(typical_t_diff: Any) -> float:
+    """Convert spline sample spacing to matplotlib date units for hover snapping."""
+    if typical_t_diff is None:
+        return 1.0 / 86400.0
+    try:
+        if typical_t_diff != typical_t_diff:
+            return 1.0 / 86400.0
+    except TypeError:
+        return 1.0 / 86400.0
+    return typical_t_diff.total_seconds() / 86400.0
+
+
+def closest_spline_at_cursor(
+    spline_time_num: np.ndarray,
+    cursor_x: float,
+) -> tuple[int, float]:
+    """Return nearest spline index and |Δt| in matplotlib date numbers."""
+    deltas = np.abs(spline_time_num - cursor_x)
+    closest_idx = int(np.argmin(deltas))
+    return closest_idx, float(deltas[closest_idx])
+
+
 def _track_altitude_summary(points: Any, closest_point_geometry: Any) -> str:
     """Format static track altitude stats for the side panel."""
     altitudes = _track_altitudes_m(points)
@@ -129,6 +151,8 @@ def build_plot(frame: "_GroundTruthingFrame") -> None:
     frame.fig = fig
     frame.canvas = canvas
     frame.bg = None
+    frame._plot_updating = False
+    frame._cursor_status_text = None
     frame.slider_axes = slider_axes
     frame.spectro_ax = spectro_ax
     frame.map_ax = map_ax
@@ -315,22 +339,26 @@ def on_draw(frame: "_GroundTruthingFrame", event: Any = None) -> None:
     update_plot(frame)
 
 def update_plot(frame: "_GroundTruthingFrame") -> None:
-    if frame.bg is None:
+    if frame.bg is None or frame._plot_updating:
         return
-    frame.canvas.restore_region(frame.bg)
+    frame._plot_updating = True
+    try:
+        frame.canvas.restore_region(frame.bg)
 
-    # mouse hover track point
-    frame.map_ax.draw_artist(frame.map_mousehover_point)
+        # mouse hover track point
+        frame.map_ax.draw_artist(frame.map_mousehover_point)
 
-    # audible range UIs
-    for ui in frame.audible_range_uis:
-        frame.map_ax.draw_artist(ui.highlight)
-        frame.spectro_ax.draw_artist(ui.lower_limit_line)
-        frame.spectro_ax.draw_artist(ui.upper_limit_line)
-        ui.slider.draw()
-    
-    frame.canvas.blit(frame.fig.bbox)
-    frame.canvas.flush_events()
+        # audible range UIs
+        for ui in frame.audible_range_uis:
+            frame.map_ax.draw_artist(ui.highlight)
+            frame.spectro_ax.draw_artist(ui.lower_limit_line)
+            frame.spectro_ax.draw_artist(ui.upper_limit_line)
+            ui.slider.draw()
+
+        frame.canvas.blit(frame.fig.bbox)
+        frame.canvas.flush_events()
+    finally:
+        frame._plot_updating = False
 
 def on_mouse_down(frame: "_GroundTruthingFrame", event: Any) -> None:
     if event.button == 1 and event.inaxes in frame.slider_axes:
@@ -338,25 +366,32 @@ def on_mouse_down(frame: "_GroundTruthingFrame", event: Any) -> None:
 
 def on_mouse_move(frame: "_GroundTruthingFrame", event: Any) -> None:
     if event.inaxes == frame.spectro_ax or event.inaxes in frame.slider_axes:
-        dt = num2date(event.xdata).replace(tzinfo=None)
+        if event.xdata is None:
+            return
 
-        # get closest spline point to the mouse position
-        closest_idx = (frame.spline["time_audible"] - dt).abs().idxmin()
-        closest_pt = frame.spline.loc[closest_idx]
+        cursor_time = num2date(event.xdata).replace(tzinfo=None)
+        closest_idx, time_diff_days = closest_spline_at_cursor(
+            frame.spline_time_num,
+            event.xdata,
+        )
+        closest_pt = frame.spline.iloc[closest_idx]
+        within_snap = time_diff_days <= frame.snap_threshold_days
 
-        frame.time_label.config(text=_cursor_status_text(
-            dt,
-            _point_altitude_m(closest_pt.geometry),
-        ))
+        altitude_m = (
+            _point_altitude_m(closest_pt.geometry)
+            if within_snap else None
+        )
+        status_text = _cursor_status_text(cursor_time, altitude_m)
+        if status_text != frame._cursor_status_text:
+            frame._cursor_status_text = status_text
+            frame.time_label.config(text=status_text)
 
-        # if the mouse is close enough to a point, display the marker on the map
-        if abs(closest_pt["time_audible"] - dt) > frame.typical_t_diff:
-            frame.map_mousehover_point.set_visible(False)
-        else:
-            
+        if within_snap:
             frame.map_mousehover_point.set_data(
                 [closest_pt.geometry.x], [closest_pt.geometry.y])
             frame.map_mousehover_point.set_visible(True)
+        else:
+            frame.map_mousehover_point.set_visible(False)
 
         update_plot(frame)
         

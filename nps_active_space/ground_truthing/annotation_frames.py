@@ -7,6 +7,7 @@ from shapely.geometry import Point
 from nps_active_space.ground_truthing.frame_base import _AppFrame
 from nps_active_space.ground_truthing.segments import AudibleRange
 from nps_active_space.ground_truthing import annotation_plot
+from nps_active_space.ground_truthing.annotation_plot import snap_threshold_days
 from nps_active_space.ground_truthing import dem
 from nps_active_space.ground_truthing import segments
 from nps_active_space.ground_truthing import track_context
@@ -471,7 +472,10 @@ class _GroundTruthingFrame(_AppFrame):
         self.spectro = spectro
         self.audible_ranges = audible_ranges
         self.spline = spline
-        self.typical_t_diff = spline["time_audible"].diff().median()
+        typical_t_diff = spline["time_audible"].diff().median()
+        self.typical_t_diff = typical_t_diff
+        self.spline_time_num = date2num(spline["time_audible"].to_numpy())
+        self.snap_threshold_days = snap_threshold_days(typical_t_diff)
         self.closest_point = closest_point
         self.closest_time = closest_time
         self.x_lims = x_lims
