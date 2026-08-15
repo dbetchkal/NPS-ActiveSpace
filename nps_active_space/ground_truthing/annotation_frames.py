@@ -7,6 +7,7 @@ from shapely.geometry import Point
 from nps_active_space.ground_truthing.frame_base import _AppFrame
 from nps_active_space.ground_truthing.segments import AudibleRange
 from nps_active_space.ground_truthing import annotation_plot
+from nps_active_space.ground_truthing.annotation_plot import snap_threshold_days
 from nps_active_space.ground_truthing import dem
 from nps_active_space.ground_truthing import segments
 from nps_active_space.ground_truthing import track_context
@@ -170,23 +171,32 @@ class _InstructionsFrame(_AppFrame):
     def __init__(self, master: tk.Tk) -> None:
         super().__init__(master)
 
+        content = tk.Frame(self, bg='ivory2')
+
         # Define widgets.
         frame_label = tk.Label(
-            self,
+            content,
             text='Instructions:',
             font=('Avenir', 14, 'bold'),
             bg='ivory2'
         )
         instructions = tk.Label(
-            self,
-            text='Use the range slider to adjust what section of each track is audible, inaudible, or unknown.',
-            font=('Avenir', 12),
-            bg='ivory2'
+            content,
+            text=(
+                'Annotate audible extent with the range sliders under the spectrogram.\n'
+                'Use "Add Sound Event" to annotate another extent on the same track.\n'
+                'If no periods are audible, click "Remove" to remove all extents.\n'
+                'When finished annotating a track, click "Submit" to move to the next track.\n'
+                'Click "Ignore" to dismiss a track from analysis for any reason.'
+            ),
+            font=('Avenir', 14),
+            bg='ivory2',
+            justify='center',
         )
         save_reminder = tk.Label(
-            self,
+            content,
             text='As always, make sure to save intermittently!',
-            font=('Avenir', 12),
+            font=('Avenir', 14),
             bg='ivory2'
         )
         start_button = tk.Button(
@@ -206,10 +216,12 @@ class _InstructionsFrame(_AppFrame):
             command=lambda: self.master.switch_frame(_AnnotationLoadFrame)
         )
 
+        frame_label.pack(pady=(0, 8))
+        instructions.pack(pady=(0, 16))
+        save_reminder.pack()
+
         # Place widgets.
-        frame_label.place(relx=0.5, rely=0.35, anchor='center')
-        instructions.place(relx=0.5, rely=0.45, anchor='center')
-        save_reminder.place(relx=0.5, rely=0.5, anchor='center')
+        content.place(relx=0.5, rely=0.45, anchor='center')
         start_button.place(relx=0.9, rely=0.9, anchor='center')
         back_button.place(relx=0.1, rely=0.9, anchor='center')
 
@@ -288,9 +300,9 @@ class _GroundTruthingFrame(_AppFrame):
             width=10,
             font=('Avenir', 12, 'bold')
         )
-        self.unknown_button = tk.Button(
+        self.ignore_button = tk.Button(
             self,
-            text='Unknown >>',
+            text='Ignore >>',
             bg='yellow',
             fg='black',
             width=10,
@@ -370,7 +382,7 @@ class _GroundTruthingFrame(_AppFrame):
         self.track_label.grid(row=0, column=1, pady=10)
         self.time_label.grid(row=1, column=1, pady=10)
         self.submit_button.grid(row=2, column=1, sticky='n')
-        self.unknown_button.grid(row=2, column=1, sticky='s')
+        self.ignore_button.grid(row=2, column=1, sticky='s')
         
         self.nav_buttons.grid(row=3, column=1)
         self.back_button.pack(side=tk.LEFT, padx=10)
@@ -471,7 +483,10 @@ class _GroundTruthingFrame(_AppFrame):
         self.spectro = spectro
         self.audible_ranges = audible_ranges
         self.spline = spline
-        self.typical_t_diff = spline["time_audible"].diff().median()
+        self.spline_time_num = date2num(spline["time_audible"].to_numpy())
+        self.snap_threshold_days = snap_threshold_days(
+            spline["time_audible"].diff().median()
+        )
         self.closest_point = closest_point
         self.closest_time = closest_time
         self.x_lims = x_lims
@@ -575,7 +590,7 @@ class _GroundTruthingFrame(_AppFrame):
         """
         # Deactivate the decision buttons.
         self.submit_button.config(state=tk.DISABLED)
-        self.unknown_button.config(state=tk.DISABLED)
+        self.ignore_button.config(state=tk.DISABLED)
 
         gdf = segments.build_annotation_segments(
             track_id, points, audible_ranges=audible_ranges, valid=valid, note=note

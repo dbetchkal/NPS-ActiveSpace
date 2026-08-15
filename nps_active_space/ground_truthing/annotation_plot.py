@@ -1,8 +1,10 @@
+import datetime as dt
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+import shapely
 import tkinter as tk
 from matplotlib.dates import date2num, DateFormatter, num2date
 from matplotlib.gridspec import GridSpec
@@ -14,6 +16,14 @@ from nps_active_space.utils.enums import TrackSource
 
 if TYPE_CHECKING:
     from nps_active_space.ground_truthing.annotation_frames import _GroundTruthingFrame
+
+SECONDS_PER_DAY = 86_400.0
+DEFAULT_SNAP_THRESHOLD_SECONDS = 1.0
+
+
+def seconds_to_matplotlib_days(seconds: float) -> float:
+    """Convert elapsed seconds to matplotlib's floating-point day axis units."""
+    return seconds / SECONDS_PER_DAY
 
 
 def _track_label_type_lines(
@@ -39,6 +49,79 @@ def _track_label_type_lines(
             )
             name_line = ""
     return type_line, name_line
+
+
+def _show_track_altitude(track_source: TrackSource) -> bool:
+    """Return whether altitude readouts are meaningful for this track source."""
+    return track_source is not TrackSource.AIS
+
+
+def _cursor_status_text(cursor_time: dt.datetime, altitude_m: float | None) -> str:
+    """Format cursor time and optional track altitude for the side panel."""
+    text = f"Cursor Time: {cursor_time.strftime('%H:%M:%S')}"
+    if altitude_m is not None and np.isfinite(altitude_m):
+        text += f"\nAltitude: {altitude_m:.0f} m MSL"
+    return text
+
+
+def _point_altitude_m(point_geometry: Any) -> float | None:
+    """Return MSL altitude from a shapely point, or None when unavailable."""
+    if not shapely.has_z(point_geometry):
+        return None
+    z = shapely.get_z(point_geometry)
+    if not np.isfinite(z):
+        return None
+    return float(z)
+
+
+def _track_altitudes_m(points: Any) -> np.ndarray:
+    """Return finite MSL altitudes for raw track points."""
+    if "z" in points.columns:
+        altitudes = points["z"].to_numpy(dtype=float)
+    else:
+        altitudes = np.array(
+            [_point_altitude_m(geom) for geom in points.geometry],
+            dtype=float,
+        )
+    return altitudes[np.isfinite(altitudes)]
+
+
+def snap_threshold_days(typical_t_diff: Any) -> float:
+    """Convert spline sample spacing to matplotlib date units for hover snapping."""
+    if typical_t_diff is None:
+        return seconds_to_matplotlib_days(DEFAULT_SNAP_THRESHOLD_SECONDS)
+    try:
+        if typical_t_diff != typical_t_diff:
+            return seconds_to_matplotlib_days(DEFAULT_SNAP_THRESHOLD_SECONDS)
+    except TypeError:
+        return seconds_to_matplotlib_days(DEFAULT_SNAP_THRESHOLD_SECONDS)
+    return seconds_to_matplotlib_days(typical_t_diff.total_seconds())
+
+
+def closest_spline_at_cursor(
+    spline_time_num: np.ndarray,
+    cursor_x: float,
+) -> tuple[int, float]:
+    """Return nearest spline index and |Δt| in matplotlib date numbers."""
+    deltas = np.abs(spline_time_num - cursor_x)
+    closest_idx = int(np.argmin(deltas))
+    return closest_idx, float(deltas[closest_idx])
+
+
+def _track_altitude_summary(points: Any, closest_point_geometry: Any) -> str:
+    """Format static track altitude stats for the side panel."""
+    altitudes = _track_altitudes_m(points)
+    if altitudes.size == 0:
+        return ""
+
+    lines = [
+        f"Track altitude: {altitudes.min():.0f}–{altitudes.max():.0f} m MSL "
+        f"(mean {altitudes.mean():.0f})"
+    ]
+    closest_alt = _point_altitude_m(closest_point_geometry)
+    if closest_alt is not None:
+        lines.append(f"Closest point altitude: {closest_alt:.0f} m MSL")
+    return "\n".join(lines) + "\n"
 
 
 def build_plot(frame: "_GroundTruthingFrame") -> None:
@@ -81,6 +164,8 @@ def build_plot(frame: "_GroundTruthingFrame") -> None:
     frame.fig = fig
     frame.canvas = canvas
     frame.bg = None
+    frame._plot_updating = False
+    frame._last_cursor_status_text = None
     frame.slider_axes = slider_axes
     frame.spectro_ax = spectro_ax
     frame.map_ax = map_ax
@@ -234,16 +319,24 @@ def build_plot(frame: "_GroundTruthingFrame") -> None:
         frame.aircraft_type,
         getattr(frame, "vessel_name", None),
     )
+    altitude_line = ""
+    if _show_track_altitude(frame.master.track_source):
+        altitude_line = _track_altitude_summary(
+            frame.points,
+            frame.closest_point.geometry.iat[0],
+        )
 
     frame.track_label.config(text=f"Microphone: {frame.master.mic.name}\n\n" + \
                                  f"Track Id: {frame.track_id}\n" + \
                                  (f"{frame.aircraft_help_text}\n" if frame.aircraft_help_text is not None else "") + \
                                  name_line + type_line + \
+                                 altitude_line + \
                                  f"\nAnnotated: {frame.track_annotated}" + \
                                  f"\nValid: {frame.valid}")
     frame.progress_label.config(text=f"{frame.i+1}/{frame.master.tracks.track_id.nunique()}")
     frame.submit_button.config(command=lambda: frame._store_annotation(frame.track_id, frame.spline, frame.audible_ranges), state=tk.NORMAL)
-    frame.unknown_button.config(command=lambda: frame._store_annotation(frame.track_id, frame.spline, valid=False), state=tk.NORMAL)
+    frame.ignore_button.config(command=lambda: frame._store_annotation(frame.track_id, frame.spline, valid=False), state=tk.NORMAL)
+    frame.time_label.config(text="")
     canvas.mpl_connect("motion_notify_event", lambda event: on_mouse_move(frame, event))
     canvas.mpl_connect("button_press_event", lambda event: on_mouse_down(frame, event))
     canvas.mpl_connect("draw_event", lambda event: on_draw(frame, event))
@@ -262,22 +355,26 @@ def on_draw(frame: "_GroundTruthingFrame", event: Any = None) -> None:
     update_plot(frame)
 
 def update_plot(frame: "_GroundTruthingFrame") -> None:
-    if frame.bg is None:
+    if frame.bg is None or frame._plot_updating:
         return
-    frame.canvas.restore_region(frame.bg)
+    frame._plot_updating = True
+    try:
+        frame.canvas.restore_region(frame.bg)
 
-    # mouse hover track point
-    frame.map_ax.draw_artist(frame.map_mousehover_point)
+        # mouse hover track point
+        frame.map_ax.draw_artist(frame.map_mousehover_point)
 
-    # audible range UIs
-    for ui in frame.audible_range_uis:
-        frame.map_ax.draw_artist(ui.highlight)
-        frame.spectro_ax.draw_artist(ui.lower_limit_line)
-        frame.spectro_ax.draw_artist(ui.upper_limit_line)
-        ui.slider.draw()
-    
-    frame.canvas.blit(frame.fig.bbox)
-    frame.canvas.flush_events()
+        # audible range UIs
+        for ui in frame.audible_range_uis:
+            frame.map_ax.draw_artist(ui.highlight)
+            frame.spectro_ax.draw_artist(ui.lower_limit_line)
+            frame.spectro_ax.draw_artist(ui.upper_limit_line)
+            ui.slider.draw()
+
+        frame.canvas.blit(frame.fig.bbox)
+        frame.canvas.flush_events()
+    finally:
+        frame._plot_updating = False
 
 def on_mouse_down(frame: "_GroundTruthingFrame", event: Any) -> None:
     if event.button == 1 and event.inaxes in frame.slider_axes:
@@ -285,23 +382,31 @@ def on_mouse_down(frame: "_GroundTruthingFrame", event: Any) -> None:
 
 def on_mouse_move(frame: "_GroundTruthingFrame", event: Any) -> None:
     if event.inaxes == frame.spectro_ax or event.inaxes in frame.slider_axes:
-        dt = num2date(event.xdata).replace(tzinfo=None)
+        if event.xdata is None:
+            return
 
-        # update time display
-        frame.time_label.config(text=f"Cursor Time: {dt.strftime('%H:%M:%S')}")
+        cursor_time = num2date(event.xdata).replace(tzinfo=None)
+        closest_idx, time_diff_days = closest_spline_at_cursor(
+            frame.spline_time_num,
+            event.xdata,
+        )
+        closest_pt = frame.spline.iloc[closest_idx]
+        within_snap = time_diff_days <= frame.snap_threshold_days
 
-        # get closest spline point to the mouse position
-        closest_idx = (frame.spline["time_audible"] - dt).abs().idxmin()
-        closest_pt = frame.spline.loc[closest_idx]
+        altitude_m = None
+        if within_snap and _show_track_altitude(frame.master.track_source):
+            altitude_m = _point_altitude_m(closest_pt.geometry)
+        status_text = _cursor_status_text(cursor_time, altitude_m)
+        if status_text != frame._last_cursor_status_text:
+            frame._last_cursor_status_text = status_text
+            frame.time_label.config(text=status_text)
 
-        # if the mouse is close enough to a point, display the marker on the map
-        if abs(closest_pt["time_audible"] - dt) > frame.typical_t_diff:
-            frame.map_mousehover_point.set_visible(False)
-        else:
-            
+        if within_snap:
             frame.map_mousehover_point.set_data(
                 [closest_pt.geometry.x], [closest_pt.geometry.y])
             frame.map_mousehover_point.set_visible(True)
+        else:
+            frame.map_mousehover_point.set_visible(False)
 
         update_plot(frame)
         
