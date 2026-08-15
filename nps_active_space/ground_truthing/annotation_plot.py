@@ -17,6 +17,14 @@ from nps_active_space.utils.enums import TrackSource
 if TYPE_CHECKING:
     from nps_active_space.ground_truthing.annotation_frames import _GroundTruthingFrame
 
+SECONDS_PER_DAY = 86_400.0
+DEFAULT_SNAP_THRESHOLD_SECONDS = 1.0
+
+
+def seconds_to_matplotlib_days(seconds: float) -> float:
+    """Convert elapsed seconds to matplotlib's floating-point day axis units."""
+    return seconds / SECONDS_PER_DAY
+
 
 def _track_label_type_lines(
     track_source: TrackSource,
@@ -81,13 +89,13 @@ def _track_altitudes_m(points: Any) -> np.ndarray:
 def snap_threshold_days(typical_t_diff: Any) -> float:
     """Convert spline sample spacing to matplotlib date units for hover snapping."""
     if typical_t_diff is None:
-        return 1.0 / 86400.0
+        return seconds_to_matplotlib_days(DEFAULT_SNAP_THRESHOLD_SECONDS)
     try:
         if typical_t_diff != typical_t_diff:
-            return 1.0 / 86400.0
+            return seconds_to_matplotlib_days(DEFAULT_SNAP_THRESHOLD_SECONDS)
     except TypeError:
-        return 1.0 / 86400.0
-    return typical_t_diff.total_seconds() / 86400.0
+        return seconds_to_matplotlib_days(DEFAULT_SNAP_THRESHOLD_SECONDS)
+    return seconds_to_matplotlib_days(typical_t_diff.total_seconds())
 
 
 def closest_spline_at_cursor(

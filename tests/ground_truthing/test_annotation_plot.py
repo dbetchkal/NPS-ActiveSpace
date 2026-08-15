@@ -8,11 +8,13 @@ from matplotlib.dates import date2num
 from shapely.geometry import Point
 
 from nps_active_space.ground_truthing.annotation_plot import (
+    DEFAULT_SNAP_THRESHOLD_SECONDS,
     _cursor_status_text,
     _point_altitude_m,
     _show_track_altitude,
     _track_altitude_summary,
     closest_spline_at_cursor,
+    seconds_to_matplotlib_days,
     snap_threshold_days,
 )
 from nps_active_space.utils.enums import TrackSource
@@ -76,15 +78,21 @@ class TestClosestSplineAtCursor:
         spline_time_num = date2num(
             pd.date_range("2020-01-01 12:00:00", periods=5, freq="s")
         )
-        cursor_x = spline_time_num[-1] + (120.0 / 86400.0)
+        padding_seconds = 120.0
+        cursor_x = spline_time_num[-1] + seconds_to_matplotlib_days(padding_seconds)
         closest_idx, delta_days = closest_spline_at_cursor(spline_time_num, cursor_x)
         assert closest_idx == len(spline_time_num) - 1
-        assert delta_days == pytest.approx(120.0 / 86400.0)
+        assert delta_days == pytest.approx(seconds_to_matplotlib_days(padding_seconds))
 
 
 class TestSnapThresholdDays:
     def test_defaults_to_one_second_when_spacing_unknown(self):
-        assert snap_threshold_days(pd.NaT) == pytest.approx(1.0 / 86400.0)
+        assert snap_threshold_days(pd.NaT) == pytest.approx(
+            seconds_to_matplotlib_days(DEFAULT_SNAP_THRESHOLD_SECONDS)
+        )
 
     def test_converts_median_spacing(self):
-        assert snap_threshold_days(pd.Timedelta(seconds=2)) == pytest.approx(2.0 / 86400.0)
+        spacing_seconds = 2.0
+        assert snap_threshold_days(pd.Timedelta(seconds=spacing_seconds)) == pytest.approx(
+            seconds_to_matplotlib_days(spacing_seconds)
+        )
