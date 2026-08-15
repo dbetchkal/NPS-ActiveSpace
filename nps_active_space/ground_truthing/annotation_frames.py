@@ -183,10 +183,11 @@ class _InstructionsFrame(_AppFrame):
         instructions = tk.Label(
             content,
             text=(
-                'Mark audible periods with the range sliders under the spectrogram.\n'
-                'Use "Add Sound Event" to annotate multiple audible segments on one track.\n'
-                'Remove all audible extents and click Submit to mark a fully inaudible track.\n'
-                'Click Ignore to exclude a track from analysis when the data should not be used.'
+                'Annotate audible extent with the range sliders under the spectrogram.\n'
+                'Use "Add Sound Event" to annotate distinct extents on one track.\n'
+                'If no periods are audible, click "Remove" to remove all extents.\n'
+                'When all extents have been annotated, click "Submit" to move to the next track.\n'
+                'Click "Ignore" to dismiss a track from analysis for any reason.'
             ),
             font=('Avenir', 12),
             bg='ivory2',
