@@ -43,6 +43,11 @@ def _track_label_type_lines(
     return type_line, name_line
 
 
+def _show_track_altitude(track_source: TrackSource) -> bool:
+    """Return whether altitude readouts are meaningful for this track source."""
+    return track_source is not TrackSource.AIS
+
+
 def _cursor_status_text(cursor_time: dt.datetime, altitude_m: float | None) -> str:
     """Format cursor time and optional track altitude for the side panel."""
     text = f"Cursor Time: {cursor_time.strftime('%H:%M:%S')}"
@@ -306,10 +311,12 @@ def build_plot(frame: "_GroundTruthingFrame") -> None:
         frame.aircraft_type,
         getattr(frame, "vessel_name", None),
     )
-    altitude_line = _track_altitude_summary(
-        frame.points,
-        frame.closest_point.geometry.iat[0],
-    )
+    altitude_line = ""
+    if _show_track_altitude(frame.master.track_source):
+        altitude_line = _track_altitude_summary(
+            frame.points,
+            frame.closest_point.geometry.iat[0],
+        )
 
     frame.track_label.config(text=f"Microphone: {frame.master.mic.name}\n\n" + \
                                  f"Track Id: {frame.track_id}\n" + \
@@ -378,10 +385,9 @@ def on_mouse_move(frame: "_GroundTruthingFrame", event: Any) -> None:
         closest_pt = frame.spline.iloc[closest_idx]
         within_snap = time_diff_days <= frame.snap_threshold_days
 
-        altitude_m = (
-            _point_altitude_m(closest_pt.geometry)
-            if within_snap else None
-        )
+        altitude_m = None
+        if within_snap and _show_track_altitude(frame.master.track_source):
+            altitude_m = _point_altitude_m(closest_pt.geometry)
         status_text = _cursor_status_text(cursor_time, altitude_m)
         if status_text != frame._last_cursor_status_text:
             frame._last_cursor_status_text = status_text

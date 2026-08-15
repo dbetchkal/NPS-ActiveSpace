@@ -10,10 +10,12 @@ from shapely.geometry import Point
 from nps_active_space.ground_truthing.annotation_plot import (
     _cursor_status_text,
     _point_altitude_m,
+    _show_track_altitude,
     _track_altitude_summary,
     closest_spline_at_cursor,
     snap_threshold_days,
 )
+from nps_active_space.utils.enums import TrackSource
 from helpers import make_track_points
 
 
@@ -39,6 +41,14 @@ class TestPointAltitudeM:
 
     def test_returns_none_for_2d_point(self):
         assert _point_altitude_m(Point(1.0, 2.0)) is None
+
+
+class TestShowTrackAltitude:
+    def test_hidden_for_ais(self):
+        assert _show_track_altitude(TrackSource.AIS) is False
+
+    def test_shown_for_adsb(self):
+        assert _show_track_altitude(TrackSource.ADSB) is True
 
 
 class TestTrackAltitudeSummary:
