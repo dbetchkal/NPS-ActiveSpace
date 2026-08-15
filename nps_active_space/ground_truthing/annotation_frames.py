@@ -184,19 +184,19 @@ class _InstructionsFrame(_AppFrame):
             content,
             text=(
                 'Annotate audible extent with the range sliders under the spectrogram.\n'
-                'Use "Add Sound Event" to annotate distinct extents on one track.\n'
+                'Use "Add Sound Event" to annotate another extent on the same track.\n'
                 'If no periods are audible, click "Remove" to remove all extents.\n'
-                'When all extents have been annotated, click "Submit" to move to the next track.\n'
+                'When finished annotating a track, click "Submit" to move to the next track.\n'
                 'Click "Ignore" to dismiss a track from analysis for any reason.'
             ),
-            font=('Avenir', 12),
+            font=('Avenir', 14),
             bg='ivory2',
             justify='center',
         )
         save_reminder = tk.Label(
             content,
             text='As always, make sure to save intermittently!',
-            font=('Avenir', 12),
+            font=('Avenir', 14),
             bg='ivory2'
         )
         start_button = tk.Button(
