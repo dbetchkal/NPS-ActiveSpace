@@ -119,8 +119,7 @@ class Visualizer:
         self.plotter.show()
 
     def _status(self, message: str) -> None:
-        """Print and log a user-facing status line (visible when run via python)."""
-        print(message, flush=True)
+        """Log a user-facing status line to the console (via get_logger StreamHandler)."""
         self.logger.info(message)
 
     def _add_track_line(
@@ -196,11 +195,13 @@ class Visualizer:
         fit_results = pd.read_csv(csv_3d_fits, index_col="Designator")
 
         if gain is not None:
-            print(f"Using gain {gain}dB")
+            self._status(f"Using gain {gain}dB")
         elif self.deployment in fit_results.index:
             gain = float(fit_results.loc[self.deployment, "1/3rd Octave Gain (F1)"])
         else:
-            print(f"No fitted active space gain found in {csv_3d_fits}, skipping active space.")
+            self._status(
+                f"No fitted active space gain found in {csv_3d_fits}, skipping active space."
+            )
             return
 
         active_3d = load_layered_activespace(
@@ -463,10 +464,10 @@ class Visualizer:
 
     def plot_audible_transits(self, audible_transits_pkl: str | None = None) -> None:
         if audible_transits_pkl:
-            print(f"Loading audible transits from {audible_transits_pkl}")
+            self._status(f"Loading audible transits from {audible_transits_pkl}")
             listener = AudibleTransits.from_pickle(audible_transits_pkl)
         else:
-            print("Loading audible transits")
+            self._status("Loading audible transits")
             matches = glob.glob(
                 os.path.join(
                     self.project_dir,
@@ -484,14 +485,14 @@ class Visualizer:
 
         tracks = listener.tracks
         if tracks.empty:
-            print("Audible transits is empty, skipping")
+            self._status("Audible transits is empty, skipping")
             return
 
-        print(f"{len(tracks)} audible transits")
+        self._status(f"{len(tracks)} audible transits")
         if len(tracks) > self.max_tracks:
-            print("Too many, sampling")
+            self._status("Too many, sampling")
             tracks = tracks.sample(self.max_tracks, random_state=4)
-            print(f"Showing {len(tracks)} transits")
+            self._status(f"Showing {len(tracks)} transits")
 
         tracks = tracks.to_crs(self.crs)
 
