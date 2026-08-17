@@ -477,12 +477,29 @@ class ActiveSpaceGenerator:
             proj_pts = np.stack([xs, ys], axis=1)
             elevs = list(dem.sample(proj_pts))
             for i in range(len(source_pts)):
-                if elevs[i] is None or elevs[i] == dem.nodata or zs.iloc[i] < elevs[i]:
+                raw = elevs[i]
+                if raw is None:
+                    underground_indices.append(i)
+                    continue
+                elev_m = float(raw[0])
+                if elev_m == float(dem.nodata) or zs.iloc[i] < elev_m:
                     underground_indices.append(i)
                 else:
                     aboveground_indices.append(i)
         
         return source_pts.iloc[aboveground_indices], source_pts.iloc[underground_indices]
+
+    @staticmethod
+    def _nmsim_cache_is_readable(csv_filename: str) -> bool:
+        """Return True when ``csv_filename`` exists and contains parseable NMSIM cache rows."""
+        if not os.path.exists(csv_filename) or os.path.getsize(csv_filename) == 0:
+            return False
+        try:
+            preview = pd.read_csv(csv_filename, nrows=1)
+        except pd.errors.EmptyDataError:
+            return False
+        required = {"Xpos", "Ypos", "A"}
+        return not preview.empty and required.issubset(preview.columns)
 
     @staticmethod
     def load_prev_nmsim_predictions(source_pts: gpd.GeoDataFrame, csv_filename: str, altitude_m: int
@@ -510,7 +527,12 @@ class ActiveSpaceGenerator:
         new_pts: gpd.GeoDataFrame
             Subset of source_pts containing only the points we don't have previous results for.
         """
-        if not os.path.exists(csv_filename):
+        if not ActiveSpaceGenerator._nmsim_cache_is_readable(csv_filename):
+            if os.path.exists(csv_filename):
+                logger.warning(
+                    "Ignoring unreadable NMSIM prediction cache (empty or corrupt): %s",
+                    csv_filename,
+                )
             # no previous predictions, return empty dataframes
             nmsim_df_all = pd.DataFrame()
             nmsim_df = pd.DataFrame()
@@ -521,7 +543,8 @@ class ActiveSpaceGenerator:
             # and stored centibels not decibels to avoid writing the decimal point. So, convert back.
             # Also add back in Zpos field, which we didn't store since it is constant within the file.
             nmsim_df_all = pd.read_csv(csv_filename).fillna(-999).astype("float64")
-            nmsim_df_all.loc[:,"A":"12500"] /= 10
+            sound_cols = [c for c in nmsim_df_all.columns if c == "A" or str(c).isdigit()]
+            nmsim_df_all[sound_cols] /= 10
             nmsim_df_all["Zpos"] = altitude_m
             
             # build two multi-indices to quickly determine which points we've run before
@@ -551,6 +574,9 @@ class ActiveSpaceGenerator:
         csv_filename: str
             Path to CSV file to store NMSIM predictions in.
         """
+        if nmsim_df_all.empty:
+            return
+
         # remove duplicate points, this can happen sometimes I think and cause counting weirdness
         nmsim_df_all = nmsim_df_all.drop_duplicates(subset=["Xpos", "Ypos"])
 
@@ -895,7 +921,9 @@ class ActiveSpaceGenerator:
         tif_path, flt_path = get_project_setup_elevation(self.root_dir)
         self._dem_file = str(tif_path)
         self._flt_file = str(flt_path)
-        flt_for_sit = Path(flt_path).relative_to(Path(self.root_dir))
+        flt_for_sit = Path(flt_path)
+        if flt_for_sit.is_relative_to(Path(self.root_dir)):
+            flt_for_sit = flt_for_sit.relative_to(Path(self.root_dir))
         self._site_file = str(write_listener_site_file(
             self.root_dir,
             projected_mic.name,
