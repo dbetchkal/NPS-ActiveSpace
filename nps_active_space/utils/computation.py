@@ -27,6 +27,7 @@ __all__ = [
     'audibility_to_interval',
     'ambience_from_nvspl',
     'ambience_from_raster',
+    'is_usable_spectral_ambience',
     'audible_time_delay',
     'barometric_pressure',
     'build_src_point_mesh',
@@ -400,15 +401,40 @@ def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50,
     -------
     Lx
     """
-    # filter out high wind periods
-    low_wind = ambience_src.loc[ambience_src["WindSpeed"] <= 5.0, :]
+    wind = pd.to_numeric(ambience_src["WindSpeed"], errors="coerce")
+    if wind.notna().any():
+        # Include rows with missing wind — sites without a wind sensor should not be dropped entirely.
+        ambience_rows = ambience_src.loc[wind.le(5.0) | wind.isna(), :]
+        if ambience_rows.empty:
+            logger.warning(
+                "No NVSPL rows with WindSpeed <= 5 m/s; using all rows for ambience."
+            )
+            ambience_rows = ambience_src
+    else:
+        logger.warning(
+            "NVSPL WindSpeed is missing or all NaN; skipping wind filter for ambience."
+        )
+        ambience_rows = ambience_src
 
     if broadband:
-        Lx = low_wind.loc[:, 'dbA'].quantile(1 - (quantile / 100))
+        Lx = ambience_rows.loc[:, "dbA"].quantile(1 - (quantile / 100))
     else:
-        Lx = low_wind.loc[:, low_hz:high_hz].quantile(1 - (quantile / 100))
+        Lx = ambience_rows.loc[:, low_hz:high_hz].quantile(1 - (quantile / 100))
+
+    if isinstance(Lx, pd.Series) and not Lx.notna().any():
+        raise ValueError(
+            "Computed NVSPL ambience is all NaN. Check NVSPL archive coverage and band columns."
+        )
 
     return Lx
+
+
+def is_usable_spectral_ambience(ambience: pd.Series) -> bool:
+    """Return True when spectral ambience has at least one finite band in the audibility range."""
+    try:
+        return ambience.loc["20":"12500"].notna().any()
+    except KeyError:
+        return False
 
 
 def compute_fbeta(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame,
