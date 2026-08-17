@@ -382,9 +382,23 @@ def ambience_from_raster(ambience_src: str, mic: 'Microphone') -> float:
     return Lx
 
 
+def _ensure_ambience_logger() -> None:
+    """Attach a console handler so ambience messages show during tqdm NVSPL reads."""
+    if logger.handlers:
+        return
+    from nps_active_space.utils.helpers import _TqdmStream
+
+    handler = logging.StreamHandler(stream=_TqdmStream)
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+
 def _log_ambience_progress(message: str) -> None:
+    _ensure_ambience_logger()
     logger.info(message)
-    print(message, flush=True)
 
 
 def compute_ambience_from_nvspl_files(
@@ -474,10 +488,8 @@ def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50,
             )
             ambience_rows = ambience_src
         else:
-            logger.info(
-                "Wind filter (<= 5 m/s or missing): %d / %d rows retained",
-                len(ambience_rows),
-                n_total,
+            _log_ambience_progress(
+                f"Wind filter (<= 5 m/s or missing): {len(ambience_rows):,} / {n_total:,} rows retained"
             )
     else:
         _log_ambience_progress(
