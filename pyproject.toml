@@ -63,5 +63,4 @@ nps_active_space = [
     "config/*_example.config",
     "data/**/*",
     "img/*",
-    "viz/assets/*",
 ]

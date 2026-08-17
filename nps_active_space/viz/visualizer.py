@@ -30,8 +30,6 @@ from nps_active_space.utils.models import Annotations
 from nps_active_space.viz.annotations import format_annotation_summary
 from nps_active_space.viz.markers import (
     WINDOW_TITLE,
-    apply_window_icon,
-    register_windows_taskbar_identity,
     utm_orientation_axes_kwargs,
 )
 from nps_active_space.viz.elevation import (
@@ -98,7 +96,6 @@ class Visualizer:
         self.study_area = self.study_area.to_crs(self.crs)
         self._to_wgs84 = pyproj.Transformer.from_crs(self.crs, "epsg:4326", always_xy=True)
 
-        register_windows_taskbar_identity()
         self.plotter = pv.Plotter(title=WINDOW_TITLE)
         self.plot_dem()
         self.plot_mic()
@@ -117,7 +114,6 @@ class Visualizer:
         self.setup_orientation_widgets()
         self.plotter.reset_camera()
         self.plotter.camera.elevation = 30
-        apply_window_icon(self.plotter)
         self.plotter.show()
 
     def _status(self, message: str) -> None:

@@ -277,64 +277,6 @@ class TestOrientationWidgets:
 
         assert WINDOW_TITLE == "NPS ActiveSpace Visualization"
 
-    def test_bundled_waypoint_icon_exists(self):
-        from importlib.resources import files
-
-        from nps_active_space.viz.markers import default_window_icon_path
-
-        assert default_window_icon_path().is_file()
-        packaged_icon = files("nps_active_space").joinpath("viz/assets/waypoint_icon.png")
-        assert packaged_icon.is_file()
-
-    def test_window_icon_not_supported_on_macos(self):
-        import sys
-
-        from nps_active_space.viz.markers import window_icon_supported
-
-        if sys.platform == "darwin":
-            assert not window_icon_supported()
-        else:
-            assert window_icon_supported()
-
-    def test_set_window_icon_headless(self):
-        import pyvista as pv
-
-        from nps_active_space.viz.markers import default_window_icon_path, set_window_icon
-
-        plotter = pv.Plotter(off_screen=True)
-        set_window_icon(plotter, default_window_icon_path())
-
-    def test_register_windows_taskbar_identity_idempotent(self, monkeypatch):
-        import ctypes
-
-        import nps_active_space.viz.markers as markers
-
-        markers._taskbar_identity_registered = False
-        monkeypatch.setattr(markers.sys, "platform", "win32")
-        calls: list[str] = []
-
-        class _FakeShell32:
-            @staticmethod
-            def SetCurrentProcessExplicitAppUserModelID(app_id: str) -> None:
-                calls.append(app_id)
-
-        monkeypatch.setattr(
-            ctypes,
-            "windll",
-            type("_Windll", (), {"shell32": _FakeShell32()})(),
-            raising=False,
-        )
-        markers.register_windows_taskbar_identity()
-        markers.register_windows_taskbar_identity()
-        assert calls == [markers.WINDOWS_APP_USER_MODEL_ID]
-
-    def test_register_windows_taskbar_identity_noop_off_windows(self, monkeypatch):
-        import nps_active_space.viz.markers as markers
-
-        markers._taskbar_identity_registered = False
-        monkeypatch.setattr(markers.sys, "platform", "darwin")
-        markers.register_windows_taskbar_identity()
-
     def test_utm_axes_use_east_north_up_labels(self):
         kwargs = utm_orientation_axes_kwargs()
         assert kwargs["xlabel"] == "E"
