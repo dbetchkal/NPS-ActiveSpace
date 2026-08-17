@@ -4,6 +4,7 @@ import multiprocessing as mp
 import os
 import subprocess
 from functools import partial
+from pathlib import Path
 from typing import Optional, Tuple, Union
 from uuid import uuid4
 
@@ -22,6 +23,7 @@ from warnings import warn
 
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.setup.site_writer import create_site_dir, write_listener_site_file
+from nps_active_space.setup.elevation import get_project_setup_elevation
 from nps_active_space.utils.models import Microphone
 from nps_active_space.utils.computation import (
     build_src_point_mesh,
@@ -788,9 +790,14 @@ class ActiveSpaceGenerator:
                 crs=crs
             )
         
-        # If no dem file has been set, create the DEM file now. Also create the flt and site files needed by NMSIM.
-        dem_filename = self._dem_file or self._mask_dem_file(dem_file, study_area=study_area, project=project_dem, suffix=f'_{mic.name}')
-        flt_filename = self._flt_file or self._create_dem_flt(dem_filename)
+        # Use meter elevation artifacts from project_setup (required before generate_active_space).
+        if self._dem_file is None or self._flt_file is None:
+            tif_path, flt_path = get_project_setup_elevation(self.root_dir)
+            dem_filename = str(tif_path)
+            flt_filename = str(flt_path)
+        else:
+            dem_filename = self._dem_file
+            flt_filename = self._flt_file
         site_filename = self._site_file or self._create_site_file(mic, flt_filename)
 
         # Prepare a coarse and fine grid to use for the 1st and 2nd point mesh steps
@@ -869,14 +876,13 @@ class ActiveSpaceGenerator:
 
     def set_dem(self, mic: Microphone):
         """
-        Projecting and masking a DEM file are bottleneck steps in the active space creation process. If active
-        space generation is going to be run for the same location just with different parameters like omni source,
-        altitude, etc. there is no reason to project and mask the DEM every time.
-        This function provides a way to only project and mask the DEM for the study area once. Then, every time the
-        generate() function is run, it will use the created DEM file.
+        Cache project_setup elevation artifacts and listener ``.sit`` for repeated ``generate()`` calls.
 
-        NOTE: This function is only useful when running generate(). Running generate_mesh() will overwrite anything
-        set by this function because it's not applicable.
+        Requires ``elevation_m_nad83_utm*.tif`` / ``.flt`` / ``.hdr`` from ``project_setup`` under
+        ``Input_Data/01_ELEVATION``. Run ``project_setup`` for the site before ``generate_active_space``.
+
+        NOTE: This function is only useful when running generate(). Running generate_mesh() uses a
+        separate buffered DEM path.
 
         Parameters
         ----------
@@ -886,9 +892,22 @@ class ActiveSpaceGenerator:
         crs = NMSIM_bbox_utm(self.study_area.iloc[[0]])
         projected_mic = mic.to_crs(crs)
 
-        self._dem_file = self._mask_dem_file(self.dem_src, study_area=self.study_area.iloc[[0]], project=True)
-        self._flt_file = self._create_dem_flt(self._dem_file)
-        self._site_file = self._create_site_file(projected_mic, self._flt_file)
+        tif_path, flt_path = get_project_setup_elevation(self.root_dir)
+        self._dem_file = str(tif_path)
+        self._flt_file = str(flt_path)
+        flt_for_sit = Path(flt_path).relative_to(Path(self.root_dir))
+        self._site_file = str(write_listener_site_file(
+            self.root_dir,
+            projected_mic.name,
+            projected_mic.x,
+            projected_mic.y,
+            projected_mic.z,
+            flt_for_sit,
+        ))
+        logger.info(
+            "Using project_setup elevation artifacts for NMSIM: %s",
+            tif_path.name,
+        )
 
     def generate(self, omni_source: str, altitude_m: int = 3658, mic: Optional[Microphone] = None,
                  heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1,
