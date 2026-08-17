@@ -324,6 +324,11 @@ class TestIterPlotLinestrings:
         geom = MultiLineString([LineString([(0, 0), (1, 1)]), LineString([(2, 2), (3, 3)])])
         assert len(iter_plot_linestrings(geom)) == 2
 
+    def test_valid_linestring_is_returned_as_is(self):
+        line = LineString([(0, 0), (1, 1), (2, 2)])
+        lines = iter_plot_linestrings(line)
+        assert lines == [line]
+
 
 class TestCreatePolyline3d:
     def test_nan_z_becomes_zero(self):
@@ -348,6 +353,16 @@ class TestTrackPointsToLinestring:
         )
         line = track_points_to_linestring(gdf)
         assert len(line.coords) == 3
+
+    def test_single_point_track_returns_renderable_line(self):
+        import geopandas as gpd
+
+        gdf = gpd.GeoDataFrame(
+            geometry=[Point(500_000.0, 6_000_000.0)],
+            crs="epsg:32608",
+        )
+        line = track_points_to_linestring(gdf)
+        assert len(line.coords) == 2
 
     def test_include_z_adds_altitude_to_coords(self):
         import geopandas as gpd

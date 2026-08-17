@@ -5,6 +5,8 @@ import numpy as np
 import pyvista as pv
 from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon
 
+from nps_active_space.utils.geometry import linestring_from_coords, linestring_from_point
+
 
 def polygon_to_mesh(polygon: Polygon, z: float) -> pv.PolyData:
     exterior = np.array(polygon.exterior.coords)
@@ -32,22 +34,16 @@ def active_to_linestrings(active: gpd.GeoDataFrame) -> list[LineString]:
     return linestrings
 
 
-def _point_as_line(point: Point, span_m: float = 10.0) -> LineString:
-    """Convert a single-point geometry into a short renderable segment."""
-    x, y = point.x, point.y
-    return LineString([(x, y), (x + span_m, y)])
-
-
 def iter_plot_linestrings(geometry) -> list[LineString]:
     """Normalize annotation geometries to LineStrings PyVista can draw."""
     if geometry is None or geometry.is_empty:
         return []
     if isinstance(geometry, Point):
-        return [_point_as_line(geometry)]
+        return [linestring_from_point(geometry)]
     if isinstance(geometry, LineString):
-        if len(geometry.coords) < 2:
-            return [_point_as_line(Point(geometry.coords[0]))]
-        return [geometry]
+        if len(geometry.coords) >= 2:
+            return [geometry]
+        return [linestring_from_coords(list(geometry.coords))]
     if isinstance(geometry, MultiLineString):
         lines: list[LineString] = []
         for part in geometry.geoms:
@@ -63,7 +59,9 @@ def densify_linestring(linestring: LineString, step_m: float) -> LineString:
     distances = np.arange(0, linestring.length, step_m)
     if distances[-1] < linestring.length:
         distances = np.append(distances, linestring.length)
-    return LineString([linestring.interpolate(float(d)) for d in distances])
+    return linestring_from_coords(
+        [linestring.interpolate(float(d)).coords[0] for d in distances]
+    )
 
 
 def create_polyline_3d(
@@ -109,6 +107,4 @@ def track_points_to_linestring(
         ]
     else:
         coords = [(geom.x, geom.y) for geom in track_points.geometry]
-    if len(coords) < 2:
-        return LineString(coords)
-    return LineString(coords)
+    return linestring_from_coords(coords)

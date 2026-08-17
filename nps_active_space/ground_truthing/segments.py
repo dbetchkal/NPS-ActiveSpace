@@ -4,6 +4,8 @@ import geopandas as gpd
 import numpy as np
 from shapely.geometry import LineString, Point
 
+from nps_active_space.utils.geometry import linestring_from_coords
+
 # Mutable [start, end] pair on the time_audible axis (lists are updated in place).
 AudibleRange = list[dt.datetime]
 
@@ -33,10 +35,10 @@ def downsample_linestring(
         return line
     coords = list(line.coords)
     if len(coords) <= max_vertices:
-        return LineString([_round_coord(c) for c in coords])
+        return linestring_from_coords([_round_coord(c) for c in coords])
     indices = np.unique(np.linspace(0, len(coords) - 1, max_vertices, dtype=int))
     sampled = [_round_coord(coords[i]) for i in indices]
-    return LineString(sampled)
+    return linestring_from_coords(sampled)
 
 
 def storage_geometry_from_points(geometries: list) -> Point | LineString:
@@ -45,8 +47,12 @@ def storage_geometry_from_points(geometries: list) -> Point | LineString:
         geom = geometries[0]
         if isinstance(geom, Point):
             return Point(_round_coord(geom.coords[0]))
-        return downsample_linestring(LineString([geom]))
-    return downsample_linestring(LineString(geometries))
+        if isinstance(geom, LineString):
+            return downsample_linestring(linestring_from_coords(list(geom.coords)))
+        raise TypeError(f"Unsupported geometry type: {type(geom)!r}")
+    return downsample_linestring(
+        linestring_from_coords([g.coords[0] for g in geometries])
+    )
 
 
 def compact_geometry(

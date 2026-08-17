@@ -3,13 +3,14 @@ import datetime as dt
 import pandas as pd
 import pytest
 from pandas.testing import assert_frame_equal
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Point
 
 from nps_active_space.ground_truthing.segments import (
     ANNOTATION_MAX_VERTICES,
     build_annotation_segments,
     collapse_audible_ranges,
     downsample_linestring,
+    storage_geometry_from_points,
 )
 from helpers import SEGMENT_TABULAR_COLS, _tabular, make_track_points
 
@@ -204,3 +205,27 @@ class TestDownsampleLinestring:
         assert len(out.coords) == 2
         assert out.coords[0] == (1.123457, 2.987654, 100.5)
         assert out.coords[1] == (3.0, 4.0, 200.4)
+
+
+class TestStorageGeometryFromPoints:
+    def test_single_point_stays_point(self):
+        geom = storage_geometry_from_points([Point(1.123456789, 2.987654321)])
+        assert isinstance(geom, Point)
+        assert geom.coords[0] == pytest.approx((1.123457, 2.987654))
+
+    def test_multiple_points_become_linestring(self):
+        geom = storage_geometry_from_points(
+            [Point(0.0, 0.0), Point(1.0, 1.0), Point(2.0, 2.0)]
+        )
+        assert isinstance(geom, LineString)
+        assert len(geom.coords) == 3
+
+    def test_single_linestring_input(self):
+        line = LineString([(0.0, 0.0), (1.0, 1.0), (2.0, 2.0)])
+        geom = storage_geometry_from_points([line])
+        assert isinstance(geom, LineString)
+        assert len(geom.coords) == 3
+
+    def test_unsupported_geometry_raises(self):
+        with pytest.raises(TypeError, match="Unsupported geometry type"):
+            storage_geometry_from_points(["not-a-geometry"])
