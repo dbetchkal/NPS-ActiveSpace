@@ -8,25 +8,6 @@ from nps_active_space.utils.enums import TrackSource
 from nps_active_space.viz.visualizer import Visualizer
 
 
-def parse_deployment(name: str) -> tuple[str, str, int]:
-    """Parse deployment name like DENATRLA2024 into unit, site, and year."""
-    if len(name) < 9:
-        raise argparse.ArgumentTypeError(
-            f"deployment must be at least 9 characters "
-            f"(4-char unit + site code + 4-digit year), got {len(name)}: {name!r}"
-        )
-    unit, site, year_str = name[:4], name[4:-4], name[-4:]
-    if not site:
-        raise argparse.ArgumentTypeError(
-            f"deployment must include a site code between unit and year, got {name!r}"
-        )
-    if len(year_str) != 4 or not year_str.isdigit():
-        raise argparse.ArgumentTypeError(
-            f"deployment year must be 4 digits, got {year_str!r} in {name!r}"
-        )
-    return unit, site, int(year_str)
-
-
 def parse_iso_date(value: str, *, arg_name: str) -> str:
     """Validate YYYY-MM-DD date string."""
     try:
@@ -97,18 +78,32 @@ def main() -> None:
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "deployment",
-        type=parse_deployment,
-        help="Deployment name, e.g. DENATRLA2024",
-    )
-    parser.add_argument(
         "-e",
         "--environment",
-        default="DENA_streamline",
-        help="Config environment name, e.g. DENA_streamline. Default is 'DENA_streamline'",
+        required=True,
+        help="The configuration environment to run the script in.",
+    )
+    parser.add_argument(
+        "-u",
+        "--unit",
+        required=True,
+        help="Four letter unit code. E.g. DENA",
     )
     parser.add_argument(
         "-s",
+        "--site",
+        required=True,
+        help="Four letter site code. E.g. TRLA",
+    )
+    parser.add_argument(
+        "-y",
+        "--year",
+        type=int,
+        required=True,
+        help="Four digit year. E.g. 2018",
+    )
+    parser.add_argument(
+        "-A",
         "--active-space",
         action="store_true",
         help="If included, load and plot the active space.",
@@ -135,7 +130,7 @@ def main() -> None:
     parser.add_argument(
         "--all",
         action="store_true",
-        help="Load everything, shorthand for --active-space --annotations --audible-transits",
+        help="Load everything, shorthand for -A/--active-space --annotations --audible-transits",
     )
     parser.add_argument(
         "-m",
@@ -176,7 +171,7 @@ def main() -> None:
     )
 
     args = parser.parse_args()
-    unit, site, year = args.deployment
+    unit, site, year = args.unit, args.site, args.year
 
     track_source = resolve_track_source_args(args, parser)
     do_active, do_annotations, do_transits, _ = resolve_viz_plot_flags(

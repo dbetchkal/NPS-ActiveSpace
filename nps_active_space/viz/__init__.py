@@ -3,7 +3,6 @@
 from nps_active_space.viz.annotations import format_annotation_summary
 from nps_active_space.viz.cli import (
     main,
-    parse_deployment,
     parse_existing_file,
     parse_iso_date,
     parse_max_tracks,
@@ -39,7 +38,6 @@ __all__ = [
     "is_surface_track",
     "iter_plot_linestrings",
     "main",
-    "parse_deployment",
     "parse_existing_file",
     "parse_iso_date",
     "parse_max_tracks",

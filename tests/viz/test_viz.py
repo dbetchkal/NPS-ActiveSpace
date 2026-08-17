@@ -20,7 +20,6 @@ from nps_active_space.viz import (
     format_annotation_summary,
     is_surface_track,
     iter_plot_linestrings,
-    parse_deployment,
     parse_existing_file,
     parse_iso_date,
     parse_max_tracks,
@@ -33,21 +32,53 @@ from nps_active_space.viz import (
 )
 
 
-class TestParseDeployment:
-    def test_valid_deployment(self):
-        assert parse_deployment("DENATRLA2024") == ("DENA", "TRLA", 2024)
+class TestVizCliArgs:
+    def test_parses_workflow_flags(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys
 
-    def test_rejects_too_short(self):
-        with pytest.raises(argparse.ArgumentTypeError, match="at least 9 characters"):
-            parse_deployment("DENA2024")
+        from nps_active_space.viz.cli import main
 
-    def test_rejects_unit_year_only(self):
-        with pytest.raises(argparse.ArgumentTypeError, match="at least 9 characters"):
-            parse_deployment("DENA2024")
+        captured: list[tuple] = []
 
-    def test_rejects_non_digit_year(self):
-        with pytest.raises(argparse.ArgumentTypeError, match="4 digits"):
-            parse_deployment("DENATRLA20XX")
+        def _capture_visualizer(*args, **kwargs):
+            captured.append((args, kwargs))
+
+        monkeypatch.setattr("nps_active_space.viz.cli.Visualizer", _capture_visualizer)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "viz",
+                "-e",
+                "DENA_example",
+                "-u",
+                "DENA",
+                "-s",
+                "TRLA",
+                "-y",
+                "2024",
+                "-A",
+                "-a",
+            ],
+        )
+        main()
+        unit, site, year, environment, do_active = captured[0][0][:5]
+        assert (unit, site, year, environment, do_active) == (
+            "DENA",
+            "TRLA",
+            2024,
+            "DENA_example",
+            True,
+        )
+
+    def test_requires_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys
+
+        from nps_active_space.viz.cli import main
+
+        monkeypatch.setattr(sys, "argv", ["viz", "-u", "DENA", "-s", "TRLA", "-y", "2024"])
+        with pytest.raises(SystemExit):
+            main()
 
 
 class TestParseIsoDate:
