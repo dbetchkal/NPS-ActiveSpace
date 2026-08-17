@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "NPS-ActiveSpace"
 version = "3.0"
 description = "NPS software tooling for acoustic modeling of active spaces"
-requires-python = ">=3.12"  # Geospatial block GDAL wheel is cp312 — update URL when bumping Python
+requires-python = ">=3.12"  # Windows GDAL wheel is cp312-only; bumping Python requires updating that wheel and pyproj/rasterio/fiona below.
 readme = "README.md"
 license = "CC0-1.0"
 license-files = ["LICENSE.md"]
@@ -38,8 +38,8 @@ dependencies = [
     "tqdm>=4.67.1",
     "psycopg2>=2.9.10 ; sys_platform == 'win32'",
     "psycopg2-binary>=2.9.10 ; sys_platform != 'win32'",
-    # Geospatial stack: keep versions aligned with each other and with the Windows
-    # GDAL wheel (cgohlke/geospatial-wheels). Bump all together.
+    # Geospatial stack (cgohlke/geospatial-wheels on Windows). Bump pyproj, rasterio,
+    # fiona, and GDAL together.
     "pyproj==3.7.1",
     "rasterio==1.4.3",
     "fiona==1.10.1",
