@@ -1,12 +1,13 @@
 import argparse
 import subprocess
-import iyore
 import os
 import shlex
 import matplotlib.pyplot as plt
 import pandas as pd
-from nps_active_space.utils.models import Nvspl
-from nps_active_space.utils.computation import ambience_from_nvspl, is_usable_spectral_ambience
+from nps_active_space.utils.computation import (
+    compute_ambience_from_nvspl_archive,
+    is_usable_spectral_ambience,
+)
 import nps_active_space.utils.config as cfg
 
 """
@@ -76,11 +77,16 @@ if __name__ == "__main__":
                 )
             else:
                 print("Computing NVSPL ambience")
-            archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
-            nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year))]
-            nvspl = Nvspl(nvspl_files)
+            archive = cfg.read('data', 'nvspl_archive')
             ambience_quantile = 90  # L90 = 90% exceedance = 10% quantile sound level
-            ambience = ambience_from_nvspl(nvspl, ambience_quantile, broadband=False)
+            ambience = compute_ambience_from_nvspl_archive(
+                archive,
+                args.unit,
+                args.site,
+                args.year,
+                ambience_quantile,
+                broadband=False,
+            )
 
             # make a plot too
             ambience.plot()

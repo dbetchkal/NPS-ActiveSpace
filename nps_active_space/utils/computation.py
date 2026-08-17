@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import math
+import time
 from typing import Iterable, TYPE_CHECKING
 
 import geopandas as gpd
@@ -27,6 +28,8 @@ __all__ = [
     'audibility_to_interval',
     'ambience_from_nvspl',
     'ambience_from_raster',
+    'compute_ambience_from_nvspl_archive',
+    'compute_ambience_from_nvspl_files',
     'is_usable_spectral_ambience',
     'audible_time_delay',
     'barometric_pressure',
@@ -379,6 +382,65 @@ def ambience_from_raster(ambience_src: str, mic: 'Microphone') -> float:
     return Lx
 
 
+def _log_ambience_progress(message: str) -> None:
+    logger.info(message)
+    print(message, flush=True)
+
+
+def compute_ambience_from_nvspl_files(
+    nvspl_files: list[str],
+    quantile: int = 90,
+    broadband: bool = False,
+) -> pd.Series:
+    """Load NVSPL files and compute ambience, logging incremental timing."""
+    from nps_active_space.utils.models import Nvspl
+
+    if not nvspl_files:
+        raise ValueError("No NVSPL files provided for ambience calculation")
+
+    t0 = time.perf_counter()
+    _log_ambience_progress(f"Loading {len(nvspl_files)} NVSPL files...")
+    nvspl = Nvspl(nvspl_files)
+    t_read = time.perf_counter()
+    _log_ambience_progress(
+        f"Loaded {len(nvspl):,} NVSPL rows in {t_read - t0:.1f} s; computing L{quantile} ambience..."
+    )
+
+    ambience = ambience_from_nvspl(nvspl, quantile, broadband=broadband)
+    t_done = time.perf_counter()
+    l1000 = ambience.get("1000")
+    l1000_str = f"{l1000:.1f}" if pd.notna(l1000) else "NaN"
+    _log_ambience_progress(
+        f"Ambience quantiles finished in {t_done - t_read:.1f} s "
+        f"(total {t_done - t0:.1f} s); 1000 Hz = {l1000_str} dB"
+    )
+    return ambience
+
+
+def compute_ambience_from_nvspl_archive(
+    nvspl_archive: str,
+    unit: str,
+    site: str,
+    year: str | int,
+    quantile: int = 90,
+    broadband: bool = False,
+) -> pd.Series:
+    """List NVSPL files from an iyore archive and compute ambience with timing logs."""
+    import iyore
+
+    t0 = time.perf_counter()
+    _log_ambience_progress(f"Listing NVSPL files for {unit}{site}{year} in archive...")
+    archive = iyore.Dataset(nvspl_archive)
+    nvspl_files = [
+        e.path for e in archive.nvspl(unit=unit, site=site, year=str(year))
+    ]
+    t_list = time.perf_counter()
+    _log_ambience_progress(
+        f"Found {len(nvspl_files)} NVSPL files (listing took {t_list - t0:.1f} s)"
+    )
+    return compute_ambience_from_nvspl_files(nvspl_files, quantile, broadband)
+
+
 def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50,
                         low_hz: float = "12.5", high_hz: float = "20000", broadband: bool = False) -> float | pd.Series:
     """
@@ -402,16 +464,23 @@ def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50,
     Lx
     """
     wind = pd.to_numeric(ambience_src["WindSpeed"], errors="coerce")
+    n_total = len(ambience_src)
     if wind.notna().any():
         # Include rows with missing wind — sites without a wind sensor should not be dropped entirely.
         ambience_rows = ambience_src.loc[wind.le(5.0) | wind.isna(), :]
         if ambience_rows.empty:
-            logger.warning(
+            _log_ambience_progress(
                 "No NVSPL rows with WindSpeed <= 5 m/s; using all rows for ambience."
             )
             ambience_rows = ambience_src
+        else:
+            logger.info(
+                "Wind filter (<= 5 m/s or missing): %d / %d rows retained",
+                len(ambience_rows),
+                n_total,
+            )
     else:
-        logger.warning(
+        _log_ambience_progress(
             "NVSPL WindSpeed is missing or all NaN; skipping wind filter for ambience."
         )
         ambience_rows = ambience_src

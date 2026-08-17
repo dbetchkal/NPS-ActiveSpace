@@ -16,12 +16,16 @@ from shapely.geometry import Point
 from tqdm import tqdm
 import pickle
 import sys
-import iyore
 
 import nps_active_space.utils.config as cfg
 from nps_active_space.utils.helpers import get_deployment, get_logger, get_omni_sources, load_annotations, omni_to_gain
-from nps_active_space.utils.models import Annotations, Nvspl
-from nps_active_space.utils.computation import select_optimal, ambience_from_nvspl, ambience_from_raster, normalize_point_density
+from nps_active_space.utils.models import Annotations
+from nps_active_space.utils.computation import (
+    select_optimal,
+    compute_ambience_from_nvspl_archive,
+    ambience_from_raster,
+    normalize_point_density,
+)
 from nps_active_space.active_space import ActiveSpaceGenerator
 
 if TYPE_CHECKING:
@@ -321,11 +325,15 @@ if __name__ == '__main__':
     # Compute ambience
     # Load NVSPL data or the mennitt raster depending on the user input.
     if args.ambience == 'nvspl':
-        archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
-        nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year))]
-        nvspl = Nvspl(nvspl_files)
         ambience_quantile = 90  # L90 = 90% exceedance = 10% quantile sound level
-        ambience = ambience_from_nvspl(nvspl, ambience_quantile, broadband=False)
+        ambience = compute_ambience_from_nvspl_archive(
+            cfg.read('data', 'nvspl_archive'),
+            args.unit,
+            args.site,
+            args.year,
+            ambience_quantile,
+            broadband=False,
+        )
     elif args.ambience == 'mennitt':
         ambience = ambience_from_raster(cfg.read('data', 'mennitt'), mic_)
     else:
