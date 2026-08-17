@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pyvista as pv
@@ -16,8 +17,15 @@ def default_window_icon_path() -> Path:
     return DEFAULT_WINDOW_ICON
 
 
+def window_icon_supported() -> bool:
+    """VTK implements SetIcon on Windows and Linux OpenGL render windows only."""
+    return sys.platform != "darwin"
+
+
 def apply_window_icon(plotter: pv.Plotter, icon_path: Path | None = None) -> None:
-    """Apply the window icon when a PNG is available (no-op if missing)."""
+    """Apply the window icon when a PNG is available (no-op if missing or unsupported)."""
+    if not window_icon_supported():
+        return
     path = DEFAULT_WINDOW_ICON if icon_path is None else icon_path
     if path.is_file():
         set_window_icon(plotter, path)
@@ -45,6 +53,9 @@ def set_window_icon(plotter: pv.Plotter, icon_path: str | Path) -> None:
     Works on Windows and many Linux window managers. macOS often ignores VTK
     window icons; use a bundled .icns via a Qt wrapper if dock icon matters.
     """
+    if not window_icon_supported():
+        return
+
     from vtkmodules.vtkIOImage import vtkPNGReader
 
     path = Path(icon_path)
@@ -53,4 +64,7 @@ def set_window_icon(plotter: pv.Plotter, icon_path: str | Path) -> None:
     reader = vtkPNGReader()
     reader.SetFileName(str(path))
     reader.Update()
+    # VTK requires an initial render before SetIcon on some platforms (see PyVista #73531355).
+    if not plotter.off_screen:
+        plotter.render_window.Render()
     plotter.render_window.SetIcon(reader.GetOutput())

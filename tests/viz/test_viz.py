@@ -278,9 +278,31 @@ class TestOrientationWidgets:
         assert WINDOW_TITLE == "NPS ActiveSpace Visualization"
 
     def test_bundled_waypoint_icon_exists(self):
+        from importlib.resources import files
+
         from nps_active_space.viz.markers import default_window_icon_path
 
         assert default_window_icon_path().is_file()
+        packaged_icon = files("nps_active_space").joinpath("viz/assets/waypoint_icon.png")
+        assert packaged_icon.is_file()
+
+    def test_window_icon_not_supported_on_macos(self):
+        import sys
+
+        from nps_active_space.viz.markers import window_icon_supported
+
+        if sys.platform == "darwin":
+            assert not window_icon_supported()
+        else:
+            assert window_icon_supported()
+
+    def test_set_window_icon_headless(self):
+        import pyvista as pv
+
+        from nps_active_space.viz.markers import default_window_icon_path, set_window_icon
+
+        plotter = pv.Plotter(off_screen=True)
+        set_window_icon(plotter, default_window_icon_path())
 
     def test_utm_axes_use_east_north_up_labels(self):
         kwargs = utm_orientation_axes_kwargs()

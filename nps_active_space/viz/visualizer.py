@@ -98,7 +98,6 @@ class Visualizer:
         self._to_wgs84 = pyproj.Transformer.from_crs(self.crs, "epsg:4326", always_xy=True)
 
         self.plotter = pv.Plotter(title=WINDOW_TITLE)
-        apply_window_icon(self.plotter)
         self.plot_dem()
         self.plot_mic()
         if do_active:
@@ -116,6 +115,7 @@ class Visualizer:
         self.setup_orientation_widgets()
         self.plotter.reset_camera()
         self.plotter.camera.elevation = 30
+        apply_window_icon(self.plotter)
         self.plotter.show()
 
     def _status(self, message: str) -> None:
