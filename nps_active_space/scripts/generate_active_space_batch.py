@@ -54,8 +54,10 @@ def run_deployment(designator: str, cmd: list[str]) -> pd.Series | None:
     env = os.environ.copy()
     env["TQDM_NCOLS"] = "80"
 
-    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
-        results_path = Path(tmp.name)
+    fd, results_name = tempfile.mkstemp(suffix=".json")
+    os.close(fd)
+    os.unlink(results_name)
+    results_path = Path(results_name)
 
     try:
         full_cmd = cmd + ["--results-out", str(results_path)]
