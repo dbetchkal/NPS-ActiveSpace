@@ -1,4 +1,5 @@
 import glob
+import json
 import multiprocessing as mp
 import os
 import signal
@@ -277,6 +278,10 @@ if __name__ == '__main__':
     argparse.add_argument('--cleanup', action='store_true',
                           help="Remove intermediary control and batch files.")
     argparse.add_argument('--annotation-file', help="Basename of GEOJSON annotations file to use, if not the default. File should be in the site directory.")
+    argparse.add_argument(
+        '--results-out',
+        help="Path to write structured run results as JSON (used by generate_active_space_batch.py).",
+    )
     args = argparse.parse_args()
 
     ambience_valid = (args.ambience == "nvspl") or (args.ambience == "mennitt") or (args.ambience.endswith(".pkl") and os.path.exists(args.ambience))
@@ -332,7 +337,10 @@ if __name__ == '__main__':
     valid_points = gpd.GeoDataFrame(data=valid_points_lst, geometry='geometry', crs=annotations.crs)
 
     # Reduce point density to median density, so very dense areas (e.g. airports) don't skew the fit
+    points_before_kde = len(valid_points)
     valid_points = normalize_point_density(valid_points, study_area, random_seed=679)
+    points_after_kde = len(valid_points)
+    kde_reduction = f"{100 * (1 - (points_after_kde / points_before_kde))}%"
 
     # If the user does not pass an altitude, calculate the average altitude of all valid tracks. Extract the altitudes
     #  from each linestring to get the average height (in meters) of audible flight segments.
@@ -429,6 +437,14 @@ if __name__ == '__main__':
 
     # --------------- ANALYSIS --------------- #
 
+    run_results: dict[str, object] = {
+        "Number of valid annotated segments": len(annotations),
+        "Mean altitude": altitude_,
+        "KDE reduction (%)": kde_reduction,
+        "1/3rd Octave Gain (F1)": None,
+        "F1": None,
+    }
+
     for beta_ in args.beta:
         usy = f"{args.unit}{args.site}{args.year}"
         plotname = f"PrecisionRecallPlot_{usy}_{altitude_}m_{str(beta_).replace('.','p')}.png"
@@ -444,3 +460,11 @@ if __name__ == '__main__':
                                                        verbose=False)
 
         logger.info(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta})")
+
+        if beta_ == 1.0:
+            run_results["1/3rd Octave Gain (F1)"] = omni_to_gain(best_omni)
+            run_results["F1"] = max_fbeta
+
+    if args.results_out is not None:
+        with open(args.results_out, "w") as results_file:
+            json.dump(run_results, results_file)
