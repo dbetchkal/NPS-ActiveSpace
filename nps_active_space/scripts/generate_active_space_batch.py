@@ -178,11 +178,16 @@ if __name__ == "__main__":
         script_path = Path(ACTIVE_SPACE_DIR) / "scripts" / "generate_active_space.py"
         cmd = [sys.executable, "-u", "-W", "ignore", str(script_path)] + shlex.split(options)
         result_series = run_deployment(designator, cmd)
-        # if it ran with no errors, save the results
-        if result_series is not None:
-            output_df = pd.concat(
-                [output_df, result_series.to_frame().T], ignore_index=True)
-            output_df.to_csv(args.output, index=False)
+        if result_series is None:
+            print(
+                f"Run failed for {designator}; skipping CSV update. "
+                "See errors above (check site Input_Data/03_TRAJECTORY and Output_Data/TIG_TIS)."
+            )
+            continue
+
+        output_df = pd.concat(
+            [output_df, result_series.to_frame().T], ignore_index=True)
+        output_df.to_csv(args.output, index=False)
 
         # if args.savedir is not None:
         #     copy_output_files(options, args.savedir, designator)

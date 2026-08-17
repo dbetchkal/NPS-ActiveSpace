@@ -703,13 +703,16 @@ def select_optimal(unit: str, site: str, year: int,
         if verbose:
             logger.info(f"omni: {omni} --> F-{beta_}: {fbeta:0.3f} precision: {precision:0.3f} recall: {recall:0.3f}")
         
-        if fbeta > max_fbeta:
+        if fbeta > max_fbeta or best_omni is None:
             max_fbeta = fbeta
             best_omni = omni
             best_recall = recall
             best_precision = precision
 
         detection_results.sort_values("gain", ascending=True, inplace=True) # it makes sense to plot (and return) the object sorted by gain
+
+    if detection_results.empty:
+        logger.warning("select_optimal received no active space polygons to evaluate.")
     
     if plot:
         # create Precision-Recall Plot.

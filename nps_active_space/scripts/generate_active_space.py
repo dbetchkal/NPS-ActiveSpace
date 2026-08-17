@@ -251,6 +251,23 @@ def init_worker():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
+def _nonempty_active_space_count(results: list[tuple[str, gpd.GeoDataFrame]]) -> int:
+    """Count generated active space layers that contain at least one non-empty geometry."""
+    count = 0
+    for _, active_space in results:
+        if active_space.empty:
+            continue
+        geometries = active_space.geometry
+        if geometries.notna().any() and (~geometries.is_empty).any():
+            count += 1
+    return count
+
+
+def _fail_active_space_generation(message: str) -> None:
+    logger.error(message)
+    sys.exit(1)
+
+
 if __name__ == '__main__':
 
     argparse = ArgumentParser()
@@ -437,6 +454,22 @@ if __name__ == '__main__':
 
     # --------------- ANALYSIS --------------- #
 
+    if not results:
+        _fail_active_space_generation(
+            "No active space layers were generated successfully. "
+            "Check worker errors above, NMSIM configuration, and site inputs under "
+            f"{site_dir} (especially Input_Data/03_TRAJECTORY and Output_Data/TIG_TIS)."
+        )
+
+    nonempty_layers = _nonempty_active_space_count(results)
+    if nonempty_layers == 0:
+        _fail_active_space_generation(
+            f"Active space generation finished but all {len(results)} geojson layers are empty. "
+            "NMSIM likely produced no audible source points. Check DEM elevation files under "
+            f"{site_dir}/Input_Data/01_ELEVATION, trajectory files in Input_Data/03_TRAJECTORY, "
+            "and TIG_TIS outputs before continuing the 3D workflow."
+        )
+
     run_results: dict[str, object] = {
         "Number of valid annotated segments": len(annotations),
         "Mean altitude": altitude_,
@@ -462,8 +495,18 @@ if __name__ == '__main__':
         logger.info(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta})")
 
         if beta_ == 1.0:
-            run_results["1/3rd Octave Gain (F1)"] = omni_to_gain(best_omni)
+            run_results["1/3rd Octave Gain (F1)"] = (
+                omni_to_gain(best_omni) if best_omni is not None else None
+            )
             run_results["F1"] = max_fbeta
+
+            if valid_points["audible"].any() and max_fbeta == 0:
+                _fail_active_space_generation(
+                    f"Generated active spaces at {altitude_}m do not overlap any audible annotations (F1=0). "
+                    "Layer geojsons may be empty or misaligned with ground truth. Inspect "
+                    f"{active_savedir} and NMSIM outputs under {site_dir}/Output_Data/TIG_TIS "
+                    "before running fit_3d_active_space.py."
+                )
 
     if args.results_out is not None:
         with open(args.results_out, "w") as results_file:
