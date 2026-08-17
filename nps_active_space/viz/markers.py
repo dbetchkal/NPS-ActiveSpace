@@ -8,8 +8,10 @@ from pathlib import Path
 import pyvista as pv
 
 WINDOW_TITLE = "NPS ActiveSpace Visualization"
+WINDOWS_APP_USER_MODEL_ID = "gov.nps.activespace.viz"
 _ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 DEFAULT_WINDOW_ICON = _ASSETS_DIR / "waypoint_icon.png"
+_taskbar_identity_registered = False
 
 
 def default_window_icon_path() -> Path:
@@ -20,6 +22,24 @@ def default_window_icon_path() -> Path:
 def window_icon_supported() -> bool:
     """VTK implements SetIcon on Windows and Linux OpenGL render windows only."""
     return sys.platform != "darwin"
+
+
+def register_windows_taskbar_identity(
+    app_id: str = WINDOWS_APP_USER_MODEL_ID,
+) -> None:
+    """Register a Windows AppUserModelID so the taskbar uses our window icon.
+
+    Without this, Windows groups the process under python.exe and keeps the
+    Python interpreter icon in the taskbar even when VTK SetIcon updates the
+    title-bar icon. Must run before any GUI window is created.
+    """
+    global _taskbar_identity_registered
+    if _taskbar_identity_registered or sys.platform != "win32":
+        return
+    import ctypes
+
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+    _taskbar_identity_registered = True
 
 
 def apply_window_icon(plotter: pv.Plotter, icon_path: Path | None = None) -> None:

@@ -304,6 +304,37 @@ class TestOrientationWidgets:
         plotter = pv.Plotter(off_screen=True)
         set_window_icon(plotter, default_window_icon_path())
 
+    def test_register_windows_taskbar_identity_idempotent(self, monkeypatch):
+        import ctypes
+
+        import nps_active_space.viz.markers as markers
+
+        markers._taskbar_identity_registered = False
+        monkeypatch.setattr(markers.sys, "platform", "win32")
+        calls: list[str] = []
+
+        class _FakeShell32:
+            @staticmethod
+            def SetCurrentProcessExplicitAppUserModelID(app_id: str) -> None:
+                calls.append(app_id)
+
+        monkeypatch.setattr(
+            ctypes,
+            "windll",
+            type("_Windll", (), {"shell32": _FakeShell32()})(),
+            raising=False,
+        )
+        markers.register_windows_taskbar_identity()
+        markers.register_windows_taskbar_identity()
+        assert calls == [markers.WINDOWS_APP_USER_MODEL_ID]
+
+    def test_register_windows_taskbar_identity_noop_off_windows(self, monkeypatch):
+        import nps_active_space.viz.markers as markers
+
+        markers._taskbar_identity_registered = False
+        monkeypatch.setattr(markers.sys, "platform", "darwin")
+        markers.register_windows_taskbar_identity()
+
     def test_utm_axes_use_east_north_up_labels(self):
         kwargs = utm_orientation_axes_kwargs()
         assert kwargs["xlabel"] == "E"
