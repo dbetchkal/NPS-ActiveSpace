@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
+import nps_active_space.scripts.generate_active_space_batch as batch_module
 from nps_active_space.scripts.generate_active_space_batch import (
     RESULT_COLUMNS,
     read_results_file,
@@ -58,6 +59,23 @@ class TestReadResultsFile:
         })
         pd.testing.assert_series_equal(series, expected)
 
+    def test_read_results_file_returns_none_on_missing_required_key(self, tmp_path: Path):
+        results_path = tmp_path / "results.json"
+        results_path.write_text(json.dumps({
+            "Number of valid annotated segments": 12,
+            "Mean altitude": 3000,
+            "KDE reduction (%)": "15.0%",
+            "1/3rd Octave Gain (F1)": 12.5,
+        }))
+
+        assert read_results_file(results_path, "DENATRLA20253000m") is None
+
+    def test_read_results_file_returns_none_on_invalid_json(self, tmp_path: Path):
+        results_path = tmp_path / "results.json"
+        results_path.write_text("{not valid json")
+
+        assert read_results_file(results_path, "DENATRLA20253000m") is None
+
 
 class TestRunDeployment:
     def _stub_cmd(self, tmp_path: Path) -> list[str]:
@@ -91,6 +109,37 @@ class TestRunDeployment:
             MagicMock(return_value=MagicMock(returncode=0)),
         )
         result = run_deployment("DENATRLA20253000m", self._stub_cmd(tmp_path))
+        assert result is None
+
+    def test_run_deployment_returns_none_on_invalid_json_results(self, tmp_path: Path):
+        stub_path = tmp_path / "invalid_json_stub.py"
+        stub_path.write_text(
+            """
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument("--results-out", required=True)
+args = parser.parse_args()
+with open(args.results_out, "w") as results_file:
+    results_file.write("{not valid json")
+"""
+        )
+        result = run_deployment("DENATRLA20253000m", [sys.executable, str(stub_path)])
+        assert result is None
+
+    def test_run_deployment_returns_none_on_missing_required_key(self, tmp_path: Path):
+        stub_path = tmp_path / "partial_stub.py"
+        stub_path.write_text(
+            """
+import argparse
+import json
+parser = argparse.ArgumentParser()
+parser.add_argument("--results-out", required=True)
+args = parser.parse_args()
+with open(args.results_out, "w") as results_file:
+    json.dump({"Number of valid annotated segments": 1}, results_file)
+"""
+        )
+        result = run_deployment("DENATRLA20253000m", [sys.executable, str(stub_path)])
         assert result is None
 
     def test_run_deployment_cleans_up_temp_results_file(self, tmp_path: Path):
@@ -194,4 +243,58 @@ class Test3dActiveSpaceWorkflow:
         assert "generate_active_space_batch.py" in source
         assert "fit_3d_active_space.py" in source
         assert '"-l", altitude' in source
+
+
+class TestBatchMainOrchestration:
+    def test_main_appends_csv_and_skips_existing_designator(self, tmp_path: Path, monkeypatch):
+        cmds_file = tmp_path / "commands.txt"
+        cmds_file.write_text(
+            "RUN1\t-e test -u DENA -s TRLA -y 2025\n"
+            "RUN2\t-e test -u DENA -s TRLA -y 2025\n"
+        )
+        output_csv = tmp_path / "output.csv"
+        pd.DataFrame(
+            {
+                "Designator": ["RUN1"],
+                "Number of valid annotated segments": [5],
+                "Mean altitude": [3000],
+                "KDE reduction (%)": ["12.5%"],
+                "1/3rd Octave Gain (F1)": [12.5],
+                "F1": [0.91],
+            }
+        ).to_csv(output_csv, index=False)
+
+        run_calls: list[str] = []
+
+        def fake_run_deployment(designator: str, cmd: list[str]) -> pd.Series:
+            run_calls.append(designator)
+            return pd.Series({
+                "Designator": designator,
+                "Number of valid annotated segments": 8,
+                "Mean altitude": 3000,
+                "KDE reduction (%)": "10.0%",
+                "1/3rd Octave Gain (F1)": 11.0,
+                "F1": 0.88,
+            })
+
+        monkeypatch.setattr(batch_module, "run_deployment", fake_run_deployment)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["generate_active_space_batch.py", str(cmds_file), "-o", str(output_csv)],
+        )
+
+        source = Path(batch_module.__file__).read_text()
+        main_block = source[source.index("if __name__ == \"__main__\":"):]
+        namespace = batch_module.__dict__.copy()
+        namespace["__name__"] = "__main__"
+        exec(compile(main_block, batch_module.__file__, "exec"), namespace)
+
+        loaded = pd.read_csv(output_csv)
+        assert run_calls == ["RUN2"]
+        assert len(loaded) == 2
+        assert set(loaded["Designator"]) == {"RUN1", "RUN2"}
+        run2 = loaded.loc[loaded["Designator"] == "RUN2"].iloc[0]
+        assert run2["Number of valid annotated segments"] == 8
+        assert run2["F1"] == 0.88
 

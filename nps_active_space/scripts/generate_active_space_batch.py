@@ -21,12 +21,27 @@ RESULT_COLUMNS = [
     "1/3rd Octave Gain (F1)",
     "F1",
 ]
+REQUIRED_RESULT_KEYS = [column for column in RESULT_COLUMNS if column != "Designator"]
 
 
-def read_results_file(results_path: Path, designator: str) -> pd.Series:
+def read_results_file(results_path: Path, designator: str) -> pd.Series | None:
     """Load structured run results written by generate_active_space.py."""
-    with open(results_path) as results_file:
-        data = json.load(results_file)
+    try:
+        with open(results_path) as results_file:
+            data = json.load(results_file)
+    except json.JSONDecodeError as exc:
+        print(f"Invalid JSON in results file {results_path}: {exc}")
+        return None
+
+    if not isinstance(data, dict):
+        print(f"Results file must contain a JSON object: {results_path}")
+        return None
+
+    missing_keys = [key for key in REQUIRED_RESULT_KEYS if key not in data]
+    if missing_keys:
+        print(f"Results file is missing required keys {missing_keys}: {results_path}")
+        return None
+
     series = pd.Series(data)
     series["Designator"] = designator
     return series.reindex(RESULT_COLUMNS)

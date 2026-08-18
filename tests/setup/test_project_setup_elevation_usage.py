@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import geopandas as gpd
@@ -45,7 +46,8 @@ class TestGetProjectSetupElevation:
         assert flt_path.name == "elevation_m_nad83_utm6.flt"
 
     def test_example_denatrla_set_dem_uses_project_setup_artifacts(self, tmp_path: Path):
-        site_dir = EXAMPLE_PROJECT_DIR / "DENATRLA"
+        site_dir = tmp_path / "DENATRLA"
+        shutil.copytree(EXAMPLE_PROJECT_DIR / "DENATRLA", site_dir)
         nmsim_exe = tmp_path / "nmsim.exe"
         nmsim_exe.write_text("stub")
 

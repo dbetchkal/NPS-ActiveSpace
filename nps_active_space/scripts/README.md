@@ -96,6 +96,8 @@ check_study_duration_robustness.py
 
 If you want to generate many active spaces at the same time, you can leverage the batch script to do so. This is useful for running it overnight or while you do other work.
 
+The batch runner collects per-run metrics from a JSON sidecar written by `generate_active_space.py` (`--results-out`), then appends a row to the output CSV. Failed runs are skipped (no CSV row); child-process output is streamed to the console as each command runs.
+
 ### Batch 3D Active Space
 
 1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#installation).
@@ -291,6 +293,8 @@ This script is used to predict active space scope in 3-dimensions. At present it
 
 *NOTE: for single-deployment scenarios omitting the `--only-prep` flag, this script proceeds to run the `generate_active_space_batch.py` and `fit_3d_active_space.py` scripts.*
 
+When `-a nvspl`, ambience is precomputed once and saved under `Output_Data/AMBIENCE/` as a `.pkl` file referenced in the commands file. If a cached pickle exists but is all-NaN, it is recomputed automatically. NVSPL ambience uses a wind-speed filter (≤ 5 m/s); when `WindSpeed` is missing or all-NaN in the archive, the wind filter is skipped.
+
 | command-line arg        | description                                                                                                                                      |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
@@ -323,6 +327,10 @@ This script is used to predict active space scope in 2-dimensions.
 
 *NOTE: the Precision-Recall plot that is shown at the end of a run is automatically saved.*
 
+#### Prerequisites
+
+Run [`project_setup.py`](#project-setup) for each deployment before generating active spaces. `project_setup` creates `Input_Data/01_ELEVATION/elevation_m_nad83_utm*.{tif,flt,hdr}` and writes a listener `.sit` file that references the `.flt` path. Sites missing these elevation artifacts will fail at `set_dem`.
+
 | command-line arg        | description                                                                                                                                                                                                                                                             |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                                                                                                                                           |
@@ -337,6 +345,9 @@ This script is used to predict active space scope in 2-dimensions.
 | `-b`, `--beta`          | **_default 1.0_**<br/>the beta value to use when calculating the f-beta for each active space.<br/>https://en.wikipedia.org/wiki/F-score#F%CE%B2_score)                                                                                                                 |
 | `--cleanup`             | If this flag is added, all intermediary control and batch files will be deleted upon script completion.                                                                                                                                                                 |
 | `--annotation-file`     | If provided, basename of GEOJSON annotations file to use instead of the default. File should be in the site directory.                                                                                                                                                  |
+| `--results-out`         | Optional path to write structured run results as JSON. Keys match the [batch output CSV columns](#generate-active-space-batch) (`Number of valid annotated segments`, `Mean altitude`, `KDE reduction (%)`, `1/3rd Octave Gain (F1)`, `F1`). Used internally by `generate_active_space_batch.py`. |
+
+The script exits with code 1 (and does not write `--results-out`) when no active space layers succeed, all generated GeoJSON layers are empty, or F1 is 0 while audible annotations exist.
 
 Example executions:
 
@@ -348,16 +359,6 @@ $ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e produ
 $ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e production -u DENA -s TRLA -y 2017  -a mennitt --headings 0 --omni-min -5 --omni-max 10.5 -l 3658 -b .5
 ```
 
-If you would like the command output to be shown in the console and saved to a text file add the following after your command:
-
-```bash
-<command> | Tee-Object -FilePath "C:\Path\To\Output.txt"
-```
-
-```bash
-$ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e production -u DENA -s MOOS -y 2018 --cleanup | Tee-Object -FilePath "C:\Path\To\active_space_output_DENAMOOS2018.txt"
-```
-
 ----
 
 ### Generate Active Space Batch
@@ -365,6 +366,10 @@ $ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e produ
 This script generates active space estimates for a set of senarios provided in a `_commands.txt` file.
 
 *NOTE: this script may be run independently and also works "behind the scenes" as part of [`generate_3d_active_space.py`](#generate-3d-active-space)*
+
+Each command invokes `generate_active_space.py` via `sys.executable` with a temporary `--results-out` JSON path. On success, the JSON is read and appended as one row to the output CSV; on failure (non-zero exit or missing results file), that run is skipped and the CSV is left unchanged. Child-process stdout/stderr are not captured, so NMSIM and progress output remain visible in the console.
+
+See [Prerequisites](#prerequisites) under Generate Active Space — deployments must have `project_setup` elevation artifacts before batch runs.
 
 | command-line arg           | description                                                                                                                                      |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
