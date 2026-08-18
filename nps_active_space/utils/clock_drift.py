@@ -23,6 +23,178 @@ def logsum(df, axis=1):
     return 10 * np.log10(pressure_sum)
 
 
+def _format_missing_time_ranges(missing_times: pd.DatetimeIndex, max_ranges: int = 5) -> str:
+    """Summarize missing timestamps as contiguous ranges for log messages."""
+    if len(missing_times) == 0:
+        return "none"
+    missing_times = missing_times.sort_values()
+    ranges: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+    range_start = missing_times[0]
+    range_end = missing_times[0]
+    for timestamp in missing_times[1:]:
+        if timestamp - range_end <= pd.Timedelta(seconds=1):
+            range_end = timestamp
+        else:
+            ranges.append((range_start, range_end + pd.Timedelta(seconds=1)))
+            range_start = timestamp
+            range_end = timestamp
+    ranges.append((range_start, range_end + pd.Timedelta(seconds=1)))
+
+    parts = [f"{start} to {end}" for start, end in ranges[:max_ranges]]
+    if len(ranges) > max_ranges:
+        parts.append(f"... and {len(ranges) - max_ranges} more range(s)")
+    return "; ".join(parts)
+
+
+SECONDS_PER_DAY = 86_400
+# Inferred from DENATRLA correlation-fit CSVs: ~-9 sec/day drift rate; ~-5 s at season
+# open (2024-2026); ~-8 s immediately after maintenance visits.
+DEFAULT_DRIFT_SEC_PER_DAY = -9.0
+DEFAULT_SEASON_START_DRIFT_SEC = -5.0
+DEFAULT_POST_RESET_DRIFT_SEC = -8.0
+
+
+def _drift_sec_at(
+    timestamp: pd.Timestamp,
+    anchor_time: pd.Timestamp,
+    anchor_drift_sec: float,
+    drift_sec_per_day: float,
+) -> float:
+    elapsed_days = (timestamp - anchor_time).total_seconds() / SECONDS_PER_DAY
+    return anchor_drift_sec + drift_sec_per_day * elapsed_days
+
+
+def _noon_samples_between(period_start: pd.Timestamp, period_end: pd.Timestamp) -> list[pd.Timestamp]:
+    """Daily noon timestamps strictly inside (period_start, period_end)."""
+    if period_end <= period_start:
+        return []
+    first_day = period_start.normalize()
+    last_day = (period_end - pd.Timedelta(nanoseconds=1)).normalize()
+    day_starts = pd.date_range(first_day, last_day, freq="D")
+    samples = []
+    for day_start in day_starts:
+        noon = day_start + pd.Timedelta(hours=12)
+        if noon > period_start and noon < period_end:
+            samples.append(noon)
+    return samples
+
+
+def build_constant_drift_csv(
+    start_dt: pd.Timestamp,
+    end_dt: pd.Timestamp,
+    maintenance_times: list[pd.Timestamp],
+    drift_sec_per_day: float = DEFAULT_DRIFT_SEC_PER_DAY,
+    season_start_drift_sec: float = DEFAULT_SEASON_START_DRIFT_SEC,
+    post_reset_drift_sec: float = DEFAULT_POST_RESET_DRIFT_SEC,
+) -> pd.DataFrame:
+    """Build a piecewise-linear clock drift CSV from assumed drift rates and maintenance visits.
+
+    Drift is defined as seconds to add to track ``point_dt`` to align with NVSPL. Between
+    maintenance visits the ADS-B clock is modeled as drifting linearly at ``drift_sec_per_day``
+    (negative for a slow receiver). Each maintenance visit resets drift to
+    ``post_reset_drift_sec``. The first segment of a season starts at ``season_start_drift_sec``.
+
+    Parameters
+    ----------
+    start_dt: pd.Timestamp
+        Start of the correction period (inclusive). Should be on or before the earliest track time.
+    end_dt: pd.Timestamp
+        End of the correction period (inclusive). Should be on or after the latest track time.
+    maintenance_times: list[pd.Timestamp]
+        Clock-reset times during the season, in any order.
+    drift_sec_per_day: float
+        Assumed drift rate between resets (default -9 sec/day for DENATRLA ADS-B).
+    season_start_drift_sec: float
+        Drift immediately at ``start_dt`` for the opening segment (default -5 sec).
+    post_reset_drift_sec: float
+        Drift immediately after each maintenance visit (default -8 sec).
+    """
+    start_dt = pd.Timestamp(start_dt)
+    end_dt = pd.Timestamp(end_dt)
+    maintenance_times = sorted(pd.Timestamp(t) for t in maintenance_times)
+    maintenance_times = [t for t in maintenance_times if start_dt < t <= end_dt]
+
+    period_boundaries = [start_dt] + maintenance_times + [end_dt]
+    file_entries_list: list[pd.DataFrame] = []
+
+    for segment_index in range(len(period_boundaries) - 1):
+        period_start = period_boundaries[segment_index]
+        period_end = period_boundaries[segment_index + 1]
+        anchor_drift = season_start_drift_sec if segment_index == 0 else post_reset_drift_sec
+        is_final_segment = segment_index == len(period_boundaries) - 2
+
+        segment_times = [period_start, *_noon_samples_between(period_start, period_end)]
+        if period_end > period_start:
+            if is_final_segment:
+                segment_times.append(period_end)
+            else:
+                segment_times.append(period_end - pd.Timedelta(milliseconds=100))
+
+        seconds = [
+            _drift_sec_at(timestamp, period_start, anchor_drift, drift_sec_per_day)
+            for timestamp in segment_times
+        ]
+        file_entries_list.append(pd.DataFrame({"Time": segment_times, "Seconds": seconds}))
+
+    return pd.concat(file_entries_list, ignore_index=True)
+
+
+def infer_correction_period(
+    nvspl_dates: list[str],
+    tracks: pd.DataFrame,
+) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """Infer clock-drift CSV start/end from NVSPL archive coverage and track times."""
+    start_dt = min(tracks["point_dt"].min().floor("d"), pd.Timestamp(nvspl_dates[0]))
+    nvspl_end = pd.Timestamp(nvspl_dates[-1]) + pd.Timedelta(days=1) - pd.Timedelta(milliseconds=100)
+    track_end = tracks["point_dt"].max().ceil("d") - pd.Timedelta(milliseconds=100)
+    end_dt = max(nvspl_end, track_end)
+    return start_dt, end_dt
+
+
+def default_clock_drift_file_path(
+    project_dir: str,
+    unit: str,
+    site: str,
+    year: str,
+    track_source: TrackSource,
+) -> str:
+    """Default path for a deployment clock drift CSV."""
+    return os.path.join(
+        project_dir,
+        f"{unit}{site}",
+        f"{unit}{site}{year}_clock_drift_{track_source}.csv",
+    )
+
+
+def write_constant_drift_csv(
+    clock_drift_file: str,
+    start_dt: pd.Timestamp,
+    end_dt: pd.Timestamp,
+    maintenance_times: list[pd.Timestamp],
+    drift_sec_per_day: float = DEFAULT_DRIFT_SEC_PER_DAY,
+    season_start_drift_sec: float = DEFAULT_SEASON_START_DRIFT_SEC,
+    post_reset_drift_sec: float = DEFAULT_POST_RESET_DRIFT_SEC,
+) -> pd.DataFrame:
+    """Build and write a constant-drift correction CSV."""
+    file_entries = build_constant_drift_csv(
+        start_dt=start_dt,
+        end_dt=end_dt,
+        maintenance_times=maintenance_times,
+        drift_sec_per_day=drift_sec_per_day,
+        season_start_drift_sec=season_start_drift_sec,
+        post_reset_drift_sec=post_reset_drift_sec,
+    )
+    file_entries.to_csv(clock_drift_file, index=False)
+    logger.info(
+        "Wrote constant drift file %s (%d rows, %.2f sec/day, %d maintenance visit(s))",
+        clock_drift_file,
+        len(file_entries),
+        drift_sec_per_day,
+        len(maintenance_times),
+    )
+    return file_entries
+
+
 class ClockDriftFixer():
     """A tool to fix clock drift between the geographic and acoustic records by using cross-correlation.
     
@@ -37,7 +209,8 @@ class ClockDriftFixer():
     """
     
     def __init__(self, project_dir: str, unit: str, site: str, year: str,
-                 pts: Tracks, nvspl: Nvspl, database_type: TrackSource, plot_dir: str = None):
+                 pts: Tracks, nvspl: Nvspl, database_type: TrackSource,
+                 faa_path: str, faa_corrections_path: str, plot_dir: str = None):
         """Constructor for the ClockDriftFixer class. Loads data and computes predicted audibility of causal data.
 
         Parameters
@@ -60,6 +233,10 @@ class ClockDriftFixer():
             with pts as much as possible. Any partial days will be excluded from analysis.
         database_type: TrackSource
             Causal track feed (GPS, ADSB, or AIS). Used only for the default clock drift filename.
+        faa_path: str
+            Path to the FAA releasable aircraft database (MASTER.txt).
+        faa_corrections_path: str
+            Path to FAA aircraft type corrections JSON.
         plot_dir: str, Optional
             If provided, intermediate plots will be saved to this directory. This is very helpful for
             doing quality control, and is highly recommended.
@@ -83,8 +260,8 @@ class ClockDriftFixer():
         uses_n_numbers = ids[0].startswith("N")
         if uses_n_numbers:
             ids = ids.str[1:]  # the track id lists N-numbers like: N12345, but FAA uses just 12345
-        faa = FAAReleasable(R"V:\Noncanonical Data\ReleasableAircraft\MASTER.txt",
-                            R"V:\Noncanonical Data\ReleasableAircraft\FAA_AircraftCorrections.json",
+        faa = FAAReleasable(faa_path,
+                            faa_corrections_path,
                             n_numbers=ids.unique() if uses_n_numbers else [],
                             icao_addresses=ids.unique() if not uses_n_numbers else [],
                             warnings=False).data
@@ -122,7 +299,7 @@ class ClockDriftFixer():
 
     def get_clock_drift(self, start_dt, end_dt, max_clock_drift=pd.Timedelta(minutes=5)):
         """
-        Gets clock drift during a period of time using cross-correlation between the acoustic and causal records.
+        Gets clock drift during a period of time by comparing the acoustic and causal records.
         
         Parameters
         ----------
@@ -137,15 +314,28 @@ class ClockDriftFixer():
         """
         # get the nvspl data corresponding to this time period
         full_index = pd.date_range(start_dt, end_dt, freq="s", inclusive="left")
-        if len(self.nvspl.index.intersection(full_index)) < len(full_index):
-            logger.warning("NVSPL doesn't cover full period")
+        available_index = self.nvspl.index.intersection(full_index)
+        if len(available_index) < len(full_index):
+            missing_index = full_index.difference(available_index)
+            logger.warning(
+                "NVSPL doesn't cover full period %s to %s: missing %d of %d seconds (%s)",
+                start_dt,
+                end_dt,
+                len(missing_index),
+                len(full_index),
+                _format_missing_time_ranges(missing_index),
+            )
             return np.nan
         nvspl_section = self.nvspl.loc[full_index]
 
         # get the track points corresponding to this time period
         pts_section = self.pts[(self.pts["point_dt"] > start_dt) & (self.pts["point_dt"] < end_dt)]
         if pts_section.empty:
-            logger.warning("No track points")
+            logger.warning(
+                "No track points for period %s to %s (exclusive end)",
+                start_dt,
+                end_dt,
+            )
             return np.nan
 
         # Correlating with NVSPL broadband SPL has issues with wind noise obscuring the aircraft signal.
@@ -207,7 +397,11 @@ class ClockDriftFixer():
             f"{len(correlation)} != {2 * max_clock_drift.total_seconds() + 1}"
         max_idx = np.argmax(correlation)
         if max_idx == 0 or max_idx == len(correlation)-1:
-            logger.warning("Max correlation at boundary, not true maximum")
+            logger.warning(
+                "Max correlation at boundary for period %s to %s, not true maximum",
+                start_dt,
+                end_dt,
+            )
             return None  # boundary-limited, not true peak
         drifts = np.arange(-max_clock_drift.total_seconds(), max_clock_drift.total_seconds() + 1)
         clock_drift = drifts[max_idx]
@@ -238,7 +432,6 @@ class ClockDriftFixer():
             plt.close()
         
         return clock_drift
-    
 
     def _init_time_series_plot(self):
         """Utility for setting up a time series plot of clock drifts"""
@@ -249,19 +442,33 @@ class ClockDriftFixer():
         plt.ylabel("Estimated Clock Drift (sec)")
     
 
-    def drift_time_series(self, start_dt=None, end_dt=None, max_clock_drift=pd.Timedelta(minutes=5)):
+    def drift_time_series(self, start_dt=None, end_dt=None, max_clock_drift=pd.Timedelta(minutes=5),
+                          show_plots: bool = True):
         """Compute clock drift each day over an extended period of time to determine patterns over time."""
         if start_dt is None:
             start_dt = self.nvspl.index.min()
         if end_dt is None:
             end_dt = self.nvspl.index.max()
 
+        logger.info(
+            "Estimating daily clock drift from %s to %s (max_drift=%s)",
+            start_dt,
+            end_dt,
+            max_clock_drift,
+        )
+
         freq = "d"
-        period_bounds = pd.date_range(start_dt.ceil(freq), end_dt.floor(freq), freq=freq)
+        period_start = start_dt.ceil(freq)
+        period_end = end_dt.floor(freq) + pd.Timedelta(days=1)
+        if period_end <= period_start:
+            period_end = period_start + pd.Timedelta(days=1)
+        period_bounds = pd.date_range(period_start, period_end, freq=freq)
         drifts = []
         for i in range(len(period_bounds)-1):
             logger.debug(f"{period_bounds[i]} to {period_bounds[i+1]}")
-            drifts.append(self.get_clock_drift(period_bounds[i], period_bounds[i+1], max_clock_drift))
+            drifts.append(self.get_clock_drift(
+                period_bounds[i], period_bounds[i+1], max_clock_drift,
+            ))
         
         # use the center of the period as the time anchor for each period's drift
         self.times = period_bounds[:-1] + (period_bounds.diff()[1:] / 2)
@@ -278,7 +485,10 @@ class ClockDriftFixer():
                 label += 1
         if self.plot_dir is not None:
             plt.savefig(os.path.join(self.plot_dir, "Clock Drift Time Series.png"))
-        plt.show()
+        if show_plots:
+            plt.show()
+        else:
+            plt.close()
 
         return self.times, self.drifts
     
@@ -291,7 +501,8 @@ class ClockDriftFixer():
     
 
     def fit_drift_lines(self, indices_to_use, clock_drift_file=None,
-                        maintenance_times=[], start_dt=None, end_dt=None):
+                        maintenance_times=[], start_dt=None, end_dt=None,
+                        show_plots: bool = True):
         """
         Clock drift tends to be linear (for ADSB particularly).
         This function fits lines for each time period between maintenance visits,
@@ -373,7 +584,10 @@ class ClockDriftFixer():
 
         if self.plot_dir is not None:
             plt.savefig(os.path.join(self.plot_dir, "Fitted Lines.png"))
-        plt.show()
+        if show_plots:
+            plt.show()
+        else:
+            plt.close()
 
         return self.drift_fits
 
@@ -427,5 +641,5 @@ def correct_clock_drift(tracks: Tracks, clock_drift_file: str, inplace: bool=Tru
         return tracks
     else:
         track_copy = tracks.copy()
-        track_copy["point_dt"] = correct_clock_drift
+        track_copy["point_dt"] = correct_point_dt
         return track_copy
