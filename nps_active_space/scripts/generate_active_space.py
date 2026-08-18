@@ -391,16 +391,14 @@ if __name__ == '__main__':
 
     # --------------- ACTIVE SPACE GENERATION --------------- #
 
-    # Create an ActiveSpaceGenerator instance and set the DEM data for the microphone location since we will be using
-    #  the same location for every active space. This is a MAJOR time saver!
+    # Create an ActiveSpaceGenerator instance and cache project_setup elevation for repeated runs.
     generator_ = ActiveSpaceGenerator(
         NMSIM=cfg.read('project', 'nmsim'),
         root_dir=site_dir,
         study_area=study_area,
         ambience=ambience,
-        dem_src=cfg.read('data', 'dem'),
     )
-    logger.info('Setting dem...')
+    logger.info('Caching project_setup elevation for NMSIM...')
     generator_.set_dem(mic_)
 
     # Create active space for each omni source.

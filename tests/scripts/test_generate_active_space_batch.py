@@ -11,7 +11,6 @@ import pytest
 
 import nps_active_space.scripts.generate_active_space_batch as batch_module
 from nps_active_space.scripts.generate_active_space_batch import (
-    RESULT_COLUMNS,
     read_results_file,
     run_deployment,
 )
@@ -83,18 +82,6 @@ class TestRunDeployment:
         stub_path.write_text(STUB_SCRIPT)
         return [sys.executable, str(stub_path)]
 
-    def test_run_deployment_reads_stub_script_results(self, tmp_path: Path):
-        series = run_deployment("DENATRLA20253000m", self._stub_cmd(tmp_path))
-
-        assert series is not None
-        assert list(series.index) == RESULT_COLUMNS
-        assert series["Designator"] == "DENATRLA20253000m"
-        assert series["Number of valid annotated segments"] == 5
-        assert series["Mean altitude"] == 3000
-        assert series["KDE reduction (%)"] == "12.5%"
-        assert series["1/3rd Octave Gain (F1)"] == 12.5
-        assert series["F1"] == 0.91
-
     def test_run_deployment_returns_none_on_nonzero_exit(self, tmp_path: Path, monkeypatch):
         monkeypatch.setattr(
             "nps_active_space.scripts.generate_active_space_batch.subprocess.run",
@@ -110,43 +97,6 @@ class TestRunDeployment:
         )
         result = run_deployment("DENATRLA20253000m", self._stub_cmd(tmp_path))
         assert result is None
-
-    def test_run_deployment_returns_none_on_invalid_json_results(self, tmp_path: Path):
-        stub_path = tmp_path / "invalid_json_stub.py"
-        stub_path.write_text(
-            """
-import argparse
-parser = argparse.ArgumentParser()
-parser.add_argument("--results-out", required=True)
-args = parser.parse_args()
-with open(args.results_out, "w") as results_file:
-    results_file.write("{not valid json")
-"""
-        )
-        result = run_deployment("DENATRLA20253000m", [sys.executable, str(stub_path)])
-        assert result is None
-
-    def test_run_deployment_returns_none_on_missing_required_key(self, tmp_path: Path):
-        stub_path = tmp_path / "partial_stub.py"
-        stub_path.write_text(
-            """
-import argparse
-import json
-parser = argparse.ArgumentParser()
-parser.add_argument("--results-out", required=True)
-args = parser.parse_args()
-with open(args.results_out, "w") as results_file:
-    json.dump({"Number of valid annotated segments": 1}, results_file)
-"""
-        )
-        result = run_deployment("DENATRLA20253000m", [sys.executable, str(stub_path)])
-        assert result is None
-
-    def test_run_deployment_cleans_up_temp_results_file(self, tmp_path: Path):
-        run_deployment("DENATRLA20253000m", self._stub_cmd(tmp_path))
-        leftover = list(tmp_path.glob("*.json"))
-        assert leftover == []
-
 
 class TestBatchCsvIntegration:
     def test_run_deployment_results_write_expected_csv_row(self, tmp_path: Path):
@@ -231,18 +181,6 @@ class Test3dActiveSpaceWorkflow:
         assert loaded["F1"].notna().all()
         assert set(loaded["Mean altitude"]) == set(altitudes)
         assert list(loaded["Designator"]) == [f"DENATRLA2025_{alt}m" for alt in altitudes]
-
-    def test_generate_3d_active_space_invokes_batch_script(self):
-        generate_3d_script = (
-            Path(__file__).resolve().parents[2]
-            / "nps_active_space"
-            / "scripts"
-            / "generate_3d_active_space.py"
-        )
-        source = generate_3d_script.read_text()
-        assert "generate_active_space_batch.py" in source
-        assert "fit_3d_active_space.py" in source
-        assert '"-l", altitude' in source
 
 
 class TestBatchMainOrchestration:

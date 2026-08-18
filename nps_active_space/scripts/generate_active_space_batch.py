@@ -1,4 +1,5 @@
 import json
+import logging
 import nps_active_space.utils.config as cfg
 from nps_active_space import ACTIVE_SPACE_DIR
 import subprocess
@@ -12,6 +13,8 @@ import shlex
 import shutil
 import tempfile
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 RESULT_COLUMNS = [
     "Designator",
@@ -30,16 +33,16 @@ def read_results_file(results_path: Path, designator: str) -> pd.Series | None:
         with open(results_path) as results_file:
             data = json.load(results_file)
     except json.JSONDecodeError as exc:
-        print(f"Invalid JSON in results file {results_path}: {exc}")
+        logger.warning("Invalid JSON in results file %s: %s", results_path, exc)
         return None
 
     if not isinstance(data, dict):
-        print(f"Results file must contain a JSON object: {results_path}")
+        logger.warning("Results file must contain a JSON object: %s", results_path)
         return None
 
     missing_keys = [key for key in REQUIRED_RESULT_KEYS if key not in data]
     if missing_keys:
-        print(f"Results file is missing required keys {missing_keys}: {results_path}")
+        logger.warning("Results file is missing required keys %s: %s", missing_keys, results_path)
         return None
 
     series = pd.Series(data)
@@ -80,7 +83,7 @@ def run_deployment(designator: str, cmd: list[str]) -> pd.Series | None:
         if process.returncode != 0:
             return None
         if not results_path.exists():
-            print(f"Run succeeded but no results file was written: {results_path}")
+            logger.warning("Run succeeded but no results file was written: %s", results_path)
             return None
         return read_results_file(results_path, designator)
     finally:

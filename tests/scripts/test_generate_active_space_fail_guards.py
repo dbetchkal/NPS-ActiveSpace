@@ -100,8 +100,6 @@ def _patch_main_dependencies(
     (site_dir / "DENATRLA_study_area.shp").write_text("placeholder")
     nmsim_exe = tmp_path / "nmsim.exe"
     nmsim_exe.write_text("stub")
-    dem_path = tmp_path / "dem.tif"
-    dem_path.write_text("stub")
     omni_source = tmp_path / "O_+010.src"
     omni_source.write_text("stub")
 
@@ -131,7 +129,6 @@ def _patch_main_dependencies(
         lambda section, key: {
             ("project", "dir"): str(project_dir),
             ("project", "nmsim"): str(nmsim_exe),
-            ("data", "dem"): str(dem_path),
         }[(section, key)],
     )
     monkeypatch.setattr(mod, "get_omni_sources", lambda **kwargs: [str(omni_source)])

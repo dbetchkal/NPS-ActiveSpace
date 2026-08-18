@@ -57,7 +57,6 @@ class TestGetProjectSetupElevation:
             NMSIM=str(nmsim_exe),
             study_area=study_area,
             root_dir=str(site_dir),
-            dem_src=str(EXAMPLE_PROJECT_DIR.parent / "source_dems" / "DENATRLA_trla_m.tif"),
             ambience=pd.Series({"1000": 40.0}),
         )
         generator.set_dem(mic)
@@ -95,7 +94,6 @@ class TestActiveSpaceGeneratorSetDem:
             NMSIM=str(nmsim_exe),
             study_area=study_area,
             root_dir=str(site_dir),
-            dem_src=str(source_dem),
             ambience=pd.Series({"1000": 40.0}),
         )
         generator.set_dem(mic)
@@ -107,8 +105,6 @@ class TestActiveSpaceGeneratorSetDem:
     def test_raises_when_setup_elevation_missing(self, tmp_path: Path):
         site_dir = tmp_path / "TESTSITE"
         create_site_dir(site_dir)
-        source_dem = tmp_path / "global_dem.tif"
-        write_source_dem(source_dem, bounds_4269=STUDY_BOUNDS_4269, elevation=5000.0)
         nmsim_exe = tmp_path / "nmsim.exe"
         nmsim_exe.write_text("stub")
 
@@ -126,7 +122,6 @@ class TestActiveSpaceGeneratorSetDem:
             NMSIM=str(nmsim_exe),
             study_area=study_area,
             root_dir=str(site_dir),
-            dem_src=str(source_dem),
             ambience=pd.Series({"1000": 40.0}),
         )
 

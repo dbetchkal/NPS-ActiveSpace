@@ -12,7 +12,6 @@ import numpy as np
 import pandas as pd
 import rasterio
 import os
-from osgeo import gdal
 from scipy import interpolate
 from scipy.spatial import KDTree
 from shapely.geometry import Point
@@ -44,7 +43,6 @@ __all__ = [
     'interpolate_spline',
     'NMSIM_bbox_utm',
     'normalize_point_density',
-    'project_raster',
     'round_points'
 ]
 
@@ -342,22 +340,6 @@ def create_overlapping_mesh(area: gpd.GeoDataFrame, spacing: int = 1,
     return mesh.to_crs(area.crs), mesh_points.to_crs(area.crs)
 
 
-def project_raster(input_raster: str, output_raster: str, crs: str) -> None:
-    """
-    Project a raster to a new crs
-
-    Parameters
-    ----------
-    input_raster : str
-        Absolute path to the raster to project.
-    output_raster : str
-        Absolute path to where the projected raster should be written.
-    crs : crs
-        The CRS to project the input raster to. Of the format: 'epsg:XXXX...'
-    """
-    gdal.Warp(output_raster, input_raster, dstSRS=crs)
-
-
 def ambience_from_raster(ambience_src: str, mic: 'Microphone') -> float:
     """
     Select the ambience level from a broadband raster at a specific microphone location.
@@ -383,7 +365,13 @@ def ambience_from_raster(ambience_src: str, mic: 'Microphone') -> float:
 
 
 def _ensure_ambience_logger() -> None:
-    """Attach a console handler so ambience messages show during tqdm NVSPL reads."""
+    """Attach a console handler so ambience messages show during tqdm NVSPL reads.
+
+    NVSPL loading runs under tqdm progress bars; child loggers do not reach the root
+    handler by default. We attach one handler to this module logger once and set
+    ``propagate=False`` so INFO timing lines render on the tqdm stream without
+    duplicating messages from the application root logger.
+    """
     if logger.handlers:
         return
     from nps_active_space.utils.helpers import _TqdmStream

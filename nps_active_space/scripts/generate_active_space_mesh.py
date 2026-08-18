@@ -50,8 +50,7 @@ if __name__ == '__main__':
         NMSIM=cfg.read('project', 'nmsim'),
         root_dir=project_dir,
         study_area=study_area,
-        ambience_src=ambience,
-        dem_src=cfg.read('data', 'dem'),
+        ambience=ambience,
     )
 
     logger.info(f"Generating active space mesh for: {args.name}...\n")
