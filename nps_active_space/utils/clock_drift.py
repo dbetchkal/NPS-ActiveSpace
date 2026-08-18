@@ -47,6 +47,8 @@ def _format_missing_time_ranges(missing_times: pd.DatetimeIndex, max_ranges: int
 
 
 SECONDS_PER_DAY = 86_400
+# Inferred from DENATRLA correlation-fit CSVs: ~-9 sec/day drift rate; ~-5 s at season
+# open (2024-2026); ~-8 s immediately after maintenance visits.
 DEFAULT_DRIFT_SEC_PER_DAY = -9.0
 DEFAULT_SEASON_START_DRIFT_SEC = -5.0
 DEFAULT_POST_RESET_DRIFT_SEC = -8.0

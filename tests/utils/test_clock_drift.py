@@ -10,9 +10,6 @@ import pytest
 from shapely.geometry import Point
 
 from nps_active_space.utils.clock_drift import (
-    DEFAULT_DRIFT_SEC_PER_DAY,
-    DEFAULT_POST_RESET_DRIFT_SEC,
-    DEFAULT_SEASON_START_DRIFT_SEC,
     _format_missing_time_ranges,
     build_constant_drift_csv,
     correct_clock_drift,
@@ -83,6 +80,7 @@ class TestBuildConstantDriftCsv:
             rtol=1e-3,
             atol=0.05,
         )
+
 
 class TestInferCorrectionPeriod:
     def test_uses_nvspl_bounds_and_encompasses_tracks(self):

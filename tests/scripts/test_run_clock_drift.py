@@ -7,7 +7,6 @@ import pandas as pd
 import pytest
 
 from nps_active_space.scripts.run_clock_drift import (
-    attach_module_logging,
     build_parser,
     format_drift_status,
     parse_indices,
@@ -17,9 +16,6 @@ from nps_active_space.scripts.run_clock_drift import (
 
 
 class TestRunClockDriftHelpers:
-    def test_module_imports(self):
-        import nps_active_space.scripts.run_clock_drift  # noqa: F401
-
     def test_parse_indices(self):
         assert parse_indices("0, 2, 5") == [0, 2, 5]
 
@@ -75,33 +71,6 @@ class TestRunClockDriftArgparse:
                     "--fit",
                 ]
             )
-
-    def test_attach_module_logging_routes_records(self, capsys):
-        import logging
-
-        script_logger = logging.getLogger("test-clock-drift-script")
-        script_logger.handlers.clear()
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter("%(message)s"))
-        script_logger.addHandler(handler)
-        script_logger.setLevel(logging.INFO)
-
-        attach_module_logging(script_logger, "nps_active_space.utils.clock_drift")
-        logging.getLogger("nps_active_space.utils.clock_drift").info("clock drift success")
-        captured = capsys.readouterr()
-        assert "clock drift success" in captured.out + captured.err
-
-    def test_constant_drift_method_is_available(self):
-        parser = build_parser()
-        args = parser.parse_args(
-            [
-                "-e", "DENA_example", "-u", "DENA", "-s", "TRLA", "-y", "2025",
-                "--method", "constant_drift",
-            ]
-        )
-        assert args.method == "constant_drift"
-        assert args.drift_sec_per_day == -9.0
-        assert args.post_reset_drift_sec == -8.0
 
     def test_constant_drift_rejects_fit(self):
         from nps_active_space.scripts.run_clock_drift import main

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from argparse import ArgumentParser
 
 import iyore
@@ -18,21 +17,12 @@ from nps_active_space.utils.clock_drift import (
     ClockDriftFixer,
     default_clock_drift_file_path,
     infer_correction_period,
+    logger as clock_drift_logger,
     write_constant_drift_csv,
 )
 from nps_active_space.utils.enums import TrackSource
 from nps_active_space.utils.helpers import get_deployment, get_logger, load_studyarea
 from nps_active_space.utils.models import Nvspl
-
-CLOCK_DRIFT_MODULE_LOGGER = "nps_active_space.utils.clock_drift"
-
-
-def attach_module_logging(script_logger: logging.Logger, module_name: str) -> None:
-    """Route a library module's log records to the script logger's console handlers."""
-    module_logger = logging.getLogger(module_name)
-    module_logger.handlers = script_logger.handlers
-    module_logger.setLevel(script_logger.level)
-    module_logger.propagate = False
 
 
 def parse_indices(indices_str: str) -> list[int]:
@@ -231,8 +221,7 @@ def main(argv: list[str] | None = None) -> None:
             parser.error("--fit and --indices are only used with --method correlation")
 
     cfg.initialize(environment=args.environment)
-    logger = get_logger("CLOCK-DRIFT")
-    attach_module_logging(logger, CLOCK_DRIFT_MODULE_LOGGER)
+    logger = get_logger(clock_drift_logger.name)
 
     project_dir = cfg.read("project", "dir")
     site_dir = f"{project_dir}/{args.unit}{args.site}"
