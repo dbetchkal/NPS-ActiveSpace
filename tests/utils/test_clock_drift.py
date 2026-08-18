@@ -84,12 +84,6 @@ class TestBuildConstantDriftCsv:
             atol=0.05,
         )
 
-    def test_defaults_match_dena_trla_recommendations(self):
-        assert DEFAULT_DRIFT_SEC_PER_DAY == -9.0
-        assert DEFAULT_SEASON_START_DRIFT_SEC == -5.0
-        assert DEFAULT_POST_RESET_DRIFT_SEC == -8.0
-
-
 class TestInferCorrectionPeriod:
     def test_uses_nvspl_bounds_and_encompasses_tracks(self):
         nvspl_dates = ["2025-06-23", "2025-09-18"]

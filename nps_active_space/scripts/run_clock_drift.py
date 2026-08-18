@@ -307,7 +307,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if loaded.faa_path is None or loaded.faa_corrections_path is None:
         raise ValueError(
-            f"FAA paths are required for clock drift with track source {args.track_source}"
+            f"Supplementary FAA data are required for clock drift with track source {args.track_source}. "
+            "Include FAA releasable aircraft DB and type corrections file paths in config."
         )
 
     fixer = ClockDriftFixer(
