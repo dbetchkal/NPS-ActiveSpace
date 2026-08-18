@@ -543,8 +543,12 @@ class ActiveSpaceGenerator:
             # and stored centibels not decibels to avoid writing the decimal point. So, convert back.
             # Also add back in Zpos field, which we didn't store since it is constant within the file.
             nmsim_df_all = pd.read_csv(csv_filename).fillna(-999).astype("float64")
-            sound_cols = [c for c in nmsim_df_all.columns if c == "A" or str(c).isdigit()]
-            nmsim_df_all[sound_cols] /= 10
+            if not nmsim_df_all.empty:
+                sound_cols = [
+                    col for col in nmsim_df_all.columns
+                    if col not in {"Xpos", "Ypos", "Zpos"}
+                ]
+                nmsim_df_all[sound_cols] /= 10
             nmsim_df_all["Zpos"] = altitude_m
             
             # build two multi-indices to quickly determine which points we've run before
