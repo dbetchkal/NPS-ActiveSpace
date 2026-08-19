@@ -27,3 +27,6 @@ nps_active_space/config/*
 # Generated Index
 example_data/ADS-B/healy_repeater/index.txt
 example_data/faa/MASTER_index.json
+
+# Clock drift QC plots (written by run_clock_drift.py)
+**/clock_drift_qc/

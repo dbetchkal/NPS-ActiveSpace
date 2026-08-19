@@ -133,6 +133,15 @@ class Nvspl(pd.DataFrame):
 
     octave_regex = re.compile(r"^H[0-9]+$|^H[0-9]+p[0-9]$")
 
+    # Renamed octave bands plus broadband and weather columns loaded from NVSPL files.
+    _NUMERIC_COLS = frozenset({
+        '12.5', '15.8', '20', '25', '31.5', '40', '50', '63', '80', '100',
+        '125', '160', '200', '250', '315', '400', '500', '630', '800', '1000',
+        '1250', '1600', '2000', '2500', '3150', '4000', '5000', '6300', '8000',
+        '10000', '12500', '16000', '20000', 'dbA', 'dbC', 'dbF',
+        'Voltage', 'WindSpeed', 'WindDir', 'TempIns', 'TempOut', 'Humidity',
+    })
+
     def __init__(self, filepaths_or_data: Union[List[str], str, pd.DataFrame]):
         if isinstance(filepaths_or_data, list) and len(filepaths_or_data) == 0:
             raise ValueError("No NVSPL files found")
@@ -161,31 +170,12 @@ class Nvspl(pd.DataFrame):
             'p', '.') for column in df.columns if re.match(r"H\d+p?\d*", column) is not None}
         df.rename(columns=renamedColumns, inplace=True)
 
-        # Coerce numeric columns to floats, in case of "-Infinity" values
-        try:
-            numericCols = [
-                '12.5', '15.8', '20', '25', '31.5', '40', '50', '63', '80', '100',
-                '125', '160', '200', '250', '315', '400', '500', '630', '800', '1000',
-                '1250', '1600', '2000', '2500', '3150', '4000', '5000', '6300', '8000',
-                '10000', '12500', '16000', '20000', 'dbA', 'dbC', 'dbF',
-                'Voltage', 'WindSpeed', 'WindDir', 'TempIns', 'TempOut', 'Humidity'
-            ]
-            presentNumericCols = df.columns.intersection(numericCols)
-            if len(presentNumericCols) > 0:
-                df[presentNumericCols].astype(
-                    'float32', copy=False, errors='ignore')
-
-        except KeyError:
-            pass
-
-        self._validate(df, False)
+        self._validate(df.columns, False)
         return df
 
     def _read(self, filepaths_or_data: Union[List[str], str, pd.DataFrame, GeneratorType]):
         """
         Read in and validate the NVSPL data.
-
-        # TODO: for speed and memory improvements, use usecols, define datatypes, and drop empty columns.
 
         Parameters
         ----------
@@ -222,6 +212,7 @@ class Nvspl(pd.DataFrame):
                     filepaths_or_data), unit="NVSPL files"))
 
             data = pd.concat(parts)
+            data = self._finalize_concatenated_files(data)
 
         octave_columns = {c: c.replace('H', '').replace(
             'p', '.') for c in filter(self.octave_regex.match, data.columns)}
@@ -231,6 +222,26 @@ class Nvspl(pd.DataFrame):
         # this avoids a `KeyError` when selecting using position report timestamps later on
         data.sort_index(inplace=True)
 
+        return data
+
+    def _finalize_concatenated_files(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Trim unused columns and downcast numeric SPL/weather data after hourly files are combined.
+
+        Empty metadata columns (all NaN across files) are dropped to save memory. Numeric columns
+        are stored as float32; object-dtyped values (e.g. "-Infinity" strings) are coerced first.
+        """
+        data = data.dropna(axis=1, how='all')
+
+        numeric_cols = list(data.columns.intersection(self._NUMERIC_COLS))
+        if not numeric_cols:
+            return data
+
+        object_cols = [col for col in numeric_cols if data[col].dtype == object]
+        if object_cols:
+            data[object_cols] = data[object_cols].apply(pd.to_numeric, errors='coerce')
+
+        data[numeric_cols] = data[numeric_cols].astype('float32')
         return data
 
     def _validate(self, columns: List[str], verifyNonStandardOctave):

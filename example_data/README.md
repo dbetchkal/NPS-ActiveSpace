@@ -34,7 +34,8 @@ Paths in the example configs should parse on Mac/Linux or Windows. However, the 
 | Path | Size (approx) | Notes |
 |------|---------------|-------|
 | `nvspl_archive/2025 DENATRLA Triple Lakes/01 DATA/NVSPL/` | 23 MB | 24 hourly `NVSPL_DENATRLA_2025_06_23_*.txt` |
-| `site_projects/DENATRLA/` | 1.7 MB | `elevation_m_nad83_utm6.tif`, study area, `DENATRLA2025.sit` |
+| `site_projects/DENATRLA/` | 1.7 MB | `elevation_m_nad83_utm6.tif`, study area, `DENATRLA2025.sit`, clock drift CSVs |
+| `site_projects/DENATRLA/DENATRLA*_clock_drift_ADSB.csv` | ~16 KB total | Pre-fit drift corrections for 2023–2026 (2025 used by `DENA_example`; 2026 used in tests) |
 | `ADS-B/healy_repeater/20250623.TSV` | 4.4 MB | Shared with `test_adsb.py` — same calendar day as NVSPL |
 | `faa/MASTER_DENATRLA_20250623_sample.txt` | 6 KB | 27 FAA registry rows for ICAOs on 2025-06-23 in study area (2 ICAOs not in US registry) |
 
@@ -49,10 +50,19 @@ Paths in the example configs should parse on Mac/Linux or Windows. However, the 
 | `GLBALSTL_ship_visits.csv` | GLBALSTL | Nearest AIS points at CPA for timing checks | `tests/utils/ais/test_alignment.py` |
 | `nvspl_archive/.../NVSPL_GLBALSTL_2024_05_24_*.txt` | GLBALSTL | Hourly SPL for 2024-05-24 | `tests/utils/ais/test_alignment.py` |
 | `nvspl_archive/.../NVSPL_DENATRLA_2025_06_23_*.txt` | DENATRLA | Hourly SPL for 2025-06-23 | Offline dev (`DENA_example.config`) |
+| `site_projects/DENATRLA/DENATRLA2025_clock_drift_ADSB.csv` | DENATRLA | Clock drift correction for example ground truthing | Offline dev (`DENA_example.config`) |
+| `site_projects/DENATRLA/DENATRLA2026_clock_drift_ADSB.csv` | DENATRLA | Clock drift shape for `constant_drift` regression | `tests/utils/test_clock_drift.py` |
 
 ## Local ground truthing (from repo root)
 
 Running the ground truthing script is a great way to view vessel/flight tracks alongside NVSPL data. The following commands should work out of the box after setting up the project virtual environment.
+
+**ADSB clock drift (run before ground truthing):** For ADSB deployments, estimate and fit clock drift first so `run_ground_truthing.py` can auto-apply the correction CSV. Pre-fit CSVs for DENATRLA 2023–2026 are bundled under `site_projects/DENATRLA/`; QC plots go to `clock_drift_qc/` (gitignored).
+
+```bash
+python -m nps_active_space.scripts.run_clock_drift \
+  -e DENA_example -u DENA -s TRLA -y 2025 -t ADSB --no-show
+```
 
 **GLBALSTL (AIS):** `-e GLBA_example`
 
@@ -75,13 +85,13 @@ To rebuild `faa/MASTER_DENATRLA_20250623_sample.txt` after changing the example 
 **GLBALSTL (AIS):** `-e GLBA_example`
 
 ```bash
-python -m nps_active_space.scripts.viz GLBALSTL2024 -e GLBA_example \
-  --track-source AIS --start-date 2024-05-24 --end-date 2024-05-24 -m 100
+python -m nps_active_space.scripts.viz -e GLBA_example -u GLBA -s LSTL -y 2024 \
+  -t AIS --start-date 2024-05-24 --end-date 2024-05-24 -m 100
 ```
 
 **DENATRLA (ADS-B):** `-e DENA_example`
 
 ```bash
-python -m nps_active_space.scripts.viz DENATRLA2025 -e DENA_example \
-  --track-source ADSB --start-date 2025-06-23 --end-date 2025-06-23 -m 100
+python -m nps_active_space.scripts.viz -e DENA_example -u DENA -s TRLA -y 2025 \
+  -t ADSB --start-date 2025-06-23 --end-date 2025-06-23 -m 100
 ```

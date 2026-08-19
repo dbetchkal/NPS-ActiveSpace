@@ -21,13 +21,13 @@ _config = None
 # so that validate() can check whether those paths exist on disk.
 EXPECTED_SCHEMA = {
     'database:overflights': ['name', 'username', 'password', 'port', 'host'],
-    'data': ['site_metadata', 'nvspl_archive', 'adsb', 'ais', 'dem', 'mennitt'],
+    'data': ['nvspl_archive', 'adsb', 'ais', 'dem', 'dem_elevation_units', 'mennitt'],
     'project': ['dir', 'nmsim', 'faa_releasable_db', 'faa_type_corrections'],
 }
 
 # Keys whose non-empty values should point to an existing file or directory.
 _PATH_KEYS = {
-    'data': {'site_metadata', 'nvspl_archive', 'adsb', 'ais', 'dem', 'mennitt'},
+    'data': {'nvspl_archive', 'adsb', 'ais', 'dem', 'mennitt'},
     'project': {'dir', 'nmsim', 'faa_releasable_db', 'faa_type_corrections'},
 }
 
@@ -38,7 +38,7 @@ _REQUIRED_VALUES = {
 }
 
 
-def initialize(environment: str):
+def initialize(environment: str, *, validate_config: bool = True):
     """
     Initialize a connection to a configuration file.
 
@@ -46,6 +46,19 @@ def initialize(environment: str):
     ----------
     environment : str
         The name of the environment of the configuration file to read.
+    validate_config : bool, default True
+        When True, run :func:`validate` after loading and raise if errors are found.
+
+    Notes
+    -----
+    Relative path values in the config are checked against the current working
+    directory. Run scripts from the repo root when using relative paths such as
+    ``example_data/...`` (see the bundled ``*_example.config`` files).
+
+    Raises
+    ------
+    ValueError
+        If ``validate_config`` is True and validation reports one or more errors.
 
     Example
     -------
@@ -58,6 +71,14 @@ def initialize(environment: str):
     config_file = os.path.join(ACTIVE_SPACE_DIR, "config", f"{environment}.config")
     _config = ConfigParser()
     _config.read(config_file)
+
+    if validate_config:
+        errors = validate(verbose=True)
+        if errors:
+            raise ValueError(
+                f"Configuration validation failed with {len(errors)} error(s): "
+                f"{errors[0]}"
+            )
 
 
 def read(section: str, option: Optional[str] = None) -> Union[Dict, Any]:
@@ -182,6 +203,25 @@ def _check_section_keys(
     return errors
 
 
+def _check_dem_elevation_units(config: ConfigParser) -> List[str]:
+    """Validate non-empty ``dem_elevation_units`` in ``[data]``."""
+    errors: List[str] = []
+    if not config.has_section("data"):
+        return errors
+    if not config.has_option("data", "dem_elevation_units"):
+        return errors
+    raw = config.get("data", "dem_elevation_units").strip()
+    if not raw:
+        return errors
+    try:
+        SourceElevationUnits.parse_config_value(raw)
+    except ValueError:
+        errors.append(
+            f"[data] dem_elevation_units must be 'feet' or 'meters', got '{raw}'"
+        )
+    return errors
+
+
 def validate(verbose: bool = True) -> List[str]:
     """
     Validate the currently loaded configuration.
@@ -193,6 +233,12 @@ def validate(verbose: bool = True) -> List[str]:
     4. Required values (like ``[project] dir``) are non-empty.
     5. Non-empty path values point to an existing file or directory.
     6. Unknown sections or keys are flagged (catches typos).
+    7. Non-empty ``dem_elevation_units`` values are ``feet`` or ``meters``.
+
+    Notes
+    -----
+    Non-absolute path values are resolved with :func:`os.path.exists` relative
+    to the current working directory, not the config file location.
 
     Parameters
     ----------
@@ -238,6 +284,8 @@ def validate(verbose: bool = True) -> List[str]:
             _PATH_KEYS.get(section, set()),
             _REQUIRED_VALUES.get(section, set()),
         ))
+
+    errors.extend(_check_dem_elevation_units(_config))
 
     if verbose:
         for msg in errors:
