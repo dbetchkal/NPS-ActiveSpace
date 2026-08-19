@@ -10,6 +10,7 @@ import pandas as pd
 import pyproj
 import pyvista as pv
 import rasterio
+from vtkmodules.vtkCommonCore import vtkObject
 from shapely.geometry import LineString, Polygon, box
 from tqdm import tqdm
 
@@ -114,7 +115,12 @@ class Visualizer:
         self.setup_orientation_widgets()
         self.plotter.reset_camera()
         self.plotter.camera.elevation = 30
-        self.plotter.show()
+        # Harmless VTK camera reset spam when rotating past vertical.
+        vtkObject.GlobalWarningDisplayOff()
+        try:
+            self.plotter.show()
+        finally:
+            vtkObject.GlobalWarningDisplayOn()
 
     def _status(self, message: str) -> None:
         """Log a user-facing status line to the console (via get_logger StreamHandler)."""
