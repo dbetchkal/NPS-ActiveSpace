@@ -34,6 +34,17 @@ class TestCollapseAudibleRanges:
         ranges = [[t0, t0 + dt.timedelta(minutes=3)]]
         assert collapse_audible_ranges(ranges) == ranges
 
+    def test_empty_input(self):
+        assert collapse_audible_ranges([]) == []
+
+    def test_adjacent_ranges_stay_separate(self):
+        t0 = dt.datetime(2020, 1, 1, 12, 0, 0)
+        ranges = [
+            [t0, t0 + dt.timedelta(minutes=3)],
+            [t0 + dt.timedelta(minutes=3), t0 + dt.timedelta(minutes=6)],
+        ]
+        assert collapse_audible_ranges(ranges) == [[t0, t0 + dt.timedelta(minutes=6)]]
+
 
 class TestBuildAnnotationSegments:
     def test_all_inaudible_when_no_ranges(self):
@@ -146,6 +157,14 @@ class TestBuildAnnotationSegments:
             }
         )
         assert_frame_equal(actual, expected, check_dtype=False)
+
+    def test_default_audible_ranges_not_shared_across_calls(self):
+        """Calling without audible_ranges should never leak state between calls."""
+        points = make_track_points(3)
+        build_annotation_segments("T1", points)
+        result = build_annotation_segments("T2", points)
+        assert len(result) == 1
+        assert result.audible.iat[0] is False
 
     def test_note_propagates_to_segments(self):
         points = make_track_points(6)
