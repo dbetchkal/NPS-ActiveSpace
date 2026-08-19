@@ -10,9 +10,11 @@ import threading
 import glob
 import shlex
 import shutil
+from pathlib import Path
+from typing import IO
 
 
-def stream_and_capture(stream, buffer, target):
+def stream_and_capture(stream: IO[bytes], buffer: list[bytes], target: IO[bytes]) -> None:
     """
     Utility function for capturing stdout or stderr, and then forwarding it to the console.
 
@@ -32,7 +34,7 @@ def stream_and_capture(stream, buffer, target):
     stream.close()
 
 
-def run_deployment(designator, cmd):
+def run_deployment(designator: str, cmd: list[str]) -> pd.Series | None:
     """
     Runs generate active space, and parses the printed output to extract results we want.
 
@@ -40,8 +42,8 @@ def run_deployment(designator, cmd):
     ----------
     designator: str
         Unique designator identifying this run. Included in the returned series.
-    cmd: str
-        Command line command to run, e.g. "python -u -W ignore nps_active_space/scripts/generate_active_space.py -e DENA_streamline ..."
+    cmd: list
+        Command line command to run as a list, e.g. [sys.executable, "-u", "-W", "ignore", "...", "-e", "DENA_streamline", ...]
 
     Returns
     -------
@@ -59,8 +61,7 @@ def run_deployment(designator, cmd):
 
     # Run the command
     process = subprocess.Popen(
-        # split cmd into a list, taking care that spaces inside quotes aren't split
-        shlex.split(cmd),
+        cmd,
         # capture printed output instead of printing to console
         stdout=subprocess.PIPE,
         # capture stderr output (e.g. tqdm) instead of printing to console
@@ -231,6 +232,11 @@ if __name__ == "__main__":
                                         "whitespace, then followed by the options for the generate_active_space.py script."
                                         "An example line is this: DENATRLA2025  -e DENA_streamline -u DENA -s TRLA -y 2025 --cleanup")
     argparse.add_argument("-o", "--output", help="Path to output .csv file")
+    argparse.add_argument(
+        "--force",
+        action="store_true",
+        help="Rerun all commands even if their designator is already in the output CSV.",
+    )
     # argparse.add_argument("-s", "--savedir", help="Parent directory to copy the output files to. Output files are the active spaces,"
     #                                               "the annotations used, and the precision-recall plot. A subdirectory named with"
     #                                               "the designator will contain the files.")
@@ -261,13 +267,17 @@ if __name__ == "__main__":
 
         # check if this run has been done already, based on if the output file has a matching designator,
         # since designators should be unique to a run
-        if not output_df.empty and designator in output_df["Designator"].values:
+        if (
+            not args.force
+            and not output_df.empty
+            and designator in output_df["Designator"].values
+        ):
             print("Done already, skipping")
             continue
 
         # assemble and run the command
-        script_path = os.path.join(ACTIVE_SPACE_DIR, "scripts", "generate_active_space.py")
-        cmd = f"python -u -W ignore '{script_path}' {options}"
+        script_path = Path(ACTIVE_SPACE_DIR) / "scripts" / "generate_active_space.py"
+        cmd = [sys.executable, "-u", "-W", "ignore", str(script_path)] + shlex.split(options)
         result_series = run_deployment(designator, cmd)
         # if it ran with no errors, save the results
         if result_series is not None:

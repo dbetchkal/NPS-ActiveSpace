@@ -71,7 +71,13 @@ class LayeredActiveSpace():
             self.all_activespaces[gain] = self.load_activespaces(gain)
 
     def set_gain(self, gain: float) -> None:
-        self.activespaces = self.load_activespaces(gain)
+        activespaces = self.load_activespaces(gain)
+        if activespaces is None:
+            raise FileNotFoundError(
+                f"Could not load active space layers for gain {gain}dB in {self.designator}. "
+                f"Check Output_Data/ACTIVESPACES/{self.designator}_*m/ for matching *_O_*.geojson files."
+            )
+        self.activespaces = activespaces
         self.gain = gain
 
     def fit(self, annotations: gpd.GeoDataFrame, beta: float = 1., plot: bool = True,

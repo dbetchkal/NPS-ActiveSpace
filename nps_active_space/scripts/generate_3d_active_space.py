@@ -3,6 +3,7 @@ import subprocess
 import iyore
 import os
 import shlex
+import sys
 import matplotlib.pyplot as plt
 from nps_active_space.utils.models import Nvspl
 from nps_active_space.utils.computation import ambience_from_nvspl
@@ -31,6 +32,9 @@ if __name__ == "__main__":
     parser.add_argument("--only-prep", action="store_true",
                           help="Stop after creating the commands file; don't run generate_active_space_batch.py. " \
                                "This is useful if you want to combine several command files into a single one to run at once, e.g. overnight.")
+    parser.add_argument("--force-rerun", action="store_true",
+                          help="Rerun all batch commands even if they appear in the batch output CSV "
+                               "(use after deleting failed or empty active space outputs).")
 
     # generate_active_space.py arguments that this script needs to know about
     parser.add_argument('-e', '--environment', required=True,
@@ -121,14 +125,19 @@ if __name__ == "__main__":
     if not args.only_prep:
         print("Running generate_active_space_batch.py on the commands file\n")
         batch_script = os.path.join(os.path.dirname(__file__), "generate_active_space_batch.py")
-        process = subprocess.Popen(
-            ["python", batch_script, cmds_file]
-        )
-        process.wait()
+        batch_cmd = [sys.executable, batch_script, cmds_file]
+        if args.force_rerun:
+            batch_cmd.append("--force")
+        process = subprocess.Popen(batch_cmd)
+        batch_rc = process.wait()
+        if batch_rc != 0:
+            raise SystemExit(f"generate_active_space_batch.py failed with exit code {batch_rc}")
 
         print("\nRunning fit_3d_active_space.py to fit the active space\n")
         fit_script = os.path.join(os.path.dirname(__file__), "fit_3d_active_space.py")
         process = subprocess.Popen(
-            ["python", fit_script, "-e", args.environment, "-u", args.unit, "-s", args.site, "-y", str(args.year)]
+            [sys.executable, fit_script, "-e", args.environment, "-u", args.unit, "-s", args.site, "-y", str(args.year)]
         )
-        process.wait()
+        fit_rc = process.wait()
+        if fit_rc != 0:
+            raise SystemExit(f"fit_3d_active_space.py failed with exit code {fit_rc}")
