@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 import nps_active_space.utils.config as cfg
-from nps_active_space.ground_truthing.load_tracks import load_tracks
+from nps_active_space.utils.load_tracks import load_tracks
 from nps_active_space.utils.clock_drift import (
     DEFAULT_DRIFT_SEC_PER_DAY,
     DEFAULT_POST_RESET_DRIFT_SEC,
