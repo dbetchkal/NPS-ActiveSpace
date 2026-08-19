@@ -13,7 +13,10 @@ from nps_active_space.active_space.active_space_generator import ActiveSpaceGene
 
 
 class TestNmsimPredictionCache:
-    def test_load_treats_empty_csv_as_missing(self, tmp_path: Path):
+    def test_load_treats_empty_csv_as_missing(self, tmp_path: Path, caplog):
+        import logging
+
+        caplog.set_level(logging.WARNING)
         csv_path = tmp_path / "600m_O_10deg.csv"
         csv_path.write_text("")
 
@@ -28,6 +31,26 @@ class TestNmsimPredictionCache:
         assert nmsim_df_all.empty
         assert nmsim_df.empty
         assert len(new_pts) == 1
+        assert "0 bytes" in caplog.text
+        assert "recomputed through NMSIM" in caplog.text
+
+    def test_load_warns_on_missing_required_columns(self, tmp_path: Path, caplog):
+        import logging
+
+        caplog.set_level(logging.WARNING)
+        csv_path = tmp_path / "600m_O_0deg.csv"
+        csv_path.write_text("Xpos,Ypos\n407202,7060771\n")
+
+        source_pts = gpd.GeoDataFrame(
+            geometry=[Point(407202.0, 7060771.0, 600.0)],
+            crs="epsg:26906",
+        )
+        ActiveSpaceGenerator.load_prev_nmsim_predictions(
+            source_pts, str(csv_path), altitude_m=600,
+        )
+
+        assert "missing required columns" in caplog.text
+        assert "'A'" in caplog.text
 
     def test_save_skips_empty_dataframe(self, tmp_path: Path):
         csv_path = tmp_path / "cache.csv"

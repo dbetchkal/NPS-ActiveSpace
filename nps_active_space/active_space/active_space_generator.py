@@ -400,16 +400,36 @@ class ActiveSpaceGenerator:
         return source_pts.iloc[aboveground_indices], source_pts.iloc[underground_indices]
 
     @staticmethod
-    def _nmsim_cache_is_readable(csv_filename: str) -> bool:
-        """Return True when ``csv_filename`` exists and contains parseable NMSIM cache rows."""
-        if not os.path.exists(csv_filename) or os.path.getsize(csv_filename) == 0:
-            return False
+    def _nmsim_cache_failure_reason(csv_filename: str) -> str | None:
+        """
+        Return why an on-disk cache cannot be used, or None if the file is readable.
+
+        Returns None when ``csv_filename`` does not exist (no cache yet) or when the
+        file contains valid NMSIM prediction rows.
+        """
+        if not os.path.exists(csv_filename):
+            return None
+        if os.path.getsize(csv_filename) == 0:
+            return "file is empty (0 bytes)"
         try:
             preview = pd.read_csv(csv_filename, nrows=1)
         except pd.errors.EmptyDataError:
-            return False
+            return "file has no parseable CSV content"
+        if preview.empty:
+            return "file has a header but no data rows"
         required = {"Xpos", "Ypos", "A"}
-        return not preview.empty and required.issubset(preview.columns)
+        missing = sorted(required - set(preview.columns))
+        if missing:
+            return f"missing required columns: {missing}"
+        return None
+
+    @staticmethod
+    def _nmsim_cache_is_readable(csv_filename: str) -> bool:
+        """Return True when ``csv_filename`` exists and contains parseable NMSIM cache rows."""
+        return (
+            os.path.exists(csv_filename)
+            and ActiveSpaceGenerator._nmsim_cache_failure_reason(csv_filename) is None
+        )
 
     @staticmethod
     def load_prev_nmsim_predictions(source_pts: gpd.GeoDataFrame, csv_filename: str, altitude_m: int
@@ -438,10 +458,13 @@ class ActiveSpaceGenerator:
             Subset of source_pts containing only the points we don't have previous results for.
         """
         if not ActiveSpaceGenerator._nmsim_cache_is_readable(csv_filename):
-            if os.path.exists(csv_filename):
+            cache_failure = ActiveSpaceGenerator._nmsim_cache_failure_reason(csv_filename)
+            if cache_failure is not None:
                 logger.warning(
-                    "Ignoring unreadable NMSIM prediction cache (empty or corrupt): %s",
+                    "Ignoring NMSIM prediction cache at %s (%s). "
+                    "Points will be recomputed through NMSIM.",
                     csv_filename,
+                    cache_failure,
                 )
             # no previous predictions, return empty dataframes
             nmsim_df_all = pd.DataFrame()
