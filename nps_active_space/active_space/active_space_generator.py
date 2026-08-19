@@ -461,11 +461,19 @@ class ActiveSpaceGenerator:
             cache_failure = ActiveSpaceGenerator._nmsim_cache_failure_reason(csv_filename)
             if cache_failure is not None:
                 logger.warning(
-                    "Ignoring NMSIM prediction cache at %s (%s). "
-                    "Points will be recomputed through NMSIM.",
+                    "Ignoring unreadable NMSIM prediction cache at %s (%s). "
+                    "Removing file; points will be recomputed and cache rewritten after NMSIM.",
                     csv_filename,
                     cache_failure,
                 )
+                try:
+                    os.remove(csv_filename)
+                except OSError as exc:
+                    logger.warning(
+                        "Could not remove unreadable NMSIM prediction cache %s: %s",
+                        csv_filename,
+                        exc,
+                    )
             # no previous predictions, return empty dataframes
             nmsim_df_all = pd.DataFrame()
             nmsim_df = pd.DataFrame()

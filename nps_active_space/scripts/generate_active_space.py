@@ -269,6 +269,7 @@ def _nonempty_active_space_count(results: list[tuple[str, gpd.GeoDataFrame]]) ->
 
 
 def _fail_active_space_generation(message: str) -> None:
+    print(message, flush=True)
     logging.getLogger(__name__).error(message)
     sys.exit(1)
 
@@ -399,7 +400,10 @@ if __name__ == '__main__':
         ambience=ambience,
     )
     logger.info('Caching project_setup elevation for NMSIM...')
-    generator_.set_dem(mic_)
+    try:
+        generator_.set_dem(mic_)
+    except FileNotFoundError as exc:
+        _fail_active_space_generation(str(exc))
 
     # Create active space for each omni source.
 

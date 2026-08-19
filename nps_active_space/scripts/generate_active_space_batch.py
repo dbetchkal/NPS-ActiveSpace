@@ -1,5 +1,4 @@
 import json
-import logging
 import nps_active_space.utils.config as cfg
 from nps_active_space import ACTIVE_SPACE_DIR
 import subprocess
@@ -14,8 +13,6 @@ import shutil
 import tempfile
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
-
 RESULT_COLUMNS = [
     "Designator",
     "Number of valid annotated segments",
@@ -27,27 +24,32 @@ RESULT_COLUMNS = [
 REQUIRED_RESULT_KEYS = [column for column in RESULT_COLUMNS if column != "Designator"]
 
 
-def read_results_file(results_path: Path, designator: str) -> pd.Series | None:
-    """Load structured run results written by generate_active_space.py."""
+def read_results_file(results_path: Path, designator: str) -> tuple[pd.Series | None, str | None]:
+    """Load structured run results written by generate_active_space.py.
+
+    Returns
+    -------
+    series, error_message
+        ``error_message`` is set when results cannot be loaded (for console display).
+    """
     try:
         with open(results_path) as results_file:
             data = json.load(results_file)
     except json.JSONDecodeError as exc:
-        logger.warning("Invalid JSON in results file %s: %s", results_path, exc)
-        return None
+        return None, f"Invalid JSON in results file {results_path}: {exc}"
 
     if not isinstance(data, dict):
-        logger.warning("Results file must contain a JSON object: %s", results_path)
-        return None
+        return None, f"Results file must contain a JSON object: {results_path}"
 
     missing_keys = [key for key in REQUIRED_RESULT_KEYS if key not in data]
     if missing_keys:
-        logger.warning("Results file is missing required keys %s: %s", missing_keys, results_path)
-        return None
+        return None, (
+            f"Results file is missing required keys {missing_keys}: {results_path}"
+        )
 
     series = pd.Series(data)
     series["Designator"] = designator
-    return series.reindex(RESULT_COLUMNS)
+    return series.reindex(RESULT_COLUMNS), None
 
 
 def run_deployment(designator: str, cmd: list[str]) -> pd.Series | None:
@@ -83,9 +85,16 @@ def run_deployment(designator: str, cmd: list[str]) -> pd.Series | None:
         if process.returncode != 0:
             return None
         if not results_path.exists():
-            logger.warning("Run succeeded but no results file was written: %s", results_path)
+            print(
+                f"Run succeeded but no results file was written: {results_path}",
+                flush=True,
+            )
             return None
-        return read_results_file(results_path, designator)
+        result_series, error_message = read_results_file(results_path, designator)
+        if error_message is not None:
+            print(error_message, flush=True)
+            return None
+        return result_series
     finally:
         if results_path.exists():
             results_path.unlink()

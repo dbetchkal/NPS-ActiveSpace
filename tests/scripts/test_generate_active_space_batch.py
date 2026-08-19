@@ -46,7 +46,8 @@ class TestReadResultsFile:
             "F1": 0.87,
         }))
 
-        series = read_results_file(results_path, "DENATRLA20253000m")
+        series, error_message = read_results_file(results_path, "DENATRLA20253000m")
+        assert error_message is None
 
         expected = pd.Series({
             "Designator": "DENATRLA20253000m",
@@ -67,13 +68,19 @@ class TestReadResultsFile:
             "1/3rd Octave Gain (F1)": 12.5,
         }))
 
-        assert read_results_file(results_path, "DENATRLA20253000m") is None
+        series, error_message = read_results_file(results_path, "DENATRLA20253000m")
+        assert series is None
+        assert error_message is not None
+        assert "missing required keys" in error_message
 
     def test_read_results_file_returns_none_on_invalid_json(self, tmp_path: Path):
         results_path = tmp_path / "results.json"
         results_path.write_text("{not valid json")
 
-        assert read_results_file(results_path, "DENATRLA20253000m") is None
+        series, error_message = read_results_file(results_path, "DENATRLA20253000m")
+        assert series is None
+        assert error_message is not None
+        assert "Invalid JSON" in error_message
 
 
 class TestRunDeployment:

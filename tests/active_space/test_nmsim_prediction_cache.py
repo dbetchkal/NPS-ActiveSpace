@@ -31,8 +31,9 @@ class TestNmsimPredictionCache:
         assert nmsim_df_all.empty
         assert nmsim_df.empty
         assert len(new_pts) == 1
+        assert not csv_path.exists()
         assert "0 bytes" in caplog.text
-        assert "recomputed through NMSIM" in caplog.text
+        assert "Removing file" in caplog.text
 
     def test_load_warns_on_missing_required_columns(self, tmp_path: Path, caplog):
         import logging
@@ -51,6 +52,7 @@ class TestNmsimPredictionCache:
 
         assert "missing required columns" in caplog.text
         assert "'A'" in caplog.text
+        assert not csv_path.exists()
 
     def test_save_skips_empty_dataframe(self, tmp_path: Path):
         csv_path = tmp_path / "cache.csv"
