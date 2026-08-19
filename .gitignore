@@ -11,7 +11,9 @@
 # pyenv
 .python-version
 
-# .egg-info
+# packaging
+build/
+dist/
 *.egg-info/
 
 # macOS files

@@ -13,7 +13,7 @@ from nps_active_space.utils.ais.reader import MxakAis
 
 
 def query_ais_mxak(
-    ais_path: Path,
+    ais_path: str | Path,
     start_date: str,
     end_date: str,
     mask: Optional[gpd.GeoDataFrame] = None,
@@ -39,6 +39,8 @@ def query_ais_mxak(
     MxakAis
         Vessel track points from the MXAK archive.
     """
+    ais_path = Path(ais_path)
+
     if mask is not None:
         if mask_buffer_distance:
             ak_albers_mask = mask.to_crs(epsg=3338)

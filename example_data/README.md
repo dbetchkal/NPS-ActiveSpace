@@ -8,7 +8,7 @@ Examples days:
 
 Paths in the example configs should parse on Mac/Linux or Windows. However, the paths are relative, so scripts need to be run from the repository root.
 
-**Clock conventions:** MXAK AIS timestamps are UTC-naive; NVSPL and ship-visit times are site-local naive (e.g. GLBALSTL ≈ `America/Juneau`).
+**Clock conventions:** MXAK AIS CSV timestamps are UTC-naive; `load_tracks` converts them to site-local naive when a deployment microphone is provided (same clock as NVSPL and ship visits). ADS-B TSV Unix epochs are decoded to naive datetimes and used on the NVSPL clock without a site timezone shift (ground-truthing convention). Legacy pre-2020 ADS-B `.txt` (`EarlyAdsb`) is already naive local. NVSPL and ship-visit times are site-local naive (e.g. GLBALSTL ≈ `America/Juneau`). GPS overflights DB times (`ak_datetime`) are already site-local.
 
 ## Layout
 
@@ -54,6 +54,7 @@ Paths in the example configs should parse on Mac/Linux or Windows. However, the 
 | `site_projects/DENATRLA/DENATRLA2026_clock_drift_ADSB.csv` | DENATRLA | Clock drift shape for `constant_drift` regression | `tests/utils/test_clock_drift.py` |
 
 ## Local ground truthing (from repo root)
+
 Running the ground truthing script is a great way to view vessel/flight tracks alongside NVSPL data. The following commands should work out of the box after setting up the project virtual environment.
 
 **ADSB clock drift (run before ground truthing):** For ADSB deployments, estimate and fit clock drift first so `run_ground_truthing.py` can auto-apply the correction CSV. Pre-fit CSVs for DENATRLA 2023–2026 are bundled under `site_projects/DENATRLA/`; QC plots go to `clock_drift_qc/` (gitignored).
@@ -78,3 +79,19 @@ python -m nps_active_space.scripts.run_ground_truthing \
 ```
 
 To rebuild `faa/MASTER_DENATRLA_20250623_sample.txt` after changing the example ADS-B day, extract rows from the full FAA `MASTER.txt` for the unique `ICAO_address` values in that day's TSV (see `FAAReleasable` in `utils/models.py`).
+
+## Local viz (from repo root)
+
+**GLBALSTL (AIS):** `-e GLBA_example`
+
+```bash
+python -m nps_active_space.scripts.viz -e GLBA_example -u GLBA -s LSTL -y 2024 \
+  -t AIS --start-date 2024-05-24 --end-date 2024-05-24 -m 100
+```
+
+**DENATRLA (ADS-B):** `-e DENA_example`
+
+```bash
+python -m nps_active_space.scripts.viz -e DENA_example -u DENA -s TRLA -y 2025 \
+  -t ADSB --start-date 2025-06-23 --end-date 2025-06-23 -m 100
+```

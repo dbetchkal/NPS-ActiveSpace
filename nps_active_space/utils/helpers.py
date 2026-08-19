@@ -75,10 +75,18 @@ def load_layered_activespace(project_dir, unit, site, year, gain=None, crs="epsg
     layer_dirs = {}
     output_dirs = glob.glob(os.path.join(prefix, f"{unit}{site}{year}_*m"))
     for dir in output_dirs:
+        if not glob.glob(os.path.join(dir, "*_O_*.geojson")):
+            continue
         altitude = int(os.path.basename(dir).split("_")[1].split("m")[0])
         layer_dirs[altitude] = dir
+    if not layer_dirs:
+        raise FileNotFoundError(
+            f"No active space layers with GeoJSON output found for {unit}{site}{year} under:\n"
+            f"  {prefix}\n"
+            f"Expected directories like {unit}{site}{year}_0m containing *_O_*.geojson files."
+        )
     study_area = load_studyarea(project_dir, unit, site, year)
-    return LayeredActiveSpace(unit+site+year, layer_dirs, study_area, gain, crs)
+    return LayeredActiveSpace(f"{unit}{site}{year}", layer_dirs, study_area, gain, crs)
 
 
 def load_activespace(project_dir, unit, site, year, gain, altitude_m=None, crs=None):
@@ -168,13 +176,11 @@ def load_DEM(project_dir: str, unit: str, site: str):
 
 
 def get_elevation(DEM, lon: float, lat: float) -> float:
-    """Read elevation at a certain lat/lon from a DEM.
-    """
+    """Read elevation at a certain lat/lon from a DEM."""
     proj = Transformer.from_crs("epsg:4326", DEM.crs, always_xy=True)
     x, y = proj.transform(lon, lat)
     row, col = DEM.index(x, y)
-    elevation = DEM.read(1)[row, col]
-    return elevation
+    return float(DEM.read(1, window=((row, row + 1), (col, col + 1)))[0, 0])
 
 
 def load_studyarea(project_dir: str, unit: str, site: str, year: int, crs: str = None):
