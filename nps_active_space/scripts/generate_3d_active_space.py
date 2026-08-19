@@ -3,10 +3,9 @@ import subprocess
 import os
 import shlex
 import matplotlib.pyplot as plt
-import pandas as pd
 from nps_active_space.utils.computation import (
     compute_ambience_from_nvspl_archive,
-    is_usable_spectral_ambience,
+    load_spectral_ambience_pickle,
 )
 import nps_active_space.utils.config as cfg
 
@@ -68,12 +67,13 @@ if __name__ == "__main__":
         ambience_pkl_path = os.path.join(ambience_dir, f"{usy}_ambience.pkl")
         ambience_plot_path = os.path.join(ambience_dir, f"{usy}_ambience_plot.png")
 
-        if os.path.exists(ambience_pkl_path) and is_usable_spectral_ambience(pd.read_pickle(ambience_pkl_path)):
+        cached_ambience = load_spectral_ambience_pickle(ambience_pkl_path)
+        if cached_ambience is not None:
             print(f"Found existing NVSPL ambience, using it: {ambience_pkl_path}")
         else:
             if os.path.exists(ambience_pkl_path):
                 print(
-                    f"Existing ambience pickle is missing or all NaN; recomputing: {ambience_pkl_path}"
+                    f"Existing ambience pickle has no usable spectral bands; recomputing: {ambience_pkl_path}"
                 )
             else:
                 print("Computing NVSPL ambience")

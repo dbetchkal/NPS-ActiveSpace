@@ -4,6 +4,7 @@ import datetime as dt
 import logging
 import math
 import time
+from pathlib import Path
 from typing import Iterable, TYPE_CHECKING
 
 import geopandas as gpd
@@ -30,6 +31,7 @@ __all__ = [
     'compute_ambience_from_nvspl_archive',
     'compute_ambience_from_nvspl_files',
     'is_usable_spectral_ambience',
+    'load_spectral_ambience_pickle',
     'audible_time_delay',
     'barometric_pressure',
     'build_src_point_mesh',
@@ -500,10 +502,29 @@ def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50,
 
 def is_usable_spectral_ambience(ambience: pd.Series) -> bool:
     """Return True when spectral ambience has at least one finite band in the audibility range."""
-    try:
-        return ambience.loc["20":"12500"].notna().any()
-    except KeyError:
-        return False
+    for label, value in ambience.items():
+        try:
+            band_hz = float(label)
+        except (TypeError, ValueError):
+            continue
+        if 12.5 <= band_hz <= 20000 and pd.notna(value):
+            return True
+    return False
+
+
+def load_spectral_ambience_pickle(path: str | Path) -> pd.Series | None:
+    """
+    Load spectral ambience from a pickle when the file exists and bands are usable.
+
+    Returns None when ``path`` is missing or the Series has no finite audibility bands.
+    """
+    pickle_path = Path(path)
+    if not pickle_path.is_file():
+        return None
+    ambience = pd.read_pickle(pickle_path)
+    if not is_usable_spectral_ambience(ambience):
+        return None
+    return ambience
 
 
 def compute_fbeta(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame,

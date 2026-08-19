@@ -6,7 +6,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nps_active_space.utils.computation import ambience_from_nvspl, is_usable_spectral_ambience
+from nps_active_space.utils.computation import (
+    ambience_from_nvspl,
+    is_usable_spectral_ambience,
+    load_spectral_ambience_pickle,
+)
 
 
 def _make_nvspl_df(n_rows: int = 100, wind_speed: float = 0.0) -> pd.DataFrame:
@@ -53,3 +57,21 @@ class TestAmbienceFromNvspl:
     def test_is_usable_spectral_ambience_rejects_all_nan(self):
         ambience = pd.Series({"20": np.nan, "1000": np.nan, "12500": np.nan})
         assert not is_usable_spectral_ambience(ambience)
+
+
+class TestLoadSpectralAmbiencePickle:
+    def test_returns_series_when_usable(self, tmp_path):
+        pickle_path = tmp_path / "ambience.pkl"
+        pd.Series({"12.5": 30.0, "1000": 25.0}).to_pickle(pickle_path)
+
+        ambience = load_spectral_ambience_pickle(pickle_path)
+        assert ambience is not None
+        assert ambience.loc["1000"] == 25.0
+
+    def test_returns_none_when_missing(self, tmp_path):
+        assert load_spectral_ambience_pickle(tmp_path / "missing.pkl") is None
+
+    def test_returns_none_when_all_nan(self, tmp_path):
+        pickle_path = tmp_path / "bad.pkl"
+        pd.Series({"20": np.nan, "1000": np.nan}).to_pickle(pickle_path)
+        assert load_spectral_ambience_pickle(pickle_path) is None

@@ -26,6 +26,7 @@ from nps_active_space.utils.computation import (
     compute_ambience_from_nvspl_archive,
     ambience_from_raster,
     normalize_point_density,
+    load_spectral_ambience_pickle,
 )
 from nps_active_space.active_space import ActiveSpaceGenerator
 
@@ -307,7 +308,10 @@ if __name__ == '__main__':
     )
     args = argparse.parse_args()
 
-    ambience_valid = (args.ambience == "nvspl") or (args.ambience == "mennitt") or (args.ambience.endswith(".pkl") and os.path.exists(args.ambience))
+    ambience_valid = (
+        args.ambience in {"nvspl", "mennitt"}
+        or args.ambience.endswith(".pkl")
+    )
     assert ambience_valid, "Ambience argument must be 'nvspl', 'mennitt', or a .pkl file"
 
     # --------------- INIT --------------- #
@@ -339,8 +343,11 @@ if __name__ == '__main__':
     elif args.ambience == 'mennitt':
         ambience = ambience_from_raster(cfg.read('data', 'mennitt'), mic_)
     else:
-        # should be a .pkl filename
-        ambience = pd.read_pickle(args.ambience)
+        ambience = load_spectral_ambience_pickle(args.ambience)
+        if ambience is None:
+            _fail_active_space_generation(
+                f"Ambience pickle is missing or has no usable spectral bands: {args.ambience}"
+            )
         print(f"Read ambience from {args.ambience}")
 
     # --------------- ANNOTATION LOGIC --------------- #
