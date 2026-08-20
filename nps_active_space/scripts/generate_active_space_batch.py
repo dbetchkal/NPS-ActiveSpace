@@ -54,7 +54,7 @@ def read_results_file(results_path: Path, designator: str) -> tuple[pd.Series | 
 
 def run_deployment(designator: str, cmd: list[str]) -> pd.Series | None:
     """
-    Runs generate_active_space.py and reads structured results from a JSON sidecar file.
+    Runs generate_active_space.py and reads structured results from a JSON output file.
 
     Parameters
     ----------

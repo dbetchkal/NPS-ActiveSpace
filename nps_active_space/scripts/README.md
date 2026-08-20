@@ -96,7 +96,7 @@ check_study_duration_robustness.py
 
 If you want to generate many active spaces at the same time, you can leverage the batch script to do so. This is useful for running it overnight or while you do other work.
 
-The batch runner collects per-run metrics from a JSON sidecar written by `generate_active_space.py` (`--results-out`), then appends a row to the output CSV. Failed runs are skipped (no CSV row).
+The batch runner collects per-run metrics from a JSON output written by `generate_active_space.py` (`--results-out`), then appends a row to the output CSV. Failed runs are skipped (no CSV row).
 
 ### Batch 3D Active Space
 
