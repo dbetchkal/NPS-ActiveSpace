@@ -1,7 +1,8 @@
 import argparse
-import subprocess
 import os
 import shlex
+import subprocess
+import sys
 import matplotlib.pyplot as plt
 from nps_active_space.utils.computation import (
     compute_ambience_from_nvspl_archive,
@@ -133,14 +134,34 @@ if __name__ == "__main__":
     if not args.only_prep:
         print("Running generate_active_space_batch.py on the commands file\n")
         batch_script = os.path.join(os.path.dirname(__file__), "generate_active_space_batch.py")
-        process = subprocess.Popen(
-            ["python", batch_script, cmds_file]
+        batch_process = subprocess.run(
+            [sys.executable, batch_script, cmds_file],
+            check=False,
         )
-        process.wait()
+        if batch_process.returncode != 0:
+            print(
+                f"generate_active_space_batch.py exited with code {batch_process.returncode}. "
+                "Skipping fit_3d_active_space.py. Fix batch errors above and rerun, "
+                "or run the batch script directly on the commands file.",
+                flush=True,
+            )
+            sys.exit(batch_process.returncode)
 
         print("\nRunning fit_3d_active_space.py to fit the active space\n")
         fit_script = os.path.join(os.path.dirname(__file__), "fit_3d_active_space.py")
-        process = subprocess.Popen(
-            ["python", fit_script, "-e", args.environment, "-u", args.unit, "-s", args.site, "-y", str(args.year)]
+        fit_process = subprocess.run(
+            [
+                sys.executable,
+                fit_script,
+                "-e",
+                args.environment,
+                "-u",
+                args.unit,
+                "-s",
+                args.site,
+                "-y",
+                str(args.year),
+            ],
+            check=False,
         )
-        process.wait()
+        sys.exit(fit_process.returncode)

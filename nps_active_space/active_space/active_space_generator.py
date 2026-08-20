@@ -1,8 +1,6 @@
 import logging
-import multiprocessing as mp
 import os
 import subprocess
-from functools import partial
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
@@ -24,7 +22,6 @@ from nps_active_space.setup.elevation import get_project_setup_elevation
 from nps_active_space.utils.models import Microphone
 from nps_active_space.utils.computation import (
     build_src_point_mesh,
-    create_overlapping_mesh,
     NMSIM_bbox_utm,
     round_points
 )
@@ -45,8 +42,7 @@ class PolygonCreationError(Exception):
 
 class ActiveSpaceGenerator:
     """
-    A class that stores active space generation logic and produces individual active spaces as well as active space
-    meshes based on customizable parameters.
+    A class that stores active space generation logic and produces individual active spaces.
 
     Parameters
     ----------
@@ -730,7 +726,7 @@ class ActiveSpaceGenerator:
                   ) -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
         """
         The main active space generating function. It has been separated from the other generate functions to allow
-        for multiprocessing when creating an active space mesh.
+        for multiprocessing when generating multiple active spaces in parallel.
         """
         crs = NMSIM_bbox_utm(study_area)  # Determine the UTM CRS on the western-most edge of the study area
 
@@ -847,9 +843,6 @@ class ActiveSpaceGenerator:
 
         Call before ``generate()`` when running many omni sources at one microphone location: it
         avoids re-reading elevation artifacts and re-writing the listener ``.sit`` on every run.
-        ``generate_mesh()`` does not use this cache (each tile uses a centroid microphone and
-        creates its own ``.sit``), but mesh workers still read the same site-wide project_setup
-        ``.flt`` via ``_resolve_nmsim_elevation()``.
 
         Parameters
         ----------
@@ -927,64 +920,3 @@ class ActiveSpaceGenerator:
             predetermined_audibility_pts=predetermined_audibility_pts
         )
         return active_space
-
-    def generate_mesh(self, omni_source: str, altitude_m: int = 3658, heading: Optional[int] = None,
-                      src_pt_density: int = 48, n_contour: int = 1, mesh_density: Tuple[int, int] = (1, 25),
-                      n_cpus: int = mp.cpu_count() - 1) -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
-        """
-        Generate multiple active spaces in a mesh pattern for the study area.
-
-        Parameters
-        ----------
-        omni_source : str
-            Absolute path to the omni source tuning file to use when running NMSIM.
-        altitude_m : int, default 3658 meters (equivalent to 12000 ft)
-            Single altitude value to use when creating NSMIM trajectories.
-        heading : int, default None
-            The heading (yaw) to use for all points in the trajectory file. If None, a random heading will be used
-            for each point.
-        src_pt_density : int
-            Density of the point mesh to be used in the first two rounds of active space definition. The point mesh will
-            have src_pt_density x src_point_density points.
-        n_contour : int, default 1
-            Number of rounds of contouring to perform after the two rounds of active space point meshing.
-        mesh_density : Tuple[int, int], default (1km, 25km)
-            Coarseness of the mesh in kilometers. The first value is how far apart the mesh centroids should be and
-            the second value is how large the mesh squares around the centroids should be, both in kilometers.
-        n_cpus : int, default mp.cpu_count() - 1
-            How many cpus to use for multiprocessing the mesh. Defaults to the total number of computer cpus.
-
-        Returns
-        -------
-        A GeoDataFrame of all generated active space polygons.
-        A GeoDataFrame of centroids used to make the mesh.
-
-        Notes
-        -----
-        Each mesh worker uses the site-wide project_setup ``.flt`` (same as ``generate()``).
-        Per-tile DEM clipping is not performed here.
-        """
-        study_areas, centroids = create_overlapping_mesh(self.study_area, mesh_density[0], mesh_density[1])
-        centroids['name'] = centroids.apply(lambda x: f"centroid{x.name+1}", axis=1)
-
-        # Since most arguments are the same for each process, create a partial.
-        _generate = partial(self._generate, omni_source=omni_source, altitude_m=altitude_m, heading=heading,
-                            src_pt_density=src_pt_density, n_contour=n_contour)
-
-        pbar = tqdm(desc='Study Area', unit='study area', colour='green', total=study_areas.shape[0], leave=True)
-        _update_pbar = lambda _: pbar.update()
-        _handle_error = lambda error: logger.error(f'Error: {error}')
-
-        with mp.Pool(n_cpus) as pool:
-            processes = []
-            for i in range(study_areas.shape[0]):
-                processes.append(pool.apply_async(_generate,
-                                                  kwds={'study_area': study_areas.iloc[[i]], 'name': f'{i+1}'},
-                                                  callback=_update_pbar,
-                                                  error_callback=_handle_error))
-            results = [p.get() for p in processes]
-            active_spaces = results.pop()
-            for res in results:
-                active_spaces = pd.concat([active_spaces, res], ignore_index=True)
-
-        return active_spaces, centroids.to_crs(active_spaces.crs)

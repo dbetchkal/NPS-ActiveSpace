@@ -40,7 +40,6 @@ __all__ = [
     'compute_fbeta',
     'contiguous_regions',
     'coords_to_utm',
-    'create_overlapping_mesh',
     'expected_Lp',
     'interpolate_spline',
     'NMSIM_bbox_utm',
@@ -297,49 +296,6 @@ def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: in
         geom = gpd.points_from_xy(x_ind.ravel(), y_ind.ravel())
 
     return gpd.GeoDataFrame(geometry=geom, crs=area.crs)
-
-
-def create_overlapping_mesh(area: gpd.GeoDataFrame, spacing: int = 1,
-                            mesh_size: int = 25) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
-    """
-    Create a mesh of polygons as close to size mesh_size x mesh_size as possible over a specific area.
-
-    Parameters
-    ----------
-    area : gpd.GeoDataFrame
-        The area to cover with the mesh. CRS should be a geographic coordinate system that uses D.d.
-    spacing : int, default 1 km
-        Distance apart receiver points should be in kilometers
-    mesh_size : int, default 25 km
-        The target size in kilometers of a mesh square (mesh_size x mesh_size)
-
-    Returns
-    -------
-    An overlapping mesh of squares that cover the requested area.
-    A GeoDataFrame of the center points used to create the mesh squares.
-    """
-    equal_area_crs,_ = coords_to_utm(area.centroid.iat[0].y, area.centroid.iat[0].x)
-    area_m = area.to_crs(equal_area_crs)
-
-    minx, miny, maxx, maxy = area_m.total_bounds
-    x = np.linspace(minx, maxx, math.ceil((maxx-minx)/(spacing*1000)))
-    y = np.linspace(miny, maxy, math.ceil((maxy-miny)/(spacing*1000)))
-    x_ind, y_ind = np.meshgrid(x, y)
-
-    # np.ravel linearly indexes an array into a row.
-    mesh_points = [Point(point[0], point[1]) for point in np.array([np.ravel(x_ind), np.ravel(y_ind)]).T]
-    mesh_points = gpd.GeoDataFrame({'geometry': mesh_points}, geometry='geometry', crs=equal_area_crs)
-
-    # Only keep points that fall within the study area.
-    mesh_points = gpd.sjoin(mesh_points, area_m, predicate='within')[['geometry']]
-
-    # Create mesh around points.
-    mesh = mesh_points.buffer(mesh_size*1000, cap_style=3)
-
-    mesh.reset_index(drop=True, inplace=True)
-    mesh_points.reset_index(drop=True, inplace=True)
-
-    return mesh.to_crs(area.crs), mesh_points.to_crs(area.crs)
 
 
 def ambience_from_raster(ambience_src: str, mic: 'Microphone') -> float:
