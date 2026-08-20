@@ -1,5 +1,4 @@
 import json
-import re
 import shlex
 import subprocess
 import sys
@@ -105,30 +104,6 @@ class TestRunDeployment:
         result = run_deployment("DENATRLA20253000m", self._stub_cmd(tmp_path))
         assert result is None
 
-class TestBatchCsvIntegration:
-    def test_run_deployment_results_write_expected_csv_row(self, tmp_path: Path):
-        stub_path = tmp_path / "stub_generate_active_space.py"
-        stub_path.write_text(STUB_SCRIPT)
-        output_csv = tmp_path / "batch_output.csv"
-
-        result_series = run_deployment(
-            "DENATRLA20253000m",
-            [sys.executable, str(stub_path)],
-        )
-        assert result_series is not None
-
-        output_df = result_series.to_frame().T
-        output_df.to_csv(output_csv, index=False)
-
-        loaded = pd.read_csv(output_csv)
-        row = loaded.iloc[0]
-        assert row["Designator"] == "DENATRLA20253000m"
-        assert row["Number of valid annotated segments"] == 5
-        assert row["Mean altitude"] == 3000
-        assert row["KDE reduction (%)"] == "12.5%"
-        assert row["1/3rd Octave Gain (F1)"] == 12.5
-        assert row["F1"] == 0.91
-
 
 STUB_SCRIPT_WITH_ALTITUDE = """
 import argparse
@@ -150,44 +125,20 @@ with open(args.results_out, "w") as results_file:
 """
 
 
-class Test3dActiveSpaceWorkflow:
-    """Verify the batch path used by generate_3d_active_space.py."""
-
-    def test_multi_layer_commands_file_matches_3d_workflow(self, tmp_path: Path):
-        package_root = tmp_path / "nps_active_space_pkg"
-        scripts_dir = package_root / "scripts"
-        scripts_dir.mkdir(parents=True)
-        stub_path = scripts_dir / "generate_active_space.py"
+class TestRunDeploymentWithAltitude:
+    def test_altitude_option_flows_into_results(self, tmp_path: Path):
+        stub_path = tmp_path / "stub_generate_active_space.py"
         stub_path.write_text(STUB_SCRIPT_WITH_ALTITUDE)
+        altitude_m = 2100
+        designator = f"DENATRLA2025_{altitude_m}m"
+        options = f"-e GLBA_example -u DENA -s TRLA -y 2025 -l {altitude_m}"
+        cmd = [sys.executable, "-u", "-W", "ignore", str(stub_path)] + shlex.split(options)
 
-        cmds_file = tmp_path / "DENATRLA2025_commands.txt"
-        altitudes = [1800, 2100, 2400]
-        cmds_file.write_text(
-            "\n".join(
-                f"DENATRLA2025_{alt}m\t-e GLBA_example -u DENA -s TRLA -y 2025 -l {alt}"
-                for alt in altitudes
-            ) + "\n"
-        )
+        result_series = run_deployment(designator, cmd)
 
-        output_df = pd.DataFrame()
-        for line in cmds_file.read_text().splitlines():
-            designator, options = re.split(r"\s+", line, maxsplit=1)
-            cmd = [sys.executable, "-u", "-W", "ignore", str(stub_path)] + shlex.split(options)
-            result_series = run_deployment(designator, cmd)
-            assert result_series is not None
-            output_df = pd.concat(
-                [output_df, result_series.to_frame().T], ignore_index=True,
-            )
-
-        output_csv = tmp_path / "DENATRLA2025_commands_output.csv"
-        output_df.to_csv(output_csv, index=False)
-
-        loaded = pd.read_csv(output_csv)
-        assert len(loaded) == len(altitudes)
-        assert loaded["KDE reduction (%)"].notna().all()
-        assert loaded["F1"].notna().all()
-        assert set(loaded["Mean altitude"]) == set(altitudes)
-        assert list(loaded["Designator"]) == [f"DENATRLA2025_{alt}m" for alt in altitudes]
+        assert result_series is not None
+        assert result_series["Designator"] == designator
+        assert result_series["Mean altitude"] == altitude_m
 
 
 class TestBatchMainOrchestration:

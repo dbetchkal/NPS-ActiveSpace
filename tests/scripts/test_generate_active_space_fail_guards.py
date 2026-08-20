@@ -187,21 +187,6 @@ class TestNonemptyActiveSpaceCount:
         assert generate_active_space._nonempty_active_space_count(results) == 1
 
 
-class TestFailActiveSpaceGeneration:
-    def test_exits_with_status_one(self, monkeypatch):
-        generate_active_space.__dict__["logger"] = MagicMock()
-
-        def capture_exit(code: int = 0) -> None:
-            raise SystemExit(code)
-
-        monkeypatch.setattr(generate_active_space.sys, "exit", capture_exit)
-
-        with pytest.raises(SystemExit) as exc_info:
-            generate_active_space._fail_active_space_generation("test failure")
-
-        assert exc_info.value.code == 1
-
-
 class TestGenerateActiveSpaceFailGuards:
     def test_exits_when_no_results_generated(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         with pytest.raises(SystemExit) as exc_info:

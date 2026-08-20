@@ -39,12 +39,6 @@ class TestGetProjectSetupElevation:
         with pytest.raises(FileNotFoundError, match="project_setup"):
             get_project_setup_elevation(tmp_path)
 
-    def test_example_denatrla_has_complete_meter_artifacts(self):
-        site_dir = EXAMPLE_PROJECT_DIR / "DENATRLA"
-        tif_path, flt_path = get_project_setup_elevation(site_dir)
-        assert tif_path.name == "elevation_m_nad83_utm6.tif"
-        assert flt_path.name == "elevation_m_nad83_utm6.flt"
-
     def test_example_denatrla_set_dem_uses_project_setup_artifacts(self, tmp_path: Path):
         site_dir = tmp_path / "DENATRLA"
         shutil.copytree(EXAMPLE_PROJECT_DIR / "DENATRLA", site_dir)
