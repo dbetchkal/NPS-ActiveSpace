@@ -1,9 +1,7 @@
 import json
 import shlex
-import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
@@ -13,140 +11,93 @@ from nps_active_space.scripts.generate_active_space_batch import (
     read_results_file,
     run_deployment,
 )
+from script_test_helpers import exec_script_main, stub_generate_active_space_cmd
 
-
-STUB_SCRIPT = """
-import argparse
-import json
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--results-out", required=True)
-args = parser.parse_args()
-
-with open(args.results_out, "w") as results_file:
-    json.dump({
-        "Number of valid annotated segments": 5,
-        "Mean altitude": 3000,
-        "KDE reduction (%)": "12.5%",
-        "1/3rd Octave Gain (F1)": 12.5,
-        "F1": 0.91,
-    }, results_file)
-"""
+VALID_RESULTS = {
+    "Number of valid annotated segments": 12,
+    "Mean altitude": 3000,
+    "KDE reduction (%)": "15.0%",
+    "1/3rd Octave Gain (F1)": 12.5,
+    "F1": 0.87,
+}
+DESIGNATOR = "DENATRLA20253000m"
 
 
 class TestReadResultsFile:
-    def test_read_results_file(self, tmp_path: Path):
+    @pytest.mark.parametrize(
+        ("file_content", "expect_error_substring", "expected_values"),
+        [
+            (
+                json.dumps(VALID_RESULTS),
+                None,
+                VALID_RESULTS,
+            ),
+            (
+                json.dumps({
+                    "Number of valid annotated segments": 12,
+                    "Mean altitude": 3000,
+                    "KDE reduction (%)": "15.0%",
+                    "1/3rd Octave Gain (F1)": 12.5,
+                }),
+                "missing required keys",
+                None,
+            ),
+            (
+                "{not valid json",
+                "Invalid JSON",
+                None,
+            ),
+        ],
+    )
+    def test_read_results_file(
+        self,
+        tmp_path: Path,
+        file_content: str,
+        expect_error_substring: str | None,
+        expected_values: dict[str, object] | None,
+    ):
         results_path = tmp_path / "results.json"
-        results_path.write_text(json.dumps({
-            "Number of valid annotated segments": 12,
-            "Mean altitude": 3000,
-            "KDE reduction (%)": "15.0%",
-            "1/3rd Octave Gain (F1)": 12.5,
-            "F1": 0.87,
-        }))
+        results_path.write_text(file_content)
 
-        series, error_message = read_results_file(results_path, "DENATRLA20253000m")
-        assert error_message is None
+        series, error_message = read_results_file(results_path, DESIGNATOR)
 
-        expected = pd.Series({
-            "Designator": "DENATRLA20253000m",
-            "Number of valid annotated segments": 12,
-            "Mean altitude": 3000,
-            "KDE reduction (%)": "15.0%",
-            "1/3rd Octave Gain (F1)": 12.5,
-            "F1": 0.87,
-        })
-        pd.testing.assert_series_equal(series, expected)
-
-    def test_read_results_file_returns_none_on_missing_required_key(self, tmp_path: Path):
-        results_path = tmp_path / "results.json"
-        results_path.write_text(json.dumps({
-            "Number of valid annotated segments": 12,
-            "Mean altitude": 3000,
-            "KDE reduction (%)": "15.0%",
-            "1/3rd Octave Gain (F1)": 12.5,
-        }))
-
-        series, error_message = read_results_file(results_path, "DENATRLA20253000m")
-        assert series is None
-        assert error_message is not None
-        assert "missing required keys" in error_message
-
-    def test_read_results_file_returns_none_on_invalid_json(self, tmp_path: Path):
-        results_path = tmp_path / "results.json"
-        results_path.write_text("{not valid json")
-
-        series, error_message = read_results_file(results_path, "DENATRLA20253000m")
-        assert series is None
-        assert error_message is not None
-        assert "Invalid JSON" in error_message
+        if expect_error_substring is None:
+            assert error_message is None
+            expected = pd.Series({"Designator": DESIGNATOR, **expected_values})
+            pd.testing.assert_series_equal(series, expected)
+        else:
+            assert series is None
+            assert error_message is not None
+            assert expect_error_substring in error_message
 
 
 class TestRunDeployment:
-    def _stub_cmd(self, tmp_path: Path) -> list[str]:
-        stub_path = tmp_path / "stub_generate_active_space.py"
-        stub_path.write_text(STUB_SCRIPT)
-        return [sys.executable, str(stub_path)]
-
-    def test_run_deployment_returns_none_on_nonzero_exit(self, tmp_path: Path, monkeypatch):
-        monkeypatch.setattr(
-            "nps_active_space.scripts.generate_active_space_batch.subprocess.run",
-            MagicMock(return_value=MagicMock(returncode=1)),
-        )
-        result = run_deployment("DENATRLA20253000m", self._stub_cmd(tmp_path))
-        assert result is None
-
-    def test_run_deployment_returns_none_when_results_missing(self, tmp_path: Path, monkeypatch):
-        monkeypatch.setattr(
-            "nps_active_space.scripts.generate_active_space_batch.subprocess.run",
-            MagicMock(return_value=MagicMock(returncode=0)),
-        )
-        result = run_deployment("DENATRLA20253000m", self._stub_cmd(tmp_path))
-        assert result is None
-
-
-STUB_SCRIPT_WITH_ALTITUDE = """
-import argparse
-import json
-
-parser = argparse.ArgumentParser()
-parser.add_argument("-l", "--altitude", type=int, required=True)
-parser.add_argument("--results-out", required=True)
-args, _ = parser.parse_known_args()
-
-with open(args.results_out, "w") as results_file:
-    json.dump({
-        "Number of valid annotated segments": 10,
-        "Mean altitude": args.altitude,
-        "KDE reduction (%)": "5.0%",
-        "1/3rd Octave Gain (F1)": 10.0,
-        "F1": 0.85,
-    }, results_file)
-"""
-
-
-class TestRunDeploymentWithAltitude:
-    def test_altitude_option_flows_into_results(self, tmp_path: Path):
-        stub_path = tmp_path / "stub_generate_active_space.py"
-        stub_path.write_text(STUB_SCRIPT_WITH_ALTITUDE)
+    def test_run_deployment_reads_stub_subprocess_results(self, tmp_path: Path):
         altitude_m = 2100
         designator = f"DENATRLA2025_{altitude_m}m"
         options = f"-e GLBA_example -u DENA -s TRLA -y 2025 -l {altitude_m}"
-        cmd = [sys.executable, "-u", "-W", "ignore", str(stub_path)] + shlex.split(options)
+        stub_cmd = stub_generate_active_space_cmd(tmp_path, altitude_m=altitude_m)
+        cmd = [stub_cmd[0], "-u", "-W", "ignore", stub_cmd[1]] + shlex.split(options)
 
         result_series = run_deployment(designator, cmd)
 
         assert result_series is not None
         assert result_series["Designator"] == designator
         assert result_series["Mean altitude"] == altitude_m
+        assert result_series["Number of valid annotated segments"] == 5
 
 
 class TestBatchMainOrchestration:
-    def test_main_appends_csv_and_skips_existing_designator(self, tmp_path: Path, monkeypatch):
+    def test_main_skips_existing_appends_success_and_ignores_failed_run(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
         cmds_file = tmp_path / "commands.txt"
         cmds_file.write_text(
             "RUN1\t-e test -u DENA -s TRLA -y 2025\n"
             "RUN2\t-e test -u DENA -s TRLA -y 2025\n"
+            "RUN3\t-e test -u DENA -s TRLA -y 2025\n"
         )
         output_csv = tmp_path / "output.csv"
         pd.DataFrame(
@@ -162,8 +113,10 @@ class TestBatchMainOrchestration:
 
         run_calls: list[str] = []
 
-        def fake_run_deployment(designator: str, cmd: list[str]) -> pd.Series:
+        def fake_run_deployment(designator: str, cmd: list[str]) -> pd.Series | None:
             run_calls.append(designator)
+            if designator == "RUN3":
+                return None
             return pd.Series({
                 "Designator": designator,
                 "Number of valid annotated segments": 8,
@@ -180,17 +133,12 @@ class TestBatchMainOrchestration:
             ["generate_active_space_batch.py", str(cmds_file), "-o", str(output_csv)],
         )
 
-        source = Path(batch_module.__file__).read_text()
-        main_block = source[source.index("if __name__ == \"__main__\":"):]
-        namespace = batch_module.__dict__.copy()
-        namespace["__name__"] = "__main__"
-        exec(compile(main_block, batch_module.__file__, "exec"), namespace)
+        exec_script_main(batch_module)
 
         loaded = pd.read_csv(output_csv)
-        assert run_calls == ["RUN2"]
+        assert run_calls == ["RUN2", "RUN3"]
         assert len(loaded) == 2
         assert set(loaded["Designator"]) == {"RUN1", "RUN2"}
         run2 = loaded.loc[loaded["Designator"] == "RUN2"].iloc[0]
         assert run2["Number of valid annotated segments"] == 8
         assert run2["F1"] == 0.88
-

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import geopandas as gpd
@@ -18,7 +17,6 @@ from nps_active_space.utils.computation import NMSIM_bbox_utm
 from nps_active_space.utils.helpers import get_deployment, load_studyarea
 from nps_active_space.utils.models import Microphone
 from fixtures import (
-    EXAMPLE_PROJECT_DIR,
     STUDY_BOUNDS_4269,
     write_project_setup_elevation_artifacts,
     write_source_dem,
@@ -38,28 +36,6 @@ class TestGetProjectSetupElevation:
     def test_raises_when_missing(self, tmp_path: Path):
         with pytest.raises(FileNotFoundError, match="project_setup"):
             get_project_setup_elevation(tmp_path)
-
-    def test_example_denatrla_set_dem_uses_project_setup_artifacts(self, tmp_path: Path):
-        site_dir = tmp_path / "DENATRLA"
-        shutil.copytree(EXAMPLE_PROJECT_DIR / "DENATRLA", site_dir)
-        nmsim_exe = tmp_path / "nmsim.exe"
-        nmsim_exe.write_text("stub")
-
-        study_area = load_studyarea(str(EXAMPLE_PROJECT_DIR), "DENA", "TRLA", 2025)
-        mic = get_deployment(str(EXAMPLE_PROJECT_DIR), "DENA", "TRLA", 2025, elevation=False)
-        generator = ActiveSpaceGenerator(
-            NMSIM=str(nmsim_exe),
-            study_area=study_area,
-            root_dir=str(site_dir),
-            ambience=pd.Series({"1000": 40.0}),
-        )
-        generator.set_dem(mic)
-
-        assert generator._dem_file.endswith("elevation_m_nad83_utm6.tif")
-        assert generator._flt_file.endswith("elevation_m_nad83_utm6.flt")
-        assert Path(generator._flt_file).is_file()
-        sit_path = site_dir / "Input_Data/05_SITES/DENATRLA2025.sit"
-        assert "elevation_m_nad83_utm6.flt" in sit_path.read_text()
 
 
 class TestActiveSpaceGeneratorSetDem:
@@ -95,6 +71,8 @@ class TestActiveSpaceGeneratorSetDem:
         assert "elevation_m_nad83_utm" in generator._dem_file
         assert Path(generator._flt_file).suffix == ".flt"
         assert Path(generator._dem_file).name != "elevation.tif"
+        sit_path = site_dir / "Input_Data/05_SITES/TESTSITE2025.sit"
+        assert "elevation_m_nad83_utm" in sit_path.read_text()
 
     def test_raises_when_setup_elevation_missing(self, tmp_path: Path):
         site_dir = tmp_path / "TESTSITE"

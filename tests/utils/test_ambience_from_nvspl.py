@@ -60,18 +60,28 @@ class TestAmbienceFromNvspl:
 
 
 class TestLoadSpectralAmbiencePickle:
-    def test_returns_series_when_usable(self, tmp_path):
-        pickle_path = tmp_path / "ambience.pkl"
-        pd.Series({"12.5": 30.0, "1000": 25.0}).to_pickle(pickle_path)
+    @pytest.mark.parametrize(
+        ("pickle_setup", "expected_value"),
+        [
+            ("usable", 25.0),
+            ("missing", None),
+            ("all_nan", None),
+        ],
+    )
+    def test_load_spectral_ambience_pickle(self, tmp_path, pickle_setup, expected_value):
+        if pickle_setup == "usable":
+            pickle_path = tmp_path / "ambience.pkl"
+            pd.Series({"12.5": 30.0, "1000": 25.0}).to_pickle(pickle_path)
+        elif pickle_setup == "missing":
+            pickle_path = tmp_path / "missing.pkl"
+        else:
+            pickle_path = tmp_path / "bad.pkl"
+            pd.Series({"20": np.nan, "1000": np.nan}).to_pickle(pickle_path)
 
         ambience = load_spectral_ambience_pickle(pickle_path)
-        assert ambience is not None
-        assert ambience.loc["1000"] == 25.0
 
-    def test_returns_none_when_missing(self, tmp_path):
-        assert load_spectral_ambience_pickle(tmp_path / "missing.pkl") is None
-
-    def test_returns_none_when_all_nan(self, tmp_path):
-        pickle_path = tmp_path / "bad.pkl"
-        pd.Series({"20": np.nan, "1000": np.nan}).to_pickle(pickle_path)
-        assert load_spectral_ambience_pickle(pickle_path) is None
+        if expected_value is None:
+            assert ambience is None
+        else:
+            assert ambience is not None
+            assert ambience.loc["1000"] == expected_value
