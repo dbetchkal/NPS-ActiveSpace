@@ -1,18 +1,14 @@
-import glob
 import logging
-import multiprocessing as mp
 import os
 import subprocess
-from functools import partial
+from pathlib import Path
 from typing import Optional, Tuple, Union
-from uuid import uuid4
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
 import pandas as pd
-from osgeo import gdal
 from pyproj import Transformer
 import rasterio
 from shapely.geometry import Polygon, box
@@ -22,13 +18,11 @@ from warnings import warn
 
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.setup.site_writer import create_site_dir, write_listener_site_file
+from nps_active_space.setup.elevation import get_project_setup_elevation
 from nps_active_space.utils.models import Microphone
 from nps_active_space.utils.computation import (
     build_src_point_mesh,
-    coords_to_utm,
-    create_overlapping_mesh,
     NMSIM_bbox_utm,
-    project_raster,
     round_points
 )
 
@@ -48,8 +42,7 @@ class PolygonCreationError(Exception):
 
 class ActiveSpaceGenerator:
     """
-    A class that stores active space generation logic and produces individual active spaces as well as active space
-    meshes based on customizable parameters.
+    A class that stores active space generation logic and produces individual active spaces.
 
     Parameters
     ----------
@@ -59,19 +52,18 @@ class ActiveSpaceGenerator:
         A gpd.GeoDataFrame of polygon(s) that make up the study area.
     root_dir : str
         Absolute path to a directory where all generated files required for running NMSIM can be stored.
-        This directory is specific to a single microphone location.
-    dem_src : str
-        Path to a DEM raster file to be used as NMSIM input.
+        This directory is specific to a single microphone location. Elevation for NMSIM comes from
+        ``project_setup`` artifacts under ``Input_Data/01_ELEVATION`` (see ``set_dem`` /
+        ``_resolve_nmsim_elevation``).
     ambience : float or pd.Series[float]
         The ambience level(s) at the microphone site.
         If float (broadband ambience), will be compared against the predicted A-weighted broadband level of noises.
         If pd.Series[float], should contain sound levels for the 12.5 to 12500 Hz 1/3 octave bands.
     """
-    def __init__(self, NMSIM: str, study_area: gpd.GeoDataFrame, root_dir: str, dem_src: str,
+    def __init__(self, NMSIM: str, study_area: gpd.GeoDataFrame, root_dir: str,
                  ambience: Union[float, pd.Series]):
 
         assert os.path.exists(NMSIM), "NMSIM not found"
-        assert os.path.exists(dem_src), "DEM not found"
         assert os.path.exists(root_dir), "Root directory not found"
         assert isinstance(ambience, (float, int)) or isinstance(ambience, pd.Series), "Improper ambience input"
         if isinstance(ambience, (float, int)):
@@ -81,7 +73,6 @@ class ActiveSpaceGenerator:
         self.study_area = study_area.to_crs('epsg:4269')
         self.root_dir = root_dir
         self.ambience = ambience
-        self.dem_src = dem_src
         self.NMSIM = NMSIM
 
         self._dem_file = None
@@ -90,107 +81,24 @@ class ActiveSpaceGenerator:
 
         create_site_dir(self.root_dir)
 
-    def _mask_dem_file(self, dem_src: str, study_area: gpd.GeoDataFrame, project: bool = False,
-                       buffer: Optional[int] = None, suffix: str = '') -> str:
+    def _resolve_nmsim_elevation(self) -> str:
         """
-        Project and mask a DEM .tif raster.
-        Follows this tutorial: https://rasterio.readthedocs.io/en/latest/topics/masking-by-shapefile.html
+        Return the project_setup ``.flt`` path for NMSIM.
 
-        Parameters
-        ----------
-        dem_src : str
-            Absolute path to a DEM raster to be projected and clipped for use by NMSIM.
-        study_area : gpd.GeoDataFrame
-            The study area to clip the DEM raster to.
-        suffix : str, default ''
-            A suffix to add to the end of the filename to distinguish it from others.
-        project : bool, default True
-           True to project the DEM file to NAD83 before clipping it.
-
-        Returns
-        -------
-        The absolute path to the .tif file of the projected and masked raster.
+        Uses cached artifacts from ``set_dem()`` when present; otherwise loads
+        ``elevation_m_nad83_utm*`` from ``Input_Data/01_ELEVATION``. Also sets
+        ``self._dem_file`` when needed for aboveground/underground checks.
         """
-        # Project the DEM file to NAD83 which is also what the study area is in.
-        if project:
-            dem_projected_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation{suffix}.tif"
-            project_raster(dem_src, dem_projected_filename, study_area.crs)
-            dem_src = dem_projected_filename
+        if self._flt_file is not None:
+            if self._dem_file is None:
+                tif_path, _ = get_project_setup_elevation(self.root_dir)
+                self._dem_file = str(tif_path)
+            return self._flt_file
 
-        # Output the study area, in the proper projection, to a shapefile so it can be used for masking.
-        study_area_filename_prefix = f"{self.root_dir}/Input_Data/01_ELEVATION/study_area{suffix}_{uuid4()}"
-        study_area_filename = f"{study_area_filename_prefix}.shp"
-        if buffer:
-            equal_area_crs,_ = coords_to_utm(study_area.centroid.iat[0].y, study_area.centroid.iat[0].x)
-            study_area_m = study_area.to_crs(equal_area_crs)
-            study_area_m = study_area_m.buffer(buffer*1000)
-            study_area = study_area_m.to_crs(study_area.crs)
-
-        # sometimes ArcGIS Pro will sneak in an immutable 'FID' column
-        # thankfully if it exists, a viable solution is just to drop the column
-        if 'FID' in study_area.columns:
-            study_area = study_area.drop(columns=['FID'])
-        
-        # frequently the columns in the `study_area` `gpd.GeoDataFrame` are also immutable
-        # to fix this we can convert them to the `object` type which allows us to write the study area
-        # to the disk temporarily as we need to here...
-        for col in study_area.columns:
-            study_area[col] = study_area[col].astype(object)
-
-        # we avoid the deprecated `pd.Int64Index` and an associated AttributeError
-        # by simply setting the `index` parameter to False...
-        study_area.to_file(study_area_filename, index=False) 
-
-        # Mask the DEM file with the study area shapefile.
-        dem_masked_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_mask{suffix}.tif"
-        gdal.Warp(
-            dem_masked_filename,
-            dem_src,
-            cutlineDSName=study_area_filename,
-            cropToCutline=True
-        )
-
-        # Remove the temporary shapefile (and related files) since they were only needed for masking.
-        for filename in glob.glob(f"{study_area_filename_prefix}*"):
-            os.remove(filename)
-
-        return dem_masked_filename
-
-    def _create_dem_flt(self, dem_file: str) -> str:
-        """
-        Convert the DEM .tif to a DEM .flt as input into NMSIM.
-
-        Parameters
-        ----------
-        dem_file : str
-            Absolute path to the DEM .tif file to convert to a .flt file.
-
-        Returns
-        -------
-        DEM flt filename for the study area.
-        """
-        flt_filename = dem_file.replace('.tif', '.flt')
-        flt_header_filename = dem_file.replace('.tif', '.hdr')
-
-        gdal.Translate(flt_filename, dem_file, options="-ot Float32 -of ehdr -a_nodata -9999")
-
-        # the header file doesn't write correctly... manually overwrite this:
-        old_hdr = pd.read_csv(flt_header_filename, header=None, sep=r'\s+', index_col=0).T
-
-        # compute new lower left corner y-val
-        yllcorner = float(old_hdr.ULYMAP) - float(old_hdr.NROWS) * float(old_hdr.XDIM)
-
-        # write a new header file exactly as output by ESRI
-        with open(flt_header_filename, 'w') as header:
-            header.write("{:14}{:}\n".format("ncols", old_hdr.NCOLS.values[0]))
-            header.write("{:14}{:}\n".format("nrows", old_hdr.NROWS.values[0]))
-            header.write("{:14}{:}\n".format("xllcorner", old_hdr.ULXMAP.values[0]))
-            header.write("{:14}{:}\n".format("yllcorner", yllcorner))
-            header.write("{:14}{:}\n".format("cellsize", old_hdr.XDIM.values[0]))
-            header.write("{:14}{:}\n".format("NODATA_value", old_hdr.NODATA.values[0]))
-            header.write("{:14}{:}".format("byteorder", "LSBFIRST"))
-
-        return flt_filename
+        tif_path, flt_path = get_project_setup_elevation(self.root_dir)
+        self._dem_file = str(tif_path)
+        self._flt_file = str(flt_path)
+        return self._flt_file
 
     def _create_trajectory_file(self, points: gpd.GeoDataFrame, crs: str, filename: str,
                                 heading: Optional[int] = None) -> str:
@@ -475,12 +383,49 @@ class ActiveSpaceGenerator:
             proj_pts = np.stack([xs, ys], axis=1)
             elevs = list(dem.sample(proj_pts))
             for i in range(len(source_pts)):
-                if elevs[i] is None or elevs[i] == dem.nodata or zs.iloc[i] < elevs[i]:
+                raw = elevs[i]
+                if raw is None:
+                    underground_indices.append(i)
+                    continue
+                elev_m = float(raw[0])
+                if elev_m == float(dem.nodata) or zs.iloc[i] < elev_m:
                     underground_indices.append(i)
                 else:
                     aboveground_indices.append(i)
         
         return source_pts.iloc[aboveground_indices], source_pts.iloc[underground_indices]
+
+    @staticmethod
+    def _nmsim_cache_failure_reason(csv_filename: str) -> str | None:
+        """
+        Return why an on-disk cache cannot be used, or None if the file is readable.
+
+        Returns None when ``csv_filename`` does not exist (no cache yet) or when the
+        file contains valid NMSIM prediction rows.
+        """
+        if not os.path.exists(csv_filename):
+            return None
+        if os.path.getsize(csv_filename) == 0:
+            return "file is empty (0 bytes)"
+        try:
+            preview = pd.read_csv(csv_filename, nrows=1)
+        except pd.errors.EmptyDataError:
+            return "file has no parseable CSV content"
+        if preview.empty:
+            return "file has a header but no data rows"
+        required = {"Xpos", "Ypos", "A"}
+        missing = sorted(required - set(preview.columns))
+        if missing:
+            return f"missing required columns: {missing}"
+        return None
+
+    @staticmethod
+    def _nmsim_cache_is_readable(csv_filename: str) -> bool:
+        """Return True when ``csv_filename`` exists and contains parseable NMSIM cache rows."""
+        return (
+            os.path.exists(csv_filename)
+            and ActiveSpaceGenerator._nmsim_cache_failure_reason(csv_filename) is None
+        )
 
     @staticmethod
     def load_prev_nmsim_predictions(source_pts: gpd.GeoDataFrame, csv_filename: str, altitude_m: int
@@ -508,7 +453,23 @@ class ActiveSpaceGenerator:
         new_pts: gpd.GeoDataFrame
             Subset of source_pts containing only the points we don't have previous results for.
         """
-        if not os.path.exists(csv_filename):
+        if not ActiveSpaceGenerator._nmsim_cache_is_readable(csv_filename):
+            cache_failure = ActiveSpaceGenerator._nmsim_cache_failure_reason(csv_filename)
+            if cache_failure is not None:
+                logger.warning(
+                    "Ignoring unreadable NMSIM prediction cache at %s (%s). "
+                    "Removing file; points will be recomputed and cache rewritten after NMSIM.",
+                    csv_filename,
+                    cache_failure,
+                )
+                try:
+                    os.remove(csv_filename)
+                except OSError as exc:
+                    logger.warning(
+                        "Could not remove unreadable NMSIM prediction cache %s: %s",
+                        csv_filename,
+                        exc,
+                    )
             # no previous predictions, return empty dataframes
             nmsim_df_all = pd.DataFrame()
             nmsim_df = pd.DataFrame()
@@ -519,7 +480,12 @@ class ActiveSpaceGenerator:
             # and stored centibels not decibels to avoid writing the decimal point. So, convert back.
             # Also add back in Zpos field, which we didn't store since it is constant within the file.
             nmsim_df_all = pd.read_csv(csv_filename).fillna(-999).astype("float64")
-            nmsim_df_all.loc[:,"A":"12500"] /= 10
+            if not nmsim_df_all.empty:
+                sound_cols = [
+                    col for col in nmsim_df_all.columns
+                    if col not in {"Xpos", "Ypos", "Zpos"}
+                ]
+                nmsim_df_all[sound_cols] /= 10
             nmsim_df_all["Zpos"] = altitude_m
             
             # build two multi-indices to quickly determine which points we've run before
@@ -549,6 +515,9 @@ class ActiveSpaceGenerator:
         csv_filename: str
             Path to CSV file to store NMSIM predictions in.
         """
+        if nmsim_df_all.empty:
+            return
+
         # remove duplicate points, this can happen sometimes I think and cause counting weirdness
         nmsim_df_all = nmsim_df_all.drop_duplicates(subset=["Xpos", "Ypos"])
 
@@ -750,14 +719,14 @@ class ActiveSpaceGenerator:
 
         return source_pts
     
-    def _generate(self, study_area: gpd.GeoDataFrame, dem_file: str, omni_source: str, name: str = '',
-                  mic: Optional[Microphone] = None, project_dem: bool = True, altitude_m: int = 3658,
+    def _generate(self, study_area: gpd.GeoDataFrame, omni_source: str, name: str = '',
+                  mic: Optional[Microphone] = None, altitude_m: int = 3658,
                   heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1,
                   predetermined_audibility_pts: Optional[gpd.GeoDataFrame] = None
                   ) -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
         """
         The main active space generating function. It has been separated from the other generate functions to allow
-        for multiprocessing when creating an active space mesh.
+        for multiprocessing when generating multiple active spaces in parallel.
         """
         crs = NMSIM_bbox_utm(study_area)  # Determine the UTM CRS on the western-most edge of the study area
 
@@ -788,9 +757,7 @@ class ActiveSpaceGenerator:
                 crs=crs
             )
         
-        # If no dem file has been set, create the DEM file now. Also create the flt and site files needed by NMSIM.
-        dem_filename = self._dem_file or self._mask_dem_file(dem_file, study_area=study_area, project=project_dem, suffix=f'_{mic.name}')
-        flt_filename = self._flt_file or self._create_dem_flt(dem_filename)
+        flt_filename = self._resolve_nmsim_elevation()
         site_filename = self._site_file or self._create_site_file(mic, flt_filename)
 
         # Prepare a coarse and fine grid to use for the 1st and 2nd point mesh steps
@@ -869,14 +836,13 @@ class ActiveSpaceGenerator:
 
     def set_dem(self, mic: Microphone):
         """
-        Projecting and masking a DEM file are bottleneck steps in the active space creation process. If active
-        space generation is going to be run for the same location just with different parameters like omni source,
-        altitude, etc. there is no reason to project and mask the DEM every time.
-        This function provides a way to only project and mask the DEM for the study area once. Then, every time the
-        generate() function is run, it will use the created DEM file.
+        Cache project_setup elevation artifacts and listener ``.sit`` for repeated NMSIM runs.
 
-        NOTE: This function is only useful when running generate(). Running generate_mesh() will overwrite anything
-        set by this function because it's not applicable.
+        Requires ``elevation_m_nad83_utm*.tif`` / ``.flt`` / ``.hdr`` from ``project_setup`` under
+        ``Input_Data/01_ELEVATION``. Run ``project_setup`` for the site before active space generation.
+
+        Call before ``generate()`` when running many omni sources at one microphone location: it
+        avoids re-reading elevation artifacts and re-writing the listener ``.sit`` on every run.
 
         Parameters
         ----------
@@ -886,9 +852,24 @@ class ActiveSpaceGenerator:
         crs = NMSIM_bbox_utm(self.study_area.iloc[[0]])
         projected_mic = mic.to_crs(crs)
 
-        self._dem_file = self._mask_dem_file(self.dem_src, study_area=self.study_area.iloc[[0]], project=True)
-        self._flt_file = self._create_dem_flt(self._dem_file)
-        self._site_file = self._create_site_file(projected_mic, self._flt_file)
+        tif_path, flt_path = get_project_setup_elevation(self.root_dir)
+        self._dem_file = str(tif_path)
+        self._flt_file = str(flt_path)
+        flt_for_sit = Path(flt_path)
+        if flt_for_sit.is_relative_to(Path(self.root_dir)):
+            flt_for_sit = flt_for_sit.relative_to(Path(self.root_dir))
+        self._site_file = str(write_listener_site_file(
+            self.root_dir,
+            projected_mic.name,
+            projected_mic.x,
+            projected_mic.y,
+            projected_mic.z,
+            flt_for_sit,
+        ))
+        logger.info(
+            "Using project_setup elevation artifacts for NMSIM: %s",
+            tif_path.name,
+        )
 
     def generate(self, omni_source: str, altitude_m: int = 3658, mic: Optional[Microphone] = None,
                  heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1,
@@ -930,10 +911,8 @@ class ActiveSpaceGenerator:
         """
         active_space = self._generate(
             study_area=self.study_area.iloc[[0]],   # Select the study area so that it's a 1 row GeoDataFrame.
-            dem_file=self.dem_src,
             omni_source=omni_source,
             mic=mic,
-            project_dem=True,
             altitude_m=altitude_m,
             heading=heading,
             src_pt_density=src_pt_density,
@@ -941,65 +920,3 @@ class ActiveSpaceGenerator:
             predetermined_audibility_pts=predetermined_audibility_pts
         )
         return active_space
-
-    def generate_mesh(self, omni_source: str, altitude_m: int = 3658, heading: Optional[int] = None,
-                      src_pt_density: int = 48, n_contour: int = 1, mesh_density: Tuple[int, int] = (1, 25),
-                      n_cpus: int = mp.cpu_count() - 1) -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
-        """
-        Generate multiple active spaces in a mesh pattern for the study area.
-
-        Parameters
-        ----------
-        omni_source : str
-            Absolute path to the omni source tuning file to use when running NMSIM.
-        altitude_m : int, default 3658 meters (equivalent to 12000 ft)
-            Single altitude value to use when creating NSMIM trajectories.
-        heading : int, default None
-            The heading (yaw) to use for all points in the trajectory file. If None, a random heading will be used
-            for each point.
-        src_pt_density : int
-            Density of the point mesh to be used in the first two rounds of active space definition. The point mesh will
-            have src_pt_density x src_point_density points.
-        n_contour : int, default 1
-            Number of rounds of contouring to perform after the two rounds of active space point meshing.
-        mesh_density : Tuple[int, int], default (1km, 25km)
-            Coarseness of the mesh in kilometers. The first value is how far apart the mesh centroids should be and
-            the second value is how large the mesh squares around the centroids should be, both in kilometers.
-        n_cpus : int, default mp.cpu_count() - 1
-            How many cpus to use for multiprocessing the mesh. Defaults to the total number of computer cpus.
-
-        Returns
-        -------
-        A GeoDataFrame of all generated active space polygons.
-        A GeoDataFrame of centroids used to make the mesh.
-        """
-        self._dem_file = None
-        self._flt_file = None
-        self._site_file = None
-
-        study_areas, centroids = create_overlapping_mesh(self.study_area, mesh_density[0], mesh_density[1])
-        centroids['name'] = centroids.apply(lambda x: f"centroid{x.name+1}", axis=1)
-
-        dem_file = self._mask_dem_file(self.dem_src, self.study_area, project=True, buffer=mesh_density[1] + 1)
-
-        # Since most arguments are the same for each process, create a partial.
-        _generate = partial(self._generate, dem_file=dem_file, omni_source=omni_source, project_dem=False,
-                            altitude_m=altitude_m, heading=heading, src_pt_density=src_pt_density, n_contour=n_contour)
-
-        pbar = tqdm(desc='Study Area', unit='study area', colour='green', total=study_areas.shape[0], leave=True)
-        _update_pbar = lambda _: pbar.update()
-        _handle_error = lambda error: logger.error(f'Error: {error}')
-
-        with mp.Pool(n_cpus) as pool:
-            processes = []
-            for i in range(study_areas.shape[0]):
-                processes.append(pool.apply_async(_generate,
-                                                  kwds={'study_area': study_areas.iloc[[i]], 'name': f'{i+1}'},
-                                                  callback=_update_pbar,
-                                                  error_callback=_handle_error))
-            results = [p.get() for p in processes]
-            active_spaces = results.pop()
-            for res in results:
-                active_spaces = pd.concat([active_spaces, res], ignore_index=True)
-
-        return active_spaces, centroids.to_crs(active_spaces.crs)

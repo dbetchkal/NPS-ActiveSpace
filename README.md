@@ -120,7 +120,7 @@ Active space generation runs the NMSIM Nord2000 physics model as an external pro
 nmsim = C:\path\to\Nord2000batch.exe
 ```
 
-Required for `generate_active_space.py`, `generate_3d_active_space.py`, and `generate_active_space_mesh.py`. **Not** required for ground-truthing, audible transits, or validation.
+Required for `generate_active_space.py` and `generate_3d_active_space.py`. **Not** required for ground-truthing, audible transits, or validation.
 
 ### Configuration
 

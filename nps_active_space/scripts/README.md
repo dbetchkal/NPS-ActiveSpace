@@ -98,6 +98,8 @@ check_study_duration_robustness.py
 
 If you want to generate many active spaces at the same time, you can leverage the batch script to do so. This is useful for running it overnight or while you do other work.
 
+The batch runner collects per-run metrics from a JSON output written by `generate_active_space.py` (`--results-out`), then appends a row to the output CSV. Failed runs are skipped (no CSV row).
+
 ### Batch 3D Active Space
 
 1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#installation).
@@ -354,6 +356,8 @@ This script is used to predict active space scope in 3-dimensions. At present it
 
 *NOTE: for single-deployment scenarios omitting the `--only-prep` flag, this script proceeds to run the `generate_active_space_batch.py` and `fit_3d_active_space.py` scripts.*
 
+When `-a nvspl`, ambience is precomputed once and saved under `Output_Data/AMBIENCE/` as a `.pkl` referenced in the commands file.
+
 | command-line arg        | description                                                                                                                                      |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
@@ -386,6 +390,10 @@ This script is used to predict active space scope in 2-dimensions.
 
 *NOTE: the Precision-Recall plot that is shown at the end of a run is automatically saved.*
 
+#### Prerequisites
+
+Run [`project_setup.py`](#project-setup) for each deployment before generating active spaces.
+
 | command-line arg        | description                                                                                                                                                                                                                                                             |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                                                                                                                                           |
@@ -400,6 +408,7 @@ This script is used to predict active space scope in 2-dimensions.
 | `-b`, `--beta`          | **_default 1.0_**<br/>the beta value to use when calculating the f-beta for each active space.<br/>https://en.wikipedia.org/wiki/F-score#F%CE%B2_score)                                                                                                                 |
 | `--cleanup`             | If this flag is added, all intermediary control and batch files will be deleted upon script completion.                                                                                                                                                                 |
 | `--annotation-file`     | If provided, basename of GEOJSON annotations file to use instead of the default. File should be in the site directory.                                                                                                                                                  |
+| `--results-out`         | Optional path to write structured run results as JSON. Keys match the [batch output CSV columns](#generate-active-space-batch) (`Number of valid annotated segments`, `Mean altitude`, `KDE reduction (%)`, `1/3rd Octave Gain (F1)`, `F1`). Used internally by `generate_active_space_batch.py`. |
 
 Example executions:
 
@@ -411,16 +420,6 @@ $ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e produ
 $ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e production -u DENA -s TRLA -y 2017  -a mennitt --headings 0 --omni-min -5 --omni-max 10.5 -l 3658 -b .5
 ```
 
-If you would like the command output to be shown in the console and saved to a text file add the following after your command:
-
-```bash
-<command> | Tee-Object -FilePath "C:\Path\To\Output.txt"
-```
-
-```bash
-$ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e production -u DENA -s MOOS -y 2018 --cleanup | Tee-Object -FilePath "C:\Path\To\active_space_output_DENAMOOS2018.txt"
-```
-
 ----
 
 ### Generate Active Space Batch
@@ -428,6 +427,8 @@ $ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e produ
 This script generates active space estimates for a set of senarios provided in a `_commands.txt` file.
 
 *NOTE: this script may be run independently and also works "behind the scenes" as part of [`generate_3d_active_space.py`](#generate-3d-active-space)*
+
+Each command invokes `generate_active_space.py` with a temporary `--results-out` JSON path. On success, the JSON is read and appended as one row to the output CSV; on failure, that run is skipped and the CSV is left unchanged.
 
 | command-line arg           | description                                                                                                                                      |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -592,33 +593,6 @@ $ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production
 ```
 
 ----
-
-### Generate Active Space Mesh
-
-NOTE: *deprecated as of v3.0.0; documentation included here for backwards compatability. This script was used to generate active space predictions over a spatial grid spanning the study area.*
-
-| command-line arg      | description                                                                                                                                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-e`, `--environment` | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                                                   |
-| `-n`, `--name`        | **required.**<br/>Name of the directory where intermediary and output files will be stored. _Ex_: `-n DENAFULL`                                                                 |
-| `-s`, `--study-area`  | **required.**<br/>Absolute path to the shapefile of the study area. _Ex_: `-s C:/Users/yourname/Desktop/DENA.shp`                                                               |
-| `--headings`          | **_default [0, 120, 240]_**<br/>A list of the active space headings that should be dissolved together to make the final active space. _Ex_: `--headings 0, 90, 180, 270`        |
-| `--omni-source`       | **_default 0_**<br/>Gain to generate the mesh with.                                                                                                                             |
-| `--mesh-spacing`      | **_default 1_**<br/>How far apart, in km, mesh square centroids should be.                                                                                                      |
-| `--mesh-size`         | **_default 25_**<br/>How large, in km, each mesh square should be. Mesh squares will be mesh-size x mesh-size.                                                                  |
-| `-l`, `--altitude`    | **_default 3658_**<br/>Use this flag to generate the active spaces at a particular altitude (in meters). _Ex_: `-l 1524` generates active spaces at 1524 meters or 5000 feet.   |
-| `--cleanup`           | If this flag is added, all intermediary control and batch files will be deleted upon script completion.                                                                         |
-
-Example executions:
-
-```bash
-$ python -u -W ignore nps_active_space/scripts/generate_active_space_mesh.py -e production -n DENAFULL -s C:/Users/yourname/Desktop/DENA.shp --cleanup
-```
-
-```bash
-$ python -u -W ignore nps_active_space/scripts/generate_active_space_mesh.py -e production -n DENAFULL -s C:/Users/yourname/Desktop/DENA.shp --headings 0 180 --omni-source -12.5 --mesh-spacing 10 --mesh-size 20 -l 1524
-```
-
 
 # Other Notes
 

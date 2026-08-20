@@ -1,3 +1,4 @@
+import json
 import nps_active_space.utils.config as cfg
 from nps_active_space import ACTIVE_SPACE_DIR
 import subprocess
@@ -6,162 +7,97 @@ import sys
 import pandas as pd
 import re
 from argparse import ArgumentParser
-import threading
 import glob
 import shlex
 import shutil
+import tempfile
+from pathlib import Path
+
+RESULT_COLUMNS = [
+    "Designator",
+    "Number of valid annotated segments",
+    "Mean altitude",
+    "KDE reduction (%)",
+    "1/3rd Octave Gain (F1)",
+    "F1",
+]
+REQUIRED_RESULT_KEYS = [column for column in RESULT_COLUMNS if column != "Designator"]
 
 
-def stream_and_capture(stream, buffer, target):
+def read_results_file(results_path: Path, designator: str) -> tuple[pd.Series | None, str | None]:
+    """Load structured run results written by generate_active_space.py.
+
+    Returns
+    -------
+    series, error_message
+        ``error_message`` is set when results cannot be loaded (for console display).
     """
-    Utility function for capturing stdout or stderr, and then forwarding it to the console.
+    try:
+        with open(results_path) as results_file:
+            data = json.load(results_file)
+    except json.JSONDecodeError as exc:
+        return None, f"Invalid JSON in results file {results_path}: {exc}"
 
-    Parameters
-    ----------
-    stream
-        Stream to capture. Should be process.stdout or process.stderr
-    buffer: list
-        A list to store the bytes in, for reading later.
-    target
-        Where to forward the stream to. Should be sys.stdout.buffer or sys.stderr.buffer
+    if not isinstance(data, dict):
+        return None, f"Results file must contain a JSON object: {results_path}"
+
+    missing_keys = [key for key in REQUIRED_RESULT_KEYS if key not in data]
+    if missing_keys:
+        return None, (
+            f"Results file is missing required keys {missing_keys}: {results_path}"
+        )
+
+    series = pd.Series(data)
+    series["Designator"] = designator
+    return series.reindex(RESULT_COLUMNS), None
+
+
+def run_deployment(designator: str, cmd: list[str]) -> pd.Series | None:
     """
-    for chunk in iter(lambda: stream.read(1024), b''):
-        buffer.append(chunk)
-        target.write(chunk)
-        target.flush()
-    stream.close()
-
-
-def run_deployment(designator, cmd):
-    """
-    Runs generate active space, and parses the printed output to extract results we want.
+    Runs generate_active_space.py and reads structured results from a JSON output file.
 
     Parameters
     ----------
     designator: str
         Unique designator identifying this run. Included in the returned series.
-    cmd: str
-        Command line command to run, e.g. "python -u -W ignore nps_active_space/scripts/generate_active_space.py -e DENA_streamline ..."
+    cmd: list
+        Command to run, e.g. [sys.executable, "-u", "-W", "ignore", "...", "-e", "DENA_streamline", ...]
 
     Returns
     -------
     results: pd.Series or None
         If the run errored out, returns None.
         If the run succeeded, returns a pandas series with the results. Contains columns:
-        "Designator", "Number of valid annotated segments", "Mean altitude", "KDE reduction (%)", "1/3rd Octave Gain (F1)", "F1"
+        "Designator", "Number of valid annotated segments", "Mean altitude", "KDE reduction (%)",
+        "1/3rd Octave Gain (F1)", "F1"
     """
-
-    # Configure tqdm - environment variables preceded by "TQDM_" get passed to all tqdm instances as default args.
-    # Since we are capturing the tqdm stream and then re-printing, tqdm doesn't know anything about the width
-    # of our display, and produces a very small progress bar as a result. So, make the progress bar a bit wider.
     env = os.environ.copy()
-    env["TQDM_NCOLS"] = "80"  # 80 characters wide progress bar
+    env["TQDM_NCOLS"] = "80"
 
-    # Run the command
-    process = subprocess.Popen(
-        # split cmd into a list, taking care that spaces inside quotes aren't split
-        shlex.split(cmd),
-        # capture printed output instead of printing to console
-        stdout=subprocess.PIPE,
-        # capture stderr output (e.g. tqdm) instead of printing to console
-        stderr=subprocess.PIPE,
-        bufsize=0,  # unbuffered
-        env=env
-    )
+    fd, results_name = tempfile.mkstemp(suffix=".json")
+    os.close(fd)
+    os.unlink(results_name)
+    results_path = Path(results_name)
 
-    # create lists to store byte chunks that are printed to the console
-    stdout_chunks = []
-    stderr_chunks = []
-
-    # In order to print stdout and stderr to the console in the same way as they
-    # would originally be printed, we need to capture them at the same time.
-    #   - BTW, not capturing stderr and letting it print naturally will mess up the ordering
-    #     of the stdout vs. stderr prints to the console (e.g. progress bars may come before
-    #     the associated print statements)
-    # To capture stdout and stderr at the same time, we need to iterate
-    # through both their streams simultaneously. This requires doing two things
-    # at the same time, so we use threading to allow this parallel operation.
-
-    # Initialize the threads.
-    stdout_thread = threading.Thread(
-        target=stream_and_capture, args=(
-            process.stdout, stdout_chunks, sys.stdout.buffer)
-    )
-    stderr_thread = threading.Thread(
-        target=stream_and_capture, args=(
-            process.stderr, stderr_chunks, sys.stderr.buffer)
-    )
-    # Run the threads.
-    stdout_thread.start()
-    stderr_thread.start()
-
-    # Wait for the threads to finish.
-    process.wait()
-    stdout_thread.join()
-    stderr_thread.join()
-
-    # If we errored out, return nothing
-    if process.returncode != 0:
-        return None
-
-    # Convert byte output to text output
-    stdout_text = b''.join(stdout_chunks).decode(errors='replace')
-
-    # Parse the printed output to get the results series
-    return parse_output(stdout_text, designator)
-
-
-def parse_output(s, designator):
-    """
-    Parses printed output to get the relevant information.
-
-    Parameters
-    ----------
-    s: str
-        String containing all printed output.
-    designator: str
-        Unique designator for this run. Included in the returned series.
-
-    Returns
-    -------
-    results: pd.Series
-        Pandas series with columns:
-        "Designator", "Number of valid annotated segments", "Mean altitude", "KDE reduction (%)", "1/3rd Octave Gain (F1)", "F1"
-    """
-    # Use regular expressions to find the information we want.
-    # Use capturing groups (parentheses in the regex) to extract just the part
-    # we are interested in, and access these with the .group(index) function.
-
-    altitude_match = re.search(r"Average altitude is: (\d+)m", s)
-    avg_altitude = float(altitude_match.group(1)) \
-        if altitude_match is not None else ""
-
-    kde_match = re.search(
-        r"Went from (\d+) to (\d+) points when normalizing point density", s)
-    points_before_kde = int(kde_match.group(1))
-    points_after_kde = int(kde_match.group(2))
-    kde_reduction = f"{100 * (1 - (points_after_kde / points_before_kde))}%"
-
-    n_annots = int(
-        re.search(r"(\d+) valid annotated segments found", s).group(1))
-
-    best_f1_match = re.search(
-        r"The best performing omni source for F-1.0 is: O_(....) \(fbeta: (.+)\)", s)
-    if best_f1_match is not None:
-        gain = int(best_f1_match.group(1)) / 10
-        f1 = float(best_f1_match.group(2))
-    else:
-        gain = None
-        f1 = None
-
-    return pd.Series({
-        "Designator": designator,
-        "Number of valid annotated segments": n_annots,
-        "Mean altitude": avg_altitude,
-        "KDE reduction (%)": kde_reduction,
-        "1/3rd Octave Gain (F1)": gain,
-        "F1": f1
-    })
+    try:
+        full_cmd = cmd + ["--results-out", str(results_path)]
+        process = subprocess.run(full_cmd, env=env)
+        if process.returncode != 0:
+            return None
+        if not results_path.exists():
+            print(
+                f"Run succeeded but no results file was written: {results_path}",
+                flush=True,
+            )
+            return None
+        result_series, error_message = read_results_file(results_path, designator)
+        if error_message is not None:
+            print(error_message, flush=True)
+            return None
+        return result_series
+    finally:
+        if results_path.exists():
+            results_path.unlink()
 
 
 def copy_output_files(option_str, savedir, designator):
@@ -266,14 +202,19 @@ if __name__ == "__main__":
             continue
 
         # assemble and run the command
-        script_path = os.path.join(ACTIVE_SPACE_DIR, "scripts", "generate_active_space.py")
-        cmd = f"python -u -W ignore '{script_path}' {options}"
+        script_path = Path(ACTIVE_SPACE_DIR) / "scripts" / "generate_active_space.py"
+        cmd = [sys.executable, "-u", "-W", "ignore", str(script_path)] + shlex.split(options)
         result_series = run_deployment(designator, cmd)
-        # if it ran with no errors, save the results
-        if result_series is not None:
-            output_df = pd.concat(
-                [output_df, result_series.to_frame().T], ignore_index=True)
-            output_df.to_csv(args.output, index=False)
+        if result_series is None:
+            print(
+                f"Run failed for {designator}; skipping CSV update. "
+                "See errors above (check site Input_Data/03_TRAJECTORY and Output_Data/TIG_TIS)."
+            )
+            continue
+
+        output_df = pd.concat(
+            [output_df, result_series.to_frame().T], ignore_index=True)
+        output_df.to_csv(args.output, index=False)
 
         # if args.savedir is not None:
         #     copy_output_files(options, args.savedir, designator)

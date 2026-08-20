@@ -1,4 +1,6 @@
 import glob
+import json
+import logging
 import multiprocessing as mp
 import os
 import signal
@@ -15,12 +17,17 @@ from shapely.geometry import Point
 from tqdm import tqdm
 import pickle
 import sys
-import iyore
 
 import nps_active_space.utils.config as cfg
 from nps_active_space.utils.helpers import get_deployment, get_logger, get_omni_sources, load_annotations, omni_to_gain
-from nps_active_space.utils.models import Annotations, Nvspl
-from nps_active_space.utils.computation import select_optimal, ambience_from_nvspl, ambience_from_raster, normalize_point_density
+from nps_active_space.utils.models import Annotations
+from nps_active_space.utils.computation import (
+    select_optimal,
+    compute_ambience_from_nvspl_archive,
+    ambience_from_raster,
+    normalize_point_density,
+    load_spectral_ambience_pickle,
+)
 from nps_active_space.active_space import ActiveSpaceGenerator
 
 if TYPE_CHECKING:
@@ -250,6 +257,24 @@ def init_worker():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
+def _nonempty_active_space_count(results: list[tuple[str, gpd.GeoDataFrame]]) -> int:
+    """Count generated active space layers that contain at least one non-empty geometry."""
+    count = 0
+    for _, active_space in results:
+        if active_space.empty:
+            continue
+        geometries = active_space.geometry
+        if geometries.notna().any() and (~geometries.is_empty).any():
+            count += 1
+    return count
+
+
+def _fail_active_space_generation(message: str) -> None:
+    print(message, flush=True)
+    logging.getLogger(__name__).error(message)
+    sys.exit(1)
+
+
 if __name__ == '__main__':
 
     argparse = ArgumentParser()
@@ -277,9 +302,16 @@ if __name__ == '__main__':
     argparse.add_argument('--cleanup', action='store_true',
                           help="Remove intermediary control and batch files.")
     argparse.add_argument('--annotation-file', help="Basename of GEOJSON annotations file to use, if not the default. File should be in the site directory.")
+    argparse.add_argument(
+        '--results-out',
+        help="Path to write structured run results as JSON (used by generate_active_space_batch.py).",
+    )
     args = argparse.parse_args()
 
-    ambience_valid = (args.ambience == "nvspl") or (args.ambience == "mennitt") or (args.ambience.endswith(".pkl") and os.path.exists(args.ambience))
+    ambience_valid = (
+        args.ambience in {"nvspl", "mennitt"}
+        or args.ambience.endswith(".pkl")
+    )
     assert ambience_valid, "Ambience argument must be 'nvspl', 'mennitt', or a .pkl file"
 
     # --------------- INIT --------------- #
@@ -299,16 +331,23 @@ if __name__ == '__main__':
     # Compute ambience
     # Load NVSPL data or the mennitt raster depending on the user input.
     if args.ambience == 'nvspl':
-        archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
-        nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year))]
-        nvspl = Nvspl(nvspl_files)
         ambience_quantile = 90  # L90 = 90% exceedance = 10% quantile sound level
-        ambience = ambience_from_nvspl(nvspl, ambience_quantile, broadband=False)
+        ambience = compute_ambience_from_nvspl_archive(
+            cfg.read('data', 'nvspl_archive'),
+            args.unit,
+            args.site,
+            args.year,
+            ambience_quantile,
+            broadband=False,
+        )
     elif args.ambience == 'mennitt':
         ambience = ambience_from_raster(cfg.read('data', 'mennitt'), mic_)
     else:
-        # should be a .pkl filename
-        ambience = pd.read_pickle(args.ambience)
+        ambience = load_spectral_ambience_pickle(args.ambience)
+        if ambience is None:
+            _fail_active_space_generation(
+                f"Ambience pickle is missing or has no usable spectral bands: {args.ambience}"
+            )
         print(f"Read ambience from {args.ambience}")
 
     # --------------- ANNOTATION LOGIC --------------- #
@@ -332,7 +371,10 @@ if __name__ == '__main__':
     valid_points = gpd.GeoDataFrame(data=valid_points_lst, geometry='geometry', crs=annotations.crs)
 
     # Reduce point density to median density, so very dense areas (e.g. airports) don't skew the fit
+    points_before_kde = len(valid_points)
     valid_points = normalize_point_density(valid_points, study_area, random_seed=679)
+    points_after_kde = len(valid_points)
+    kde_reduction = f"{100 * (1 - (points_after_kde / points_before_kde))}%"
 
     # If the user does not pass an altitude, calculate the average altitude of all valid tracks. Extract the altitudes
     #  from each linestring to get the average height (in meters) of audible flight segments.
@@ -357,17 +399,18 @@ if __name__ == '__main__':
 
     # --------------- ACTIVE SPACE GENERATION --------------- #
 
-    # Create an ActiveSpaceGenerator instance and set the DEM data for the microphone location since we will be using
-    #  the same location for every active space. This is a MAJOR time saver!
+    # Create an ActiveSpaceGenerator instance and cache project_setup elevation for repeated runs.
     generator_ = ActiveSpaceGenerator(
         NMSIM=cfg.read('project', 'nmsim'),
         root_dir=site_dir,
         study_area=study_area,
         ambience=ambience,
-        dem_src=cfg.read('data', 'dem'),
     )
-    logger.info('Setting dem...')
-    generator_.set_dem(mic_)
+    logger.info('Caching project_setup elevation for NMSIM...')
+    try:
+        generator_.set_dem(mic_)
+    except FileNotFoundError as exc:
+        _fail_active_space_generation(str(exc))
 
     # Create active space for each omni source.
 
@@ -429,6 +472,30 @@ if __name__ == '__main__':
 
     # --------------- ANALYSIS --------------- #
 
+    if not results:
+        _fail_active_space_generation(
+            "No active space layers were generated successfully. "
+            "Check worker errors above, NMSIM configuration, and site inputs under "
+            f"{site_dir} (especially Input_Data/03_TRAJECTORY and Output_Data/TIG_TIS)."
+        )
+
+    nonempty_layers = _nonempty_active_space_count(results)
+    if nonempty_layers == 0:
+        _fail_active_space_generation(
+            f"Active space generation finished but all {len(results)} geojson layers are empty. "
+            "NMSIM likely produced no audible source points. Check DEM elevation files under "
+            f"{site_dir}/Input_Data/01_ELEVATION, trajectory files in Input_Data/03_TRAJECTORY, "
+            "and TIG_TIS outputs before continuing the 3D workflow."
+        )
+
+    run_results: dict[str, object] = {
+        "Number of valid annotated segments": len(annotations),
+        "Mean altitude": altitude_,
+        "KDE reduction (%)": kde_reduction,
+        "1/3rd Octave Gain (F1)": None,
+        "F1": None,
+    }
+
     for beta_ in args.beta:
         usy = f"{args.unit}{args.site}{args.year}"
         plotname = f"PrecisionRecallPlot_{usy}_{altitude_}m_{str(beta_).replace('.','p')}.png"
@@ -444,3 +511,21 @@ if __name__ == '__main__':
                                                        verbose=False)
 
         logger.info(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta})")
+
+        if beta_ == 1.0:
+            run_results["1/3rd Octave Gain (F1)"] = (
+                omni_to_gain(best_omni) if best_omni is not None else None
+            )
+            run_results["F1"] = max_fbeta
+
+            if valid_points["audible"].any() and max_fbeta == 0:
+                _fail_active_space_generation(
+                    f"Generated active spaces at {altitude_}m do not overlap any audible annotations (F1=0). "
+                    "Layer geojsons may be empty or misaligned with ground truth. Inspect "
+                    f"{active_savedir} and NMSIM outputs under {site_dir}/Output_Data/TIG_TIS "
+                    "before running fit_3d_active_space.py."
+                )
+
+    if args.results_out is not None:
+        with open(args.results_out, "w") as results_file:
+            json.dump(run_results, results_file)
