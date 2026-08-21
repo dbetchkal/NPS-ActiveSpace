@@ -150,7 +150,15 @@ def load_DEM(project_dir: str, unit: str, site: str):
         A rasterio Dataset object for reading the DEM data
     """
 
-    raster_path = p.dem_raster(project_dir, unit, site)
+    raster_path = _glob_path_or_raise(
+        os.path.join(
+            project_dir, unit + site, "Input_Data", "01_ELEVATION", "elevation_m_nad83_utm*.tif"
+        ),
+        description=(
+            f"elevation DEM for {unit}{site} "
+            f"(expected GeoTIFF in Input_Data/01_ELEVATION/elevation_m_nad83_utm*.tif)"
+        ),
+    )
     return rasterio.open(raster_path)
 
 
@@ -188,7 +196,11 @@ def load_studyarea(project_dir: str, unit: str, site: str, year: int, crs: str =
         A dataframe containing the geometry of the study area. A single polygon.
     """
 
-    study_area = gpd.read_file(p.study_area_shapefile(project_dir, unit, site))
+    study_area_path = _glob_path_or_raise(
+        os.path.join(project_dir, unit + site, f"{unit}{site}*study*area*.shp"),
+        description=f"study area shapefile for {unit}{site}{year}",
+    )
+    study_area = gpd.read_file(study_area_path)
 
     if crs is not None:
         study_area = study_area.to_crs(crs)
