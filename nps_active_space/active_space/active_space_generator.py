@@ -276,7 +276,9 @@ class ActiveSpaceGenerator:
         # - storing no sound (-99.9dB) as NA
         # - omitting the constant-valued Zpos field
         dB_cols = nmsim_df_all.loc[:,"A":"12500"].columns
-        nmsim_df_all[dB_cols] = (nmsim_df_all[dB_cols] * 10).astype("Int64").replace(-999, pd.NA)
+        nmsim_df_all[dB_cols] = (
+            (nmsim_df_all[dB_cols] * 10).round().astype("Int64").replace(-999, pd.NA)
+        )
         nmsim_df_all.drop("Zpos", axis=1, inplace=True, errors="ignore")
         nmsim_df_all.to_csv(csv_filename, index=False)
 
