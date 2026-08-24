@@ -35,7 +35,9 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 WORKDIR /repo
 COPY pyproject.toml README.md LICENSE.md ./
 COPY nps_active_space/ ./nps_active_space/
+COPY vendor/.docker-build/aam_translator /tmp/aam_translator
 RUN pip install --no-cache-dir "GDAL==$(gdal-config --version)" \
+ && pip install --no-cache-dir /tmp/aam_translator \
  && pip install --no-cache-dir -e .
 
 # ---- Wine shims (binaries are bind-mounted at run time) ----

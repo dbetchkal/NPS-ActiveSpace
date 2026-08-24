@@ -1,8 +1,6 @@
-import glob
 import logging
 import multiprocessing as mp
 import os
-import subprocess
 from functools import partial
 from typing import Optional, Tuple, Union
 from uuid import uuid4
@@ -12,7 +10,6 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
 import pandas as pd
-from osgeo import gdal
 from pyproj import Transformer
 import rasterio
 from shapely.geometry import Polygon, box
@@ -21,8 +18,8 @@ from tqdm import tqdm
 from warnings import warn
 
 from nps_active_space import ACTIVE_SPACE_DIR
-from nps_active_space.setup.site_writer import create_site_dir, write_listener_site_file
-from nps_active_space.utils.constants import IS_WINDOWS
+from nps_active_space.active_space.propagation_model import PropagationModel
+from nps_active_space.setup.site_writer import create_site_dir
 from nps_active_space.utils.models import Microphone
 from nps_active_space.utils.computation import (
     build_src_point_mesh,
@@ -43,21 +40,6 @@ human_hearing_threshold = pd.Series({
 })
 
 logger = logging.getLogger(__name__)
-
-
-def _nmsim_control_path(path: str) -> str:
-    """Format a filesystem path for an NMSIM control file.
-
-    On Windows, NMSIM is run natively and paths already use backslashes, so the path is
-    returned unchanged. On Linux/Mac, NMSIM runs through Wine; the (Fortran) binary derives
-    companion files (e.g. a source's `.avg`, a DEM's `.hdr`) from the *backslash* directory
-    component of the path it is given. POSIX forward-slash paths break that derivation, so
-    NMSIM falls back to its cwd and fails. Convert absolute POSIX paths to Wine drive paths
-    (``Z:`` maps to ``/`` by default) using backslash separators.
-    """
-    if IS_WINDOWS:
-        return path
-    return "Z:" + os.path.abspath(path).replace("/", "\\")
 
 
 class PolygonCreationError(Exception):
@@ -84,10 +66,15 @@ class ActiveSpaceGenerator:
         If float (broadband ambience), will be compared against the predicted A-weighted broadband level of noises.
         If pd.Series[float], should contain sound levels for the 12.5 to 12500 Hz 1/3 octave bands.
     """
-    def __init__(self, NMSIM: str, study_area: gpd.GeoDataFrame, root_dir: str, dem_src: str,
-                 ambience: Union[float, pd.Series]):
-
-        assert os.path.exists(NMSIM), "NMSIM not found"
+    def __init__(
+        self,
+        NMSIM: str | None,
+        study_area: gpd.GeoDataFrame,
+        root_dir: str,
+        dem_src: str,
+        ambience: Union[float, pd.Series],
+        propagation_model: PropagationModel | None = None,
+    ):
         assert os.path.exists(dem_src), "DEM not found"
         assert os.path.exists(root_dir), "Root directory not found"
         assert isinstance(ambience, (float, int)) or isinstance(ambience, pd.Series), "Improper ambience input"
@@ -95,307 +82,20 @@ class ActiveSpaceGenerator:
             warn("Using broadband ambience. This feature has not been maintained and has possible buggy, incorrect, "
                  "or unexpected behavior. Only use if you know what you are doing.", UserWarning)
 
+        if propagation_model is None:
+            assert NMSIM is not None and os.path.exists(NMSIM), "NMSIM not found"
+            from nps_active_space.active_space.nmsim_propagation_model import NmsimPropagationModel
+            propagation_model = NmsimPropagationModel(NMSIM, root_dir)
+
         self.study_area = study_area.to_crs('epsg:4269')
         self.root_dir = root_dir
         self.ambience = ambience
         self.dem_src = dem_src
         self.NMSIM = NMSIM
-
-        self._dem_file = None
-        self._flt_file = None
-        self._site_file = None
+        self.propagation_model = propagation_model
+        self._site_context = None
 
         create_site_dir(self.root_dir)
-
-    def _mask_dem_file(self, dem_src: str, study_area: gpd.GeoDataFrame, project: bool = False,
-                       buffer: Optional[int] = None, suffix: str = '') -> str:
-        """
-        Project and mask a DEM .tif raster.
-        Follows this tutorial: https://rasterio.readthedocs.io/en/latest/topics/masking-by-shapefile.html
-
-        Parameters
-        ----------
-        dem_src : str
-            Absolute path to a DEM raster to be projected and clipped for use by NMSIM.
-        study_area : gpd.GeoDataFrame
-            The study area to clip the DEM raster to.
-        suffix : str, default ''
-            A suffix to add to the end of the filename to distinguish it from others.
-        project : bool, default True
-           True to project the DEM file to NAD83 before clipping it.
-
-        Returns
-        -------
-        The absolute path to the .tif file of the projected and masked raster.
-        """
-        # Project the DEM file to NAD83 which is also what the study area is in.
-        if project:
-            dem_projected_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation{suffix}.tif"
-            project_raster(dem_src, dem_projected_filename, study_area.crs)
-            dem_src = dem_projected_filename
-
-        # Output the study area, in the proper projection, to a shapefile so it can be used for masking.
-        study_area_filename_prefix = f"{self.root_dir}/Input_Data/01_ELEVATION/study_area{suffix}_{uuid4()}"
-        study_area_filename = f"{study_area_filename_prefix}.shp"
-        if buffer:
-            equal_area_crs,_ = coords_to_utm(study_area.centroid.iat[0].y, study_area.centroid.iat[0].x)
-            study_area_m = study_area.to_crs(equal_area_crs)
-            study_area_m = study_area_m.buffer(buffer*1000)
-            study_area = study_area_m.to_crs(study_area.crs)
-
-        # sometimes ArcGIS Pro will sneak in an immutable 'FID' column
-        # thankfully if it exists, a viable solution is just to drop the column
-        if 'FID' in study_area.columns:
-            study_area = study_area.drop(columns=['FID'])
-        
-        # frequently the columns in the `study_area` `gpd.GeoDataFrame` are also immutable
-        # to fix this we can convert them to the `object` type which allows us to write the study area
-        # to the disk temporarily as we need to here...
-        for col in study_area.columns:
-            study_area[col] = study_area[col].astype(object)
-
-        # we avoid the deprecated `pd.Int64Index` and an associated AttributeError
-        # by simply setting the `index` parameter to False...
-        study_area.to_file(study_area_filename, index=False) 
-
-        # Mask the DEM file with the study area shapefile.
-        dem_masked_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_mask{suffix}.tif"
-        gdal.Warp(
-            dem_masked_filename,
-            dem_src,
-            cutlineDSName=study_area_filename,
-            cropToCutline=True
-        )
-
-        # Remove the temporary shapefile (and related files) since they were only needed for masking.
-        for filename in glob.glob(f"{study_area_filename_prefix}*"):
-            os.remove(filename)
-
-        return dem_masked_filename
-
-    def _create_dem_flt(self, dem_file: str) -> str:
-        """
-        Convert the DEM .tif to a DEM .flt as input into NMSIM.
-
-        Parameters
-        ----------
-        dem_file : str
-            Absolute path to the DEM .tif file to convert to a .flt file.
-
-        Returns
-        -------
-        DEM flt filename for the study area.
-        """
-        flt_filename = dem_file.replace('.tif', '.flt')
-        flt_header_filename = dem_file.replace('.tif', '.hdr')
-
-        gdal.Translate(flt_filename, dem_file, options="-ot Float32 -of ehdr -a_nodata -9999")
-
-        # the header file doesn't write correctly... manually overwrite this:
-        old_hdr = pd.read_csv(flt_header_filename, header=None, sep=r'\s+', index_col=0).T
-
-        # compute new lower left corner y-val
-        yllcorner = float(old_hdr.ULYMAP) - float(old_hdr.NROWS) * float(old_hdr.XDIM)
-
-        # write a new header file exactly as output by ESRI
-        with open(flt_header_filename, 'w') as header:
-            header.write("{:14}{:}\n".format("ncols", old_hdr.NCOLS.values[0]))
-            header.write("{:14}{:}\n".format("nrows", old_hdr.NROWS.values[0]))
-            header.write("{:14}{:}\n".format("xllcorner", old_hdr.ULXMAP.values[0]))
-            header.write("{:14}{:}\n".format("yllcorner", yllcorner))
-            header.write("{:14}{:}\n".format("cellsize", old_hdr.XDIM.values[0]))
-            header.write("{:14}{:}\n".format("NODATA_value", old_hdr.NODATA.values[0]))
-            header.write("{:14}{:}".format("byteorder", "LSBFIRST"))
-
-        return flt_filename
-
-    def _create_trajectory_file(self, points: gpd.GeoDataFrame, crs: str, filename: str,
-                                heading: Optional[int] = None) -> str:
-        """
-        Create a trajectory file from a list of points.
-
-        Parameters
-        ----------
-        points : gpd.GeoDataFrame
-            GeoDataFrame of trajectory points to be written and run through NMSIM.
-        crs : str
-            The crs the Points should be in before being written to the trajectory file.
-        filename : str
-            Name of the trajectory file.
-        heading : int, default None
-            The heading (yaw) to use for all points in the trajectory file. If None, a random heading will be used
-            for each point.
-
-        Returns
-        -------
-        The trajectory file name.
-        """
-        trajectory_filename = f"{self.root_dir}/Input_Data/03_TRAJECTORY/{filename}.trj"
-
-        trajectory = points.to_crs(crs)
-        trajectory['heading'] = heading if heading is not None else np.random.choice(range(0, 360), size=len(points), replace=True)
-        trajectory['climb_angle'] = 0
-        trajectory['power'] = 95
-        trajectory['rol'] = 0
-
-        velocity = 70   # m/s
-        trajectory["knots"] = 1.94384 * velocity    # Convert airspeed to knots
-
-        dist = np.diff(np.array([[x, y, z] for x, y, z in zip(trajectory.geometry.x, trajectory.geometry.y, trajectory.geometry.z)]), axis=0)
-        time_elapsed = np.cumsum(np.array([np.linalg.norm(d) for d in dist]) / velocity)
-        time_elapsed = np.append(time_elapsed, np.nan)  # last row must be NaN because time is based on differencing
-        trajectory["time_elapsed"] = time_elapsed
-
-        with open(trajectory_filename, 'w') as trajectory_file:
-            trajectory_file.write("Flight track trajectory variable description:\n")
-            trajectory_file.write(" time - time in seconds from the reference time\n")
-            trajectory_file.write(" Xpos - x coordinate (UTM)\n")
-            trajectory_file.write(" Ypos - y coordinate (UTM)\n")
-            trajectory_file.write(" UTM Zone  " + crs + "\n")
-            trajectory_file.write(" Zpos - z coordinate in meters MSL\n")
-            trajectory_file.write(" heading - aircraft compass bearing in degrees\n")
-            trajectory_file.write(" climbANG - aircraft climb angle in degrees\n")
-            trajectory_file.write(" vel - aircraft velocity in knots\n")
-            trajectory_file.write(" power - % engine power\n")
-            trajectory_file.write(" roll - bank angle (right wing down), degrees\n")
-            trajectory_file.write("FLIGHT " + filename + "\n")
-            trajectory_file.write("TEMP.  59.0\n")
-            trajectory_file.write("Humid.  70.0\n")
-            trajectory_file.write("\n")
-            trajectory_file.write(
-                "         time(s)        Xpos           Ypos           Zpos         heading        climbANG       Vel            power          rol\n")
-
-            for ind, point in trajectory.iterrows():
-                trajectory_file.write(
-                    "{0:15.3f}".format(point.time_elapsed) +
-                    "{0:15.3f}".format(point.geometry.x) +
-                    "{0:15.3f}".format(point.geometry.y) +
-                    "{0:15.3f}".format(point.geometry.z) +
-                    "{0:15.3f}".format(point.heading) +
-                    "{0:15.3f}".format(point.climb_angle) +
-                    "{0:15.3f}".format(point.knots) +
-                    "{0:15.3f}".format(point.power) +
-                    "{0:15.3f}".format(point.rol) + "\n"
-                )
-
-        return trajectory_filename
-
-    def _create_site_file(self, mic: Microphone, dem_file: str) -> str:
-        """
-        Create a required NMSIM site file representing the location we are testing audibility for.
-
-        Parameters
-        ----------
-        mic : Microphone
-            A Microphone object to create a NMSIM site file for.
-        dem_file : str
-            Absolute path to the .flt DEM file for the study area.
-
-        Returns
-        -------
-        The name of the site file.
-        """
-        return str(write_listener_site_file(
-            self.root_dir, mic.name, mic.x, mic.y, mic.z, dem_file
-        ))
-
-    def _create_instruction_files(self, flt_file: str, site_file: str, trajectory_file: str,
-                                  omni_source_file: str) -> str:
-        """
-        Create the batch.txt and control.nms instructions files needed to run NMSIM.
-
-        Parameters
-        ----------
-        flt_file : str
-            Absolute path to elevation flt file.
-        site_file : str
-            Absolute path to site file.
-        trajectory_file : str
-            Absolute path to trajectory file.
-        omni_source_file : str
-            Absolute path to omni source file.
-
-        Returns
-        -------
-        Batch file name.
-        """
-        control_file = f"{self.root_dir}/control_{os.path.basename(trajectory_file).replace('.trj', '')}.nms"
-        batch_file = f"{self.root_dir}/batch_{os.path.basename(trajectory_file).replace('.trj', '')}.txt"
-        tis_directory = f"{self.root_dir}/Output_Data/TIG_TIS"
-
-        with open(control_file, 'w') as nms:
-            nms.write(_nmsim_control_path(flt_file) + "\n")
-            nms.write("-\n")
-            nms.write(_nmsim_control_path(site_file) + "\n")
-            nms.write(_nmsim_control_path(trajectory_file) + "\n")
-            nms.write(_nmsim_control_path(f"{ACTIVE_SPACE_DIR}/data/default.wea") + "\n")
-            nms.write("-\n")
-            nms.write(_nmsim_control_path(omni_source_file) + "\n")
-            nms.write("{0:11.4f}   \n".format(500.0000))
-            nms.write("-\n")
-            nms.write("-")
-
-        # write the batch file to create a site-based analysis
-        with open(batch_file, 'w') as batch:
-            batch.write("open\n")
-            batch.write(_nmsim_control_path(control_file) + "\n")
-            batch.write("site\n")
-            batch.write(_nmsim_control_path(f"{tis_directory}/{os.path.basename(trajectory_file)[:-4]}") + "\n")
-            batch.write("dbf: no\n")
-            batch.write("hrs: 0\n")
-            batch.write("min: 0\n")
-            batch.write("sec: 0.0")
-
-        return batch_file
-
-    def _postprocess_trj_tis(self, trajectory_file, tis_file, cleanup: bool = True):
-        """
-        Reads a job's input trajectory file and output TIS file, and combines them into a DataFrame.
-        Optionally removes the .trj and .tis files after doing so.
-
-        Parameters
-        ----------
-        trajectory_file: str
-            Absolute path to the job's trajectory file.
-        tis_file: str
-            Absolute path to the job's output TIS file.
-        cleanup: bool, default True
-            If True, delete the .trj and .tis files after extracting their data.
-
-        Returns
-        -------
-        nmsim_df: pd.DataFrame
-            DataFrame representing tested point audibility. Has the columns:
-            Xpos, Ypos, Zpos, 
-        """
-        # Read in the trajectory input file.
-        traj_df = pd.read_fwf(trajectory_file, header=14, widths=[16, 14] + [15]*7)
-        # drop unneeded fields
-        traj_df = traj_df.drop(["time(s)", "heading", "climbANG", "Vel", "power", "rol"], axis=1)
-
-        # Read in the tis NMSIM output file.
-        tis_df = pd.read_fwf(tis_file, header=15, skipfooter=1, widths=[4, 12] + [5]*35)
-        tis_df.drop(['SP#', 'F', '42'], axis=1, inplace=True)  # Drop the sensitivity index column
-        tis_df.drop(tis_df.head(2).index, inplace=True)        # Drop dividing *****, and unneeded AMBIENT row
-        tis_df.reset_index(drop=True, inplace=True)
-        tis_df.columns = ["TIME", "A", "10", "12.5", "15.8", "20", "25", "31.5", "40", "50", "63",
-                            "80", "100", "125", "160", "200", "250", "315", "400", "500", "630", "800", "1000",
-                            "1250", "1600", "2000", "2500", "3150", "4000", "5000", "6300", "8000", "10000", "12500"]
-        tis_df = tis_df.drop("TIME", axis=1)
-        # convert centibels (cB) to decibels (dB) and round to remove floating point precision errors
-        # file is less precise than 6 decimal places, so rounding just removes floating point issues
-        # all columns are sound levels now so can apply this to the whole df
-        tis_df = (tis_df.astype(float) * 0.1).round(6)
-
-        assert not tis_df.empty, "NMSIM didn't run, try reducing max_pts in _preprocess_source_pts() and try again"
-        assert len(traj_df) == len(tis_df), f"# trajectory points ({len(traj_df)}) is not equal to # tis points ({len(tis_df)})"
-        new_rows = pd.concat([traj_df, tis_df], axis=1)
-        
-        if cleanup:
-            os.remove(trajectory_file)
-            os.remove(tis_file)
-        
-        return new_rows
 
     def _find_audible_points(self, nmsim_df: pd.DataFrame, crs: str) -> gpd.GeoDataFrame:
         """
@@ -480,10 +180,12 @@ class ActiveSpaceGenerator:
             Subset of source_pts that are below ground.
         """
         crs = source_pts.crs.to_string().lower()
+        assert self._site_context is not None, "prepare_site must run before propagation predict"
+        dem_path = self._site_context.dem_file
 
         aboveground_indices = []
         underground_indices = []  # underground or no DEM data
-        with rasterio.open(self._dem_file) as dem:
+        with rasterio.open(dem_path) as dem:
             proj = Transformer.from_crs(crs, dem.crs, always_xy=True)
             xs = source_pts.geometry.x
             ys = source_pts.geometry.y
@@ -578,8 +280,9 @@ class ActiveSpaceGenerator:
         nmsim_df_all.drop("Zpos", axis=1, inplace=True, errors="ignore")
         nmsim_df_all.to_csv(csv_filename, index=False)
 
-    def _run_nmsim(self, job_name: str, source_pts: gpd.GeoDataFrame, flt_file: str, site_file: str,
-                   omni_source: str, altitude_m: int, heading: Optional[int] = None) -> gpd.GeoDataFrame:
+    def _run_propagation_model(self, job_name: str, source_pts: gpd.GeoDataFrame,
+                               omni_source: str, altitude_m: int,
+                               heading: Optional[int] = None) -> gpd.GeoDataFrame:
         """
         Execute a single NMSIM job.
 
@@ -629,31 +332,21 @@ class ActiveSpaceGenerator:
         # print(f"{job_name} n={len(aboveground_pts)}, old={len(nmsim_df)}, new={len(new_pts)}")
 
         if len(new_pts) == 0:
-            # no need to run NMSIM, we have all the predictions already
+            # no need to run propagation model, we have all the predictions already
             new_nmsim_df = pd.DataFrame()
         else:
-            # Prepare NMSIM instruction files
-            trajectory_filename = self._create_trajectory_file(new_pts, crs, job_name, heading)
-            batch_file = self._create_instruction_files(flt_file, site_file, trajectory_filename, omni_source)
-
-            # Run NMSIM.
-            process = subprocess.Popen([self.NMSIM, batch_file], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            stdout, stderr = process.communicate()
-            if stderr:
-                for s in stderr.decode("utf-8").splitlines():
-                    logger.error(s.strip())
-
-            # Read NMSIM outputs and remove unneeded .trj and .tis file
-            new_nmsim_df = self._postprocess_trj_tis(
-                trajectory_filename,
-                f"{self.root_dir}/Output_Data/TIG_TIS/{job_name}.tis",
-                cleanup=True)
-        
-            # Combine with results from previous NMSIM runs
+            new_nmsim_df = self.propagation_model.predict(
+                self._site_context,
+                new_pts,
+                omni_source,
+                altitude_m,
+                job_name,
+                heading,
+            )
             nmsim_df = pd.concat([nmsim_df, new_nmsim_df], ignore_index=True)
             nmsim_df = nmsim_df.drop_duplicates(subset=["Xpos", "Ypos"])
-        
-        # Combine new NMSIM predictions with ALL previous predictions (not just ones matching source_pts),
+
+        # Combine new predictions with ALL previous predictions (not just ones matching source_pts),
         # and save back to the csv file
         nmsim_df_all = pd.concat([nmsim_df_all, new_nmsim_df], ignore_index=True)
         ActiveSpaceGenerator.save_nmsim_predictions(nmsim_df_all, csv_filename)
@@ -805,10 +498,14 @@ class ActiveSpaceGenerator:
                 crs=crs
             )
         
-        # If no dem file has been set, create the DEM file now. Also create the flt and site files needed by NMSIM.
-        dem_filename = self._dem_file or self._mask_dem_file(dem_file, study_area=study_area, project=project_dem, suffix=f'_{mic.name}')
-        flt_filename = self._flt_file or self._create_dem_flt(dem_filename)
-        site_filename = self._site_file or self._create_site_file(mic, flt_filename)
+        if self._site_context is None:
+            self._site_context = self.propagation_model.prepare_site(
+                dem_file,
+                study_area,
+                mic,
+                project=project_dem,
+                suffix=f"_{mic.name}",
+            )
 
         # Prepare a coarse and fine grid to use for the 1st and 2nd point mesh steps
         # we end up rounding the source_pts coords to the nearest 0.001m later, so do this now
@@ -841,16 +538,17 @@ class ActiveSpaceGenerator:
                 boundary_zone = near_audible.intersection(near_inaudible)
                 source_pts = fine_grid[fine_grid.within(boundary_zone)]
             
-            source_pts = self._preprocess_source_points(source_pts, valid_query_region, tested_pts)
+            source_pts = self._preprocess_source_points(
+                source_pts, valid_query_region, tested_pts,
+                max_pts=self.propagation_model.max_points_per_run,
+            )
             if source_pts.empty:
                 logger.info(f"Mesh step {j+1}: no source points, skipping")
                 break
             
-            new_audibility_pts = self._run_nmsim(
+            new_audibility_pts = self._run_propagation_model(
                 f"{mic.name}_{altitude_m}m_mesh{j + 1}",
                 source_pts,
-                flt_filename,
-                site_filename,
                 omni_source,
                 altitude_m,
                 heading
@@ -863,15 +561,16 @@ class ActiveSpaceGenerator:
             # we end up rounding the source_pts coords to the nearest 0.001m later, so do this now
             # to make comparisons with the output of past runs work properly
             round_points(source_pts, 3)
-            source_pts = self._preprocess_source_points(source_pts, valid_query_region, tested_pts)
+            source_pts = self._preprocess_source_points(
+                source_pts, valid_query_region, tested_pts,
+                max_pts=self.propagation_model.max_points_per_run,
+            )
             if source_pts.empty:
                 # print(f"Refine step {k+1}: no source points, skipping")
                 break
-            new_audibility_pts = self._run_nmsim(
+            new_audibility_pts = self._run_propagation_model(
                 f"{mic.name}_{altitude_m}m_contour{k + 1}",
                 source_pts,
-                flt_filename,
-                site_filename,
                 omni_source,
                 altitude_m,
                 heading
@@ -903,9 +602,12 @@ class ActiveSpaceGenerator:
         crs = NMSIM_bbox_utm(self.study_area.iloc[[0]])
         projected_mic = mic.to_crs(crs)
 
-        self._dem_file = self._mask_dem_file(self.dem_src, study_area=self.study_area.iloc[[0]], project=True)
-        self._flt_file = self._create_dem_flt(self._dem_file)
-        self._site_file = self._create_site_file(projected_mic, self._flt_file)
+        self._site_context = self.propagation_model.prepare_site(
+            self.dem_src,
+            self.study_area.iloc[[0]],
+            projected_mic,
+            project=True,
+        )
 
     def generate(self, omni_source: str, altitude_m: int = 3658, mic: Optional[Microphone] = None,
                  heading: Optional[int] = None, src_pt_density: int = 48, n_contour: int = 1,
@@ -990,14 +692,19 @@ class ActiveSpaceGenerator:
         A GeoDataFrame of all generated active space polygons.
         A GeoDataFrame of centroids used to make the mesh.
         """
-        self._dem_file = None
-        self._flt_file = None
-        self._site_file = None
+        self._site_context = None
 
         study_areas, centroids = create_overlapping_mesh(self.study_area, mesh_density[0], mesh_density[1])
         centroids['name'] = centroids.apply(lambda x: f"centroid{x.name+1}", axis=1)
 
-        dem_file = self._mask_dem_file(self.dem_src, self.study_area, project=True, buffer=mesh_density[1] + 1)
+        from nps_active_space.active_space.nmsim_propagation_model import NmsimPropagationModel
+
+        if isinstance(self.propagation_model, NmsimPropagationModel):
+            dem_file = self.propagation_model._mask_dem_file(
+                self.dem_src, self.study_area, project=True, buffer=mesh_density[1] + 1,
+            )
+        else:
+            dem_file = self.dem_src
 
         # Since most arguments are the same for each process, create a partial.
         _generate = partial(self._generate, dem_file=dem_file, omni_source=omni_source, project_dem=False,

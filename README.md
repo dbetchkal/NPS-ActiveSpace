@@ -89,10 +89,46 @@ python -m pip install --upgrade pip
 ```
 
 Install required Python packages (including appropriate GDAL Python binding)
-```
+
+```bash
 GDAL_VERSION=$(gdal-config --version)
 pip install "GDAL==${GDAL_VERSION}"
 pip install -e ".[dev]"
+```
+
+**Python version:** use **Python 3.12** explicitly (`python3.12 -m venv .venv`). The system `python3` on macOS may be 3.13+ and will fail to build pinned `scipy` / geospatial wheels.
+
+**GDAL is required on macOS/Linux** — `pip install -e .` alone does not install the `osgeo` module. Without the `GDAL==$(gdal-config --version)` step, imports that touch NMSim terrain code (`ActiveSpaceGenerator`, `NmsimPropagationModel`) fail with `ModuleNotFoundError: No module named 'osgeo'`.
+
+**Optional AAM adapter development** (`feature/aam-propagation-model` and related work):
+
+```bash
+pip install -e ".[dev]"
+pip install -e ../aam_translator   # sibling repo; until git pin picks up relaxed numpy
+```
+
+Or `pip install -e ".[dev,aam]"` once `aam-translator` on GitHub has `numpy>=2.2.6,<2.4` (local `aam_translator` already does).
+
+The `aam` extra pulls in `aam-translator` for `AamPropagationModel`. Full active-space runs still need GDAL and (on Mac/Linux) Docker+Wine for the Windows AAM binary — see [docker/README.md](docker/README.md).
+
+**GDAL pip build on macOS (Homebrew 3.13+):** if `pip install "GDAL==$(gdal-config --version)"` fails on `gdalconst_wrap.c`, install numpy first then retry with `--no-build-isolation`:
+
+```bash
+pip install "numpy==2.3.1"
+pip install "GDAL==$(gdal-config --version)" --no-build-isolation
+```
+
+If that still fails, use Docker for active-space generation and keep the host venv for viz and AAM adapter unit tests.
+
+```bash
+python -c "import nps_active_space, geopandas, rasterio, iyore; print('NPS-ActiveSpace OK')"
+python -c "from osgeo import gdal; print('GDAL OK')"
+```
+
+For AAM adapter tests only (no GDAL):
+
+```bash
+pytest tests/active_space/test_aam_propagation_model.py -q
 ```
 
 **Note: Using without a clone:** you can install directly from GitHub with `pip install "NPS-ActiveSpace @ git+https://github.com/dbetchkal/NPS-ActiveSpace.git"` (on macOS/Linux, complete the GDAL steps above first). Config files go in the installed package's `config/` directory — find it with `python -c "import nps_active_space, os; print(os.path.join(nps_active_space.ACTIVE_SPACE_DIR, 'config'))"`. Run scripts using `python -m ...` from outside the repo so Python uses the installed package, not a local checkout.
@@ -109,13 +145,7 @@ python -m nps_active_space.scripts.run_ground_truthing -e production -u DENA -s 
 
 See [`nps_active_space/scripts/README.md`](nps_active_space/scripts/README.md) for the full list of scripts and their arguments.
 
-**Verify the install:**
-
-```bash
-python -c "import nps_active_space, geopandas, rasterio, iyore; print('NPS-ActiveSpace OK')"
-```
-
-### NMSIM (active space generation)
+---
 
 Active space generation runs the NMSIM Nord2000 physics model as an external process. NMSIM is **not** installed by pip and is **not** included in this repository.
 
@@ -128,6 +158,8 @@ nmsim = C:\path\to\Nord2000batch.exe
 ```
 
 On Windows, set the path in your config as above. In Docker, `container_example.config` points at the bind-mounted runtime under `/opt/nmsim`.
+
+**AAM (optional):** AAM propagation adapter work uses the same Docker+Wine path with `-m aam`. Stage runtime from a directory with `AAM_3.0.0.exe` and `NCfiles/` (e.g. tier-4 reciprocal case in `nmsim-aam-experiments`). See [docker/README.md](docker/README.md) and [docs/aam_integration_notes.md](docs/aam_integration_notes.md).
 
 Required for `generate_active_space.py`, `generate_3d_active_space.py`, and `generate_active_space_mesh.py`. **Not** required for ground-truthing, audible transits, or validation.
 

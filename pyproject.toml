@@ -49,6 +49,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+aam = [
+    "aam-translator @ git+https://github.com/elliott-ruebush/aam-translator.git@ac13486670c16b9f66487982a127cb2c12c69581",
+]
 dev = [
     "pytest>=8.0",
 ]

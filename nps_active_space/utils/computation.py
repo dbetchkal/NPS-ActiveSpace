@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 import os
 import rasterio
-from osgeo import gdal
 from scipy import interpolate
 from scipy.spatial import KDTree
 from shapely.geometry import Point
@@ -350,6 +349,8 @@ def project_raster(input_raster: str, output_raster: str, crs: str) -> None:
     crs : crs
         The CRS to project the input raster to. Of the format: 'epsg:XXXX...'
     """
+    from osgeo import gdal
+
     gdal.Warp(output_raster, input_raster, dstSRS=crs)
 
 

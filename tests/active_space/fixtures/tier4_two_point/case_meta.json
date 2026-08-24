@@ -1,0 +1,43 @@
+{
+  "dem_utm": "parent_dem_utm.tif",
+  "inp": "/Users/eruebush/dev/nmsim-aam-experiments/activespace-experiments/runs/tier4_reciprocal_two_point/scenario.inp",
+  "n_track_points": 2,
+  "track_labels": [
+    "west",
+    "east"
+  ],
+  "source": {
+    "name": "FLATO200",
+    "ref_distance_m": 304.8,
+    "band_count": 24,
+    "level_db_min": 76.0,
+    "level_db_max": 76.0,
+    "level_db_mean": 76.0
+  },
+  "source_points_utm": [
+    {
+      "label": "west",
+      "x": 405708.7896724468,
+      "y": 7062576.068999444,
+      "z": 404.6620512008667
+    },
+    {
+      "label": "east",
+      "x": 408708.7896724468,
+      "y": 7062576.068999444,
+      "z": 404.6620512008667
+    }
+  ],
+  "receiver_lonlat": [
+    -148.87473,
+    63.66258
+  ],
+  "receiver_utm": [
+    407208.7896724468,
+    7060776.068999442
+  ],
+  "track_alt_msl_m": 404.6620512008667,
+  "track_alt_agl_m": 400.0,
+  "snapshot_speed_kn": 5833.3,
+  "snapshot_segment_s": 1.0
+}

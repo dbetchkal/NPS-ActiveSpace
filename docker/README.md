@@ -13,7 +13,7 @@ Note that given the additional layers of indirection to run the docker setup, th
 # NMSim runtime (~10 MB; not in git — populate vendor/nmsim-runtime/)
 docker/stage_nmsim_runtime.sh /path/to/NMSim-install
 
-# Build the image (~13 min first time; installs deps from pyproject.toml)
+# Build the image (~13 min first time; copies sibling ``../aam_translator`` into the image)
 docker/build.sh
 
 # Config (if not already present)
@@ -57,7 +57,25 @@ docker/stage_aam_runtime.sh /path/to/AAM_v3_dec2020
 # or: docker/stage_aam_runtime.sh ~/dev/nmsim-aam-experiments/runs/aam_noisecon
 
 docker/run_activespace.sh -m aam docker/validate_aam_smoke.py
+
+# AAM propagation adapter (tier-4 two-point reciprocal ridge)
+docker/stage_aam_runtime.sh ~/dev/nmsim-aam-experiments/activespace-experiments/runs/tier4_reciprocal_two_point
+docker/run_activespace.sh -m aam docker/validate_aam_propagation_model.py
 ```
+
+## DENATRLA validation + annotation fit (AAM)
+
+```bash
+docker/run_activespace.sh -m aam docker/validate_active_space.py --model aam \
+  -u DENA -s TRLA -y 2025 --fit --omni-min 0 --omni-max 2 \
+  --altitude 1000 --density 10 --heading 0
+```
+
+Loads `*saved_annotations*.geojson`, sweeps gains 0–2 dB (0.5 dB steps), writes
+`Output_Data/ACTIVESPACES/DENATRLA2025_1000m_aam/`, precision-recall plot, and
+`fits_aam_validate.csv` in the site directory. Compare to NMSim
+`DENATRLA2025_1000m/` layers and `fits.csv` / `fits_validate.csv`.
+
 
 Model selection is a **CLI flag** on `run_activespace.sh` (`-m nmsim|aam`), not a separate
 config file — the pipeline still uses `container.config` with `project.nmsim` only.

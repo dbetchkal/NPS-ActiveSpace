@@ -1,16 +1,19 @@
 #!/usr/bin/env python
 """
-Integration check for running NMSim through Wine inside the Linux/Mac container.
+Integration check for ActiveSpaceGenerator with NMSim or AAM propagation (Docker+Wine).
 
-This script uses ActiveSpaceGenerator.generate() directly for a single site, gain, altitude
-and heading, so it exercises the real NMSim-via-wine path (control/batch file creation,
-the `project.nmsim` shim, .tis parsing, audibility) WITHOUT requiring ground-truth
-annotations (those are only used by generate_active_space.py for gain auto-selection and
-precision/recall scoring, not to run the basic active space computation step).
+Exercises the real propagation path (control/batch or AAM .inp, shim, audibility, polygon)
+for a single site, altitude, and heading. Optional ``--fit`` loads ground-truthing
+annotations (audible/inaudible track segments), generates active spaces across a gain
+range, and selects the optimal gain via precision/recall (same logic as
+``generate_active_space.py``).
 
 Run inside the container, e.g.:
   docker/run_activespace.sh docker/validate_active_space.py -u DENA -s TRLA -y 2025 \
-      --gain 0 --altitude 1000 --density 12 --heading 0
+      --gains 0 --altitude 1000 --density 10 --heading 0
+
+  docker/run_activespace.sh -m aam docker/validate_active_space.py --model aam \
+      -u DENA -s TRLA -y 2025 --fit --omni-min 0 --omni-max 2 --altitude 1000 --density 10
 """
 import argparse
 import glob
@@ -31,16 +34,26 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 import geopandas as gpd
 import iyore
 import pandas as pd
+from shapely.geometry import Point
 from tqdm import tqdm
 
 import nps_active_space.utils.config as cfg
-from nps_active_space.utils.computation import ambience_from_nvspl
-from nps_active_space.utils.helpers import get_deployment, get_omni_sources
+from nps_active_space.utils.computation import (
+    ambience_from_nvspl,
+    normalize_point_density,
+    select_optimal,
+)
+from nps_active_space.utils.helpers import (
+    get_deployment,
+    get_omni_sources,
+    load_annotations,
+)
 from nps_active_space.utils.models import Microphone, Nvspl
 
 from nps_active_space.active_space import ActiveSpaceGenerator
 
 HEARTBEAT_INTERVAL_S = 15.0
+AAM_SHIM = Path("/usr/local/bin/aam")
 
 
 @dataclass(frozen=True)
@@ -49,7 +62,12 @@ class ValidateArgs:
     unit: str
     site: str
     year: int
+    model: str
     gains: list[float]
+    omni_min: float
+    omni_max: float
+    fit: bool
+    beta: float
     altitude: int
     heading: int
     density: int
@@ -59,6 +77,7 @@ class ValidateArgs:
 @dataclass(frozen=True)
 class ValidationResult:
     gain: float
+    omni_stem: str
     n_tested: int
     n_audible: int
     area_km2: float
@@ -77,6 +96,17 @@ class RunContext:
     unit: str
     site: str
     year: int
+    model: str
+
+
+@dataclass(frozen=True)
+class FitResult:
+    best_omni: str
+    max_fbeta: float
+    best_precision: float
+    best_recall: float
+    plot_path: str
+    csv_path: str
 
 
 def log(msg: str) -> None:
@@ -95,7 +125,7 @@ def timed_step(label: str) -> Iterator[None]:
 
 @contextmanager
 def heartbeat(label: str, interval_s: float = HEARTBEAT_INTERVAL_S) -> Iterator[None]:
-    """Emit periodic messages while a long-running step (NMSim via Wine) is in progress."""
+    """Emit periodic messages while a long-running propagation step is in progress."""
     stop = threading.Event()
     start = time.perf_counter()
 
@@ -120,12 +150,40 @@ def parse_args() -> ValidateArgs:
     ap.add_argument("-s", "--site", default="TRLA")
     ap.add_argument("-y", "--year", type=int, default=2025)
     ap.add_argument(
+        "--model",
+        choices=("nmsim", "aam"),
+        default=None,
+        help="Propagation model (default: nmsim, or aam when ACOUSTIC_MODEL=aam).",
+    )
+    ap.add_argument(
         "--gains",
         type=float,
         nargs="+",
-        default=[0.0],
-        help="One or more omni source gains (dB). >1 gain runs concurrently via mp.Pool "
-        "(mirrors generate_active_space.py) to validate Wine under concurrency.",
+        default=None,
+        help="Omni source gains (dB). Ignored when --fit is set (uses --omni-min/--omni-max).",
+    )
+    ap.add_argument(
+        "--fit",
+        action="store_true",
+        help="Fit optimal gain using ground-truthing annotations (saved_annotations geojson).",
+    )
+    ap.add_argument(
+        "--omni-min",
+        type=float,
+        default=0.0,
+        help="Minimum gain (dB) for --fit gain sweep (matches generate_active_space.py default).",
+    )
+    ap.add_argument(
+        "--omni-max",
+        type=float,
+        default=2.0,
+        help="Maximum gain (dB) for --fit gain sweep.",
+    )
+    ap.add_argument(
+        "--beta",
+        type=float,
+        default=1.0,
+        help="F-beta for --fit (1.0 = F1).",
     )
     ap.add_argument("--altitude", type=int, default=1000, help="Source altitude in meters.")
     ap.add_argument("--heading", type=int, default=0)
@@ -135,14 +193,38 @@ def parse_args() -> ValidateArgs:
         default=12,
         help="src_pt_density (NxN mesh). Keep small for a quick check; 48 is the pipeline default.",
     )
-    ap.add_argument("--cpus", type=int, default=0, help="Worker processes for multi-gain runs (0 = len(gains)).")
+    ap.add_argument(
+        "--cpus",
+        type=int,
+        default=0,
+        help="Worker processes for multi-gain runs (0 = len(gains)). NMSim only.",
+    )
     ns = ap.parse_args()
+
+    model = ns.model or os.environ.get("ACOUSTIC_MODEL", "nmsim")
+    if model not in ("nmsim", "aam"):
+        raise SystemExit(f"--model must be nmsim or aam (got {model!r})")
+
+    if ns.fit:
+        gains = [
+            g / 10 for g in range(int(ns.omni_min * 10), int(ns.omni_max * 10) + 5, 5)
+        ]
+    elif ns.gains is not None:
+        gains = ns.gains
+    else:
+        gains = [0.0]
+
     return ValidateArgs(
         environment=ns.environment,
         unit=ns.unit,
         site=ns.site,
         year=ns.year,
-        gains=ns.gains,
+        model=model,
+        gains=gains,
+        omni_min=ns.omni_min,
+        omni_max=ns.omni_max,
+        fit=ns.fit,
+        beta=ns.beta,
         altitude=ns.altitude,
         heading=ns.heading,
         density=ns.density,
@@ -155,10 +237,10 @@ def initialize_site(args: ValidateArgs) -> tuple[str, str, Microphone, gpd.GeoDa
     proj_dir = cfg.read("project", "dir")
     site_dir = f"{proj_dir}/{args.unit}{args.site}"
 
-    nmsim = cfg.read("project", "nmsim")
     dem = cfg.read("data", "dem")
-    log(f"env={args.environment} site={args.unit}{args.site}{args.year}")
-    log(f"nmsim={nmsim}")
+    log(f"env={args.environment} site={args.unit}{args.site}{args.year} model={args.model}")
+    if args.model == "nmsim":
+        log(f"nmsim={cfg.read('project', 'nmsim')}")
     log(f"dem={dem}")
 
     with timed_step("loading microphone deployment"):
@@ -188,24 +270,47 @@ def build_generator(
     study_area: gpd.GeoDataFrame,
     ambience: pd.Series,
     mic: Microphone,
+    model: str,
 ) -> ActiveSpaceGenerator:
-    nmsim = cfg.read("project", "nmsim")
-    gen = ActiveSpaceGenerator(
-        NMSIM=nmsim,
-        root_dir=site_dir,
-        study_area=study_area,
-        ambience=ambience,
-        dem_src=dem,
-    )
+    if model == "aam":
+        from nps_active_space.active_space.aam_propagation_model import AamPropagationModel
+
+        propagation_model = AamPropagationModel(site_dir, aam_shim=str(AAM_SHIM))
+        gen = ActiveSpaceGenerator(
+            NMSIM=None,
+            propagation_model=propagation_model,
+            root_dir=site_dir,
+            study_area=study_area,
+            ambience=ambience,
+            dem_src=dem,
+        )
+    else:
+        nmsim = cfg.read("project", "nmsim")
+        gen = ActiveSpaceGenerator(
+            NMSIM=nmsim,
+            root_dir=site_dir,
+            study_area=study_area,
+            ambience=ambience,
+            dem_src=dem,
+        )
     with timed_step("masking/projecting DEM (set_dem)"):
         gen.set_dem(mic)
     return gen
 
 
-def _output_path(ctx: RunContext, gain: float) -> str:
+def output_dir(site_dir: str, args: ValidateArgs) -> str:
+    usy = f"{args.unit}{args.site}{args.year}"
+    sub = f"{usy}_{args.altitude}m"
+    if args.model == "aam":
+        sub = f"{sub}_aam"
+    return os.path.join(site_dir, "Output_Data", "ACTIVESPACES", sub)
+
+
+def _output_path(ctx: RunContext, gain: float, omni_stem: str) -> str:
+    tag = "AAM_VALIDATE" if ctx.model == "aam" else "VALIDATE"
     return os.path.join(
         ctx.out_dir,
-        f"{ctx.unit}{ctx.site}{ctx.year}_{ctx.altitude}m_gain{gain}_VALIDATE.geojson",
+        f"{ctx.unit}{ctx.site}{ctx.year}_{omni_stem}_{tag}.geojson",
     )
 
 
@@ -213,18 +318,21 @@ def _area_km2(active_space: gpd.GeoDataFrame) -> float:
     return round(active_space.to_crs(active_space.estimate_utm_crs()).area.sum() / 1e6, 2)
 
 
-def run_one_gain(gain: float, ctx: RunContext) -> ValidationResult:
-    """Run a single gain end-to-end (NMSim via wine) and write the active-space geojson.
+def _model_label(model: str) -> str:
+    return "AAM" if model == "aam" else "NMSim via Wine"
 
-    Used both directly and as an mp.Pool worker (Linux fork inherits ``ctx.gen``).
-    """
-    omni = get_omni_sources(lower=gain, upper=gain)[0]
+
+def run_one_gain(gain: float, ctx: RunContext) -> ValidationResult:
+    """Run a single gain end-to-end and write the active-space geojson."""
+    omni_sources = get_omni_sources(gain, gain)
+    omni = omni_sources[0]
+    omni_stem = Path(omni).stem
     mic = deepcopy(ctx.mic)
-    mic.name = f"{mic.name}{Path(omni).stem}"
+    mic.name = f"{mic.name}{omni_stem}"
 
     label = (
         f"gain={gain} alt={ctx.altitude}m heading={ctx.heading} "
-        f"density={ctx.density} (NMSim via Wine)"
+        f"density={ctx.density} ({_model_label(ctx.model)})"
     )
     start = time.perf_counter()
     with heartbeat(label):
@@ -237,11 +345,12 @@ def run_one_gain(gain: float, ctx: RunContext) -> ValidationResult:
         )
 
     n_audible = int((tested_pts["audible"] == 1).sum()) if "audible" in tested_pts else -1
-    out = _output_path(ctx, gain)
+    out = _output_path(ctx, gain, omni_stem)
     active_space.to_file(out, driver="GeoJSON")
     elapsed_s = time.perf_counter() - start
     return ValidationResult(
         gain=gain,
+        omni_stem=omni_stem,
         n_tested=len(tested_pts),
         n_audible=n_audible,
         area_km2=_area_km2(active_space),
@@ -251,22 +360,28 @@ def run_one_gain(gain: float, ctx: RunContext) -> ValidationResult:
 
 
 def _run_one_worker(gain: float, ctx: RunContext) -> ValidationResult:
-    """Pool entry point: unpack is avoided so starmap can pass a single context object."""
     return run_one_gain(gain, ctx)
 
 
 def run_all_gains(gains: Sequence[float], ctx: RunContext, ncpu: int) -> list[ValidationResult]:
+    if ctx.model == "aam" and len(gains) > 1:
+        log("AAM: running gains sequentially (no multiprocessing)")
+        results = []
+        for gain in gains:
+            results.append(run_one_gain(gain, ctx))
+        return results
+
     if len(gains) == 1:
         gain = gains[0]
         log(
-            f"running NMSim via wine: gain={gain} alt={ctx.altitude}m "
+            f"running {_model_label(ctx.model)}: gain={gain} alt={ctx.altitude}m "
             f"heading={ctx.heading} density={ctx.density}"
         )
         return [run_one_gain(gain, ctx)]
 
     log(
         f"CONCURRENCY: {len(gains)} gains {list(gains)} across {ncpu} workers "
-        f"(shared Wine prefix/server) -> testing wine under multiprocessing"
+        f"({_model_label(ctx.model)})"
     )
     results: list[ValidationResult] = []
     with mp.Pool(ncpu) as pool:
@@ -280,15 +395,129 @@ def run_all_gains(gains: Sequence[float], ctx: RunContext, ncpu: int) -> list[Va
     return results
 
 
+def load_valid_points(
+    site_dir: str,
+    study_area: gpd.GeoDataFrame,
+    args: ValidateArgs,
+) -> gpd.GeoDataFrame:
+    proj_dir = cfg.read("project", "dir")
+    with timed_step("loading ground-truthing annotations"):
+        annotations = load_annotations(proj_dir, args.unit, args.site, args.year)
+    if annotations.empty:
+        raise RuntimeError(
+            f"No saved_annotations geojson found for {args.unit}{args.site}{args.year}",
+        )
+    log(f"{len(annotations)} valid annotated segments")
+
+    valid_points_lst = []
+    for idx, row in tqdm(
+        annotations.iterrows(),
+        total=len(annotations),
+        desc="Extracting valid points",
+        unit="segment",
+    ):
+        valid_points_lst.extend([
+            {
+                "annotation_idx": idx,
+                "audible": row.audible,
+                "geometry": Point(coords),
+            }
+            for coords in row.geometry.coords
+        ])
+    valid_points = gpd.GeoDataFrame(
+        data=valid_points_lst,
+        geometry="geometry",
+        crs=annotations.crs,
+    )
+    valid_points = normalize_point_density(valid_points, study_area, random_seed=679)
+    log(f"{len(valid_points)} annotation points after density normalization")
+    return valid_points
+
+
+def run_fit(
+    results: Sequence[ValidationResult],
+    valid_points: gpd.GeoDataFrame,
+    site_dir: str,
+    args: ValidateArgs,
+) -> FitResult:
+    active_space_polygons: list[tuple[str, gpd.GeoDataFrame]] = []
+    for result in results:
+        path = os.path.join(output_dir(site_dir, args), result.outfile)
+        active_space_polygons.append((result.omni_stem, gpd.read_file(path)))
+
+    usy = f"{args.unit}{args.site}{args.year}"
+    model_tag = "_aam" if args.model == "aam" else ""
+    plot_name = (
+        f"PrecisionRecallPlot_{usy}_{args.altitude}m_"
+        f"{str(args.beta).replace('.', 'p')}{model_tag}.png"
+    )
+    plot_path = os.path.join(site_dir, "Output_Data", "PRECISION_RECALL", plot_name)
+
+    log(
+        f"fitting F-{args.beta} across {len(active_space_polygons)} active spaces "
+        f"vs {len(valid_points)} annotation points"
+    )
+    best_omni, max_fbeta, best_precision, best_recall, _ = select_optimal(
+        unit=args.unit,
+        site=args.site,
+        year=args.year,
+        valid_points=valid_points,
+        active_space_polygons=active_space_polygons,
+        beta_=args.beta,
+        plot=True,
+        plot_savepath=plot_path,
+        verbose=True,
+    )
+
+    csv_name = "fits_aam_validate.csv" if args.model == "aam" else "fits_validate.csv"
+    csv_path = os.path.join(site_dir, csv_name)
+    sign = {"+": 1, "-": -1}
+    numeric_gain = sign[best_omni[-4:-3]] * int(best_omni[-3:]) / 10
+    row = {
+        "Designator": usy,
+        "Model": args.model,
+        "Altitude_m": args.altitude,
+        "Density": args.density,
+        "1/3rd Octave Gain (F1)": numeric_gain,
+        f"F{args.beta}": max_fbeta,
+        "Precision": best_precision,
+        "Recall": best_recall,
+        "Best_omni": best_omni,
+    }
+    df = pd.DataFrame([row])
+    if os.path.exists(csv_path):
+        existing = pd.read_csv(csv_path)
+        existing = existing[existing["Designator"] != usy]
+        df = pd.concat([existing, df], ignore_index=True)
+    df.to_csv(csv_path, index=False)
+
+    return FitResult(
+        best_omni=best_omni,
+        max_fbeta=max_fbeta,
+        best_precision=best_precision,
+        best_recall=best_recall,
+        plot_path=plot_path,
+        csv_path=csv_path,
+    )
+
+
 def print_results(results: Sequence[ValidationResult], total_elapsed_s: float) -> None:
     log("=== results ===")
     for result in sorted(results, key=lambda r: r.gain):
         log(
-            f"  gain={result.gain:>5}  tested={result.n_tested:>4}  "
+            f"  gain={result.gain:>5}  omni={result.omni_stem}  tested={result.n_tested:>4}  "
             f"audible={result.n_audible:>4}  area~={result.area_km2} km^2  "
             f"elapsed={result.elapsed_s:>5}s  -> {result.outfile}"
         )
     log(f"OK: {len(results)} active space(s) generated in {total_elapsed_s:.1f}s wall time")
+
+
+def print_fit(fit: FitResult) -> None:
+    log("=== fit (annotations) ===")
+    log(f"  best_omni={fit.best_omni}  F1={fit.max_fbeta:.4f}  "
+        f"precision={fit.best_precision:.4f}  recall={fit.best_recall:.4f}")
+    log(f"  plot -> {fit.plot_path}")
+    log(f"  csv  -> {fit.csv_path}")
 
 
 def main() -> None:
@@ -297,9 +526,9 @@ def main() -> None:
 
     site_dir, dem, mic, study_area = initialize_site(args)
     ambience = load_ambience(args.unit, args.site, args.year)
-    gen = build_generator(site_dir, dem, study_area, ambience, mic)
+    gen = build_generator(site_dir, dem, study_area, ambience, mic, args.model)
 
-    out_dir = os.path.join(site_dir, "Output_Data", "ACTIVESPACES")
+    out_dir = output_dir(site_dir, args)
     os.makedirs(out_dir, exist_ok=True)
     ctx = RunContext(
         gen=gen,
@@ -311,11 +540,23 @@ def main() -> None:
         unit=args.unit,
         site=args.site,
         year=args.year,
+        model=args.model,
     )
 
     ncpu = args.cpus or len(args.gains)
+    if args.fit:
+        log(
+            f"fit mode: gains {args.gains[0]}–{args.gains[-1]} dB "
+            f"({len(args.gains)} steps), beta={args.beta}"
+        )
+
     results = run_all_gains(args.gains, ctx, ncpu)
     print_results(results, time.perf_counter() - wall_start)
+
+    if args.fit:
+        valid_points = load_valid_points(site_dir, study_area, args)
+        fit = run_fit(results, valid_points, site_dir, args)
+        print_fit(fit)
 
 
 if __name__ == "__main__":
