@@ -7,12 +7,16 @@ import re
 import shutil
 import os
 import subprocess
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import rasterio
+from pyproj import CRS
 
 from aam_translator import (
     assert_track_alignment,
@@ -37,6 +41,57 @@ logger = logging.getLogger(__name__)
 AAM_WORK_SUBDIR = "Input_Data/AAM"
 AAM_INP_BASENAME = "scenario"
 AAM_RUN_TIMEOUT_S = 600
+AAM_ELEVATION_MASK = "elevation_mask.tif"
+
+
+def _terrain_log(msg: str) -> None:
+    """Visible in Docker validate runs (logging may be unset)."""
+    line = f"[aam-terrain] {msg}"
+    logger.info(line)
+    print(line, flush=True)
+
+
+@contextmanager
+def _timed_terrain_step(label: str):
+    _terrain_log(f"{label}...")
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        _terrain_log(f"{label} done ({time.perf_counter() - start:.1f}s)")
+
+
+def _dem_raster_summary(path: str) -> str:
+    with rasterio.open(path) as src:
+        res_x, res_y = src.res
+        return (
+            f"{Path(path).name}: {src.width}×{src.height} px, "
+            f"CRS={src.crs}, res≈{abs(res_x):.6f}×{abs(res_y):.6f}"
+        )
+
+
+def _crs_matches_dem(study_area_crs: str | object, dem_path: str) -> bool:
+    with rasterio.open(dem_path) as src:
+        if src.crs is None:
+            return False
+        return CRS.from_user_input(study_area_crs).equals(CRS.from_user_input(src.crs))
+
+
+def _aoi_bounds_deg(aoi_wgs84) -> str:
+    xmin, ymin, xmax, ymax = aoi_wgs84.bounds
+    return (
+        f"lon [{xmin:.5f}, {xmax:.5f}], "
+        f"lat [{ymin:.5f}, {ymax:.5f}]"
+    )
+
+
+def _terrain_grid_summary(terrain: TerrainResult) -> str:
+    spec = terrain.spec
+    return (
+        f"AEQD grid {spec.cell_count_x}×{spec.cell_count_y} cells "
+        f"at {spec.cell_dx_m:.1f}×{spec.cell_dy_m:.1f} m "
+        f"({spec.cell_count_x * spec.cell_count_y:,} cells)"
+    )
 
 # NMSim omni tuning basename -> AAM NetCDF source id (FLATO*.nc in NCfiles/).
 OMNI_TO_AAM_SOURCE_ID: dict[str, str] = {
@@ -139,13 +194,35 @@ class AamPropagationModel:
         project_dem: bool = True,
         suffix: str = "",
     ) -> AamSiteContext:
+        elevation_dir = Path(self.root_dir) / "Input_Data/01_ELEVATION"
+        masked_dem = elevation_dir / AAM_ELEVATION_MASK
+
+        _terrain_log(
+            f"prepare_site: parent DEM {_dem_raster_summary(dem_src)}; "
+            f"study_area CRS={study_area.crs}"
+        )
+        if masked_dem.is_file():
+            _terrain_log(
+                f"NMSim study-area clipped DEM exists "
+                f"({_dem_raster_summary(str(masked_dem))}) — "
+                "AAM path still uses config [data] dem unless changed"
+            )
+
         dem_file = dem_src
         if project_dem:
-            dem_projected = (
-                f"{self.root_dir}/Input_Data/01_ELEVATION/elevation_aam{suffix}.tif"
-            )
-            project_raster(dem_src, dem_projected, study_area.crs)
-            dem_file = dem_projected
+            dem_projected = str(elevation_dir / f"elevation_aam{suffix}.tif")
+            if _crs_matches_dem(study_area.crs, dem_src):
+                _terrain_log(
+                    "skipping GDAL warp: DEM CRS already matches study_area "
+                    f"(would have written {Path(dem_projected).name})"
+                )
+            else:
+                with _timed_terrain_step(
+                    f"GDAL warp to study_area CRS -> {Path(dem_projected).name}"
+                ):
+                    project_raster(dem_src, dem_projected, study_area.crs)
+                dem_file = dem_projected
+                _terrain_log(f"warped DEM {_dem_raster_summary(dem_file)}")
 
         terrain_dir = self._aam_work_dir / f"terrain{suffix}"
         terrain_dir.mkdir(parents=True, exist_ok=True)
@@ -154,16 +231,27 @@ class AamPropagationModel:
         receiver_agl_m = self.receiver_agl_m if self.receiver_agl_m is not None else mic_wgs84.z
 
         aoi = study_area.to_crs("EPSG:4326").union_all()
-        terrain = write_terrain(
-            dem_file,
-            aoi,
-            terrain_dir,
-            crs_in="EPSG:4326",
-            elv_basename="scenario.elv",
-            imp_basename="scenario.imp",
-            flow_resistivity=200.0,
-            grid_agl_ft=receiver_agl_m * 3.28084,
+        _terrain_log(f"AOI clip envelope (WGS84): {_aoi_bounds_deg(aoi)}")
+        _terrain_log(
+            f"write_terrain -> {terrain_dir}/scenario.elv "
+            f"(native DEM posting, receiver AGL {receiver_agl_m:.2f} m)"
         )
+
+        with _timed_terrain_step("write_terrain (AEQD resample + ELV/IMP)"):
+            terrain = write_terrain(
+                dem_file,
+                aoi,
+                terrain_dir,
+                crs_in="EPSG:4326",
+                elv_basename="scenario.elv",
+                imp_basename="scenario.imp",
+                flow_resistivity=200.0,
+                grid_agl_ft=receiver_agl_m * 3.28084,
+            )
+
+        _terrain_log(_terrain_grid_summary(terrain))
+        if terrain.clip_tif_path:
+            _terrain_log(f"clip sidecar: {Path(terrain.clip_tif_path).name}")
 
         return AamSiteContext(
             terrain=terrain,
