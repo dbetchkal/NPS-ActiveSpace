@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import re
 import shutil
 import os
@@ -28,6 +29,8 @@ from aam_translator import (
 )
 from aam_translator.bands import band_number_for_frequency
 from aam_translator.context import TerrainResult
+from aam_translator.grid_spec import GridSpec
+from aam_translator.nmbgf_io import read_nmbgf_header
 from aam_translator.read_poi import PoiTimeHistory
 from aam_translator.write_inp import PoiPoint, TrackPoint
 
@@ -42,6 +45,9 @@ AAM_WORK_SUBDIR = "Input_Data/AAM"
 AAM_INP_BASENAME = "scenario"
 AAM_RUN_TIMEOUT_S = 600
 AAM_ELEVATION_MASK = "elevation_mask.tif"
+AAM_TERRAIN_CACHE_META = "terrain_cache.json"
+AAM_DEFAULT_FLOW_RESISTIVITY = 200.0
+AOI_BOUNDS_TOLERANCE_DEG = 1e-4
 
 
 def _terrain_log(msg: str) -> None:
@@ -92,6 +98,165 @@ def _terrain_grid_summary(terrain: TerrainResult) -> str:
         f"at {spec.cell_dx_m:.1f}×{spec.cell_dy_m:.1f} m "
         f"({spec.cell_count_x * spec.cell_count_y:,} cells)"
     )
+
+
+def _aoi_bounds_tuple(aoi_wgs84) -> tuple[float, float, float, float]:
+    return tuple(aoi_wgs84.bounds)
+
+
+def _bounds_close(
+    a: tuple[float, float, float, float],
+    b: tuple[float, float, float, float],
+    tol: float = AOI_BOUNDS_TOLERANCE_DEG,
+) -> bool:
+    return all(abs(x - y) <= tol for x, y in zip(a, b, strict=True))
+
+
+def _terrain_artifact_paths(terrain_dir: Path) -> tuple[Path, Path, Path]:
+    elv = terrain_dir / f"{AAM_INP_BASENAME}.elv"
+    imp = terrain_dir / f"{AAM_INP_BASENAME}.imp"
+    clip = terrain_dir / f"{AAM_INP_BASENAME}_clip.tif"
+    return elv, imp, clip
+
+
+def _terrain_from_disk(
+    elv_path: Path,
+    imp_path: Path,
+    clip_path: Path,
+    *,
+    grid_agl_ft: float,
+    flow_resistivity: float,
+) -> TerrainResult:
+    if not clip_path.is_file():
+        raise FileNotFoundError(f"clip GeoTIFF missing: {clip_path}")
+
+    with rasterio.open(clip_path) as src:
+        transform = src.transform
+        cell_dx_m = abs(transform.a)
+        cell_dy_m = abs(transform.e)
+        spec = GridSpec(
+            cell_count_x=src.width,
+            cell_count_y=src.height,
+            cell_dx_m=cell_dx_m,
+            cell_dy_m=cell_dy_m,
+            grid_origin_x_m=transform.c,
+            grid_origin_y_m=transform.f + src.height * transform.e,
+        )
+        aeqd_crs = CRS.from_user_input(src.crs)
+
+    elv_header = read_nmbgf_header(elv_path)
+    elv_header_feet = elv_header.units.strip().upper() == "FEET"
+
+    return TerrainResult(
+        spec=spec,
+        aeqd_crs=aeqd_crs,
+        elv_header_feet=elv_header_feet,
+        elv_path=str(elv_path),
+        imp_path=str(imp_path),
+        clip_tif_path=str(clip_path),
+        grid_agl_ft=grid_agl_ft,
+        flow_resistivity=flow_resistivity,
+    )
+
+
+def _write_terrain_cache_meta(
+    terrain_dir: Path,
+    *,
+    dem_file: str,
+    receiver_agl_m: float,
+    flow_resistivity: float,
+    grid_agl_ft: float,
+    aoi_bounds: tuple[float, float, float, float],
+) -> None:
+    meta = {
+        "dem_path": str(Path(dem_file).resolve()),
+        "dem_mtime": os.path.getmtime(dem_file),
+        "receiver_agl_m": receiver_agl_m,
+        "flow_resistivity": flow_resistivity,
+        "grid_agl_ft": grid_agl_ft,
+        "aoi_bounds_wgs84": list(aoi_bounds),
+    }
+    (terrain_dir / AAM_TERRAIN_CACHE_META).write_text(
+        json.dumps(meta, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _terrain_cache_valid(
+    terrain_dir: Path,
+    dem_file: str,
+    receiver_agl_m: float,
+    flow_resistivity: float,
+    grid_agl_ft: float,
+    aoi_bounds: tuple[float, float, float, float],
+) -> bool:
+    elv_path, imp_path, clip_path = _terrain_artifact_paths(terrain_dir)
+    if not elv_path.is_file() or not imp_path.is_file():
+        return False
+
+    dem_resolved = str(Path(dem_file).resolve())
+    if not Path(dem_file).is_file():
+        return False
+    if os.path.getmtime(dem_file) > os.path.getmtime(elv_path):
+        return False
+
+    meta_path = terrain_dir / AAM_TERRAIN_CACHE_META
+    if meta_path.is_file():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        if meta.get("dem_path") != dem_resolved:
+            return False
+        if meta.get("dem_mtime", 0) < os.path.getmtime(dem_file):
+            return False
+        if meta.get("receiver_agl_m") != receiver_agl_m:
+            return False
+        if meta.get("flow_resistivity") != flow_resistivity:
+            return False
+        if meta.get("grid_agl_ft") != grid_agl_ft:
+            return False
+        cached_bounds = tuple(meta.get("aoi_bounds_wgs84", []))
+        if len(cached_bounds) != 4 or not _bounds_close(
+            aoi_bounds, cached_bounds,
+        ):
+            return False
+        return True
+
+    # Legacy cache (ELV/IMP from a prior run without terrain_cache.json).
+    return clip_path.is_file()
+
+
+def _try_load_cached_terrain(
+    terrain_dir: Path,
+    dem_file: str,
+    aoi_wgs84,
+    receiver_agl_m: float,
+    flow_resistivity: float,
+    grid_agl_ft: float,
+) -> TerrainResult | None:
+    aoi_bounds = _aoi_bounds_tuple(aoi_wgs84)
+    if not _terrain_cache_valid(
+        terrain_dir,
+        dem_file,
+        receiver_agl_m,
+        flow_resistivity,
+        grid_agl_ft,
+        aoi_bounds,
+    ):
+        return None
+
+    elv_path, imp_path, clip_path = _terrain_artifact_paths(terrain_dir)
+    with _timed_terrain_step("load cached terrain from disk"):
+        terrain = _terrain_from_disk(
+            elv_path,
+            imp_path,
+            clip_path,
+            grid_agl_ft=grid_agl_ft,
+            flow_resistivity=flow_resistivity,
+        )
+    _terrain_log(
+        f"reusing cached terrain in {terrain_dir} "
+        f"(ELV not older than {Path(dem_file).name})"
+    )
+    return terrain
 
 # NMSim omni tuning basename -> AAM NetCDF source id (FLATO*.nc in NCfiles/).
 OMNI_TO_AAM_SOURCE_ID: dict[str, str] = {
@@ -231,22 +396,43 @@ class AamPropagationModel:
         receiver_agl_m = self.receiver_agl_m if self.receiver_agl_m is not None else mic_wgs84.z
 
         aoi = study_area.to_crs("EPSG:4326").union_all()
-        _terrain_log(f"AOI clip envelope (WGS84): {_aoi_bounds_deg(aoi)}")
-        _terrain_log(
-            f"write_terrain -> {terrain_dir}/scenario.elv "
-            f"(native DEM posting, receiver AGL {receiver_agl_m:.2f} m)"
-        )
+        aoi_bounds = _aoi_bounds_tuple(aoi)
+        grid_agl_ft = receiver_agl_m * 3.28084
+        flow_resistivity = AAM_DEFAULT_FLOW_RESISTIVITY
 
-        with _timed_terrain_step("write_terrain (AEQD resample + ELV/IMP)"):
-            terrain = write_terrain(
-                dem_file,
-                aoi,
+        _terrain_log(f"AOI clip envelope (WGS84): {_aoi_bounds_deg(aoi)}")
+
+        terrain = _try_load_cached_terrain(
+            terrain_dir,
+            dem_file,
+            aoi,
+            receiver_agl_m,
+            flow_resistivity,
+            grid_agl_ft,
+        )
+        if terrain is None:
+            _terrain_log(
+                f"write_terrain -> {terrain_dir}/scenario.elv "
+                f"(native DEM posting, receiver AGL {receiver_agl_m:.2f} m)"
+            )
+            with _timed_terrain_step("write_terrain (AEQD resample + ELV/IMP)"):
+                terrain = write_terrain(
+                    dem_file,
+                    aoi,
+                    terrain_dir,
+                    crs_in="EPSG:4326",
+                    elv_basename="scenario.elv",
+                    imp_basename="scenario.imp",
+                    flow_resistivity=flow_resistivity,
+                    grid_agl_ft=grid_agl_ft,
+                )
+            _write_terrain_cache_meta(
                 terrain_dir,
-                crs_in="EPSG:4326",
-                elv_basename="scenario.elv",
-                imp_basename="scenario.imp",
-                flow_resistivity=200.0,
-                grid_agl_ft=receiver_agl_m * 3.28084,
+                dem_file=dem_file,
+                receiver_agl_m=receiver_agl_m,
+                flow_resistivity=flow_resistivity,
+                grid_agl_ft=grid_agl_ft,
+                aoi_bounds=aoi_bounds,
             )
 
         _terrain_log(_terrain_grid_summary(terrain))

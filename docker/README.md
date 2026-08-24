@@ -63,6 +63,11 @@ docker/stage_aam_runtime.sh ~/dev/nmsim-aam-experiments/activespace-experiments/
 docker/run_activespace.sh -m aam docker/validate_aam_propagation_model.py
 ```
 
+Adapter implementation and pipeline notes: [`docs/aam_integration_notes.md`](../docs/aam_integration_notes.md).
+
+AAM terrain (`Input_Data/AAM/terrain_*/scenario.elv`) is cached on disk; reruns skip
+`write_terrain` when ELV is newer than the parent DEM and `terrain_cache.json` matches.
+
 ## DENATRLA validation + annotation fit (AAM)
 
 ```bash

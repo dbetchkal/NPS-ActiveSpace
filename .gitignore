@@ -50,6 +50,8 @@ example_data/site_projects/*/fits_validate.csv
 # GDAL/NMSim intermediates produced when preparing a DEM for NMSim
 example_data/site_projects/*/Input_Data/01_ELEVATION/elevation.tif
 example_data/site_projects/*/Input_Data/01_ELEVATION/elevation_mask.*
+example_data/site_projects/*/Input_Data/01_ELEVATION/elevation_aam*.tif
+example_data/site_projects/*/Input_Data/AAM/
 
 # Batch-run bookkeeping and fit/diagnostic plots under site directories
 example_data/site_projects/*/*_commands.txt
