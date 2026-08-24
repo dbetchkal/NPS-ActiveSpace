@@ -503,7 +503,7 @@ class ActiveSpaceGenerator:
                 dem_file,
                 study_area,
                 mic,
-                project=project_dem,
+                project_dem=project_dem,
                 suffix=f"_{mic.name}",
             )
 
@@ -606,7 +606,8 @@ class ActiveSpaceGenerator:
             self.dem_src,
             self.study_area.iloc[[0]],
             projected_mic,
-            project=True,
+            project_dem=True,
+            suffix=f"_{projected_mic.name}",
         )
 
     def generate(self, omni_source: str, altitude_m: int = 3658, mic: Optional[Microphone] = None,
