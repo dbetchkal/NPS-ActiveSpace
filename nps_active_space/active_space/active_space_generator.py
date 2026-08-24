@@ -18,7 +18,8 @@ from tqdm import tqdm
 from warnings import warn
 
 from nps_active_space import ACTIVE_SPACE_DIR
-from nps_active_space.active_space.propagation_model import PropagationModel
+from nps_active_space.active_space.propagation_model import PropagationModel, prediction_cache_csv_path
+from nps_active_space.active_space.aam_propagation_model import AamPropagationModel
 from nps_active_space.setup.site_writer import create_site_dir
 from nps_active_space.utils.models import Microphone
 from nps_active_space.utils.computation import (
@@ -317,10 +318,26 @@ class ActiveSpaceGenerator:
 
         # Mark any underground points as inaudible and don't pass them to NMSIM
         aboveground_pts, underground_pts = self._determine_underground_pts(source_pts)
-        
+
+        # AAM uses its own ELV grid; GDAL DEM samples can disagree and break whole batches.
+        if isinstance(self.propagation_model, AamPropagationModel):
+            aboveground_pts, below_aam_pts = self.propagation_model.filter_below_terrain(
+                self._site_context,
+                aboveground_pts,
+                job_name=job_name,
+            )
+            if len(below_aam_pts) > 0:
+                below_aam_pts = below_aam_pts.copy()
+                below_aam_pts["audible"] = 0
+                underground_pts = pd.concat(
+                    [underground_pts, below_aam_pts],
+                    ignore_index=True,
+                )
+
         # mark underground points as inaudible
         audibility_pts = underground_pts
-        audibility_pts["audible"] = 0
+        if len(audibility_pts) > 0:
+            audibility_pts["audible"] = 0
         if len(aboveground_pts) == 0:
             return audibility_pts
 
@@ -328,7 +345,13 @@ class ActiveSpaceGenerator:
         # The csv filename is important - we assume all gains, altitudes, and headings in a csv are the same,
         # and so omit this information inside the csv to save space / read-write time
         omni_str = os.path.splitext(os.path.basename(omni_source))[0]
-        csv_filename = f"{self.root_dir}/Output_Data/TIG_TIS/{altitude_m}m_{omni_str}_{heading}deg.csv"
+        csv_filename = prediction_cache_csv_path(
+            self.root_dir,
+            self.propagation_model.predictions_subdir,
+            altitude_m,
+            omni_str,
+            heading,
+        )
         nmsim_df_all, nmsim_df, new_pts = ActiveSpaceGenerator.load_prev_nmsim_predictions(
             aboveground_pts, csv_filename, altitude_m)
         # print(f"{job_name} n={len(aboveground_pts)}, old={len(nmsim_df)}, new={len(new_pts)}")

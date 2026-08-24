@@ -17,7 +17,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import rasterio
-from pyproj import CRS
+from pyproj import CRS, Transformer
 
 from aam_translator import (
     assert_track_alignment,
@@ -34,20 +34,27 @@ from aam_translator.nmbgf_io import read_nmbgf_header
 from aam_translator.read_poi import PoiTimeHistory
 from aam_translator.write_inp import PoiPoint, TrackPoint
 
-from nps_active_space.active_space.propagation_model import NMSIM_BAND_COLUMNS
+from nps_active_space.active_space.propagation_model import (
+    AAM_INPUT_SUBDIR,
+    AAM_PREDICTIONS_SUBDIR,
+    AAM_RUNS_SUBDIR,
+    AAM_TERRAIN_SUBDIR,
+    NMSIM_BAND_COLUMNS,
+)
 from nps_active_space.utils.computation import project_raster
 from nps_active_space.utils.helpers import omni_to_gain
 from nps_active_space.utils.models import Microphone
 
 logger = logging.getLogger(__name__)
 
-AAM_WORK_SUBDIR = "Input_Data/AAM"
 AAM_INP_BASENAME = "scenario"
 AAM_RUN_TIMEOUT_S = 600
 AAM_ELEVATION_MASK = "elevation_mask.tif"
 AAM_TERRAIN_CACHE_META = "terrain_cache.json"
 AAM_DEFAULT_FLOW_RESISTIVITY = 200.0
 AOI_BOUNDS_TOLERANCE_DEG = 1e-4
+# GDAL vs AAM ELV can disagree slightly; treat z <= surface as below ground for AAM batches.
+AAM_TERRAIN_SURFACE_TOLERANCE_M = 0.0
 
 
 def _terrain_log(msg: str) -> None:
@@ -98,6 +105,24 @@ def _terrain_grid_summary(terrain: TerrainResult) -> str:
         f"at {spec.cell_dx_m:.1f}×{spec.cell_dy_m:.1f} m "
         f"({spec.cell_count_x * spec.cell_count_y:,} cells)"
     )
+
+
+def _terrain_dir_for_site(root_dir: str | Path, suffix: str) -> Path:
+    """Return terrain cache dir, preferring ``Input_Data/AAM/terrain/{mic}/``."""
+    root = Path(root_dir)
+    mic_key = suffix.removeprefix("_") or "default"
+    new_dir = root / AAM_TERRAIN_SUBDIR / mic_key
+    legacy_dir = root / AAM_INPUT_SUBDIR / f"terrain{suffix}"
+    if legacy_dir.is_dir() and not new_dir.is_dir():
+        return legacy_dir
+    new_dir.mkdir(parents=True, exist_ok=True)
+    return new_dir
+
+
+def _runs_dir_for_site(root_dir: str | Path) -> Path:
+    runs_dir = Path(root_dir) / AAM_RUNS_SUBDIR
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    return runs_dir
 
 
 def _aoi_bounds_tuple(aoi_wgs84) -> tuple[float, float, float, float]:
@@ -159,8 +184,27 @@ def _terrain_from_disk(
     )
 
 
+def _dem_cache_rel(root_dir: Path, dem_file: str) -> str:
+    """Site-relative DEM path for cache metadata (portable across host vs /repo)."""
+    dem = Path(dem_file).resolve()
+    try:
+        return str(dem.relative_to(root_dir.resolve()))
+    except ValueError:
+        return dem.name
+
+
+def _dem_cache_matches(meta_dem_path: str, root_dir: Path, dem_file: str) -> bool:
+    expected = _dem_cache_rel(root_dir, dem_file)
+    if meta_dem_path == expected:
+        return True
+    if meta_dem_path == str(Path(dem_file).resolve()):
+        return True
+    return Path(meta_dem_path).name == Path(dem_file).name
+
+
 def _write_terrain_cache_meta(
     terrain_dir: Path,
+    root_dir: Path,
     *,
     dem_file: str,
     receiver_agl_m: float,
@@ -169,7 +213,7 @@ def _write_terrain_cache_meta(
     aoi_bounds: tuple[float, float, float, float],
 ) -> None:
     meta = {
-        "dem_path": str(Path(dem_file).resolve()),
+        "dem_path": _dem_cache_rel(root_dir, dem_file),
         "dem_mtime": os.path.getmtime(dem_file),
         "receiver_agl_m": receiver_agl_m,
         "flow_resistivity": flow_resistivity,
@@ -184,6 +228,7 @@ def _write_terrain_cache_meta(
 
 def _terrain_cache_valid(
     terrain_dir: Path,
+    root_dir: Path,
     dem_file: str,
     receiver_agl_m: float,
     flow_resistivity: float,
@@ -203,7 +248,7 @@ def _terrain_cache_valid(
     meta_path = terrain_dir / AAM_TERRAIN_CACHE_META
     if meta_path.is_file():
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        if meta.get("dem_path") != dem_resolved:
+        if not _dem_cache_matches(meta.get("dem_path", ""), root_dir, dem_file):
             return False
         if meta.get("dem_mtime", 0) < os.path.getmtime(dem_file):
             return False
@@ -226,6 +271,7 @@ def _terrain_cache_valid(
 
 def _try_load_cached_terrain(
     terrain_dir: Path,
+    root_dir: Path,
     dem_file: str,
     aoi_wgs84,
     receiver_agl_m: float,
@@ -235,6 +281,7 @@ def _try_load_cached_terrain(
     aoi_bounds = _aoi_bounds_tuple(aoi_wgs84)
     if not _terrain_cache_valid(
         terrain_dir,
+        root_dir,
         dem_file,
         receiver_agl_m,
         flow_resistivity,
@@ -257,6 +304,70 @@ def _try_load_cached_terrain(
         f"(ELV not older than {Path(dem_file).name})"
     )
     return terrain
+
+
+def _terrain_surface_elevation_m(
+    source_pts: gpd.GeoDataFrame,
+    terrain: TerrainResult,
+) -> np.ndarray:
+    """Sample AAM terrain MSL (meters) at each source point from the clip GeoTIFF."""
+    clip_path = terrain.clip_tif_path
+    if not clip_path or not Path(clip_path).is_file():
+        raise FileNotFoundError(f"AAM terrain clip raster missing: {clip_path}")
+
+    with rasterio.open(clip_path) as dem:
+        to_raster = Transformer.from_crs(
+            source_pts.crs, dem.crs, always_xy=True,
+        )
+        xs, ys = to_raster.transform(
+            source_pts.geometry.x.values,
+            source_pts.geometry.y.values,
+        )
+        samples = np.array([v[0] for v in dem.sample(zip(xs, ys))], dtype=np.float64)
+        if dem.nodata is not None:
+            samples = np.where(samples == dem.nodata, np.nan, samples)
+    return samples
+
+
+def split_below_aam_terrain(
+    site: AamSiteContext,
+    source_pts: gpd.GeoDataFrame,
+    *,
+    job_name: str = "",
+) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+    """Split points using the AAM ELV grid (not the parent GDAL DEM).
+
+    AAM aborts the whole batch when any track point is below its terrain surface.
+    Points that pass the generator's GDAL underground check may still fail here.
+    """
+    if len(source_pts) == 0:
+        return source_pts, source_pts.iloc[0:0]
+
+    surface_m = _terrain_surface_elevation_m(source_pts, site.terrain)
+    z_m = source_pts.geometry.z.to_numpy()
+    agl_m = z_m - surface_m
+    invalid = np.isnan(surface_m)
+    below = invalid | (agl_m <= AAM_TERRAIN_SURFACE_TOLERANCE_M)
+
+    n_below = int(below.sum())
+    if n_below > 0:
+        deficits_m = -agl_m[below & ~invalid]
+        label = f"{job_name}: " if job_name else ""
+        if len(deficits_m) > 0:
+            _terrain_log(
+                f"{label}filtered {n_below}/{len(source_pts)} points below AAM terrain "
+                f"(deficit min={deficits_m.min():.2f}m "
+                f"max={deficits_m.max():.2f}m mean={deficits_m.mean():.2f}m)"
+            )
+        else:
+            _terrain_log(
+                f"{label}filtered {n_below}/{len(source_pts)} points "
+                "(no AAM terrain sample / nodata)"
+            )
+
+    above = source_pts.loc[~below].copy()
+    below_pts = source_pts.loc[below].copy()
+    return above, below_pts
 
 # NMSim omni tuning basename -> AAM NetCDF source id (FLATO*.nc in NCfiles/).
 OMNI_TO_AAM_SOURCE_ID: dict[str, str] = {
@@ -336,6 +447,7 @@ class AamSiteContext:
 
 class AamPropagationModel:
     max_points_per_run = 400
+    predictions_subdir = AAM_PREDICTIONS_SUBDIR
 
     def __init__(
         self,
@@ -347,8 +459,17 @@ class AamPropagationModel:
         self.root_dir = root_dir
         self.aam_shim = aam_shim
         self.receiver_agl_m = receiver_agl_m
-        self._aam_work_dir = Path(root_dir) / AAM_WORK_SUBDIR
-        self._aam_work_dir.mkdir(parents=True, exist_ok=True)
+        self._runs_dir = _runs_dir_for_site(root_dir)
+
+    def filter_below_terrain(
+        self,
+        site: AamSiteContext,
+        source_pts: gpd.GeoDataFrame,
+        *,
+        job_name: str = "",
+    ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+        """Drop points below the AAM ELV surface before building a track batch."""
+        return split_below_aam_terrain(site, source_pts, job_name=job_name)
 
     def prepare_site(
         self,
@@ -389,8 +510,7 @@ class AamPropagationModel:
                 dem_file = dem_projected
                 _terrain_log(f"warped DEM {_dem_raster_summary(dem_file)}")
 
-        terrain_dir = self._aam_work_dir / f"terrain{suffix}"
-        terrain_dir.mkdir(parents=True, exist_ok=True)
+        terrain_dir = _terrain_dir_for_site(self.root_dir, suffix)
 
         mic_wgs84 = mic.to_crs("EPSG:4326")
         receiver_agl_m = self.receiver_agl_m if self.receiver_agl_m is not None else mic_wgs84.z
@@ -402,8 +522,11 @@ class AamPropagationModel:
 
         _terrain_log(f"AOI clip envelope (WGS84): {_aoi_bounds_deg(aoi)}")
 
+        root_dir = Path(self.root_dir)
+
         terrain = _try_load_cached_terrain(
             terrain_dir,
+            root_dir,
             dem_file,
             aoi,
             receiver_agl_m,
@@ -428,6 +551,7 @@ class AamPropagationModel:
                 )
             _write_terrain_cache_meta(
                 terrain_dir,
+                root_dir,
                 dem_file=dem_file,
                 receiver_agl_m=receiver_agl_m,
                 flow_resistivity=flow_resistivity,
@@ -454,7 +578,7 @@ class AamPropagationModel:
         job_name: str,
         heading: int | None = None,
     ) -> pd.DataFrame:
-        work_dir = self._aam_work_dir / job_name
+        work_dir = self._runs_dir / job_name
         work_dir.mkdir(parents=True, exist_ok=True)
 
         wgs84_pts = source_pts.to_crs("EPSG:4326")
