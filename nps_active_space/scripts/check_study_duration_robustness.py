@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 from nps_active_space.validation.study_duration_stability import fit_varying_n_tracks, plot_stability
 import nps_active_space.utils.config as cfg
+from nps_active_space.utils.enums import AcousticModel
 
 if __name__ == "__main__":
     parser = ArgumentParser()
@@ -14,6 +15,9 @@ if __name__ == "__main__":
     parser.add_argument("-k", type=int, default=10, help="Top k best fits will be plotted in a range around the best fit. Default k=10.")
     parser.add_argument("-n", "--max-n-tracks", type=int,
                         help="Rightmost xlim for plotting; maximum number of tracks to plot.")
+    parser.add_argument("--model", type=AcousticModel, choices=list(AcousticModel),
+                        default=AcousticModel.NMSIM,
+                        help="Propagation model whose active-space layers to analyze.")
 
     args = parser.parse_args()
     assert len(args.deployments) > 0, "Must pass at least one deployment as a positional argument."
@@ -26,7 +30,7 @@ if __name__ == "__main__":
     print("Fitting increasing number of tracks for each deployment...")
     for deployment in args.deployments:
         unit, site, year = deployment[:4], deployment[4:-4], deployment[-4:]
-        fit_varying_n_tracks(project_dir, unit, site, year)
+        fit_varying_n_tracks(project_dir, unit, site, year, model=args.model)
         print("")
     
     # make plot

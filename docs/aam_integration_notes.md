@@ -22,9 +22,9 @@ See `activespace-experiments/README.md` (NMSim reciprocal two-point ridge) and t
 
 ---
 
-## `aam_translator` — sibling library (v0.1.0)
+## `aam_translator` — sibling library (v0.1.2)
 
-Not yet vendored or depended on in this repo. Install: `pip install -e ../aam_translator` (or GitHub URL in that repo's README).
+Optional dependency via `pyproject.toml` `[aam]` extra: `pip install -e ".[dev,aam]"` (pins `aam-translator@v0.1.2` from GitHub). The Docker image uses the same extra (`pip install -e ".[aam]"`). For simultaneous library development, use `pip install -e ~/dev/aam_translator` to override the git pin locally.
 
 ### What it provides today
 
@@ -112,7 +112,7 @@ Work on branch **`feature/aam-propagation-model`** (or similar), rebased onto `m
 
 ### Phase 1 — Adapter skeleton — **done on `feature/aam-propagation-model`**
 
-1. ✅ Optional `aam_translator` dependency (`pyproject.toml` `[aam]` / Docker `pip install -e ".[aam]"`).
+1. ✅ Optional `aam_translator` dependency (`pyproject.toml` `[aam]` @ v0.1.2 from GitHub; Docker image uses the same extra).
 2. ✅ `PropagationModel` protocol, `NmsimPropagationModel` (extracted), `AamPropagationModel`:
    - `write_terrain` + `write_inp` + `hop_speed_kn`, AAM shim, `read_run_log`, `read_poi`, `assert_track_alignment`.
    - Maps to NMSim TIS-shaped DataFrame (`Xpos`, `Ypos`, `Zpos`, `A`, bands `"10"`…`"12500"`; 12.5 kHz = `NaN`).
@@ -125,8 +125,9 @@ Work on branch **`feature/aam-propagation-model`** (or similar), rebased onto `m
 1. ✅ Constructor injection of `AamPropagationModel`; `_run_propagation_model` replaces NMSim-only subprocess path.
 2. ✅ Batching at `propagation_model.max_points_per_run` via `_preprocess_source_points`.
 3. ✅ Cache CSV, audibility, contour, polygon unchanged.
-4. ✅ 12.5 kHz: AAM POI has no band 41 → `NaN` in adapter (audibility uses `max(ambience, hearing threshold)` per band).
-5. ❌ CLI/config flag to select AAM in `generate_active_space.py` (still NMSim-only by default).
+4. ✅ AAM outputs under ``Output_Data/AAM/predictions/`` and ``Output_Data/AAM/runs/`` (NMSim stays ``TIG_TIS/``).
+5. ✅ 12.5 kHz: AAM POI has no band 41 → `NaN` in adapter (audibility uses `max(ambience, hearing threshold)` per band).
+6. ✅ CLI/config flag to select AAM in `generate_active_space.py` (`--model`, model-scoped paths, `fits.csv`).
 
 ### Phase 3 — Scale validation and perf
 
@@ -136,9 +137,77 @@ Work on branch **`feature/aam-propagation-model`** (or similar), rebased onto `m
 
 ### Explicitly not in initial AAM integration
 
-- `generate_active_space` full gain sweep as default AAM path until Phase 2 is stable.
+- `generate_active_space` full gain sweep as default AAM path (use `--model aam`; validate remains a quick smoke test).
 - `COMPUTEGRD` / ground noise maps / DNL products.
 - Replacing NMSim as default propagation model in config until validation passes.
+
+---
+
+## Site directory layout (AAM)
+
+AAM does **not** use ``Output_Data/TIG_TIS/`` (NMSim-only: ``.tis`` + centibel CSV cache).
+
+| Path | Role |
+|------|------|
+| ``Input_Data/AAM/terrain/{mic}/`` | Cached ``.ELV`` / ``.IMP`` + ``terrain_cache.json`` (model **input**, rebuild when DEM/AOI changes) |
+| ``Output_Data/AAM/predictions/`` | Incremental spectral cache CSVs (``{alt}m_{omni}_{heading}deg.csv``) |
+| ``Output_Data/aam/runs/{job}/`` | Per-batch scratch (``.inp``, ``.POI``, ``scenario.txt``) |
+| ``Output_Data/aam/active_space.log`` | Append-only run log (terrain, batches, summaries; points at on-disk artifacts) |
+| ``Output_Data/aam/ACTIVESPACES/`` | Final active-space GeoJSON (model-scoped layout) |
+
+Legacy paths (still read if present): ``Input_Data/AAM/terrain_{mic}/`` for terrain;
+``Output_Data/TIG_TIS/*.csv`` from early AAM runs should be deleted (they mixed with NMSim caches).
+
+---
+
+## 3D batch workflow (preferred production path)
+
+```text
+plot_altitudes.py → generate_3d_active_space.py (--model) → generate_active_space_batch.py
+    → fit_3d_active_space.py (--model) → project fits.csv
+```
+
+- Per-layer generation writes ``Output_Data/{model}/ACTIVESPACES/{usy}_{alt}m/``.
+- **Canonical fits** live in the **project** ``fits.csv`` (project directory), with a ``Model`` column (`nmsim` / `aam`) keyed by Designator + Model + Altitude_m. Per-site ``{site}/fits.csv`` rows from debug harnesses are not authoritative.
+- 3D fit writes that project ``fits.csv`` and PR plot under ``Output_Data/{model}/PRECISION_RECALL/PrecisionRecallPlot_3d_{usy}_f1p0.png``.
+- Batch bookkeeping uses ``--results-out`` JSON from ``generate_active_space.py`` (not stdout regex parsing). The JSON contract matches PR #110 (`fix/structured-active-space-batch-results`).
+
+### Docker `-m` vs script `--model`
+
+Two layers — both are required for AAM pipeline runs:
+
+| Layer | Flag | Role |
+|-------|------|------|
+| Container | `docker/run_activespace.sh -m aam` | Mount AAM Wine runtime at ``/opt/aam``; set ``ACOUSTIC_MODEL`` |
+| Python | `generate_active_space.py --model aam` | Select ``AamPropagationModel``, ``Output_Data/aam/`` paths, batch cap 400 |
+
+NMSim is the default when either flag is omitted.
+
+### AAM omni-source parallelism
+
+``generate_active_space.py`` uses the same ``mp.Pool`` omni-source groups as NMSim. Each worker gets a unique ``job_name`` (mic name + omni stem) and writes ``Output_Data/aam/runs/{job}/``. Shared Wine prefix + read-only ``NCfiles/`` was checked with two concurrent ``COMPUTEPOI`` jobs (``docker/validate_aam_parallel.py``); spectra matched sequential.
+
+Native Windows uses ``cpu_count - 1`` workers, same as NMSim. Docker+Wine is capped at 2 workers by ``docker/run_activespace.sh`` (``AAM_PARALLEL_N``). Do not set that in user config.
+
+### AAM track batching (mesh2 / contour failures)
+
+AAM aborts the **entire** ``ONE TRACK`` when any vertex is below the ELV surface (`ERROR: Below ground. TERRAIN`), often leaving an empty or partial ``.POI``. Mesh2/contour steps send **200–370** scattered points in one call; one bad point (or ELV vs clip mismatch) killed whole altitudes.
+
+``AamPropagationModel.predict()`` now:
+
+- Splits into chunks of ``AAM_CHUNK_SIZE`` (default **50**) Wine runs per mesh batch
+- Sorts points by ``(x, y)`` before ``ONE TRACK`` so ``hop_speed_kn`` stays finite on scattered meshes
+- Filters below-ground points in ``split_below_aam_terrain`` by bilinear sampling the **ELV grid** (same surface AAM uses), not the clip GeoTIFF; tolerance is float noise only (~0.01 m), not a clearance margin
+
+Residual caveats: a chunk that still contains a below-ground point will fail; 4+ omni pool workers were not load-tested above 50-point batches.
+
+### Merge note: `fix/structured-active-space-batch-results` (PR #110)
+
+That branch replaces brittle ``parse_output()`` regex with the same ``--results-out`` JSON contract now ported on this branch. **Do not blind-merge** — it also refactors ``active_space_generator.py`` (drops ``dem_src``, project_setup elevation) and ambience helpers. When merging:
+
+1. Keep AAM ``PropagationModel`` architecture as the base.
+2. Take JSON batch reader / tests from PR #110 if not already present.
+3. Reconcile ``active_space_generator.py`` and ``computation.py`` manually (high conflict risk).
 
 ---
 

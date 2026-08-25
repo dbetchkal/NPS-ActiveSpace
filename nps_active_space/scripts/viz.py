@@ -9,6 +9,8 @@ import pyproj
 from shapely.geometry import box, Polygon, MultiPolygon, LineString, MultiLineString
 from nps_active_space.utils.helpers import get_deployment, load_annotations, load_DEM, load_layered_activespace, load_studyarea
 from nps_active_space.utils import paths as p
+from nps_active_space.utils.enums import AcousticModel
+from nps_active_space.active_space.active_space_setup import resolve_3d_fit_gain
 from nps_active_space.scripts.run_audible_transits import AudibleTransits
 from nps_active_space.utils.models import Annotations
 from nps_active_space.utils.computation import NMSIM_bbox_utm
@@ -63,7 +65,12 @@ def create_polyline_3d(linestring, z=None):
 class Visualizer():
     # color config
     activespace_color = "orange"
+    nmsim_activespace_color = "orange"
+    aam_activespace_color = "cyan"
     mic_color = "white"
+    _checkbox_label_font = 8
+    _layer_widget_dy = 28
+    _layer_widget_right_margin = 170
     audible_annotation_color = "deepskyblue"
     inaudible_annotation_color = "red"
     audible_transits_color = "purple"
@@ -73,6 +80,7 @@ class Visualizer():
                  do_annots=False, do_transits=False,
                  annotation_file=None, audible_transits_pkl=None,
                  terraced=False, fill_layers=False, max_tracks=1000,
+                 model: AcousticModel | None = None, compare_models: bool = False,
                  ):
         # class metadata
         self.unit = unit
@@ -94,7 +102,10 @@ class Visualizer():
         self.plot_dem()
         self.plot_mic()
         if do_active:
-            self.plot_activespace(terraced, gain)
+            if compare_models:
+                self.plot_compare_activespaces(terraced, gain)
+            else:
+                self.plot_activespace(terraced, gain, model=model or AcousticModel.NMSIM)
         if do_annots:
             self.plot_annotations(annotation_file)
         if do_transits:
@@ -147,67 +158,173 @@ class Visualizer():
         mic = mic.to_crs(self.crs)
         self.plot_point(mic.x, mic.y, mic.z, self.mic_color)
 
-    def plot_activespace(self, terraced=False, gain=None):
-        csv_3d_fits = p.fits_csv(self.project_dir)
+    def _site_dir(self) -> str:
+        return p.site_dir(self.project_dir, self.unit, self.site)
 
+    def _resolve_activespace_gain(self, model: AcousticModel, gain: float | None) -> float | None:
         if gain is not None:
-            print(f"Using gain {gain}dB")
-        elif os.path.exists(csv_3d_fits):
-            fit_results = pd.read_csv(csv_3d_fits, index_col="Designator")
-            if self.deployment in fit_results.index:
-                gain = float(fit_results.loc[self.deployment, "1/3rd Octave Gain (F1)"])
-            else:
-                print(f"No fitted active space gain found in {csv_3d_fits}, skipping active space.")
-                return
-        else:
-            print(f"No gain specified and {csv_3d_fits} not found, skipping active space.")
+            print(f"Using gain {gain} dB for {model}")
+            return gain
+
+        fitted = resolve_3d_fit_gain(
+            self.project_dir, self.unit, self.site, self.year, model=model,
+        )
+        if fitted is not None:
+            csv_3d_fits = p.fits_csv(self.project_dir)
+            print(f"Using fitted gain {fitted} dB for {model} ({csv_3d_fits})")
+            return fitted
+
+        print(f"No fitted gain for {model}; pass -g or run fit_3d_active_space first.")
+        return None
+
+    def plot_activespace(self, terraced=False, gain=None, model: AcousticModel = AcousticModel.NMSIM):
+        gain = self._resolve_activespace_gain(model, gain)
+        if gain is None:
             return
 
-        # load activespace and plot the version specified by the user
-        active_3d = load_layered_activespace(self.project_dir, self.unit, self.site, self.year,
-                                             gain, self.crs)
+        color = (
+            self.aam_activespace_color
+            if AcousticModel.parse(model) is AcousticModel.AAM
+            else self.nmsim_activespace_color
+        )
+        active_3d = load_layered_activespace(
+            self.project_dir, self.unit, self.site, self.year,
+            gain, self.crs, model=model,
+        )
+        if active_3d.activespaces is None:
+            print(f"No active space layers loaded for {model} at gain {gain} dB.")
+            return
+        prefix = self._model_display_name(model)
         if terraced:
-            self.plot_terraced_activespace(active_3d)
+            self.plot_terraced_activespace(active_3d, color=color, label_prefix=prefix)
         else:
-            self.plot_contoured_activespace(active_3d)
+            self.plot_contoured_activespace(active_3d, color=color, label_prefix=prefix)
 
-    def plot_contoured_activespace(self, active_3d):
+    def plot_compare_activespaces(self, terraced=False, gain=None):
+        widget_row = 0
+        for model, color in (
+            (AcousticModel.NMSIM, self.nmsim_activespace_color),
+            (AcousticModel.AAM, self.aam_activespace_color),
+        ):
+            model_gain = gain if gain is not None else self._resolve_activespace_gain(model, None)
+            if model_gain is None:
+                continue
+            active_3d = load_layered_activespace(
+                self.project_dir, self.unit, self.site, self.year,
+                model_gain, self.crs, model=model,
+            )
+            if active_3d.activespaces is None:
+                print(f"No active space layers loaded for {model} at gain {model_gain} dB.")
+                continue
+            prefix = self._model_display_name(model)
+            if terraced:
+                self.plot_terraced_activespace(
+                    active_3d, color=color, label_prefix=prefix, widget_row=widget_row,
+                )
+                widget_row += 1
+            else:
+                widget_row = self.plot_contoured_activespace(
+                    active_3d, color=color, label_prefix=prefix, widget_row=widget_row,
+                )
+
+    @staticmethod
+    def _model_display_name(model: AcousticModel) -> str:
+        match AcousticModel.parse(model):
+            case AcousticModel.AAM:
+                return "AAM"
+            case AcousticModel.NMSIM:
+                return "NMSim"
+
+    def _layer_widget_x(self) -> int:
+        width = int(self.plotter.window_size[0])
+        return max(10, width - self._layer_widget_right_margin)
+
+    def _add_labeled_checkbox(
+        self,
+        callback,
+        *,
+        value: bool,
+        position: tuple[int, int],
+        size: int,
+        color_on: str,
+        label: str,
+    ):
+        checkbox = self.plotter.add_checkbox_button_widget(
+            callback=callback,
+            value=value,
+            position=position,
+            size=size,
+            color_on=color_on,
+        )
+        x, y = position
+        self.plotter.add_text(
+            label,
+            position=(x + size + 6, y + 4),
+            font_size=self._checkbox_label_font,
+            color="white",
+            shadow=True,
+            name=f"checkbox_label_{x}_{y}",
+        )
+        return checkbox
+
+    def plot_contoured_activespace(
+        self, active_3d, color=None, label_prefix: str = "", widget_row: int = 0,
+    ) -> int:
+        if color is None:
+            color = self.activespace_color
+        if active_3d is None or active_3d.activespaces is None:
+            return widget_row
         layer_checkboxes = []
         layer_callbacks = []
-        for i, (active_z, active) in enumerate(active_3d.activespaces.items()):
-            if not active.empty:
-                checkbox, toggle_cb = self.plot_active_layer(active, active_z, i=i)
-                layer_checkboxes.append(checkbox)
-                layer_callbacks.append(toggle_cb)
+        x = self._layer_widget_x()
+        row = widget_row
+        prefix = f"{label_prefix} " if label_prefix else ""
 
-        # make checkbox to toggle all active space layers
         def toggle_all_actives(flag):
             for box, toggle_cb in zip(layer_checkboxes, layer_callbacks):
                 box.GetRepresentation().SetState(int(flag))
                 toggle_cb(flag)
             self.plotter.render()
-        
-        self.plotter.add_checkbox_button_widget(
-            callback=toggle_all_actives,
-            value=True,
-            position=(10, 5),
-            size=35,
-            color_on=self.activespace_color
-        )
 
-    def plot_active_layer(self, active_layer, elevation, i=0):
+        self._add_labeled_checkbox(
+            toggle_all_actives,
+            value=True,
+            position=(x, 10 + self._layer_widget_dy * row),
+            size=25,
+            color_on=color,
+            label=f"{prefix}all".strip() or "all",
+        )
+        row += 1
+
+        for active_z, active in active_3d.activespaces.items():
+            if not active.empty:
+                checkbox, toggle_cb = self.plot_active_layer(
+                    active,
+                    active_z,
+                    i=row,
+                    color=color,
+                    label=f"{prefix}{int(active_z)} m".strip(),
+                )
+                layer_checkboxes.append(checkbox)
+                layer_callbacks.append(toggle_cb)
+                row += 1
+        return row
+
+    def plot_active_layer(self, active_layer, elevation, i=0, color=None, label: str | None = None):
+        if color is None:
+            color = self.activespace_color
         poly_actor = None
         if self.fill_layers:
             meshes = []
             for poly in active_to_polys(active_layer):
                 meshes.append(polygon_to_mesh(poly, elevation))
                 poly_data = pv.PolyData().merge(meshes)
-            poly_actor = self.plotter.add_mesh(poly_data, color=self.activespace_color, opacity=0.5)
+            poly_actor = self.plotter.add_mesh(poly_data, color=color, opacity=0.5)
 
         line_actors = []
         for line in active_to_linestrings(active_layer):
             polyline = create_polyline_3d(line, z=elevation)
-            actor = self.plotter.add_mesh(polyline, color=self.activespace_color, point_size=2, line_width=2)
+            actor = self.plotter.add_mesh(polyline, color=color, point_size=2, line_width=2)
             line_actors.append(actor)
         
         def toggle(flag):
@@ -215,18 +332,26 @@ class Visualizer():
                 poly_actor.SetVisibility(flag)
             for actor in line_actors:
                 actor.SetVisibility(flag)
-        
-        checkbox = self.plotter.add_checkbox_button_widget(
-            callback=toggle,
+
+        if label is None:
+            label = f"{int(elevation)} m"
+        checkbox = self._add_labeled_checkbox(
+            toggle,
             value=True,
-            position=(60 + 40*i,10),
+            position=(self._layer_widget_x(), 10 + self._layer_widget_dy * i),
             size=25,
-            color_on=self.activespace_color
+            color_on=color,
+            label=label,
         )
 
         return checkbox, toggle
 
-    def plot_terraced_activespace(self, active_3d, layer_thickness=300, opacity=1):
+    def plot_terraced_activespace(
+        self, active_3d, layer_thickness=300, opacity=1, color=None,
+        label_prefix: str = "", widget_row: int = 0,
+    ):
+        if color is None:
+            color = self.activespace_color
         meshes = []
         layers = list(active_3d.activespaces.items())
         for i in range(len(layers)):
@@ -257,17 +382,19 @@ class Visualizer():
             
         # combine all meshes and add to plot
         stacked = pv.MultiBlock(meshes).combine()
-        actor = self.plotter.add_mesh(stacked, color=self.activespace_color, opacity=opacity)
+        actor = self.plotter.add_mesh(stacked, color=color, opacity=opacity)
 
         def toggle(flag):
             if actor is not None:
                 actor.SetVisibility(flag)
-        self.plotter.add_checkbox_button_widget(
-            callback=toggle,
+        prefix = f"{label_prefix} " if label_prefix else ""
+        self._add_labeled_checkbox(
+            toggle,
             value=True,
-            position=(10, 5),
-            size=35,
-            color_on=self.activespace_color
+            position=(self._layer_widget_x(), 10 + self._layer_widget_dy * widget_row),
+            size=25,
+            color_on=color,
+            label=f"{prefix}terraced".strip(),
         )
     
     def plot_annotations(self, annotation_file=None):
@@ -315,19 +442,21 @@ class Visualizer():
             for actor in inaudible_actors:
                 actor.SetVisibility(flag)
         
-        self.plotter.add_checkbox_button_widget(
-            callback=toggle_audible,
+        self._add_labeled_checkbox(
+            toggle_audible,
             value=True,
-            position=(10,100),
+            position=(10, 100),
             size=25,
-            color_on="deepskyblue"
+            color_on="deepskyblue",
+            label="audible",
         )
-        self.plotter.add_checkbox_button_widget(
-            callback=toggle_inaudible,
+        self._add_labeled_checkbox(
+            toggle_inaudible,
             value=True,
-            position=(10,60),
+            position=(10, 60),
             size=25,
-            color_on="red"
+            color_on="red",
+            label="inaudible",
         )
      
     def plot_audible_transits(self, audible_transits_pkl=None):
@@ -369,12 +498,13 @@ class Visualizer():
             for actor in actors:
                 actor.SetVisibility(flag)
 
-        self.plotter.add_checkbox_button_widget(
-            callback=toggle,
+        self._add_labeled_checkbox(
+            toggle,
             value=True,
-            position=(10,180),
+            position=(10, 180),
             size=25,
-            color_on="purple"
+            color_on="purple",
+            label="transits",
         )
 
     def setup_z_scale(self):
@@ -384,12 +514,13 @@ class Visualizer():
         def toggle_z_scale(flag):
             self.plotter.set_scale(1, 1, 2 if flag else 1)
 
-        self.plotter.add_checkbox_button_widget(
-            callback=toggle_z_scale,
+        self._add_labeled_checkbox(
+            toggle_z_scale,
             value=True,
-            position=(10,140),
+            position=(10, 140),
             size=25,
-            color_on=self.z_scale_toggle_color
+            color_on=self.z_scale_toggle_color,
+            label="2× z-scale",
         )
 
 
@@ -422,9 +553,14 @@ if __name__ == "__main__":
     parser.add_argument("--transits-pkl", help="Path to .pkl file to load audible transits from, if not the default.")
     parser.add_argument("--terraced", action="store_true",
                         help="If included, render the active space as the terraced surface instead of contours.")
+    parser.add_argument("--model", type=AcousticModel, choices=list(AcousticModel),
+                        default=None,
+                        help="Propagation model for active-space layers (default: nmsim).")
+    parser.add_argument("--compare", action="store_true",
+                        help="Overlay NMSim (orange) and AAM (cyan) active spaces.")
     parser.add_argument("--fill-layers", action="store_true",
                         help="If included, fill the interior of each active space contour polygon.")
-    
+
     args = parser.parse_args()
 
     usy = args.deployment
@@ -439,4 +575,5 @@ if __name__ == "__main__":
                do_active, args.gain,
                do_annotations, do_transits,
                args.annotation_file, args.transits_pkl,
-               args.terraced, args.fill_layers, args.max_tracks)
+               args.terraced, args.fill_layers, args.max_tracks,
+               model=args.model, compare_models=args.compare)

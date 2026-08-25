@@ -38,6 +38,7 @@ from shapely.geometry import Point
 from tqdm import tqdm
 
 import nps_active_space.utils.config as cfg
+import nps_active_space.utils.paths as p
 from nps_active_space.utils.computation import (
     ambience_from_nvspl,
     normalize_point_density,
@@ -49,8 +50,14 @@ from nps_active_space.utils.helpers import (
     load_annotations,
 )
 from nps_active_space.utils.models import Microphone, Nvspl
+from nps_active_space.utils.enums import AcousticModel
 
 from nps_active_space.active_space import ActiveSpaceGenerator
+from nps_active_space.active_space.active_space_setup import (
+    build_active_space_generator,
+    precision_recall_plot_path,
+    resolve_acoustic_model,
+)
 
 HEARTBEAT_INTERVAL_S = 15.0
 AAM_SHIM = Path("/usr/local/bin/aam")
@@ -62,7 +69,7 @@ class ValidateArgs:
     unit: str
     site: str
     year: int
-    model: str
+    model: AcousticModel
     gains: list[float]
     omni_min: float
     omni_max: float
@@ -96,7 +103,7 @@ class RunContext:
     unit: str
     site: str
     year: int
-    model: str
+    model: AcousticModel
 
 
 @dataclass(frozen=True)
@@ -151,7 +158,8 @@ def parse_args() -> ValidateArgs:
     ap.add_argument("-y", "--year", type=int, default=2025)
     ap.add_argument(
         "--model",
-        choices=("nmsim", "aam"),
+        type=AcousticModel,
+        choices=list(AcousticModel),
         default=None,
         help="Propagation model (default: nmsim, or aam when ACOUSTIC_MODEL=aam).",
     )
@@ -197,13 +205,11 @@ def parse_args() -> ValidateArgs:
         "--cpus",
         type=int,
         default=0,
-        help="Worker processes for multi-gain runs (0 = len(gains)). NMSim only.",
+        help="Worker processes for multi-gain runs (0 = len(gains)).",
     )
     ns = ap.parse_args()
 
-    model = ns.model or os.environ.get("ACOUSTIC_MODEL", "nmsim")
-    if model not in ("nmsim", "aam"):
-        raise SystemExit(f"--model must be nmsim or aam (got {model!r})")
+    model = resolve_acoustic_model(ns.model)
 
     if ns.fit:
         gains = [
@@ -239,7 +245,7 @@ def initialize_site(args: ValidateArgs) -> tuple[str, str, Microphone, gpd.GeoDa
 
     dem = cfg.read("data", "dem")
     log(f"env={args.environment} site={args.unit}{args.site}{args.year} model={args.model}")
-    if args.model == "nmsim":
+    if args.model is AcousticModel.NMSIM:
         log(f"nmsim={cfg.read('project', 'nmsim')}")
     log(f"dem={dem}")
 
@@ -270,56 +276,35 @@ def build_generator(
     study_area: gpd.GeoDataFrame,
     ambience: pd.Series,
     mic: Microphone,
-    model: str,
+    model: AcousticModel,
 ) -> ActiveSpaceGenerator:
-    if model == "aam":
-        from nps_active_space.active_space.aam_propagation_model import AamPropagationModel
-
-        propagation_model = AamPropagationModel(site_dir, aam_shim=str(AAM_SHIM))
-        gen = ActiveSpaceGenerator(
-            NMSIM=None,
-            propagation_model=propagation_model,
-            root_dir=site_dir,
-            study_area=study_area,
-            ambience=ambience,
-            dem_src=dem,
-        )
-    else:
-        nmsim = cfg.read("project", "nmsim")
-        gen = ActiveSpaceGenerator(
-            NMSIM=nmsim,
-            root_dir=site_dir,
-            study_area=study_area,
-            ambience=ambience,
-            dem_src=dem,
-        )
     with timed_step("masking/projecting DEM (set_dem)"):
-        gen.set_dem(mic)
-    return gen
+        return build_active_space_generator(
+            site_dir, dem, study_area, ambience, mic, model, aam_shim=str(AAM_SHIM),
+        )
 
 
 def output_dir(site_dir: str, args: ValidateArgs) -> str:
-    usy = f"{args.unit}{args.site}{args.year}"
-    sub = f"{usy}_{args.altitude}m"
-    if args.model == "aam":
-        sub = f"{sub}_aam"
-    return os.path.join(site_dir, "Output_Data", "ACTIVESPACES", sub)
+    return p.activespace_layer_dir(
+        site_dir, args.unit, args.site, args.year, args.altitude, args.model,
+    )
 
 
 def _output_path(ctx: RunContext, gain: float, omni_stem: str) -> str:
-    tag = "AAM_VALIDATE" if ctx.model == "aam" else "VALIDATE"
-    return os.path.join(
-        ctx.out_dir,
-        f"{ctx.unit}{ctx.site}{ctx.year}_{omni_stem}_{tag}.geojson",
-    )
+    usy = p.deployment_id(ctx.unit, ctx.site, ctx.year)
+    return os.path.join(ctx.out_dir, f"{usy}_{omni_stem}.geojson")
 
 
 def _area_km2(active_space: gpd.GeoDataFrame) -> float:
     return round(active_space.to_crs(active_space.estimate_utm_crs()).area.sum() / 1e6, 2)
 
 
-def _model_label(model: str) -> str:
-    return "AAM" if model == "aam" else "NMSim via Wine"
+def _model_label(model: AcousticModel) -> str:
+    match AcousticModel.parse(model):
+        case AcousticModel.AAM:
+            return "AAM"
+        case AcousticModel.NMSIM:
+            return "NMSim via Wine"
 
 
 def run_one_gain(gain: float, ctx: RunContext) -> ValidationResult:
@@ -364,13 +349,6 @@ def _run_one_worker(gain: float, ctx: RunContext) -> ValidationResult:
 
 
 def run_all_gains(gains: Sequence[float], ctx: RunContext, ncpu: int) -> list[ValidationResult]:
-    if ctx.model == "aam" and len(gains) > 1:
-        log("AAM: running gains sequentially (no multiprocessing)")
-        results = []
-        for gain in gains:
-            results.append(run_one_gain(gain, ctx))
-        return results
-
     if len(gains) == 1:
         gain = gains[0]
         log(
@@ -445,13 +423,10 @@ def run_fit(
         path = os.path.join(output_dir(site_dir, args), result.outfile)
         active_space_polygons.append((result.omni_stem, gpd.read_file(path)))
 
-    usy = f"{args.unit}{args.site}{args.year}"
-    model_tag = "_aam" if args.model == "aam" else ""
-    plot_name = (
-        f"PrecisionRecallPlot_{usy}_{args.altitude}m_"
-        f"{str(args.beta).replace('.', 'p')}{model_tag}.png"
+    plot_path = precision_recall_plot_path(
+        site_dir, args.unit, args.site, args.year, args.altitude, args.beta, args.model,
     )
-    plot_path = os.path.join(site_dir, "Output_Data", "PRECISION_RECALL", plot_name)
+    os.makedirs(os.path.dirname(plot_path), exist_ok=True)
 
     log(
         f"fitting F-{args.beta} across {len(active_space_polygons)} active spaces "
@@ -469,27 +444,8 @@ def run_fit(
         verbose=True,
     )
 
-    csv_name = "fits_aam_validate.csv" if args.model == "aam" else "fits_validate.csv"
-    csv_path = os.path.join(site_dir, csv_name)
-    sign = {"+": 1, "-": -1}
-    numeric_gain = sign[best_omni[-4:-3]] * int(best_omni[-3:]) / 10
-    row = {
-        "Designator": usy,
-        "Model": args.model,
-        "Altitude_m": args.altitude,
-        "Density": args.density,
-        "1/3rd Octave Gain (F1)": numeric_gain,
-        f"F{args.beta}": max_fbeta,
-        "Precision": best_precision,
-        "Recall": best_recall,
-        "Best_omni": best_omni,
-    }
-    df = pd.DataFrame([row])
-    if os.path.exists(csv_path):
-        existing = pd.read_csv(csv_path)
-        existing = existing[existing["Designator"] != usy]
-        df = pd.concat([existing, df], ignore_index=True)
-    df.to_csv(csv_path, index=False)
+    project_dir = cfg.read("project", "dir")
+    csv_path = p.fits_csv(project_dir)
 
     return FitResult(
         best_omni=best_omni,
@@ -512,12 +468,39 @@ def print_results(results: Sequence[ValidationResult], total_elapsed_s: float) -
     log(f"OK: {len(results)} active space(s) generated in {total_elapsed_s:.1f}s wall time")
 
 
+def append_aam_site_log(
+    site_dir: str,
+    results: Sequence[ValidationResult],
+    fit: FitResult | None = None,
+) -> None:
+    from nps_active_space.active_space.aam_run_log import append_aam_run_summary
+
+    summary_lines = [
+        (
+            f"gain={result.gain} omni={result.omni_stem} tested={result.n_tested} "
+            f"audible={result.n_audible} area_km2={result.area_km2} "
+            f"elapsed_s={result.elapsed_s} -> {result.outfile}"
+        )
+        for result in sorted(results, key=lambda r: r.gain)
+    ]
+    if fit is not None:
+        summary_lines.append(
+            f"fit best_omni={fit.best_omni} F1={fit.max_fbeta:.4f} "
+            f"precision={fit.best_precision:.4f} recall={fit.best_recall:.4f}"
+        )
+        summary_lines.append(f"fit plot={fit.plot_path}")
+        summary_lines.append(
+            f"canonical fits -> {fit.csv_path} (populate via fit_3d_active_space.py)"
+        )
+    append_aam_run_summary(summary_lines)
+
+
 def print_fit(fit: FitResult) -> None:
     log("=== fit (annotations) ===")
     log(f"  best_omni={fit.best_omni}  F1={fit.max_fbeta:.4f}  "
         f"precision={fit.best_precision:.4f}  recall={fit.best_recall:.4f}")
     log(f"  plot -> {fit.plot_path}")
-    log(f"  csv  -> {fit.csv_path}")
+    log(f"  canonical fits -> {fit.csv_path} (use fit_3d_active_space.py to populate)")
 
 
 def main() -> None:
@@ -553,10 +536,14 @@ def main() -> None:
     results = run_all_gains(args.gains, ctx, ncpu)
     print_results(results, time.perf_counter() - wall_start)
 
+    fit: FitResult | None = None
     if args.fit:
         valid_points = load_valid_points(site_dir, study_area, args)
         fit = run_fit(results, valid_points, site_dir, args)
         print_fit(fit)
+
+    if args.model is AcousticModel.AAM:
+        append_aam_site_log(site_dir, results, fit)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 {
   "dem_utm": "parent_dem_utm.tif",
-  "inp": "/Users/eruebush/dev/nmsim-aam-experiments/activespace-experiments/runs/tier4_reciprocal_two_point/scenario.inp",
+  "description": "Two source points on a ridge with a fixed receiver; reciprocal AAM smoke case.",
   "n_track_points": 2,
   "track_labels": [
     "west",

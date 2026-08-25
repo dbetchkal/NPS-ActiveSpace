@@ -3,6 +3,8 @@ import pandas as pd
 from nps_active_space.utils.helpers import load_layered_activespace, load_annotations
 import nps_active_space.utils.config as cfg
 from nps_active_space.utils import paths as p
+from nps_active_space.utils.enums import AcousticModel
+from nps_active_space.active_space.active_space_setup import upsert_project_fit
 from argparse import ArgumentParser
 
 """
@@ -17,28 +19,24 @@ if __name__ == "__main__":
     parser.add_argument("-y", "--year", required=True, help="Four digit year. E.g. 2018")
     parser.add_argument("-e", "--environment", required=True,
                         help="The configuration environment to run the script in.")
+    parser.add_argument("--model", type=AcousticModel, choices=list(AcousticModel),
+                        default=AcousticModel.NMSIM,
+                        help="Propagation model whose active-space layers to fit.")
     args = parser.parse_args()
 
     unit, site, year = args.unit, args.site, args.year
     cfg.initialize(args.environment)
     project_dir = cfg.read("project", "dir")
-    print(unit+site+year)
+    usy = f"{unit}{site}{year}"
+    print(usy)
 
-    # fit active space model using annotations
-    model = load_layered_activespace(project_dir, unit, site, year)
+    layered = load_layered_activespace(project_dir, unit, site, year, model=args.model)
     annots = load_annotations(project_dir, unit, site, year)
-    plot_savepath = p.precision_recall_3d_plot(project_dir, unit, site, year)
-    result = model.fit(annots, plot_savepath=plot_savepath)
-    
-    # save to output csv
-    csv_file = p.fits_csv(project_dir)
-    if os.path.exists(csv_file):
-        df = pd.read_csv(csv_file)
-        df = df[df["Designator"] != unit+site+year]
-        df.loc[len(df)] = result
-        df = df.sort_values(by="Designator")
-    else:
-        df = pd.DataFrame(result).T
-    df.to_csv(csv_file, index=False)
+    plot_savepath = p.precision_recall_3d_plot(
+        project_dir, unit, site, year, model=args.model, beta=1.0,
+    )
+    os.makedirs(os.path.dirname(plot_savepath), exist_ok=True)
+    result = layered.fit(annots, plot_savepath=plot_savepath)
 
+    csv_file = upsert_project_fit(project_dir, usy, args.model, result)
     print(f"Fit results saved to {csv_file}")

@@ -1,8 +1,6 @@
-import glob
 import multiprocessing as mp
 import os
 import signal
-import time
 import numpy as np
 from argparse import ArgumentParser
 from copy import deepcopy
@@ -18,18 +16,29 @@ import sys
 import iyore
 
 import nps_active_space.utils.config as cfg
+from nps_active_space.utils.enums import AcousticModel
 from nps_active_space.utils.helpers import get_deployment, get_logger, get_omni_sources, load_annotations, omni_to_gain
 from nps_active_space.utils import paths as p
 from nps_active_space.utils.models import Annotations, Nvspl
 from nps_active_space.utils.computation import select_optimal, ambience_from_nvspl, ambience_from_raster, normalize_point_density
 from nps_active_space.active_space import ActiveSpaceGenerator
+from nps_active_space.active_space.active_space_setup import (
+    DEFAULT_SRC_PT_DENSITY,
+    build_active_space_generator,
+    build_batch_run_results,
+    cleanup_propagation_artifacts,
+    precision_recall_plot_path,
+    resolve_acoustic_model,
+    write_batch_run_results,
+)
 
 if TYPE_CHECKING:
     from nps_active_space.utils.models import Microphone
 
 
 def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGenerator, headings: List[int],
-                      microphone: 'Microphone', altitude: int, tested_pts_outfile: Optional[str] = None,
+                      microphone: 'Microphone', altitude: int, src_pt_density: int,
+                      tested_pts_outfile: Optional[str] = None,
                       pretested_pts_dict : Optional[dict] = None) -> Tuple[str, gpd.GeoDataFrame, dict]:
     """
     Function to be multiprocessed to generate active spaces for multiple omni sources.
@@ -85,6 +94,7 @@ def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGene
             mic=mic_copy,
             heading=heading,
             altitude_m=altitude,
+            src_pt_density=src_pt_density,
             predetermined_audibility_pts=predetermined_audibility_pts
         )
         active_space_list.append(active_space)
@@ -226,24 +236,6 @@ def get_pretested_pts(tested_pts_record: dict, gain: float, headings: List[int])
     return pts_dict
 
 
-def cleanup(site_dir, max_tries=5):
-    """Remove batch, control, trajectory, and TIS files from site directory.
-    If this fails because NMSIM is still shutting down, tries again in a second."""
-    try:
-        for file in glob.glob(f"{site_dir}/control*"):
-            os.remove(file)
-        for file in glob.glob(f"{site_dir}/batch*"):
-            os.remove(file)
-        for file in glob.glob(f"{site_dir}/Input_Data/03_TRAJECTORY/*.trj"):
-            os.remove(file)
-        for file in glob.glob(f"{site_dir}/Output_Data/TIG_TIS/*.tis"):
-            os.remove(file)
-    except OSError:
-        if max_tries > 0:
-            time.sleep(1)
-            cleanup(site_dir, max_tries-1)
-
-
 def init_worker():
     """Worker initializer to allow clean Ctrl+C of multiprocessing.
     This makes workers ignore Ctrl+C so that pool.terminate() can take care
@@ -251,34 +243,91 @@ def init_worker():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
+def resolve_pool_n_workers(model: AcousticModel) -> int:
+    """Omni-source pool size. Docker+Wine caps this via ``AAM_PARALLEL_N`` in run_activespace.sh."""
+    max_workers = max(1, mp.cpu_count() - 1)
+    if AcousticModel.parse(model) is not AcousticModel.AAM:
+        return max_workers
+    raw = os.environ.get("AAM_PARALLEL_N")
+    if raw is None:
+        return max_workers
+    return max(1, min(int(raw), max_workers))
+
+
+def build_parser() -> ArgumentParser:
+    parser = ArgumentParser()
+
+    parser.add_argument('-e', '--environment', required=True,
+                        help="The configuration environment to run the script in.")
+    parser.add_argument('-u', '--unit', required=True,
+                        help="Four letter unit code. E.g. DENA")
+    parser.add_argument('-s', '--site', required=True,
+                        help="Four letter site code. E.g. TRLA")
+    parser.add_argument('-y', '--year', type=int, required=True,
+                        help="Four digit year. E.g. 2018")
+    parser.add_argument('-a', '--ambience', default='nvspl',
+                        help="Ambience for audibility: 'nvspl', 'mennitt', or a path to an ambience .pkl file")
+    parser.add_argument('--model', type=AcousticModel, choices=list(AcousticModel),
+                        default=None,
+                        help="Propagation model (default: nmsim). Docker -m aam also sets this.")
+    parser.add_argument('--headings', nargs='+', type=int, default=[0, 120, 240],
+                        help="Headings of active spaces to dissolve. Accepts one or more values.")
+    parser.add_argument('--omni-min', type=float, default=-10,
+                        help="The minimum omni source to run the mesh for.")
+    parser.add_argument('--omni-max', type=float, default=40,
+                        help="The maximum omni source to run the mesh for.")
+    parser.add_argument('-l', '--altitude', type=int, required=False,
+                        help="Source altitude in meters (default: mean audible annotation altitude).")
+    parser.add_argument('--density', type=int, default=None,
+                        help="Source-point mesh density (default: pipeline default).")
+    parser.add_argument('-b', '--beta', nargs='+', type=float, default=[1.0],
+                        help="Beta value(s) to use when calculating fbeta. Accepts one or more values.")
+    parser.add_argument('--cleanup', action='store_true',
+                        help="Remove intermediary NMSim control/batch/TRJ/TIS files.")
+    parser.add_argument('--annotation-file',
+                        help="Basename of GEOJSON annotations file to use, if not the default. File should be in the site directory.")
+    parser.add_argument(
+        '--results-out',
+        help="Path to write structured run results as JSON (used by generate_active_space_batch.py).",
+    )
+    return parser
+
+
+def _process_omni_group(
+    group: list[str],
+    run_fn,
+    tested_pts_record: dict,
+    headings: list[int],
+    usy: str,
+    active_savedir: str,
+    tested_pts_savedir: str,
+    results: list,
+) -> None:
+    processes = []
+    for omni_source_ in group:
+        gain = omni_to_gain(omni_source_)
+        name = f"{usy}_{Path(omni_source_).stem}"
+        kwds = {
+            'omni_source': omni_source_,
+            'outfile': f'{active_savedir}/{name}.geojson',
+            'tested_pts_outfile': f'{tested_pts_savedir}/{name}.pkl',
+            'pretested_pts_dict': get_pretested_pts(tested_pts_record, gain, headings)
+        }
+        processes.append(run_fn(kwds=kwds))
+
+    outputs = [p.get() for p in processes]
+    for output in outputs:
+        if output is None:
+            continue
+        omni, active, tested_pts_dict = output
+        results.append((omni, active))
+        tested_pts_record[omni_to_gain(omni)] = tested_pts_dict
+
+
 if __name__ == '__main__':
 
-    argparse = ArgumentParser()
-
-    argparse.add_argument('-e', '--environment', required=True,
-                          help="The configuration environment to run the script in.")
-    argparse.add_argument('-u', '--unit', required=True,
-                          help="Four letter unit code. E.g. DENA")
-    argparse.add_argument('-s', '--site', required=True,
-                          help="Four letter site code. E.g. TRLA")
-    argparse.add_argument('-y', '--year', type=int, required=True,
-                          help="Four digit year. E.g. 2018")
-    argparse.add_argument('-a', '--ambience', default='nvspl',
-                          help="What type of ambience to use in NMSIM calculations. Choose from ['nvspl', 'mennitt', or a path to an ambience .pkl file]")
-    argparse.add_argument('--headings', nargs='+', type=int, default=[0, 120, 240],
-                          help="Headings of active spaces to dissolve. Accepts one or more values.")
-    argparse.add_argument('--omni-min', type=float, default=-10,
-                          help="The minimum omni source to run the mesh for.")
-    argparse.add_argument('--omni-max', type=float, default=40,
-                          help="The maximum omni source to run the mesh for.")
-    argparse.add_argument('-l', '--altitude', type=int, required=False,
-                          help="Altitude to run NSMIM with in meters.")
-    argparse.add_argument('-b', '--beta', nargs='+', type=float, default=[1.0], 
-                          help="Beta value(s) to use when calculating fbeta. Accepts one or more values.")
-    argparse.add_argument('--cleanup', action='store_true',
-                          help="Remove intermediary control and batch files.")
-    argparse.add_argument('--annotation-file', help="Basename of GEOJSON annotations file to use, if not the default. File should be in the site directory.")
-    args = argparse.parse_args()
+    args = build_parser().parse_args()
+    model = resolve_acoustic_model(args.model)
 
     ambience_valid = (args.ambience == "nvspl") or (args.ambience == "mennitt") or (args.ambience.endswith(".pkl") and os.path.exists(args.ambience))
     assert ambience_valid, "Ambience argument must be 'nvspl', 'mennitt', or a .pkl file"
@@ -333,7 +382,9 @@ if __name__ == '__main__':
     valid_points = gpd.GeoDataFrame(data=valid_points_lst, geometry='geometry', crs=annotations.crs)
 
     # Reduce point density to median density, so very dense areas (e.g. airports) don't skew the fit
+    points_before_kde = len(valid_points)
     valid_points = normalize_point_density(valid_points, study_area, random_seed=679)
+    points_after_kde = len(valid_points)
 
     # If the user does not pass an altitude, calculate the average altitude of all valid tracks. Extract the altitudes
     #  from each linestring to get the average height (in meters) of audible flight segments.
@@ -358,90 +409,117 @@ if __name__ == '__main__':
 
     # --------------- ACTIVE SPACE GENERATION --------------- #
 
-    # Create an ActiveSpaceGenerator instance and set the DEM data for the microphone location since we will be using
-    #  the same location for every active space. This is a MAJOR time saver!
-    generator_ = ActiveSpaceGenerator(
-        NMSIM=cfg.read('project', 'nmsim'),
-        root_dir=site_dir,
-        study_area=study_area,
-        ambience=ambience,
-        dem_src=cfg.read('data', 'dem'),
+    usy = p.deployment_id(args.unit, args.site, args.year)
+    src_pt_density = args.density if args.density is not None else DEFAULT_SRC_PT_DENSITY
+    logger.info(
+        f"Generating active spaces for {usy} using {model} "
+        f"at {altitude_}m (density={src_pt_density})..."
     )
-    logger.info('Setting dem...')
-    generator_.set_dem(mic_)
 
-    # Create active space for each omni source.
+    generator_ = build_active_space_generator(
+        site_dir,
+        cfg.read('data', 'dem'),
+        study_area,
+        ambience,
+        mic_,
+        model,
+    )
 
-    logger.info(f"Generating active spaces for: {args.unit}{args.site}{args.year}...")
-
-    active_savedir = os.path.join(
-        site_dir, "Output_Data", "ACTIVESPACES", f"{args.unit}{args.site}{args.year}_{altitude_}m")
-    tested_pts_savedir = os.path.join(
-        site_dir, "Output_Data", "TESTED_POINTS", f"{args.unit}{args.site}{args.year}_{altitude_}m")
+    active_savedir = p.activespace_layer_dir(
+        site_dir, args.unit, args.site, args.year, altitude_, model,
+    )
+    tested_pts_savedir = p.tested_points_dir(
+        site_dir, args.unit, args.site, args.year, altitude_, model,
+    )
     os.makedirs(active_savedir, exist_ok=True)
     os.makedirs(tested_pts_savedir, exist_ok=True)
+    os.makedirs(p.precision_recall_dir(site_dir, model), exist_ok=True)
 
     results = []
     tested_pts_record = {}
-    _run = partial(_run_active_space, generator=generator_, headings=args.headings, microphone=mic_, altitude=altitude_)
+    _run = partial(
+        _run_active_space,
+        generator=generator_,
+        headings=args.headings,
+        microphone=mic_,
+        altitude=altitude_,
+        src_pt_density=src_pt_density,
+    )
 
-    with mp.Pool(mp.cpu_count() - 1, init_worker) as pool:
-        with tqdm(desc='Omni Sources', unit='omni source', colour='green', total=len(omni_sources)) as pbar:
-            _handle_error = lambda error: print(f'Error: {error}', flush=True)
-            _update_pbar = lambda _: pbar.update()
+    omni_groups = group_omni_sources(omni_sources)
+    with tqdm(desc='Omni Sources', unit='omni source', colour='green', total=len(omni_sources)) as pbar:
+        try:
+            pool = mp.Pool(resolve_pool_n_workers(model), init_worker)
+            try:
+                with pool:
+                    _handle_error = lambda error: print(f'Error: {error}', flush=True)
+                    _update_pbar = lambda _: pbar.update()
+                    for group in omni_groups:
+                        _process_omni_group(
+                            group,
+                            lambda kwds: pool.apply_async(
+                                _run,
+                                callback=_update_pbar,
+                                error_callback=_handle_error,
+                                kwds=kwds,
+                            ),
+                            tested_pts_record,
+                            args.headings,
+                            usy,
+                            active_savedir,
+                            tested_pts_savedir,
+                            results,
+                        )
+            except KeyboardInterrupt:
+                pool.terminate()
+                pool.join()
+                raise
+        except KeyboardInterrupt:
+            if args.cleanup:
+                cleanup_propagation_artifacts(site_dir, model)
+            sys.exit(1)
 
-            # multiprocess one group at a time - see group_omni_sources() docstring for more details
-            for group in group_omni_sources(omni_sources):
-                processes = []
-                for omni_source_ in group:
-                    gain = omni_to_gain(omni_source_)
-                    name = f"{args.unit}{args.site}{args.year}_{Path(omni_source_).stem}"
-                    kwds = {
-                        'omni_source': omni_source_,
-                        'outfile': f'{active_savedir}/{name}.geojson',
-                        'tested_pts_outfile': f'{tested_pts_savedir}/{name}.pkl',
-                        'pretested_pts_dict': get_pretested_pts(tested_pts_record, gain, args.headings)
-                    }
-                    processes.append(pool.apply_async(
-                        _run, callback=_update_pbar, error_callback=_handle_error, kwds=kwds))
-                
-                # try/except to handle keyboard interrupts during multiprocess
-                try:
-                    # record outputs
-                    outputs = [p.get() for p in processes]  # wait for all processes in this group to finish
-                    for output in outputs:
-                        if output is None:
-                            continue
-                        omni, active, tested_pts_dict = output
-                        results.append((omni, active))
-                        tested_pts_record[omni_to_gain(omni)] = tested_pts_dict
-
-                except KeyboardInterrupt as e:
-                    pool.terminate()
-                    pool.join()
-                    if args.cleanup:
-                        cleanup(site_dir)
-                    sys.exit(1)
-
-
-    # Clean up intermediary files if the user requests.
     if args.cleanup:
-        cleanup(site_dir)
+        cleanup_propagation_artifacts(site_dir, model)
 
     # --------------- ANALYSIS --------------- #
 
-    for beta_ in args.beta:
-        usy = f"{args.unit}{args.site}{args.year}"
-        plotname = f"PrecisionRecallPlot_{usy}_{altitude_}m_{str(beta_).replace('.','p')}.png"
-        plot_savepath = f'{site_dir}/Output_Data/PRECISION_RECALL/{plotname}'
-        best_omni, max_fbeta, _, _, _ = select_optimal(unit=args.unit,
-                                                       site=args.site,
-                                                       year=args.year,
-                                                       valid_points=valid_points,
-                                                       active_space_polygons=results,
-                                                       beta_=beta_,
-                                                       plot=True,
-                                                       plot_savepath=plot_savepath,
-                                                       verbose=False)
+    best_omni_for_results: str | None = None
+    f1_for_results: float | None = None
 
-        logger.info(f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta})")
+    for beta_ in args.beta:
+        plot_savepath = precision_recall_plot_path(
+            site_dir, args.unit, args.site, args.year, altitude_, beta_, model,
+        )
+        os.makedirs(os.path.dirname(plot_savepath), exist_ok=True)
+        best_omni, max_fbeta, best_precision, best_recall, _ = select_optimal(
+            unit=args.unit,
+            site=args.site,
+            year=args.year,
+            valid_points=valid_points,
+            active_space_polygons=results,
+            beta_=beta_,
+            plot=True,
+            plot_savepath=plot_savepath,
+            verbose=False,
+        )
+
+        logger.info(
+            f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta})"
+        )
+        logger.info(f"PR plot -> {plot_savepath}")
+
+        if beta_ == 1.0:
+            best_omni_for_results = best_omni
+            f1_for_results = max_fbeta
+
+    if args.results_out is not None:
+        run_results = build_batch_run_results(
+            len(annotations),
+            altitude_,
+            points_before_kde,
+            points_after_kde,
+            best_omni=best_omni_for_results,
+            f1=f1_for_results,
+        )
+        write_batch_run_results(args.results_out, run_results)

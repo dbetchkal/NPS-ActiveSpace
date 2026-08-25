@@ -19,7 +19,10 @@ from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.setup.site_writer import write_listener_site_file
 from nps_active_space.utils.constants import IS_WINDOWS
 from nps_active_space.utils.computation import coords_to_utm, project_raster
-from nps_active_space.utils.models import Microphone
+from nps_active_space.active_space.propagation_model import (
+    NMSIM_PREDICTIONS_SUBDIR,
+    NMSIM_SCRATCH_SUBDIR,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +43,7 @@ class NmsimSiteContext:
 
 class NmsimPropagationModel:
     max_points_per_run = 4000
+    predictions_subdir = NMSIM_PREDICTIONS_SUBDIR
 
     def __init__(self, nmsim_exe: str, root_dir: str) -> None:
         assert os.path.exists(nmsim_exe), "NMSIM not found"
@@ -83,7 +87,7 @@ class NmsimPropagationModel:
                 logger.error(line.strip())
         return self._postprocess_trj_tis(
             trajectory_filename,
-            f"{self.root_dir}/Output_Data/TIG_TIS/{job_name}.tis",
+            f"{self.root_dir}/{NMSIM_SCRATCH_SUBDIR}/{job_name}.tis",
             cleanup=True,
         )
 
@@ -118,14 +122,15 @@ class NmsimPropagationModel:
         study_area.to_file(study_area_filename)
 
         dem_masked_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation{suffix}_masked.tif"
-        with gdal.Open(dem_src) as src:
-            gdal.Warp(
-                dem_masked_filename,
-                src,
-                cutlineDSName=study_area_filename,
-                cropToCutline=True,
-                dstNodata=-9999,
-            )
+        # Pass the path to Warp: GDAL Dataset is not a context manager on the
+        # versions we ship in Docker (osgeo.gdal < 3.8).
+        gdal.Warp(
+            dem_masked_filename,
+            dem_src,
+            cutlineDSName=study_area_filename,
+            cropToCutline=True,
+            dstNodata=-9999,
+        )
 
         for filename in glob.glob(f"{study_area_filename_prefix}*"):
             os.remove(filename)
@@ -238,7 +243,7 @@ class NmsimPropagationModel:
         batch_file = (
             f"{self.root_dir}/batch_{os.path.basename(trajectory_file).replace('.trj', '')}.txt"
         )
-        tis_directory = f"{self.root_dir}/Output_Data/TIG_TIS"
+        tis_directory = f"{self.root_dir}/{NMSIM_SCRATCH_SUBDIR}"
 
         with open(control_file, "w") as nms:
             nms.write(nmsim_control_path(flt_file) + "\n")

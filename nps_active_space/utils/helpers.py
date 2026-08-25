@@ -25,6 +25,7 @@ from nps_active_space.setup.site_writer import (
     sit_file_path,
 )
 from nps_active_space.utils.computation import NMSIM_bbox_utm
+from nps_active_space.utils.enums import AcousticModel
 from nps_active_space.utils import paths as p
 from tqdm import tqdm
 
@@ -69,18 +70,35 @@ def omni_to_gain(omni_source: str) -> float:
     return int(match.group(1)) / 10
 
 
-def load_layered_activespace(project_dir, unit, site, year, gain=None, crs="epsg:4326"):
+def load_layered_activespace(
+    project_dir,
+    unit,
+    site,
+    year,
+    gain=None,
+    crs="epsg:4326",
+    model: AcousticModel = AcousticModel.NMSIM,
+):
     from nps_active_space.active_space import LayeredActiveSpace
 
     layer_dirs = {}
-    for dir in p.activespace_layer_dirs(project_dir, unit, site, year):
+    for dir in p.activespace_layer_dirs(project_dir, unit, site, year, model=model):
         altitude = int(os.path.basename(dir).split("_")[1].split("m")[0])
         layer_dirs[altitude] = dir
     study_area = load_studyarea(project_dir, unit, site, year)
     return LayeredActiveSpace(p.deployment_id(unit, site, year), layer_dirs, study_area, gain, crs)
 
 
-def load_activespace(project_dir, unit, site, year, gain, altitude_m=None, crs=None):
+def load_activespace(
+    project_dir,
+    unit,
+    site,
+    year,
+    gain,
+    altitude_m=None,
+    crs=None,
+    model: AcousticModel = AcousticModel.NMSIM,
+):
     """
     Load in the active space for a given unit, site, year, and gain
 
@@ -110,7 +128,7 @@ def load_activespace(project_dir, unit, site, year, gain, altitude_m=None, crs=N
 
     # pick middle altitude if no altitude provided
     if altitude_m is None:
-        altitude_dirs = p.activespace_layer_dirs(project_dir, unit, site, year)
+        altitude_dirs = p.activespace_layer_dirs(project_dir, unit, site, year, model=model)
         altitudes = []
         for dir in altitude_dirs:
             altitudes.append(int(os.path.basename(dir).split("_")[1].split("m")[0]))
@@ -121,7 +139,9 @@ def load_activespace(project_dir, unit, site, year, gain, altitude_m=None, crs=N
     # read activespace
     sign = "-" if gain < 0 else "+"
     gain_string = str(np.abs(int(10*gain))).zfill(3)
-    path = p.activespace_geojson(project_dir, unit, site, year, altitude_m, sign, gain_string)
+    path = p.activespace_geojson(
+        project_dir, unit, site, year, altitude_m, sign, gain_string, model=model,
+    )
     active_space = gpd.read_file(path)
 
     if crs is not None:
@@ -581,7 +601,8 @@ def estimate_line_count(filename, sample_size=1024 * 1024):
 
 
 def plot_activespace_fit(project_dir, unit, site, year, gain, altitude_m=None,
-                         ax=None, dem=None, mic=None, active=None, annotations=None):
+                         ax=None, dem=None, mic=None, active=None, annotations=None,
+                         model: AcousticModel = AcousticModel.NMSIM):
     import matplotlib.pyplot as plt
 
     if ax is None:
@@ -592,7 +613,7 @@ def plot_activespace_fit(project_dir, unit, site, year, gain, altitude_m=None,
     if mic is None:
         mic = get_deployment(project_dir, unit, site, year)
     if active is None:
-        active = load_activespace(project_dir, unit, site, year, gain, altitude_m)
+        active = load_activespace(project_dir, unit, site, year, gain, altitude_m, model=model)
     if annotations is None:
         annotations = load_annotations(project_dir, unit, site, year)
     

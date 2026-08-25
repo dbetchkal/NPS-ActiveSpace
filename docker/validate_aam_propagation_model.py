@@ -1,11 +1,11 @@
 #!/usr/bin/env python
-"""Docker integration test: AAM adapter two-point reciprocal ridge (tier-4 parity).
+"""Docker integration test: AAM adapter two-point ridge reciprocal run.
 
 Run:
-  docker/stage_aam_runtime.sh ~/dev/nmsim-aam-experiments/activespace-experiments/runs/tier4_reciprocal_two_point
+  docker/stage_aam_runtime.sh tests/active_space/fixtures/two_point_ridge
   docker/run_activespace.sh -m aam docker/validate_aam_propagation_model.py
 
-Requires ``FLATO200.nc`` in staged ``vendor/aam-runtime/NCfiles/`` (tier-4 case includes it).
+Requires ``FLATO200.nc`` in staged ``vendor/aam-runtime/NCfiles/``.
 """
 from __future__ import annotations
 
@@ -21,10 +21,10 @@ from shapely.geometry import box, Point
 from nps_active_space.active_space.aam_propagation_model import AamPropagationModel
 from nps_active_space.utils.models import Microphone
 
-TIER4 = Path(
+FIXTURE_DIR = Path(
     os.environ.get(
-        "TIER4_FIXTURE_DIR",
-        "/repo/tests/active_space/fixtures/tier4_two_point",
+        "AAM_FIXTURE_DIR",
+        "/repo/tests/active_space/fixtures/two_point_ridge",
     ),
 )
 AAM_SHIM = Path("/usr/local/bin/aam")
@@ -39,8 +39,8 @@ def main() -> int:
         log(f"ERROR: {AAM_SHIM} missing (rebuild image: docker/build.sh)")
         return 1
 
-    meta = json.loads((TIER4 / "case_meta.json").read_text())
-    dem_path = TIER4 / "parent_dem_utm.tif"
+    meta = json.loads((FIXTURE_DIR / "case_meta.json").read_text())
+    dem_path = FIXTURE_DIR / "parent_dem_utm.tif"
     if not dem_path.is_file():
         dem_path = Path(meta.get("dem_utm", ""))
     if not dem_path.is_file():
@@ -80,7 +80,12 @@ def main() -> int:
             "/repo/nps_active_space/data/tuning/O_+200.avg",
         )
         preds = model.predict(
-            site, source_pts, omni, altitude_m=400, job_name="tier4", heading=90,
+            site,
+            source_pts,
+            omni,
+            altitude_m=400,
+            job_name="two_point_ridge",
+            heading=90,
         )
 
         if len(preds) != 2:

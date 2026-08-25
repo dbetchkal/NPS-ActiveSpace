@@ -13,6 +13,7 @@ from nps_active_space.active_space.propagation_model import NMSIM_BAND_COLUMNS
 
 class _StubPropagationModel:
     max_points_per_run = 7
+    predictions_subdir = "Output_Data/aam/predictions"
 
     def prepare_site(self, dem_src, study_area, mic, *, project_dem=True, suffix=""):
         return {"dem_file": dem_src}
@@ -73,3 +74,21 @@ class TestPropagationModelWiring:
             pts, region, tested, max_pts=gen.propagation_model.max_points_per_run,
         )
         assert len(filtered) == 7
+
+
+class TestMissingPredictionHandling:
+    def test_source_pts_missing_predictions(self) -> None:
+        crs = "EPSG:32606"
+        pts = gpd.GeoDataFrame(
+            geometry=[Point(500000, 6000000, 1000), Point(500010, 6000000, 1000)],
+            crs=crs,
+        )
+        preds = pd.DataFrame({
+            "Xpos": [500000.0],
+            "Ypos": [6000000.0],
+            "Zpos": [1000.0],
+            "A": [50.0],
+        })
+        missing = ActiveSpaceGenerator._source_pts_missing_predictions(pts, preds)
+        assert len(missing) == 1
+        assert missing.geometry.x.iloc[0] == 500010.0

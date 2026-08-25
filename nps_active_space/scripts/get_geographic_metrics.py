@@ -4,26 +4,27 @@ from argparse import ArgumentParser
 import matplotlib.pyplot as plt
 import pickle
 from nps_active_space.scripts.run_audible_transits import init_audible_transits, AudibleTransits
-from nps_active_space.utils.enums import TrackSource
+from nps_active_space.utils.enums import AcousticModel, TrackSource
 from nps_active_space.utils.metrics import get_obs_periods, get_all_geo_stats
+from nps_active_space.active_space.active_space_setup import resolve_3d_fit_gain
 import nps_active_space.utils.config as cfg
 
 
-def get_optimal_3d_gain(project_dir, unit, site, year):
-    """Get optimal 3D gain from the fits.csv file located in the project directory."""
-    csv_3d_fits = os.path.join(project_dir, "fits.csv")
-    if not os.path.exists(csv_3d_fits):
-        raise FileNotFoundError(f"Couldn't find {csv_3d_fits} for getting the optimal gain.")
-    fit_results = pd.read_csv(csv_3d_fits, index_col="Designator")
-    if unit+site+year in fit_results.index:
-        gain_3d = float(fit_results.loc[unit+site+year, "1/3rd Octave Gain (F1)"])
-    else:
-        raise RuntimeError(f"No fitted gain for {unit}{site}{year}")
-    
-    return gain_3d
+def get_optimal_3d_gain(project_dir, unit, site, year, model: AcousticModel = AcousticModel.NMSIM):
+    """Get optimal 3D gain from the project fits.csv file."""
+    gain = resolve_3d_fit_gain(project_dir, unit, site, year, model=model)
+    if gain is None:
+        csv_3d_fits = os.path.join(project_dir, "fits.csv")
+        raise RuntimeError(
+            f"No fitted gain for {unit}{site}{year} model={model} in {csv_3d_fits}"
+        )
+    return gain
 
 
-def get_geographic_metrics(unit, site, year, env, track_source: TrackSource, transits_pkl=None):
+def get_geographic_metrics(
+    unit, site, year, env, track_source: TrackSource,
+    transits_pkl=None, model: AcousticModel = AcousticModel.NMSIM,
+):
     """
     Gets geographic metrics for the period(s) of time with overlapping acoustic and causal data.
     
@@ -73,12 +74,12 @@ def get_geographic_metrics(unit, site, year, env, track_source: TrackSource, tra
     if transits_pkl is None:
 
         # determine optimal gain from CSV file
-        gain_3d = get_optimal_3d_gain(project_dir, unit, site, year)
+        gain_3d = get_optimal_3d_gain(project_dir, unit, site, year, model=model)
     
         # make a dummy listener to determine default save path
         metadata = {"unit": unit, "site": site, "activespace year": year, "gain": gain_3d,
                     "study start": f"{year}-01-01", "study end": f"{year}-12-31",
-                    "database type": track_source, "env": env}
+                    "database type": track_source, "env": env, "model": model}
         listener = init_audible_transits(metadata, paths={})
         transits_pkl = os.path.join(listener.default_output_dir(), listener.pkl_filename)
     
@@ -129,8 +130,11 @@ if __name__ == "__main__":
         "time periods with overlapping acoustic and track data.",
     )
     parser.add_argument("--transits-pkl", help="Path to .pkl file to load audible transits from, if not the default.")
+    parser.add_argument("--model", type=AcousticModel, choices=list(AcousticModel),
+                        default=AcousticModel.NMSIM,
+                        help="Propagation model for active-space layers.")
 
     args = parser.parse_args()
     
     get_geographic_metrics(args.unit, args.site, args.year, args.environment,
-                           args.track_source, args.transits_pkl)
+                           args.track_source, args.transits_pkl, model=args.model)

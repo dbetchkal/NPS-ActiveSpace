@@ -13,7 +13,7 @@ Note that given the additional layers of indirection to run the docker setup, th
 # NMSim runtime (~10 MB; not in git — populate vendor/nmsim-runtime/)
 docker/stage_nmsim_runtime.sh /path/to/NMSim-install
 
-# Build the image (~13 min first time; copies sibling ``../aam_translator`` into the image)
+# Build the image (~13 min first time; pip installs aam-translator from GitHub per pyproject.toml)
 docker/build.sh
 
 # Config (if not already present)
@@ -25,13 +25,32 @@ NMSim and AAM binaries are **not redistributable** (NPS internal). Do not commit
 ## Run (NMSim — default)
 
 ```bash
-# Smoke test (DENATRLA example data, no annotations required)
-docker/run_activespace.sh docker/validate_active_space.py \
-  -u DENA -s TRLA -y 2025 --gains 0 --altitude 1000 --density 10
+# Primary smoke test — one gain, coarse mesh (DENATRLA example data)
+docker/run_activespace.sh nps_active_space/scripts/generate_active_space.py \
+  -e container -u DENA -s TRLA -y 2025 -l 1000 \
+  --omni-min 0 --omni-max 0 --density 10 --headings 0
 
 # Full active-space script (needs annotations for gain selection)
 docker/run_activespace.sh nps_active_space/scripts/generate_active_space.py \
   -e container -u DENA -s TRLA -y 2025 -l 1000
+```
+
+### AAM via `generate_active_space` (production path)
+
+AAM runs need **both** layers of model selection:
+
+- `docker/run_activespace.sh -m aam` — mounts the AAM Wine runtime at `/opt/aam` and caps Wine omni workers (`AAM_PARALLEL_N=2`)
+- `--model aam` on the Python script — selects `AamPropagationModel` and `Output_Data/aam/` layout
+
+```bash
+# Primary AAM smoke (same coarse mesh as NMSim smoke above)
+docker/run_activespace.sh -m aam nps_active_space/scripts/generate_active_space.py \
+  -e container --model aam -u DENA -s TRLA -y 2025 -l 1000 \
+  --omni-min 0 --omni-max 0 --density 10 --headings 0
+
+# Full AAM generation (gain sweep; writes Output_Data/aam/; run fit_3d for project fits.csv)
+docker/run_activespace.sh -m aam nps_active_space/scripts/generate_active_space.py \
+  -e container --model aam -u DENA -s TRLA -y 2025 -l 1000
 ```
 
 Optional: mount a data drive at `/data` inside the container:
@@ -46,7 +65,7 @@ Use `-e container` with absolute `/repo/...` paths in config. Native viz and gro
 
 Windows setup is unchanged — see root [README.md](../README.md) Installation.
 
-## AAM smoke test (not wired into pipeline)
+## AAM smoke test
 
 AAM runtime lives in `vendor/aam-runtime/` (gitignored). Stage from a directory that
 includes `AAM_3.0.0.exe`, `NCfiles/`, and `noisecon.inp` (e.g. experiments
@@ -58,36 +77,51 @@ docker/stage_aam_runtime.sh /path/to/AAM_v3_dec2020
 
 docker/run_activespace.sh -m aam docker/validate_aam_smoke.py
 
-# AAM propagation adapter (tier-4 two-point reciprocal ridge)
-docker/stage_aam_runtime.sh ~/dev/nmsim-aam-experiments/activespace-experiments/runs/tier4_reciprocal_two_point
+# AAM propagation adapter (two-point ridge reciprocal run)
+docker/stage_aam_runtime.sh tests/active_space/fixtures/two_point_ridge
 docker/run_activespace.sh -m aam docker/validate_aam_propagation_model.py
 ```
 
 Adapter implementation and pipeline notes: [`docs/aam_integration_notes.md`](../docs/aam_integration_notes.md).
 
-AAM terrain (`Input_Data/AAM/terrain_*/scenario.elv`) is cached on disk; reruns skip
+AAM terrain (`Input_Data/AAM/terrain/{mic}/scenario.elv`) is cached on disk; reruns skip
 `write_terrain` when ELV is newer than the parent DEM and `terrain_cache.json` matches.
+Prediction cache: `Output_Data/aam/predictions/` (NMSim: `Output_Data/nmsim/predictions/`).
+Run log (terrain, batches, summaries): `Output_Data/aam/active_space.log` — points at
+`runs/{job}/scenario.inp` and `scenario.txt`, not full deck contents.
 
-## DENATRLA validation + annotation fit (AAM)
+Model-scoped outputs live under `Output_Data/nmsim/` and `Output_Data/aam/` (active spaces,
+prediction cache, precision-recall plots). NMSim readers still fall back to legacy
+`Output_Data/TIG_TIS/` and flat `Output_Data/ACTIVESPACES/` when present.
+
+## Optional: `validate_active_space.py` (debug harness)
+
+`docker/validate_active_space.py` is an integration/debug harness — **not** the production
+fit path. Use `generate_active_space.py` (and the 3D batch workflow) for real runs and
+project-level `fits.csv` output.
 
 ```bash
+# Quick NMSim integration check
+docker/run_activespace.sh docker/validate_active_space.py \
+  -u DENA -s TRLA -y 2025 --gains 0 --altitude 1000 --density 10 --heading 0
+
+# AAM debug: annotation gain sweep + PR plot (both -m and --model required)
 docker/run_activespace.sh -m aam docker/validate_active_space.py --model aam \
   -u DENA -s TRLA -y 2025 --fit --omni-min 0 --omni-max 2 \
   --altitude 1000 --density 10 --heading 0
 ```
 
-Loads `*saved_annotations*.geojson`, sweeps gains 0–2 dB (0.5 dB steps), writes
-`Output_Data/ACTIVESPACES/DENATRLA2025_1000m_aam/`, precision-recall plot, and
-`fits_aam_validate.csv` in the site directory. Compare to NMSim
-`DENATRLA2025_1000m/` layers and `fits.csv` / `fits_validate.csv`.
-
+The `--fit` debug path loads `*saved_annotations*.geojson`, sweeps gains, and can write
+site-local diagnostics. For canonical fits, use `fit_3d_active_space.py` → project
+`fits.csv` with a `Model` column (see [`docs/aam_integration_notes.md`](../docs/aam_integration_notes.md)).
 
 Model selection is a **CLI flag** on `run_activespace.sh` (`-m nmsim|aam`), not a separate
 config file — the pipeline still uses `container.config` with `project.nmsim` only.
 
 | | NMSim (default) | AAM |
 |-|-------|-----|
-| Select | `docker/run_activespace.sh ...` | `docker/run_activespace.sh -m aam ...` |
+| Container | `docker/run_activespace.sh ...` | `docker/run_activespace.sh -m aam ...` |
+| Pipeline script | (default) | add `--model aam` on `generate_active_space.py` etc. |
 | Staging | `docker/stage_nmsim_runtime.sh` | `docker/stage_aam_runtime.sh` |
 | Local dir | `vendor/nmsim-runtime/` | `vendor/aam-runtime/` |
 | Mount | `/opt/nmsim` | `/opt/aam` |

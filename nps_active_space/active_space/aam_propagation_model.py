@@ -2,22 +2,15 @@
 
 from __future__ import annotations
 
-import logging
-import json
-import re
-import shutil
 import os
+import shutil
 import subprocess
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 import geopandas as gpd
-import numpy as np
 import pandas as pd
-import rasterio
-from pyproj import CRS, Transformer
 
 from aam_translator import (
     assert_track_alignment,
@@ -25,98 +18,66 @@ from aam_translator import (
     read_poi,
     read_run_log,
     write_inp,
-    write_terrain,
 )
-from aam_translator.bands import band_number_for_frequency
 from aam_translator.context import TerrainResult
-from aam_translator.grid_spec import GridSpec
-from aam_translator.nmbgf_io import read_nmbgf_header
-from aam_translator.read_poi import PoiTimeHistory
 from aam_translator.write_inp import PoiPoint, TrackPoint
 
+from nps_active_space.active_space.aam_run_log import (
+    aam_log,
+    configure_aam_run_log,
+    log_run_batch,
+    summarize_aam_cli_output,
+    summarize_aam_error,
+)
+from nps_active_space.active_space.aam_output import (
+    aam_source_id_from_omni,
+    apply_omni_gain_offset,
+    poi_history_to_predictions_df,
+)
+from nps_active_space.active_space.aam_terrain import (
+    AAM_INP_BASENAME,
+    AamTerrainParams,
+    ensure_aam_terrain,
+    log_terrain_summary,
+    resolve_dem_for_aam,
+    split_below_aam_terrain,
+    terrain_dir_for_site,
+)
 from nps_active_space.active_space.propagation_model import (
-    AAM_INPUT_SUBDIR,
     AAM_PREDICTIONS_SUBDIR,
     AAM_RUNS_SUBDIR,
-    AAM_TERRAIN_SUBDIR,
-    NMSIM_BAND_COLUMNS,
 )
-from nps_active_space.utils.computation import project_raster
-from nps_active_space.utils.helpers import omni_to_gain
 from nps_active_space.utils.models import Microphone
 
-logger = logging.getLogger(__name__)
-
-AAM_INP_BASENAME = "scenario"
 AAM_RUN_TIMEOUT_S = 600
-AAM_ELEVATION_MASK = "elevation_mask.tif"
-AAM_TERRAIN_CACHE_META = "terrain_cache.json"
-AAM_DEFAULT_FLOW_RESISTIVITY = 200.0
-AOI_BOUNDS_TOLERANCE_DEG = 1e-4
-# GDAL vs AAM ELV can disagree slightly; treat z <= surface as below ground for AAM batches.
-AAM_TERRAIN_SURFACE_TOLERANCE_M = 0.0
+DEFAULT_AAM_CHUNK_SIZE = 50
 
 
-def _terrain_log(msg: str) -> None:
-    """Visible in Docker validate runs (logging may be unset)."""
-    line = f"[aam-terrain] {msg}"
-    logger.info(line)
-    print(line, flush=True)
-
-
-@contextmanager
-def _timed_terrain_step(label: str):
-    _terrain_log(f"{label}...")
-    start = time.perf_counter()
-    try:
-        yield
-    finally:
-        _terrain_log(f"{label} done ({time.perf_counter() - start:.1f}s)")
-
-
-def _dem_raster_summary(path: str) -> str:
-    with rasterio.open(path) as src:
-        res_x, res_y = src.res
-        return (
-            f"{Path(path).name}: {src.width}×{src.height} px, "
-            f"CRS={src.crs}, res≈{abs(res_x):.6f}×{abs(res_y):.6f}"
+def _aam_subprocess_env(aam_exe: str | Path) -> dict[str, str]:
+    """Env for one AAM subprocess. Native Windows exe needs NCfiles next to it."""
+    env = os.environ.copy()
+    exe = Path(aam_exe)
+    if exe.suffix.lower() != ".exe":
+        return env
+    nc_root = exe.parent / "NCfiles"
+    if not nc_root.is_dir():
+        raise FileNotFoundError(
+            f"AAM NCfiles/ not found next to {exe}; expected {nc_root}"
         )
+    nc = str(nc_root.resolve()) + os.sep
+    env["ROTOR_NOISE"] = nc
+    env["FWING_NOISE"] = nc
+    env["QUARRY_NOISE"] = nc
+    return env
 
-
-def _crs_matches_dem(study_area_crs: str | object, dem_path: str) -> bool:
-    with rasterio.open(dem_path) as src:
-        if src.crs is None:
-            return False
-        return CRS.from_user_input(study_area_crs).equals(CRS.from_user_input(src.crs))
-
-
-def _aoi_bounds_deg(aoi_wgs84) -> str:
-    xmin, ymin, xmax, ymax = aoi_wgs84.bounds
-    return (
-        f"lon [{xmin:.5f}, {xmax:.5f}], "
-        f"lat [{ymin:.5f}, {ymax:.5f}]"
-    )
-
-
-def _terrain_grid_summary(terrain: TerrainResult) -> str:
-    spec = terrain.spec
-    return (
-        f"AEQD grid {spec.cell_count_x}×{spec.cell_count_y} cells "
-        f"at {spec.cell_dx_m:.1f}×{spec.cell_dy_m:.1f} m "
-        f"({spec.cell_count_x * spec.cell_count_y:,} cells)"
-    )
-
-
-def _terrain_dir_for_site(root_dir: str | Path, suffix: str) -> Path:
-    """Return terrain cache dir, preferring ``Input_Data/AAM/terrain/{mic}/``."""
-    root = Path(root_dir)
-    mic_key = suffix.removeprefix("_") or "default"
-    new_dir = root / AAM_TERRAIN_SUBDIR / mic_key
-    legacy_dir = root / AAM_INPUT_SUBDIR / f"terrain{suffix}"
-    if legacy_dir.is_dir() and not new_dir.is_dir():
-        return legacy_dir
-    new_dir.mkdir(parents=True, exist_ok=True)
-    return new_dir
+__all__ = [
+    "AAM_PREDICTIONS_SUBDIR",
+    "AamPropagationModel",
+    "AamSiteContext",
+    "aam_source_id_from_omni",
+    "poi_history_to_predictions_df",
+    "split_below_aam_terrain",
+]
 
 
 def _runs_dir_for_site(root_dir: str | Path) -> Path:
@@ -125,317 +86,21 @@ def _runs_dir_for_site(root_dir: str | Path) -> Path:
     return runs_dir
 
 
-def _aoi_bounds_tuple(aoi_wgs84) -> tuple[float, float, float, float]:
-    return tuple(aoi_wgs84.bounds)
+def resolve_aam_chunk_size() -> int:
+    """Points per Wine/AAM invocation (see docs/aam_integration_notes.md)."""
+    return max(1, int(os.environ.get("AAM_CHUNK_SIZE", str(DEFAULT_AAM_CHUNK_SIZE))))
 
 
-def _bounds_close(
-    a: tuple[float, float, float, float],
-    b: tuple[float, float, float, float],
-    tol: float = AOI_BOUNDS_TOLERANCE_DEG,
-) -> bool:
-    return all(abs(x - y) <= tol for x, y in zip(a, b, strict=True))
-
-
-def _terrain_artifact_paths(terrain_dir: Path) -> tuple[Path, Path, Path]:
-    elv = terrain_dir / f"{AAM_INP_BASENAME}.elv"
-    imp = terrain_dir / f"{AAM_INP_BASENAME}.imp"
-    clip = terrain_dir / f"{AAM_INP_BASENAME}_clip.tif"
-    return elv, imp, clip
-
-
-def _terrain_from_disk(
-    elv_path: Path,
-    imp_path: Path,
-    clip_path: Path,
-    *,
-    grid_agl_ft: float,
-    flow_resistivity: float,
-) -> TerrainResult:
-    if not clip_path.is_file():
-        raise FileNotFoundError(f"clip GeoTIFF missing: {clip_path}")
-
-    with rasterio.open(clip_path) as src:
-        transform = src.transform
-        cell_dx_m = abs(transform.a)
-        cell_dy_m = abs(transform.e)
-        spec = GridSpec(
-            cell_count_x=src.width,
-            cell_count_y=src.height,
-            cell_dx_m=cell_dx_m,
-            cell_dy_m=cell_dy_m,
-            grid_origin_x_m=transform.c,
-            grid_origin_y_m=transform.f + src.height * transform.e,
-        )
-        aeqd_crs = CRS.from_user_input(src.crs)
-
-    elv_header = read_nmbgf_header(elv_path)
-    elv_header_feet = elv_header.units.strip().upper() == "FEET"
-
-    return TerrainResult(
-        spec=spec,
-        aeqd_crs=aeqd_crs,
-        elv_header_feet=elv_header_feet,
-        elv_path=str(elv_path),
-        imp_path=str(imp_path),
-        clip_tif_path=str(clip_path),
-        grid_agl_ft=grid_agl_ft,
-        flow_resistivity=flow_resistivity,
+def _order_source_pts_for_track(source_pts: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Sort mesh points for ``ONE TRACK`` so consecutive hops stay local."""
+    if len(source_pts) <= 1:
+        return source_pts
+    ordered = source_pts.copy()
+    ordered["_sort_x"] = ordered.geometry.x
+    ordered["_sort_y"] = ordered.geometry.y
+    return ordered.sort_values(["_sort_x", "_sort_y"]).drop(
+        columns=["_sort_x", "_sort_y"],
     )
-
-
-def _dem_cache_rel(root_dir: Path, dem_file: str) -> str:
-    """Site-relative DEM path for cache metadata (portable across host vs /repo)."""
-    dem = Path(dem_file).resolve()
-    try:
-        return str(dem.relative_to(root_dir.resolve()))
-    except ValueError:
-        return dem.name
-
-
-def _dem_cache_matches(meta_dem_path: str, root_dir: Path, dem_file: str) -> bool:
-    expected = _dem_cache_rel(root_dir, dem_file)
-    if meta_dem_path == expected:
-        return True
-    if meta_dem_path == str(Path(dem_file).resolve()):
-        return True
-    return Path(meta_dem_path).name == Path(dem_file).name
-
-
-def _write_terrain_cache_meta(
-    terrain_dir: Path,
-    root_dir: Path,
-    *,
-    dem_file: str,
-    receiver_agl_m: float,
-    flow_resistivity: float,
-    grid_agl_ft: float,
-    aoi_bounds: tuple[float, float, float, float],
-) -> None:
-    meta = {
-        "dem_path": _dem_cache_rel(root_dir, dem_file),
-        "dem_mtime": os.path.getmtime(dem_file),
-        "receiver_agl_m": receiver_agl_m,
-        "flow_resistivity": flow_resistivity,
-        "grid_agl_ft": grid_agl_ft,
-        "aoi_bounds_wgs84": list(aoi_bounds),
-    }
-    (terrain_dir / AAM_TERRAIN_CACHE_META).write_text(
-        json.dumps(meta, indent=2),
-        encoding="utf-8",
-    )
-
-
-def _terrain_cache_valid(
-    terrain_dir: Path,
-    root_dir: Path,
-    dem_file: str,
-    receiver_agl_m: float,
-    flow_resistivity: float,
-    grid_agl_ft: float,
-    aoi_bounds: tuple[float, float, float, float],
-) -> bool:
-    elv_path, imp_path, clip_path = _terrain_artifact_paths(terrain_dir)
-    if not elv_path.is_file() or not imp_path.is_file():
-        return False
-
-    dem_resolved = str(Path(dem_file).resolve())
-    if not Path(dem_file).is_file():
-        return False
-    if os.path.getmtime(dem_file) > os.path.getmtime(elv_path):
-        return False
-
-    meta_path = terrain_dir / AAM_TERRAIN_CACHE_META
-    if meta_path.is_file():
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        if not _dem_cache_matches(meta.get("dem_path", ""), root_dir, dem_file):
-            return False
-        if meta.get("dem_mtime", 0) < os.path.getmtime(dem_file):
-            return False
-        if meta.get("receiver_agl_m") != receiver_agl_m:
-            return False
-        if meta.get("flow_resistivity") != flow_resistivity:
-            return False
-        if meta.get("grid_agl_ft") != grid_agl_ft:
-            return False
-        cached_bounds = tuple(meta.get("aoi_bounds_wgs84", []))
-        if len(cached_bounds) != 4 or not _bounds_close(
-            aoi_bounds, cached_bounds,
-        ):
-            return False
-        return True
-
-    # Legacy cache (ELV/IMP from a prior run without terrain_cache.json).
-    return clip_path.is_file()
-
-
-def _try_load_cached_terrain(
-    terrain_dir: Path,
-    root_dir: Path,
-    dem_file: str,
-    aoi_wgs84,
-    receiver_agl_m: float,
-    flow_resistivity: float,
-    grid_agl_ft: float,
-) -> TerrainResult | None:
-    aoi_bounds = _aoi_bounds_tuple(aoi_wgs84)
-    if not _terrain_cache_valid(
-        terrain_dir,
-        root_dir,
-        dem_file,
-        receiver_agl_m,
-        flow_resistivity,
-        grid_agl_ft,
-        aoi_bounds,
-    ):
-        return None
-
-    elv_path, imp_path, clip_path = _terrain_artifact_paths(terrain_dir)
-    with _timed_terrain_step("load cached terrain from disk"):
-        terrain = _terrain_from_disk(
-            elv_path,
-            imp_path,
-            clip_path,
-            grid_agl_ft=grid_agl_ft,
-            flow_resistivity=flow_resistivity,
-        )
-    _terrain_log(
-        f"reusing cached terrain in {terrain_dir} "
-        f"(ELV not older than {Path(dem_file).name})"
-    )
-    return terrain
-
-
-def _terrain_surface_elevation_m(
-    source_pts: gpd.GeoDataFrame,
-    terrain: TerrainResult,
-) -> np.ndarray:
-    """Sample AAM terrain MSL (meters) at each source point from the clip GeoTIFF."""
-    clip_path = terrain.clip_tif_path
-    if not clip_path or not Path(clip_path).is_file():
-        raise FileNotFoundError(f"AAM terrain clip raster missing: {clip_path}")
-
-    with rasterio.open(clip_path) as dem:
-        to_raster = Transformer.from_crs(
-            source_pts.crs, dem.crs, always_xy=True,
-        )
-        xs, ys = to_raster.transform(
-            source_pts.geometry.x.values,
-            source_pts.geometry.y.values,
-        )
-        samples = np.array([v[0] for v in dem.sample(zip(xs, ys))], dtype=np.float64)
-        if dem.nodata is not None:
-            samples = np.where(samples == dem.nodata, np.nan, samples)
-    return samples
-
-
-def split_below_aam_terrain(
-    site: AamSiteContext,
-    source_pts: gpd.GeoDataFrame,
-    *,
-    job_name: str = "",
-) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
-    """Split points using the AAM ELV grid (not the parent GDAL DEM).
-
-    AAM aborts the whole batch when any track point is below its terrain surface.
-    Points that pass the generator's GDAL underground check may still fail here.
-    """
-    if len(source_pts) == 0:
-        return source_pts, source_pts.iloc[0:0]
-
-    surface_m = _terrain_surface_elevation_m(source_pts, site.terrain)
-    z_m = source_pts.geometry.z.to_numpy()
-    agl_m = z_m - surface_m
-    invalid = np.isnan(surface_m)
-    below = invalid | (agl_m <= AAM_TERRAIN_SURFACE_TOLERANCE_M)
-
-    n_below = int(below.sum())
-    if n_below > 0:
-        deficits_m = -agl_m[below & ~invalid]
-        label = f"{job_name}: " if job_name else ""
-        if len(deficits_m) > 0:
-            _terrain_log(
-                f"{label}filtered {n_below}/{len(source_pts)} points below AAM terrain "
-                f"(deficit min={deficits_m.min():.2f}m "
-                f"max={deficits_m.max():.2f}m mean={deficits_m.mean():.2f}m)"
-            )
-        else:
-            _terrain_log(
-                f"{label}filtered {n_below}/{len(source_pts)} points "
-                "(no AAM terrain sample / nodata)"
-            )
-
-    above = source_pts.loc[~below].copy()
-    below_pts = source_pts.loc[below].copy()
-    return above, below_pts
-
-# NMSim omni tuning basename -> AAM NetCDF source id (FLATO*.nc in NCfiles/).
-OMNI_TO_AAM_SOURCE_ID: dict[str, str] = {
-    "O_+200": "FLATO200",
-}
-
-
-def aam_source_id_from_omni(omni_source: str) -> str:
-    stem = Path(omni_source).stem
-    if stem in OMNI_TO_AAM_SOURCE_ID:
-        return OMNI_TO_AAM_SOURCE_ID[stem]
-    if stem.startswith("FLATO"):
-        return stem
-    # NMSim omni tuning files (O_+005 = +0.5 dB, etc.) map to FLATO200; gain applied in predict().
-    if re.fullmatch(r"O_[+-]\d{3}", stem):
-        return "FLATO200"
-    raise ValueError(
-        f"no AAM source_id mapping for omni source {omni_source!r}; "
-        f"known keys: {sorted(OMNI_TO_AAM_SOURCE_ID)}",
-    )
-
-
-def apply_omni_gain_offset(frame: pd.DataFrame, omni_source: str) -> pd.DataFrame:
-    """Shift prediction levels by the NMSim omni tuning gain (dB)."""
-    offset_db = omni_to_gain(omni_source)
-    if offset_db == 0:
-        return frame
-    out = frame.copy()
-    out["A"] = out["A"] + offset_db
-    for col in NMSIM_BAND_COLUMNS:
-        if col in out.columns:
-            out[col] = out[col] + offset_db
-    return out
-
-
-def _band_number_for_nmsim_column(column: str) -> int:
-    return band_number_for_frequency(float(column))
-
-
-
-def poi_history_to_predictions_df(
-    history: PoiTimeHistory,
-    source_pts: gpd.GeoDataFrame,
-) -> pd.DataFrame:
-    """Map one POI zone (single receiver) to the NMSim TIS-shaped DataFrame."""
-    n = history.n_samples
-    if n != len(source_pts):
-        raise ValueError(
-            f"POI has {n} rows but source_pts has {len(source_pts)} points",
-        )
-
-    coords = source_pts.to_crs(source_pts.crs)
-    frame = pd.DataFrame({
-        "Xpos": coords.geometry.x.values,
-        "Ypos": coords.geometry.y.values,
-        "Zpos": coords.geometry.z.values,
-        "A": history.broadband("dBA"),
-    })
-
-    band_index = {bn: i for i, bn in enumerate(history.band_numbers)}
-    for col in NMSIM_BAND_COLUMNS:
-        band_num = _band_number_for_nmsim_column(col)
-        if band_num in band_index:
-            frame[col] = history.band_levels_db[:, band_index[band_num]]
-        else:
-            frame[col] = np.nan
-
-    return frame
 
 
 @dataclass(frozen=True)
@@ -459,7 +124,18 @@ class AamPropagationModel:
         self.root_dir = root_dir
         self.aam_shim = aam_shim
         self.receiver_agl_m = receiver_agl_m
+        self._root = Path(root_dir).resolve()
         self._runs_dir = _runs_dir_for_site(root_dir)
+        configure_aam_run_log(self._root)
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        configure_aam_run_log(self._root)
+
+    def _receiver_agl_m(self, mic: Microphone) -> float:
+        if self.receiver_agl_m is not None:
+            return self.receiver_agl_m
+        return mic.z
 
     def filter_below_terrain(
         self,
@@ -469,7 +145,9 @@ class AamPropagationModel:
         job_name: str = "",
     ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
         """Drop points below the AAM ELV surface before building a track batch."""
-        return split_below_aam_terrain(site, source_pts, job_name=job_name)
+        return split_below_aam_terrain(
+            site.terrain, source_pts, job_name=job_name,
+        )
 
     def prepare_site(
         self,
@@ -480,88 +158,28 @@ class AamPropagationModel:
         project_dem: bool = True,
         suffix: str = "",
     ) -> AamSiteContext:
-        elevation_dir = Path(self.root_dir) / "Input_Data/01_ELEVATION"
-        masked_dem = elevation_dir / AAM_ELEVATION_MASK
-
-        _terrain_log(
-            f"prepare_site: parent DEM {_dem_raster_summary(dem_src)}; "
-            f"study_area CRS={study_area.crs}"
+        dem_file = resolve_dem_for_aam(
+            dem_src,
+            study_area,
+            self.root_dir,
+            project_dem=project_dem,
+            suffix=suffix,
         )
-        if masked_dem.is_file():
-            _terrain_log(
-                f"NMSim study-area clipped DEM exists "
-                f"({_dem_raster_summary(str(masked_dem))}) — "
-                "AAM path still uses config [data] dem unless changed"
-            )
-
-        dem_file = dem_src
-        if project_dem:
-            dem_projected = str(elevation_dir / f"elevation_aam{suffix}.tif")
-            if _crs_matches_dem(study_area.crs, dem_src):
-                _terrain_log(
-                    "skipping GDAL warp: DEM CRS already matches study_area "
-                    f"(would have written {Path(dem_projected).name})"
-                )
-            else:
-                with _timed_terrain_step(
-                    f"GDAL warp to study_area CRS -> {Path(dem_projected).name}"
-                ):
-                    project_raster(dem_src, dem_projected, study_area.crs)
-                dem_file = dem_projected
-                _terrain_log(f"warped DEM {_dem_raster_summary(dem_file)}")
-
-        terrain_dir = _terrain_dir_for_site(self.root_dir, suffix)
+        terrain_dir = terrain_dir_for_site(self.root_dir, suffix)
 
         mic_wgs84 = mic.to_crs("EPSG:4326")
-        receiver_agl_m = self.receiver_agl_m if self.receiver_agl_m is not None else mic_wgs84.z
-
+        receiver_agl_m = self._receiver_agl_m(mic_wgs84)
         aoi = study_area.to_crs("EPSG:4326").union_all()
-        aoi_bounds = _aoi_bounds_tuple(aoi)
-        grid_agl_ft = receiver_agl_m * 3.28084
-        flow_resistivity = AAM_DEFAULT_FLOW_RESISTIVITY
+        params = AamTerrainParams.from_receiver_agl(receiver_agl_m, aoi)
 
-        _terrain_log(f"AOI clip envelope (WGS84): {_aoi_bounds_deg(aoi)}")
-
-        root_dir = Path(self.root_dir)
-
-        terrain = _try_load_cached_terrain(
+        terrain = ensure_aam_terrain(
+            self.root_dir,
             terrain_dir,
-            root_dir,
             dem_file,
             aoi,
-            receiver_agl_m,
-            flow_resistivity,
-            grid_agl_ft,
+            params,
         )
-        if terrain is None:
-            _terrain_log(
-                f"write_terrain -> {terrain_dir}/scenario.elv "
-                f"(native DEM posting, receiver AGL {receiver_agl_m:.2f} m)"
-            )
-            with _timed_terrain_step("write_terrain (AEQD resample + ELV/IMP)"):
-                terrain = write_terrain(
-                    dem_file,
-                    aoi,
-                    terrain_dir,
-                    crs_in="EPSG:4326",
-                    elv_basename="scenario.elv",
-                    imp_basename="scenario.imp",
-                    flow_resistivity=flow_resistivity,
-                    grid_agl_ft=grid_agl_ft,
-                )
-            _write_terrain_cache_meta(
-                terrain_dir,
-                root_dir,
-                dem_file=dem_file,
-                receiver_agl_m=receiver_agl_m,
-                flow_resistivity=flow_resistivity,
-                grid_agl_ft=grid_agl_ft,
-                aoi_bounds=aoi_bounds,
-            )
-
-        _terrain_log(_terrain_grid_summary(terrain))
-        if terrain.clip_tif_path:
-            _terrain_log(f"clip sidecar: {Path(terrain.clip_tif_path).name}")
+        log_terrain_summary(terrain)
 
         return AamSiteContext(
             terrain=terrain,
@@ -578,11 +196,161 @@ class AamPropagationModel:
         job_name: str,
         heading: int | None = None,
     ) -> pd.DataFrame:
+        chunk_size = resolve_aam_chunk_size()
+        if len(source_pts) <= chunk_size:
+            return self._predict_batch_resilient(
+                site, source_pts, omni_source, altitude_m, job_name, heading,
+            )
+
+        frames: list[pd.DataFrame] = []
+        ordered = _order_source_pts_for_track(source_pts)
+        for chunk_idx, start in enumerate(range(0, len(ordered), chunk_size)):
+            chunk_pts = ordered.iloc[start : start + chunk_size]
+            chunk_job = f"{job_name}_c{chunk_idx:03d}"
+            chunk_frame = self._predict_batch_resilient(
+                site,
+                chunk_pts,
+                omni_source,
+                altitude_m,
+                chunk_job,
+                heading,
+            )
+            if len(chunk_frame) > 0:
+                frames.append(chunk_frame)
+        if not frames:
+            return pd.DataFrame()
+        return pd.concat(frames, ignore_index=True)
+
+    def _predict_batch_resilient(
+        self,
+        site: AamSiteContext,
+        source_pts: gpd.GeoDataFrame,
+        omni_source: str,
+        altitude_m: int,
+        job_name: str,
+        heading: int | None = None,
+    ) -> pd.DataFrame:
+        """Run one batch; on failure split in half until bad single points are skipped."""
+        if len(source_pts) == 0:
+            return pd.DataFrame()
+        try:
+            return self._predict_batch(
+                site, source_pts, omni_source, altitude_m, job_name, heading,
+            )
+        except Exception as exc:
+            reason = summarize_aam_error(str(exc))
+            if len(source_pts) <= 1:
+                aam_log(
+                    "predict",
+                    f"skipped 1 point in {job_name} ({reason})",
+                )
+                return pd.DataFrame()
+
+            mid = len(source_pts) // 2
+            aam_log(
+                "predict",
+                f"isolating {job_name} n={len(source_pts)} ({reason})",
+            )
+            frames: list[pd.DataFrame] = []
+            for suffix, sub_pts in (
+                ("_L", source_pts.iloc[:mid]),
+                ("_R", source_pts.iloc[mid:]),
+            ):
+                sub_frame = self._predict_batch_resilient(
+                    site,
+                    sub_pts,
+                    omni_source,
+                    altitude_m,
+                    f"{job_name}{suffix}",
+                    heading,
+                )
+                if len(sub_frame) > 0:
+                    frames.append(sub_frame)
+            if not frames:
+                return pd.DataFrame()
+            return pd.concat(frames, ignore_index=True)
+
+    def _predict_batch(
+        self,
+        site: AamSiteContext,
+        source_pts: gpd.GeoDataFrame,
+        omni_source: str,
+        altitude_m: int,
+        job_name: str,
+        heading: int | None = None,
+    ) -> pd.DataFrame:
+        start = time.perf_counter()
         work_dir = self._runs_dir / job_name
         work_dir.mkdir(parents=True, exist_ok=True)
 
+        ordered_pts = _order_source_pts_for_track(source_pts)
+        above_pts, below_pts = self.filter_below_terrain(
+            site, ordered_pts, job_name=job_name,
+        )
+        if len(below_pts) > 0 and len(above_pts) == 0:
+            raise RuntimeError(
+                f"all {len(below_pts)} source points below AAM terrain for {job_name}",
+            )
+        if len(above_pts) == 0:
+            return pd.DataFrame()
+        ordered_pts = above_pts
+
+        track = self._build_track(ordered_pts)
+        pois = self._build_pois(site)
+        source_id = aam_source_id_from_omni(omni_source)
+        heading_deg = float(heading if heading is not None else 90.0)
+        speed_kn = hop_speed_kn(track, site.terrain) if len(track) > 1 else 0.0
+        inp_path = work_dir / f"{AAM_INP_BASENAME}.inp"
+        aam_log_path = work_dir / f"{AAM_INP_BASENAME}.txt"
+
+        try:
+            self._stage_run_dir(
+                work_dir,
+                site,
+                track,
+                pois,
+                source_id,
+                job_name,
+                heading_deg,
+                speed_kn,
+            )
+            self._run_aam(inp_path, work_dir)
+            frame = self._read_run_predictions(
+                work_dir, site, track, ordered_pts, omni_source, job_name,
+            )
+        except Exception as exc:
+            log_run_batch(
+                self._root,
+                job_name=job_name,
+                n_track=len(track),
+                source_id=source_id,
+                heading_deg=heading_deg,
+                speed_kn=speed_kn,
+                elapsed_s=time.perf_counter() - start,
+                inp_path=inp_path,
+                ok=False,
+                error=str(exc),
+                to_console=False,
+            )
+            raise
+
+        log_run_batch(
+            self._root,
+            job_name=job_name,
+            n_track=len(track),
+            source_id=source_id,
+            heading_deg=heading_deg,
+            speed_kn=speed_kn,
+            elapsed_s=time.perf_counter() - start,
+            inp_path=inp_path,
+            aam_log_path=aam_log_path if aam_log_path.is_file() else None,
+            ok=True,
+        )
+        return frame
+
+    def _build_track(self, source_pts: gpd.GeoDataFrame) -> list[TrackPoint]:
         wgs84_pts = source_pts.to_crs("EPSG:4326")
-        track = [
+        return [
             TrackPoint(
                 lon=float(row.geometry.x),
                 lat=float(row.geometry.y),
@@ -591,10 +359,9 @@ class AamPropagationModel:
             for _, row in wgs84_pts.iterrows()
         ]
 
-        receiver_agl_m = (
-            self.receiver_agl_m if self.receiver_agl_m is not None else site.mic.z
-        )
-        pois = [
+    def _build_pois(self, site: AamSiteContext) -> list[PoiPoint]:
+        receiver_agl_m = self._receiver_agl_m(site.mic)
+        return [
             PoiPoint(
                 name=site.mic.name,
                 lon=float(site.mic.lon),
@@ -603,29 +370,45 @@ class AamPropagationModel:
             ),
         ]
 
-
+    def _stage_run_dir(
+        self,
+        work_dir: Path,
+        site: AamSiteContext,
+        track: list[TrackPoint],
+        pois: list[PoiPoint],
+        source_id: str,
+        job_name: str,
+        heading_deg: float,
+        speed_kn: float,
+    ) -> None:
         shutil.copy2(site.terrain.elv_path, work_dir / "scenario.elv")
         if site.terrain.imp_path:
             shutil.copy2(site.terrain.imp_path, work_dir / "scenario.imp")
 
-        speed_kn = hop_speed_kn(track, site.terrain) if len(track) > 1 else 0.0
         inp_path = work_dir / f"{AAM_INP_BASENAME}.inp"
         write_inp(
             site.terrain,
             inp_path,
             track=track,
             pois=pois,
-            source_id=aam_source_id_from_omni(omni_source),
+            source_id=source_id,
             track_name=job_name,
             speed_kn=speed_kn,
-            heading_deg=float(heading if heading is not None else 90.0),
+            heading_deg=heading_deg,
             elv_basename="scenario.elv",
             imp_basename="scenario.imp",
             remark=f"ActiveSpace {job_name}",
         )
 
-        self._run_aam(inp_path, work_dir)
-
+    def _read_run_predictions(
+        self,
+        work_dir: Path,
+        site: AamSiteContext,
+        track: list[TrackPoint],
+        source_pts: gpd.GeoDataFrame,
+        omni_source: str,
+        job_name: str,
+    ) -> pd.DataFrame:
         poi_path = work_dir / f"{AAM_INP_BASENAME}.POI"
         log_path = work_dir / f"{AAM_INP_BASENAME}.txt"
         run_log = read_run_log(log_path)
@@ -650,8 +433,9 @@ class AamPropagationModel:
     def _run_aam(self, inp_path: Path, work_dir: Path) -> None:
         if not os.path.isfile(self.aam_shim):
             raise FileNotFoundError(
-                f"AAM shim not found at {self.aam_shim}; "
-                "use docker/run_activespace.sh -m aam or set aam_shim",
+                f"AAM executable not found at {self.aam_shim}; "
+                "set [project] aam in your .config (path to AAM_3.0.0.exe, "
+                "or /usr/local/bin/aam in Docker)",
             )
         proc = subprocess.run(
             [self.aam_shim, inp_path.name],
@@ -659,8 +443,16 @@ class AamPropagationModel:
             capture_output=True,
             text=True,
             timeout=AAM_RUN_TIMEOUT_S,
+            env=_aam_subprocess_env(self.aam_shim),
         )
+        combined = "\n".join(
+            part for part in (proc.stderr, proc.stdout) if part
+        ).strip()
+        if combined:
+            (work_dir / "aam_stderr.txt").write_text(
+                combined, encoding="utf-8", errors="replace",
+            )
         if proc.returncode != 0:
             raise RuntimeError(
-                f"AAM exited {proc.returncode}: {proc.stderr or proc.stdout}",
+                f"AAM exited {proc.returncode}: {summarize_aam_cli_output(combined)}",
             )

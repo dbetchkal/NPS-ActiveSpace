@@ -19,7 +19,6 @@ from warnings import warn
 
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.active_space.propagation_model import PropagationModel, prediction_cache_csv_path
-from nps_active_space.active_space.aam_propagation_model import AamPropagationModel
 from nps_active_space.setup.site_writer import create_site_dir
 from nps_active_space.utils.models import Microphone
 from nps_active_space.utils.computation import (
@@ -257,6 +256,24 @@ class ActiveSpaceGenerator:
         return nmsim_df_all, nmsim_df, new_pts
 
     @staticmethod
+    def _source_pts_missing_predictions(
+        source_pts: gpd.GeoDataFrame,
+        pred_df: pd.DataFrame,
+    ) -> gpd.GeoDataFrame:
+        """Points sent to predict() that have no row in the returned prediction DataFrame."""
+        if len(source_pts) == 0:
+            return source_pts.iloc[0:0]
+        if len(pred_df) == 0:
+            return source_pts
+
+        source_idx = pd.MultiIndex.from_frame(pd.DataFrame({
+            "Xpos": source_pts.geometry.x,
+            "Ypos": source_pts.geometry.y,
+        }))
+        pred_idx = pd.MultiIndex.from_frame(pred_df[["Xpos", "Ypos"]].drop_duplicates())
+        return source_pts[~source_idx.isin(pred_idx)].drop_duplicates("geometry")
+
+    @staticmethod
     def save_nmsim_predictions(nmsim_df_all: pd.DataFrame, csv_filename: str):
         """
         Saves NMSIM predictions to a CSV file for future reference.
@@ -320,8 +337,9 @@ class ActiveSpaceGenerator:
         aboveground_pts, underground_pts = self._determine_underground_pts(source_pts)
 
         # AAM uses its own ELV grid; GDAL DEM samples can disagree and break whole batches.
-        if isinstance(self.propagation_model, AamPropagationModel):
-            aboveground_pts, below_aam_pts = self.propagation_model.filter_below_terrain(
+        filter_below = getattr(self.propagation_model, "filter_below_terrain", None)
+        if filter_below is not None:
+            aboveground_pts, below_aam_pts = filter_below(
                 self._site_context,
                 aboveground_pts,
                 job_name=job_name,
@@ -368,6 +386,19 @@ class ActiveSpaceGenerator:
                 job_name,
                 heading,
             )
+            failed_pts = self._source_pts_missing_predictions(new_pts, new_nmsim_df)
+            if len(failed_pts) > 0:
+                logger.warning(
+                    "%s: marking %d point(s) inaudible after predict failure/skip",
+                    job_name,
+                    len(failed_pts),
+                )
+                failed_audibility = failed_pts.copy()
+                failed_audibility["audible"] = 0
+                audibility_pts = pd.concat(
+                    [audibility_pts, failed_audibility],
+                    ignore_index=True,
+                )
             nmsim_df = pd.concat([nmsim_df, new_nmsim_df], ignore_index=True)
             nmsim_df = nmsim_df.drop_duplicates(subset=["Xpos", "Ypos"])
 

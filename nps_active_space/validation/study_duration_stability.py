@@ -10,6 +10,7 @@ import os
 from shapely.geometry import Point
 from nps_active_space.utils.helpers import load_annotations, load_studyarea, load_layered_activespace
 from nps_active_space.utils.computation import normalize_point_density, NMSIM_bbox_utm
+from nps_active_space.utils.enums import AcousticModel
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,9 @@ def get_csv_name(project_dir, deployment):
                         f"{deployment}_study_duration_stability.csv")
 
 
-def fit_varying_n_tracks(project_dir, unit, site, year):
+def fit_varying_n_tracks(
+    project_dir, unit, site, year, model: AcousticModel = AcousticModel.NMSIM,
+):
     """
     Fits a 3D active space with 1, 2, 3, ..., all tracks.
     Saves a CSV containing, for each number of tracks:
@@ -69,25 +72,27 @@ def fit_varying_n_tracks(project_dir, unit, site, year):
     valid_points = gpd.GeoDataFrame(data=valid_points_lst, geometry='geometry', crs=annots.crs)
 
     # Load 3D active space for all gains
-    model = load_layered_activespace(project_dir, unit, site, year, crs=utm_zone)
-    model.preload_all_activespaces()  # load all gains into memory
+    layered = load_layered_activespace(
+        project_dir, unit, site, year, crs=utm_zone, model=model,
+    )
+    layered.preload_all_activespaces()  # load all gains into memory
 
     # Precompute area of the active space's middle layer, for each gain value
     areas = {}
-    layers = list(model.layer_dirs.keys())
+    layers = list(layered.layer_dirs.keys())
     mid_layer = layers[len(layers) // 2]
     logger.info(f"Using {mid_layer}m for areas")
-    for gain in tqdm(model.all_activespaces, desc="Computing areas"):
-        active = model.all_activespaces[gain][mid_layer]
+    for gain in tqdm(layered.all_activespaces, desc="Computing areas"):
+        active = layered.all_activespaces[gain][mid_layer]
         active_equal_area = active.to_crs("epsg:3338")  # albers AK equal area
         areas[gain] = active_equal_area.area.item() / 1e6  # square km
 
     # Precompute whether each point is within each active space. This avoids doing a ton of redundant computation later
     # For each active space gain, we add a boolean column to valid_points representing this
     inside = {}
-    for gain in tqdm(model.all_activespaces, desc="Computing points inside/outside"):
-        model.set_gain(gain)
-        inside[f"in_AS_{gain}"] = model.predict(valid_points)
+    for gain in tqdm(layered.all_activespaces, desc="Computing points inside/outside"):
+        layered.set_gain(gain)
+        inside[f"in_AS_{gain}"] = layered.predict(valid_points)
     valid_points = pd.concat([valid_points, pd.DataFrame(inside)], axis=1)
     
     # Keep adding tracks in chronological order, and see how the fits change
@@ -105,7 +110,7 @@ def fit_varying_n_tracks(project_dir, unit, site, year):
     
         # Compute F1 for each gain
         f1s = {}
-        for gain in model.all_activespaces:
+        for gain in layered.all_activespaces:
             in_AS = pts[f"in_AS_{gain}"].values
             audible = pts["audible"].values
             TP = np.all([in_AS, audible], axis=0).sum()

@@ -1,76 +1,69 @@
-# Temporary: Windows AAM vs NMSim at 1500 m (DENATRLA 2025)
+# Windows: AAM vs NMSim at 1500 m (DENATRLA 2025)
 
-Scratch notes for a native Windows compare. NMSim’s strongest per-layer F1 on this site was **1500 m (0.60)** in `DENATRLA2025_commands_output.csv`. Use that altitude so the compare is apples-to-apples.
+Native Windows compare of one active-space layer. Use **1500 m** (best NMSim F1 on the Mac example was 0.60) unless the Windows annotations change the altitude mix.
 
-Do **not** set `ACOUSTIC_MODEL`, `AAM_PARALLEL_N`, or `AAM_CHUNK_SIZE` in your shell. Those are Docker/script internals. User settings live in `nps_active_space/config/<env>.config`.
+Do not set `ACOUSTIC_MODEL`, `AAM_PARALLEL_N`, or `AAM_CHUNK_SIZE`. Put paths in `nps_active_space/config/windows.config`.
 
-## One-time setup
-
-1. Python 3.12 venv at the repo root:
-
-   ```bat
-   py -3.12 -m venv .venv
-   .venv\Scripts\activate
-   pip install -e ".[dev,aam]"
-   ```
-
-2. Copy config and fill paths (same pattern as NMSim):
-
-   ```bat
-   copy nps_active_space\config\template.config nps_active_space\config\windows.config
-   ```
-
-   Required `[project]` / `[data]` fields for this run:
-
-   | Key | Windows example |
-   |-----|-----------------|
-   | `[project] dir` | `C:\...\example_data\site_projects` |
-   | `[project] aam` | `C:\path\to\AAM_v3\AAM_3.0.0.exe` |
-   | `[project] nmsim` | path to `Nord2000batch.exe` (only if you also run NMSim) |
-   | `[data] dem` | `...\DENATRLA\Input_Data\01_ELEVATION\elevation_m_nad83_utm6.tif` |
-
-   `NCfiles\` must sit **next to** `AAM_3.0.0.exe` (the code sets noise-database env vars on the subprocess only).
-
-3. Ambience pickle already used on Mac:
-
-   `example_data\site_projects\DENATRLA\Output_Data\AMBIENCE\DENATRLA2025_ambience.pkl`
-
-## Smoke (one gain, coarse mesh) — minutes
-
-From repo root, venv active:
+## Setup (once)
 
 ```bat
-python -u nps_active_space\scripts\generate_active_space.py ^
-  -e windows --model aam -u DENA -s TRLA -y 2025 -l 1500 ^
-  --omni-min 0 --omni-max 0 --density 10 --headings 0 --cleanup ^
-  -a example_data\site_projects\DENATRLA\Output_Data\AMBIENCE\DENATRLA2025_ambience.pkl ^
-  --results-out denatrla_1500m_aam_smoke.json
+py -3.12 -m venv .venv
+.venv\Scripts\activate
+pip install -e ".[dev,aam]"
+copy nps_active_space\config\template.config nps_active_space\config\windows.config
 ```
 
-Same flags without `--model aam` for NMSim, if you want a matching smoke.
+In `windows.config` set:
 
-## Full single-layer (matches existing NMSim 1500 m batch flags)
+- `[project] dir` — folder that contains `DENATRLA\`
+- `[project] aam` — `AAM_3.0.0.exe` (`NCfiles\` must sit next to it)
+- `[project] nmsim` — `Nord2000batch.exe`
+- `[data] dem` — site DEM GeoTIFF
 
-Same as `DENATRLA2025_commands.txt` 1500 m line, plus `--model aam`:
+## Same inputs on both runs
+
+Keep a single `DENATRLA2025_saved_annotations.geojson` in the site directory root. Do not mix Mac example tracks with the Windows set; regenerate NMSim here.
+
+Use the same ambience pickle (`-a` below). If more than one `*saved_annotations*.geojson` exists, keep `--annotation-file` on both commands.
+
+## Run
+
+From the repo root, venv active. Only `--model` and `--results-out` differ.
+
+**AAM**
 
 ```bat
 python -u nps_active_space\scripts\generate_active_space.py ^
   -e windows --model aam -u DENA -s TRLA -y 2025 -l 1500 ^
   --headings 0 --omni-min 0 --omni-max 2 --cleanup ^
+  --annotation-file DENATRLA2025_saved_annotations.geojson ^
   -a example_data\site_projects\DENATRLA\Output_Data\AMBIENCE\DENATRLA2025_ambience.pkl ^
-  --results-out denatrla_1500m_aam_full.json
+  --results-out denatrla_1500m_aam.json
 ```
 
-Default mesh density is 48 (same as the NMSim batch). Native AAM should use `cpu_count - 1` omni workers automatically.
+**NMSim**
 
-## What to copy back
+```bat
+python -u nps_active_space\scripts\generate_active_space.py ^
+  -e windows -u DENA -s TRLA -y 2025 -l 1500 ^
+  --headings 0 --omni-min 0 --omni-max 2 --cleanup ^
+  --annotation-file DENATRLA2025_saved_annotations.geojson ^
+  -a example_data\site_projects\DENATRLA\Output_Data\AMBIENCE\DENATRLA2025_ambience.pkl ^
+  --results-out denatrla_1500m_nmsim.json
+```
 
-- `denatrla_1500m_aam_smoke.json` and/or `denatrla_1500m_aam_full.json` (`F1` field)
-- Last ~80 lines of console if the script exits non-zero
-- Any `[aam-run] FAILED` line that is **not** followed by `retrying halves` or `skipping 1 point` (those are expected isolation retries)
+Smoke (minutes): add `--density 10 --omni-max 0` to both.
 
-Do **not** run `fit_3d_active_space` until several altitude layers exist. This note is one layer only.
+Outputs: `Output_Data\aam\ACTIVESPACES\DENATRLA2025_1500m\` and `Output_Data\nmsim\ACTIVESPACES\`. Do not run `fit_3d_active_space` for a single altitude.
 
-## Expected log noise
+## Compare
 
-`[aam-filter] filtered N/M below AAM terrain` and binary-split `FAILED` / `retrying halves` are expected. The job should still finish and write geojson under `Output_Data\aam\ACTIVESPACES\DENATRLA2025_1500m\`.
+- **F1 / gain:** the two JSON files (`F1`, `1/3rd Octave Gain (F1)`).
+- **Shape:** `python nps_active_space\scripts\viz.py DENATRLA2025 -e windows -s -a --compare -g <gain>`  
+  NMSim orange, AAM cyan. Uncheck non-1500 m layers. Viz `--annotation-file` needs a full path.
+
+## If it fails
+
+Send both JSON files and the last ~80 console lines.
+
+Expected, not a crash: `[aam-filter] filtered N/M below AAM terrain`, `[aam-predict] isolating …` / `skipped 1 point`. Fortran stacks: `Output_Data\aam\runs\<job>\aam_stderr.txt`.

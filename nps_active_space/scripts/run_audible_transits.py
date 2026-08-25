@@ -31,6 +31,7 @@ from nps_active_space.utils.helpers import (
     load_layered_activespace,
 )
 from nps_active_space.utils.computation import NMSIM_bbox_utm, contiguous_regions, interpolate_spline
+from nps_active_space.utils.enums import AcousticModel
 from nps_active_space.utils.models import Tracks, FAAReleasable
 
 pd.set_option('future.no_silent_downcasting', True)
@@ -184,6 +185,7 @@ class AudibleTransits(ABC):
         self.site = metadata["site"]
         self.activespace_year = str(metadata["activespace year"])
         self.gain = metadata["gain"]
+        self.model = AcousticModel.parse(metadata.get("model", AcousticModel.NMSIM))
         self.study_start = metadata["study start"]
         self.study_end = metadata["study end"]  # inclusive
         self.database_type = metadata["database type"]
@@ -343,14 +345,14 @@ class AudibleTransits(ABC):
         # Always load in an activespace layer, will be used for plots in the 3D case
         self.active_layer = load_activespace(
             self.paths["project"], self.unit, self.site, self.activespace_year, self.gain,
-            self.altitude_m, crs=self.utm_zone)
+            self.altitude_m, crs=self.utm_zone, model=self.model)
         if self.altitude_m is None:
             self.altitude_m = self.active_layer.iloc[0]["altitude_m"].item()
         
         if self.three_dimensional_run:
             self.active_3d = load_layered_activespace(
                 self.paths["project"], self.unit, self.site, self.activespace_year, self.gain,
-                crs=self.utm_zone)
+                crs=self.utm_zone, model=self.model)
             logger.debug(f"Altitudes found: {list(self.active_3d.layer_dirs.keys())}")
         else:
             self.active_3d = None
@@ -2499,6 +2501,9 @@ if __name__ == '__main__':
                           help="Enter '1' to export garbage tracks, 0 is default")
     argparse.add_argument('-v', '--verbose', action="store_true",
                           help="Print additional details to the console.")
+    argparse.add_argument('--model', type=AcousticModel, choices=list(AcousticModel),
+                          default=AcousticModel.NMSIM,
+                          help="Propagation model for active-space layers.")
 
     args = argparse.parse_args()
 
@@ -2509,7 +2514,8 @@ if __name__ == '__main__':
                 "study start": args.begintracks,
                 "study end": args.endtracks,
                 "database type": args.database_type,
-                "env": args.environment
+                "env": args.environment,
+                "model": args.model,
                 }
     paths = {}
 

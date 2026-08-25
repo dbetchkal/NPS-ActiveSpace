@@ -2,12 +2,16 @@ import argparse
 import subprocess
 import iyore
 import os
-import shlex
 import matplotlib.pyplot as plt
 from nps_active_space.utils.models import Nvspl
 from nps_active_space.utils.computation import ambience_from_nvspl
 import nps_active_space.utils.config as cfg
 from nps_active_space.utils import paths as p
+from nps_active_space.utils.enums import AcousticModel
+from nps_active_space.scripts.generate_3d_commands import (
+    build_layer_command_parts,
+    format_commands_file_line,
+)
 
 """
 This script creates a commands file for use with generate_active_space_batch.py, containing commands
@@ -44,6 +48,9 @@ if __name__ == "__main__":
                           help="Four digit year. E.g. 2018")
     parser.add_argument('-a', '--ambience', default='nvspl',
                           help="What type of ambience to use in NMSIM calculations. Choose from ['nvspl', 'mennitt', or a path to an ambience .pkl file]")
+    parser.add_argument('--model', type=AcousticModel, choices=list(AcousticModel),
+                          default=AcousticModel.NMSIM,
+                          help="Propagation model for each active-space layer command.")
     
     # other arguments will just be forwarded to generate_active_space.py via the batch commands text file
     args, extra_args = parser.parse_known_args()
@@ -93,28 +100,18 @@ if __name__ == "__main__":
     cmds_file = os.path.join(site_dir, f"{usy}_commands.txt")
     with open(cmds_file, "w") as f:
         for altitude in altitudes:
-            parts = [
-                "-e", args.environment,
-                "-u", args.unit,
-                "-s", args.site,
-                "-y", args.year,
-                "-l", altitude
-            ]
-            # add in the rest of generate_active_space.py args
-            parts += extra_args
-
-            # use precomputed ambience if nvspl
-            # put ambience arg at the end because the pkl path is often long
-            # and this makes the commands file easier to read when opened
-            if args.ambience == "nvspl":
-                parts += ["-a", ambience_pkl_path]
-            else:
-                parts += ["-a", args.ambience]
-            
-            # use shlex.quote to put quotes around args, in case arguments have spaces within a path
-            line = f"{usy}_{altitude}m\t"
-            line += " ".join(shlex.quote(str(p)) for p in parts)
-
+            ambience_arg = ambience_pkl_path if args.ambience == "nvspl" else args.ambience
+            parts = build_layer_command_parts(
+                args.environment,
+                args.unit,
+                args.site,
+                args.year,
+                altitude,
+                ambience_arg,
+                model=args.model,
+                extra_args=extra_args,
+            )
+            line = format_commands_file_line(f"{usy}_{altitude}m", parts)
             f.write(f"{line}\n")
     
     # if we're not only prepping a commands file, run generate_active_space_batch.py
@@ -130,6 +127,7 @@ if __name__ == "__main__":
         print("\nRunning fit_3d_active_space.py to fit the active space\n")
         fit_script = os.path.join(os.path.dirname(__file__), "fit_3d_active_space.py")
         process = subprocess.Popen(
-            ["python", fit_script, "-e", args.environment, "-u", args.unit, "-s", args.site, "-y", str(args.year)]
+            ["python", fit_script, "-e", args.environment, "-u", args.unit, "-s", args.site,
+             "-y", str(args.year), "--model", args.model]
         )
         process.wait()

@@ -31,9 +31,6 @@ vendor/nmsim-runtime/*
 vendor/aam-runtime/*
 !vendor/aam-runtime/.gitkeep
 
-# Staged for Docker image build (docker/build.sh copies sibling aam_translator)
-vendor/.docker-build/
-
 # Generated Index
 example_data/ADS-B/healy_repeater/index.txt
 example_data/faa/MASTER_index.json
@@ -52,6 +49,7 @@ example_data/site_projects/*/Input_Data/01_ELEVATION/elevation.tif
 example_data/site_projects/*/Input_Data/01_ELEVATION/elevation_mask.*
 example_data/site_projects/*/Input_Data/01_ELEVATION/elevation_aam*.tif
 example_data/site_projects/*/Input_Data/AAM/
+example_data/site_projects/*/Output_Data/AAM/
 
 # Batch-run bookkeeping and fit/diagnostic plots under site directories
 example_data/site_projects/*/*_commands.txt
@@ -62,3 +60,6 @@ example_data/site_projects/*/Altitude_Histogram_*.png
 # NMSim control files written at the site root during runs
 example_data/site_projects/*/control*
 example_data/site_projects/*/batch*
+
+# Docker validation run logs
+docker/*.log

@@ -1,7 +1,7 @@
 """Active space generation modules.
 
-Heavy imports (GDAL, NMSim propagation) are lazy so AAM-only code paths and unit
-tests can import ``aam_propagation_model`` without loading the full geospatial stack.
+``ActiveSpaceGenerator`` is imported lazily so NMSim installs do not load the
+optional AAM adapter (``aam_translator`` / ``.[aam]`` extra).
 """
 
 from __future__ import annotations
