@@ -19,40 +19,22 @@ In `windows.config` set:
 - `[project] aam` — `AAM_3.0.0.exe` (`NCfiles\` must sit next to it)
 - `[project] nmsim` — `Nord2000batch.exe`
 - `[data] dem` — site DEM GeoTIFF
+- `[data] nvspl_archive` — NVSPL archive (ambience is computed from NVSPL; no pickle yet)
 
 ## Same inputs on both runs
 
 Keep a single `DENATRLA2025_saved_annotations.geojson` in the site directory root. Do not mix Mac example tracks with the Windows set; regenerate NMSim here.
 
-Use the same ambience pickle (`-a` below). If more than one `*saved_annotations*.geojson` exists, keep `--annotation-file` on both commands.
-
 ## Run
 
-From the repo root, venv active. Only `--model` and `--results-out` differ.
-
-**AAM**
+From the repo root, venv optional (the script activates `.venv` if present):
 
 ```bat
-python -u nps_active_space\scripts\generate_active_space.py ^
-  -e windows --model aam -u DENA -s TRLA -y 2025 -l 1500 ^
-  --headings 0 --omni-min 0 --omni-max 2 --cleanup ^
-  --annotation-file DENATRLA2025_saved_annotations.geojson ^
-  -a example_data\site_projects\DENATRLA\Output_Data\AMBIENCE\DENATRLA2025_ambience.pkl ^
-  --results-out denatrla_1500m_aam.json
+docs\tmp_windows_aam_1500m.bat
+docs\tmp_windows_aam_1500m.bat smoke
 ```
 
-**NMSim**
-
-```bat
-python -u nps_active_space\scripts\generate_active_space.py ^
-  -e windows -u DENA -s TRLA -y 2025 -l 1500 ^
-  --headings 0 --omni-min 0 --omni-max 2 --cleanup ^
-  --annotation-file DENATRLA2025_saved_annotations.geojson ^
-  -a example_data\site_projects\DENATRLA\Output_Data\AMBIENCE\DENATRLA2025_ambience.pkl ^
-  --results-out denatrla_1500m_nmsim.json
-```
-
-Smoke (minutes): add `--density 10 --omni-max 0` to both.
+That runs AAM then NMSim. Omits `-a`, so both use default NVSPL ambience. JSON results: `denatrla_1500m_aam.json` and `denatrla_1500m_nmsim.json` at the repo root.
 
 Outputs: `Output_Data\aam\ACTIVESPACES\DENATRLA2025_1500m\` and `Output_Data\nmsim\ACTIVESPACES\`. Do not run `fit_3d_active_space` for a single altitude.
 
