@@ -99,6 +99,7 @@ if [[ "$ACOUSTIC_MODEL" == "aam" ]]; then
   fi
   mounts+=(-v "$AAM_RUNTIME:/opt/aam:ro")
   docker_env+=(-e AAM_HOME=/opt/aam)
+  docker_env+=(-e AAM_PARALLEL_N="${AAM_PARALLEL_N:-2}")
 fi
 
 if [[ -n "${DATA_DRIVE:-}" ]]; then

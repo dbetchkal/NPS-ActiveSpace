@@ -40,6 +40,7 @@ mennitt =
 [project]
 dir = {project_dir}
 nmsim =
+aam =
 faa_releasable_db =
 faa_type_corrections =
 """
@@ -117,6 +118,7 @@ class TestValidateMissingSections:
         [project]
         dir = {project_dir}
         nmsim =
+        aam =
         FAA_Releasable_db =
         FAA_type_corrections =
         """)
@@ -148,6 +150,7 @@ class TestValidateMissingKeys:
         [project]
         dir = {project_dir}
         nmsim =
+        aam =
         """)
         errors = cfg.validate(verbose=False)
         missing = [e for e in errors if "Missing key" in e and "[project]" in e]
