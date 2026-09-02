@@ -44,12 +44,20 @@ example_data/site_projects/fits.csv
 example_data/site_projects/*/fits_aam_validate.csv
 example_data/site_projects/*/fits_validate.csv
 
-# GDAL/NMSim intermediates produced when preparing a DEM for NMSim
+# GDAL / generate-time elevation intermediates (not project_setup artifacts)
 example_data/site_projects/*/Input_Data/01_ELEVATION/elevation.tif
 example_data/site_projects/*/Input_Data/01_ELEVATION/elevation_mask.*
 example_data/site_projects/*/Input_Data/01_ELEVATION/elevation_aam*.tif
+example_data/site_projects/*/Input_Data/01_ELEVATION/elevation_*.tif
+example_data/site_projects/*/Input_Data/01_ELEVATION/elevation_*_masked.*
+example_data/site_projects/*/Input_Data/01_ELEVATION/study_area_*
+!example_data/site_projects/*/Input_Data/01_ELEVATION/elevation_m_nad83_utm*.tif
 example_data/site_projects/*/Input_Data/AAM/
-example_data/site_projects/*/Output_Data/AAM/
+
+# Local compare / fit bookkeeping under site directories
+example_data/site_projects/*/*_aam_*.csv
+example_data/site_projects/*/denatrla_1500m_*.json
+denatrla_1500m_*.json
 
 # Batch-run bookkeeping and fit/diagnostic plots under site directories
 example_data/site_projects/*/*_commands.txt
