@@ -20,7 +20,11 @@ from aam_translator.constants import FT_PER_M
 from aam_translator.context import TerrainResult
 
 from nps_active_space.active_space.aam_run_log import aam_log
-from nps_active_space.active_space.propagation_model import AAM_INPUT_SUBDIR, AAM_TERRAIN_SUBDIR
+from nps_active_space.active_space.propagation_model import (
+    AAM_INPUT_SUBDIR,
+    AAM_INPUT_SUBDIR_LEGACY,
+    AAM_TERRAIN_SUBDIR,
+)
 from nps_active_space.utils.computation import project_raster
 
 AAM_INP_BASENAME = "scenario"
@@ -96,15 +100,24 @@ def terrain_grid_summary(terrain: TerrainResult) -> str:
 
 
 def terrain_dir_for_site(root_dir: str | Path, suffix: str) -> Path:
-    """Return terrain cache dir, preferring ``Input_Data/AAM/terrain/{mic}/``."""
+    """Return terrain cache dir, preferring ``Input_Data/aam/terrain/{mic}/``."""
     root = Path(root_dir)
     mic_key = suffix.removeprefix("_") or "default"
-    new_dir = root / AAM_TERRAIN_SUBDIR / mic_key
-    legacy_dir = root / AAM_INPUT_SUBDIR / f"terrain{suffix}"
-    if legacy_dir.is_dir() and not new_dir.is_dir():
-        return legacy_dir
-    new_dir.mkdir(parents=True, exist_ok=True)
-    return new_dir
+    canonical = root / AAM_TERRAIN_SUBDIR / mic_key
+    if canonical.is_dir():
+        return canonical
+
+    legacy_candidates = (
+        root / AAM_INPUT_SUBDIR_LEGACY / "terrain" / mic_key,
+        root / AAM_INPUT_SUBDIR_LEGACY / f"terrain{suffix}",
+        root / AAM_INPUT_SUBDIR / f"terrain{suffix}",
+    )
+    for legacy_dir in legacy_candidates:
+        if legacy_dir.is_dir():
+            return legacy_dir
+
+    canonical.mkdir(parents=True, exist_ok=True)
+    return canonical
 
 
 def _bounds_close(

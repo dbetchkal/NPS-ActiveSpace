@@ -87,7 +87,7 @@ docker/run_activespace.sh -m aam docker/validate_aam_below_ground.py
 
 Adapter implementation and pipeline notes: [`docs/aam_integration_notes.md`](../docs/aam_integration_notes.md).
 
-AAM terrain (`Input_Data/AAM/terrain/{mic}/scenario.elv`) is cached on disk; reruns skip
+AAM terrain (`Input_Data/aam/terrain/{mic}/scenario.elv`) is cached on disk; reruns skip
 `write_terrain` when ELV is newer than the parent DEM and `terrain_cache.json` matches.
 Prediction cache: `Output_Data/aam/predictions/` (NMSim: `Output_Data/nmsim/predictions/`).
 Run log (terrain, batches, summaries): `Output_Data/aam/active_space.log` — points at

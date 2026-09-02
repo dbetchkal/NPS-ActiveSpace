@@ -33,8 +33,8 @@ NMSIM_SITE_SUBFOLDERS = [
     "Output_Data/aam/ACTIVESPACES",
     "Output_Data/aam/TESTED_POINTS",
     "Output_Data/aam/PRECISION_RECALL",
-    "Input_Data/AAM",
-    "Input_Data/AAM/terrain",
+    "Input_Data/aam",
+    "Input_Data/aam/terrain",
 ]
 
 

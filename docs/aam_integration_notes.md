@@ -125,7 +125,7 @@ Work on branch **`feature/aam-propagation-model`** (or similar), rebased onto `m
 1. ✅ Constructor injection of `AamPropagationModel`; `_run_propagation_model` replaces NMSim-only subprocess path.
 2. ✅ Batching at `propagation_model.max_points_per_run` via `_preprocess_source_points`.
 3. ✅ Cache CSV, audibility, contour, polygon unchanged.
-4. ✅ AAM outputs under ``Output_Data/AAM/predictions/`` and ``Output_Data/AAM/runs/`` (NMSim stays ``TIG_TIS/``).
+4. ✅ AAM outputs under ``Output_Data/aam/predictions/`` and ``Output_Data/aam/runs/`` (NMSim stays ``TIG_TIS/``).
 5. ✅ 12.5 kHz: AAM POI has no band 41 → `NaN` in adapter (audibility uses `max(ambience, hearing threshold)` per band).
 6. ✅ CLI/config flag to select AAM in `generate_active_space.py` (`--model`, model-scoped paths, `fits.csv`).
 
@@ -149,13 +149,13 @@ AAM does **not** use ``Output_Data/TIG_TIS/`` (NMSim-only: ``.tis`` + centibel C
 
 | Path | Role |
 |------|------|
-| ``Input_Data/AAM/terrain/{mic}/`` | Cached ``.ELV`` / ``.IMP`` + ``terrain_cache.json`` (model **input**, rebuild when DEM/AOI changes) |
-| ``Output_Data/AAM/predictions/`` | Incremental spectral cache CSVs (``{alt}m_{omni}_{heading}deg.csv``) |
+| ``Input_Data/aam/terrain/{mic}/`` | Cached ``.ELV`` / ``.IMP`` + ``terrain_cache.json`` (model **input**, rebuild when DEM/AOI changes) |
+| ``Output_Data/aam/predictions/`` | Incremental spectral cache CSVs (``{alt}m_{omni}_{heading}deg.csv``) |
 | ``Output_Data/aam/runs/{job}/`` | Per-batch scratch (``.inp``, ``.POI``, ``scenario.txt``) |
 | ``Output_Data/aam/active_space.log`` | Append-only run log (terrain, batches, summaries; points at on-disk artifacts) |
 | ``Output_Data/aam/ACTIVESPACES/`` | Final active-space GeoJSON (model-scoped layout) |
 
-Legacy paths (still read if present): ``Input_Data/AAM/terrain_{mic}/`` for terrain;
+Legacy paths (still read if present): ``Input_Data/AAM/terrain/{mic}/`` and ``Input_Data/AAM/terrain_{mic}/`` for terrain;
 ``Output_Data/TIG_TIS/*.csv`` from early AAM runs should be deleted (they mixed with NMSim caches).
 
 ---

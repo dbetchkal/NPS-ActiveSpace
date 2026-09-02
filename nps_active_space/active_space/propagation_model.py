@@ -23,13 +23,15 @@ NMSIM_OUTPUT_SUBDIR = "Output_Data/nmsim"
 NMSIM_PREDICTIONS_SUBDIR = f"{NMSIM_OUTPUT_SUBDIR}/predictions"
 NMSIM_SCRATCH_SUBDIR = f"{NMSIM_OUTPUT_SUBDIR}/scratch"
 
-# AAM layout (see docs/aam_integration_notes.md):
-#   Input_Data/AAM/terrain/{mic}/       — cached ELV/IMP (model input, long-lived)
+# AAM layout (see docs/aam_integration_notes.md); slug matches AcousticModel.AAM ("aam").
+#   Input_Data/aam/terrain/{mic}/       — cached ELV/IMP (model input, long-lived)
 #   Output_Data/aam/predictions/        — incremental spectral cache CSVs
 #   Output_Data/aam/runs/{job}/         — per-batch .inp / .POI / run log (scratch)
-AAM_INPUT_SUBDIR = "Input_Data/AAM"
+AAM_MODEL_SLUG = "aam"
+AAM_INPUT_SUBDIR = f"Input_Data/{AAM_MODEL_SLUG}"
+AAM_INPUT_SUBDIR_LEGACY = "Input_Data/AAM"
 AAM_TERRAIN_SUBDIR = f"{AAM_INPUT_SUBDIR}/terrain"
-AAM_OUTPUT_SUBDIR = "Output_Data/aam"
+AAM_OUTPUT_SUBDIR = f"Output_Data/{AAM_MODEL_SLUG}"
 AAM_PREDICTIONS_SUBDIR = f"{AAM_OUTPUT_SUBDIR}/predictions"
 AAM_RUNS_SUBDIR = f"{AAM_OUTPUT_SUBDIR}/runs"
 AAM_RUN_LOG_FILENAME = "active_space.log"
