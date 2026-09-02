@@ -69,5 +69,6 @@ example_data/site_projects/*/Altitude_Histogram_*.png
 example_data/site_projects/*/control*
 example_data/site_projects/*/batch*
 
-# Docker validation run logs
+# Docker validation run logs and platform-compare JSON
 docker/*.log
+docker/denatrla_1500m_*.json

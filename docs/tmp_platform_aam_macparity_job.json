@@ -1,0 +1,12 @@
+{
+  "compare": "mac-docker-1500m-smoke",
+  "site": "DENATRLA2025",
+  "altitude_m": 1500,
+  "density": 10,
+  "omni_min": 0,
+  "omni_max": 0,
+  "headings": [0],
+  "ambience": "nvspl",
+  "annotation_file": "DENATRLA2025_saved_annotations.geojson",
+  "notes": "Same generate_active_space flags as the Mac Docker 1500 m smoke that finished (density 10, omni +000, heading 0). Mac originally used an NVSPL pickle; this parity job uses live NVSPL on both platforms so ambience is computed the same way."
+}

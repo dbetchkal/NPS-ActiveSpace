@@ -26,6 +26,22 @@ Generation uses `Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif` (and `.flt`
 
 Keep a single `DENATRLA2025_saved_annotations.geojson` in the site directory root. Do not mix Mac example tracks with the Windows set; regenerate NMSim here.
 
+## Mac-parity smoke (platform compare)
+
+The full `docs\tmp_windows_aam_1500m.bat` is density **48**, omni **0–2**. That is not what finished on Mac Docker. For a same-flags platform compare, use:
+
+```bat
+docs\tmp_windows_aam_macparity.bat
+```
+
+That is 1500 m, density **10**, one omni (`+000`), heading 0, AAM then NMSim, live NVSPL. Same generate flags as:
+
+```bash
+docs/tmp_docker_aam_macparity.sh
+```
+
+Both write `docker/denatrla_1500m_macparity_{aam,nmsim,metrics}.json`. The metrics file has wall time, peak process-tree RSS, CPU seconds, and 5 s samples.
+
 ## Run
 
 From the repo root, venv optional (the script activates `.venv` if present):

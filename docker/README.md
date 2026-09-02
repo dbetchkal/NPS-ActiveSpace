@@ -80,6 +80,9 @@ docker/run_activespace.sh -m aam docker/validate_aam_smoke.py
 # AAM propagation adapter (two-point ridge reciprocal run)
 docker/stage_aam_runtime.sh tests/active_space/fixtures/two_point_ridge
 docker/run_activespace.sh -m aam docker/validate_aam_propagation_model.py
+
+# DENATRLA ELV pre-filter vs AAM below-ground (density 10, 1500 m)
+docker/run_activespace.sh -m aam docker/validate_aam_below_ground.py
 ```
 
 Adapter implementation and pipeline notes: [`docs/aam_integration_notes.md`](../docs/aam_integration_notes.md).
