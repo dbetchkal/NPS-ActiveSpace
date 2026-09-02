@@ -291,7 +291,13 @@ class AamPropagationModel:
                 if len(chunk_frame) > 0:
                     frames.append(chunk_frame)
         if not frames:
-            return pd.DataFrame()
+            raise RuntimeError(
+                f"AAM produced no predictions for {job_name}: "
+                f"0/{run_idx} batch(es) succeeded for {len(above_pts)} "
+                f"above-ground point(s). Inspect "
+                f"Output_Data/aam/runs/{job_name}_r*/scenario.txt "
+                "and aam_stderr.txt (terrain, NCfiles, below-ground).",
+            )
         return pd.concat(frames, ignore_index=True)
 
     def _predict_batch(

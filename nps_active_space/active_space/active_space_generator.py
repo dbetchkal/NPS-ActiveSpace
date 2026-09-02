@@ -117,6 +117,13 @@ class ActiveSpaceGenerator:
             A GeoDataFrame of the NMSIM tested points from the trajectory file with an 'audible' column set to 0 or 1
             depending on the point's audibility.
         """
+        if nmsim_df.empty:
+            return gpd.GeoDataFrame(
+                columns=["audible", "geometry"],
+                geometry="geometry",
+                crs=crs,
+            )
+
         # Check to see if any of the frequency bands are louder than the ambient levels.
         if isinstance(self.ambience, (float, int)):
             # broadband ambience
@@ -438,6 +445,11 @@ class ActiveSpaceGenerator:
                 job_name,
                 heading,
             )
+            if len(new_pts) > 0 and len(new_nmsim_df) == 0:
+                raise RuntimeError(
+                    f"{job_name}: propagation model returned no predictions "
+                    f"for {len(new_pts)} point(s)",
+                )
             failed_pts = self._source_pts_missing_predictions(new_pts, new_nmsim_df)
             if len(failed_pts) > 0:
                 logger.warning(

@@ -243,10 +243,10 @@ class TestAamPredictSkipOnFailure:
             raise RuntimeError("AAM abort")
 
         monkeypatch.setattr(AamPropagationModel, "_predict_batch", fake_batch)
-        result = model.predict(site, source_pts, "O_+000.src", 1000, "skip_job")
-        assert result.empty
+        with pytest.raises(RuntimeError, match="no predictions"):
+            model.predict(site, source_pts, "O_+000.src", 1000, "skip_job")
 
-    def test_single_point_failure_returns_empty(
+    def test_all_batches_fail_raises(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
@@ -260,9 +260,8 @@ class TestAamPredictSkipOnFailure:
             raise RuntimeError("single point below ground")
 
         monkeypatch.setattr(AamPropagationModel, "_predict_batch", fake_batch)
-        result = model.predict(site, source_pts, "O_+000.src", 1000, "solo_job")
-
-        assert result.empty
+        with pytest.raises(RuntimeError, match="no predictions"):
+            model.predict(site, source_pts, "O_+000.src", 1000, "solo_job")
 
     def test_predict_issues_one_batch_per_hop_run(
         self,
