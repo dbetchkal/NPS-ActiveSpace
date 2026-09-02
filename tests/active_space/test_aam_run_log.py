@@ -84,7 +84,7 @@ class TestAamRunLog:
             to_console=False,
         )
         last = aam_run_log_path(tmp_path).read_text(encoding="utf-8").splitlines()[-1]
-        assert "isolate" in last
+        assert "skip" in last
         assert "reason=AAM FPA bounds" in last
         assert "Unknown" not in last
         assert "FAILED" not in last

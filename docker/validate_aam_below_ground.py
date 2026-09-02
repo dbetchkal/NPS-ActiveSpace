@@ -30,6 +30,7 @@ from aam_translator.constants import FT_PER_M
 from nps_active_space.active_space.aam_propagation_model import (
     AAM_INP_BASENAME,
     AamPropagationModel,
+    _pad_single_point_track,
     aam_source_id_from_omni,
 )
 from nps_active_space.active_space.aam_terrain import (
@@ -141,11 +142,11 @@ def _run_aam_unfiltered(
     """Stage + launch AAM without the ELV pre-filter."""
     work_dir = model._runs_dir / job_name
     work_dir.mkdir(parents=True, exist_ok=True)
-    track = model._build_track(source_pts)
+    track = _pad_single_point_track(model._build_track(source_pts))
     pois = model._build_pois(site)
     source_id = aam_source_id_from_omni(omni)
     heading_deg = 0.0
-    speed_kn = hop_speed_kn(track, site.terrain) if len(track) > 1 else 0.0
+    speed_kn = hop_speed_kn(track, site.terrain)
     inp_path = work_dir / f"{AAM_INP_BASENAME}.inp"
     log_path = work_dir / f"{AAM_INP_BASENAME}.txt"
     poi_path = work_dir / f"{AAM_INP_BASENAME}.POI"
@@ -158,7 +159,7 @@ def _run_aam_unfiltered(
         model._run_aam(inp_path, work_dir)
         if poi_path.is_file():
             histories = read_poi(poi_path)
-            poi_rows = 0 if not histories else len(histories[0].times_s)
+            poi_rows = 0 if not histories else histories[0].n_samples
         run_log = read_run_log(log_path) if log_path.is_file() else None
         if run_log is not None and not run_log.ok:
             raise RuntimeError(f"AAM run failed: {run_log.read_error}")

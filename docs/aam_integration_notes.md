@@ -189,17 +189,19 @@ NMSim is the default when either flag is omitted.
 
 Native Windows uses ``cpu_count - 1`` workers, same as NMSim. Docker+Wine is capped at 2 workers by ``docker/run_activespace.sh`` (``AAM_PARALLEL_N``). Do not set that in user config.
 
-### AAM track batching (mesh2 / contour failures)
+### AAM track batching (avoid below-ground aborts)
 
-AAM aborts the **entire** ``ONE TRACK`` when any vertex is below the ELV surface (`ERROR: Below ground. TERRAIN`), often leaving an empty or partial ``.POI``. Mesh2/contour steps send **200–370** scattered points in one call; one bad point (or ELV vs clip mismatch) killed whole altitudes.
+AAM aborts the **entire** ``ONE TRACK`` when any vertex **or interpolated hop** is below the ELV surface (`ERROR: Below ground. TERRAIN`), often leaving an empty ``.POI``. Binary-splitting a failed batch down to n=1 was a retry bandaid that exploded Wine launches.
 
-``AamPropagationModel.predict()`` now:
+``AamPropagationModel.predict()`` now avoids those decks instead of retrying them:
 
-- Splits into chunks of ``AAM_CHUNK_SIZE`` (default **50**) Wine runs per mesh batch
-- Sorts points by ``(x, y)`` before ``ONE TRACK`` so ``hop_speed_kn`` stays finite on scattered meshes
-- Filters below-ground points in ``split_below_aam_terrain`` by bilinear sampling the **ELV grid** (same surface AAM uses), not the clip GeoTIFF; tolerance is float noise only (~0.01 m), not a clearance margin
+- Filters vertices in ``split_below_aam_terrain`` by bilinear sampling the **ELV grid** (same surface AAM uses); tolerance is float noise only (~0.01 m)
+- Snakes the lattice (alternate *y* direction each *x* column) so consecutive hops stay one cell, not a domain-width wrap
+- Splits the ordered track in ``split_safe_aam_track_runs`` wherever a hop still clips terrain, then chunks each run at ``AAM_CHUNK_SIZE`` (default **400**, AAM's ``ONE TRACK`` cap)
+- Pads a leftover 1-vertex ``ONE TRACK`` with a ~1 m hop and ``hop_speed_kn``. AAM 3.0.0 crashes on a single vertex (Wine exit 152 / FPA, empty ``.POI``); ``speed_kn=0`` on N>1 is ``INTRTIME``. See ``nmsim-aam-experiments/notes/aam_inp_format.md``
+- If AAM still fails, skip that chunk once (missing points are inaudible downstream). Do not bisect.
 
-Residual caveats: a chunk that still contains a below-ground point will fail; 4+ omni pool workers were not load-tested above 50-point batches.
+Residual caveats: skipped chunks lose those source points; contour/scattered sets are not a lattice so hop-splits can still add extra runs.
 
 ### Elevation contract (merged from PR #110)
 

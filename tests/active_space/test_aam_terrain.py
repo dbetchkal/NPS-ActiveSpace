@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import geopandas as gpd
+import numpy as np
 import pytest
 import rasterio
 from pyproj import Transformer
@@ -18,8 +19,10 @@ from aam_translator import write_terrain
 
 from nps_active_space.active_space.aam_terrain import (
     AAM_BELOW_SURFACE_TOLERANCE_M,
+    _hop_segment_below_terrain,
     _terrain_surface_elevation_m,
     split_below_aam_terrain,
+    split_safe_aam_track_runs,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "two_point_ridge"
@@ -57,20 +60,23 @@ def _aoi_for_dem(dem_path: Path) -> box:
     )
 
 
-class TestSplitBelowAamTerrain:
-    @pytest.fixture
-    def terrain(self, tmp_path: Path):
-        dem_path = _fixture_dem_path()
-        return write_terrain(
-            dem_path,
-            _aoi_for_dem(dem_path),
-            tmp_path / "terrain",
-            crs_in="EPSG:4326",
-        )
+@pytest.fixture
+def terrain(tmp_path: Path):
+    dem_path = _fixture_dem_path()
+    return write_terrain(
+        dem_path,
+        _aoi_for_dem(dem_path),
+        tmp_path / "terrain",
+        crs_in="EPSG:4326",
+    )
 
-    @pytest.fixture
-    def center_utm(self) -> tuple[float, float, float]:
-        return _dem_center_point_msl(_fixture_dem_path())
+
+@pytest.fixture
+def center_utm() -> tuple[float, float, float]:
+    return _dem_center_point_msl(_fixture_dem_path())
+
+
+class TestSplitBelowAamTerrain:
 
     def test_keeps_points_above_elv_surface(
         self,
@@ -128,3 +134,77 @@ class TestSplitBelowAamTerrain:
         above, below = split_below_aam_terrain(terrain, source_pts)
         assert len(above) == 1
         assert len(below) == 0
+
+
+class TestSplitSafeAamTrackRuns:
+    def test_keeps_one_run_when_hops_are_clear(
+        self,
+        terrain,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pts = gpd.GeoDataFrame(
+            {"id": [0, 1, 2]},
+            geometry=[Point(0, 0, 100), Point(10, 0, 100), Point(20, 0, 100)],
+            crs="EPSG:32606",
+        )
+        monkeypatch.setattr(
+            "nps_active_space.active_space.aam_terrain._hop_segment_below_terrain",
+            lambda *args, **kwargs: False,
+        )
+        runs = split_safe_aam_track_runs(terrain, pts)
+        assert len(runs) == 1
+        assert runs[0]["id"].tolist() == [0, 1, 2]
+
+    def test_splits_when_a_hop_clips_terrain(
+        self,
+        terrain,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pts = gpd.GeoDataFrame(
+            {"id": [0, 1, 2]},
+            geometry=[Point(0, 0, 100), Point(10, 0, 100), Point(20, 0, 100)],
+            crs="EPSG:32606",
+        )
+
+        def fake_hop(terrain_ctx, start, end, source_crs, to_aeqd, from_aeqd) -> bool:
+            return float(start.x) == 10.0
+
+        monkeypatch.setattr(
+            "nps_active_space.active_space.aam_terrain._hop_segment_below_terrain",
+            fake_hop,
+        )
+        runs = split_safe_aam_track_runs(terrain, pts)
+        assert [run["id"].tolist() for run in runs] == [[0, 1], [2]]
+
+    def test_hop_interior_below_surface_is_detected(
+        self,
+        terrain,
+        center_utm: tuple[float, float, float],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        x_m, y_m, z_m = center_utm
+        start = Point(x_m - 200.0, y_m, z_m + 50.0)
+        end = Point(x_m + 200.0, y_m, z_m + 50.0)
+        to_aeqd = Transformer.from_crs("EPSG:26906", terrain.aeqd_crs, always_xy=True)
+        from_aeqd = Transformer.from_crs(terrain.aeqd_crs, "EPSG:26906", always_xy=True)
+
+        def ridge_at_midpoint(samples, terr):
+            surface = np.full(len(samples), z_m, dtype=float)
+            surface[len(samples) // 2] = z_m + 200.0
+            return surface
+
+        monkeypatch.setattr(
+            "nps_active_space.active_space.aam_terrain._terrain_surface_elevation_m",
+            ridge_at_midpoint,
+        )
+        assert _hop_segment_below_terrain(
+            terrain, start, end, "EPSG:26906", to_aeqd, from_aeqd,
+        ) is True
+
+        monkeypatch.setattr(
+            "nps_active_space.active_space.aam_terrain._terrain_surface_elevation_m",
+            lambda samples, terr: np.full(len(samples), z_m, dtype=float),
+        )
+        assert _hop_segment_below_terrain(
+            terrain, start, end, "EPSG:26906", to_aeqd, from_aeqd,
+        ) is False

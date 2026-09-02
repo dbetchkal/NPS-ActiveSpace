@@ -121,7 +121,7 @@ def log_run_batch(
     if ok and aam_log_path is not None:
         parts.append(f"aam_log={site_relative_path(root_dir, aam_log_path)}")
     if not ok:
-        parts.insert(0, "isolate")
+        parts.insert(0, "skip")
         if error:
             parts.append(f"reason={summarize_aam_error(error)}")
     aam_log("run", "  ".join(parts), to_console=to_console)

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import geopandas as gpd
@@ -41,6 +42,7 @@ from nps_active_space.active_space.aam_terrain import (
     log_terrain_summary,
     resolve_dem_for_aam,
     split_below_aam_terrain,
+    split_safe_aam_track_runs,
     terrain_dir_for_site,
 )
 from nps_active_space.active_space.propagation_model import (
@@ -50,7 +52,12 @@ from nps_active_space.active_space.propagation_model import (
 from nps_active_space.utils.models import Microphone
 
 AAM_RUN_TIMEOUT_S = 600
-DEFAULT_AAM_CHUNK_SIZE = 50
+DEFAULT_AAM_CHUNK_SIZE = 400
+# AAM 3.0.0 crashes on a 1-vertex ONE TRACK (Wine exit 152 / FPA, empty .POI).
+# Pad ~1 m so a leftover singleton stays two vertices. See nmsim-aam-experiments
+# notes/aam_inp_format.md (batch limits).
+SINGLE_TRACK_PAD_M = 1.0
+METERS_PER_DEG_LAT = 111_320.0
 
 
 def _resolve_aam_ncfiles_dir(aam_exe: str | Path) -> Path:
@@ -115,16 +122,43 @@ def resolve_aam_chunk_size() -> int:
     return max(1, int(os.environ.get("AAM_CHUNK_SIZE", str(DEFAULT_AAM_CHUNK_SIZE))))
 
 
+def _pad_single_point_track(track: list[TrackPoint]) -> list[TrackPoint]:
+    """Duplicate a lone vertex ~1 m east so AAM can interpolate a track."""
+    if len(track) != 1:
+        return track
+    point = track[0]
+    cos_lat = math.cos(math.radians(point.lat))
+    meters_per_deg_lon = METERS_PER_DEG_LAT * max(abs(cos_lat), 1e-6)
+    pad = TrackPoint(
+        lon=point.lon + SINGLE_TRACK_PAD_M / meters_per_deg_lon,
+        lat=point.lat,
+        alt_m=point.alt_m,
+    )
+    return [point, pad]
+
+
 def _order_source_pts_for_track(source_pts: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """Sort mesh points for ``ONE TRACK`` so consecutive hops stay local."""
+    """Order mesh points so consecutive ``ONE TRACK`` hops stay spatially local.
+
+    Lattice meshes sorted by ``(x, y)`` walk a column then jump from the last
+    row of column *i* to the first row of column *i+1* — a domain-width hop
+    that often clips terrain even when both endpoints are above ground.
+    Snaking *y* each column keeps that wrap to one cell.
+    """
     if len(source_pts) <= 1:
         return source_pts
     ordered = source_pts.copy()
     ordered["_sort_x"] = ordered.geometry.x
     ordered["_sort_y"] = ordered.geometry.y
-    return ordered.sort_values(["_sort_x", "_sort_y"]).drop(
-        columns=["_sort_x", "_sort_y"],
-    )
+    columns: list[pd.DataFrame] = []
+    for col_i, (_, column) in enumerate(ordered.groupby("_sort_x", sort=True)):
+        columns.append(
+            column.sort_values("_sort_y", ascending=(col_i % 2 == 0)),
+        )
+    return gpd.GeoDataFrame(
+        pd.concat(columns),
+        crs=source_pts.crs,
+    ).drop(columns=["_sort_x", "_sort_y"])
 
 
 @dataclass(frozen=True)
@@ -221,78 +255,44 @@ class AamPropagationModel:
         heading: int | None = None,
     ) -> pd.DataFrame:
         chunk_size = resolve_aam_chunk_size()
-        if len(source_pts) <= chunk_size:
-            return self._predict_batch_resilient(
-                site, source_pts, omni_source, altitude_m, job_name, heading,
-            )
+        ordered = _order_source_pts_for_track(source_pts)
+        above_pts, _below_pts = self.filter_below_terrain(
+            site, ordered, job_name=job_name,
+        )
+        if len(above_pts) == 0:
+            return pd.DataFrame()
 
         frames: list[pd.DataFrame] = []
-        ordered = _order_source_pts_for_track(source_pts)
-        for chunk_idx, start in enumerate(range(0, len(ordered), chunk_size)):
-            chunk_pts = ordered.iloc[start : start + chunk_size]
-            chunk_job = f"{job_name}_c{chunk_idx:03d}"
-            chunk_frame = self._predict_batch_resilient(
-                site,
-                chunk_pts,
-                omni_source,
-                altitude_m,
-                chunk_job,
-                heading,
-            )
-            if len(chunk_frame) > 0:
-                frames.append(chunk_frame)
+        runs = split_safe_aam_track_runs(
+            site.terrain, above_pts, job_name=job_name,
+        )
+        run_idx = 0
+        for run_pts in runs:
+            for start in range(0, len(run_pts), chunk_size):
+                chunk_pts = run_pts.iloc[start : start + chunk_size]
+                chunk_job = f"{job_name}_r{run_idx:03d}"
+                run_idx += 1
+                try:
+                    chunk_frame = self._predict_batch(
+                        site,
+                        chunk_pts,
+                        omni_source,
+                        altitude_m,
+                        chunk_job,
+                        heading,
+                    )
+                except Exception as exc:
+                    aam_log(
+                        "predict",
+                        f"skipped {chunk_job} n={len(chunk_pts)} "
+                        f"({summarize_aam_error(str(exc))})",
+                    )
+                    continue
+                if len(chunk_frame) > 0:
+                    frames.append(chunk_frame)
         if not frames:
             return pd.DataFrame()
         return pd.concat(frames, ignore_index=True)
-
-    def _predict_batch_resilient(
-        self,
-        site: AamSiteContext,
-        source_pts: gpd.GeoDataFrame,
-        omni_source: str,
-        altitude_m: int,
-        job_name: str,
-        heading: int | None = None,
-    ) -> pd.DataFrame:
-        """Run one batch; on failure split in half until bad single points are skipped."""
-        if len(source_pts) == 0:
-            return pd.DataFrame()
-        try:
-            return self._predict_batch(
-                site, source_pts, omni_source, altitude_m, job_name, heading,
-            )
-        except Exception as exc:
-            reason = summarize_aam_error(str(exc))
-            if len(source_pts) <= 1:
-                aam_log(
-                    "predict",
-                    f"skipped 1 point in {job_name} ({reason})",
-                )
-                return pd.DataFrame()
-
-            mid = len(source_pts) // 2
-            aam_log(
-                "predict",
-                f"isolating {job_name} n={len(source_pts)} ({reason})",
-            )
-            frames: list[pd.DataFrame] = []
-            for suffix, sub_pts in (
-                ("_L", source_pts.iloc[:mid]),
-                ("_R", source_pts.iloc[mid:]),
-            ):
-                sub_frame = self._predict_batch_resilient(
-                    site,
-                    sub_pts,
-                    omni_source,
-                    altitude_m,
-                    f"{job_name}{suffix}",
-                    heading,
-                )
-                if len(sub_frame) > 0:
-                    frames.append(sub_frame)
-            if not frames:
-                return pd.DataFrame()
-            return pd.concat(frames, ignore_index=True)
 
     def _predict_batch(
         self,
@@ -307,9 +307,8 @@ class AamPropagationModel:
         work_dir = self._runs_dir / job_name
         work_dir.mkdir(parents=True, exist_ok=True)
 
-        ordered_pts = _order_source_pts_for_track(source_pts)
         above_pts, below_pts = self.filter_below_terrain(
-            site, ordered_pts, job_name=job_name,
+            site, source_pts, job_name=job_name,
         )
         if len(below_pts) > 0 and len(above_pts) == 0:
             raise RuntimeError(
@@ -319,11 +318,11 @@ class AamPropagationModel:
             return pd.DataFrame()
         ordered_pts = above_pts
 
-        track = self._build_track(ordered_pts)
+        track = _pad_single_point_track(self._build_track(ordered_pts))
         pois = self._build_pois(site)
         source_id = aam_source_id_from_omni(omni_source)
         heading_deg = float(heading if heading is not None else 90.0)
-        speed_kn = hop_speed_kn(track, site.terrain) if len(track) > 1 else 0.0
+        speed_kn = hop_speed_kn(track, site.terrain)
         inp_path = work_dir / f"{AAM_INP_BASENAME}.inp"
         aam_log_path = work_dir / f"{AAM_INP_BASENAME}.txt"
 
@@ -445,13 +444,22 @@ class AamPropagationModel:
         if not histories:
             raise RuntimeError(f"AAM produced no POI zones for {job_name}")
 
+        history = histories[0]
         assert_track_alignment(
-            history=histories[0],
+            history=history,
             track=track,
             terrain=site.terrain,
             run_log=run_log,
         )
-        frame = poi_history_to_predictions_df(histories[0], source_pts)
+        n_real = len(source_pts)
+        if history.n_samples > n_real:
+            history = replace(
+                history,
+                time_s=history.time_s[:n_real],
+                broadband_db=history.broadband_db[:n_real],
+                band_levels_db=history.band_levels_db[:n_real],
+            )
+        frame = poi_history_to_predictions_df(history, source_pts)
         return apply_omni_gain_offset(frame, omni_source)
 
     def _run_aam(self, inp_path: Path, work_dir: Path) -> None:

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import pickle
 from pathlib import Path
+from types import SimpleNamespace
 
 import geopandas as gpd
 import pandas as pd
@@ -15,6 +17,7 @@ from shapely.geometry import Point
 pytest.importorskip("aam_translator")
 
 from aam_translator import read_poi, read_run_log
+from aam_translator.write_inp import TrackPoint
 
 from nps_active_space.active_space.aam_output import (
     aam_source_id_from_omni,
@@ -22,9 +25,11 @@ from nps_active_space.active_space.aam_output import (
 )
 from nps_active_space.active_space.aam_propagation_model import (
     AAM_PREDICTIONS_SUBDIR,
+    SINGLE_TRACK_PAD_M,
     AamPropagationModel,
     _aam_subprocess_env,
     _order_source_pts_for_track,
+    _pad_single_point_track,
     resolve_aam_chunk_size,
 )
 from nps_active_space.active_space.propagation_model import (
@@ -81,7 +86,7 @@ class TestAamPredictionsLayout:
 
 class TestAamBatching:
     def test_resolve_aam_chunk_size_default(self) -> None:
-        assert resolve_aam_chunk_size() == 50
+        assert resolve_aam_chunk_size() == 400
 
     def test_order_source_pts_sorts_by_xy(self) -> None:
         pts = gpd.GeoDataFrame(
@@ -91,6 +96,20 @@ class TestAamBatching:
         )
         ordered = _order_source_pts_for_track(pts)
         assert ordered["id"].tolist() == [1, 2, 0]
+
+    def test_order_source_pts_snakes_grid_columns(self) -> None:
+        pts = gpd.GeoDataFrame(
+            {"id": [0, 1, 2, 3]},
+            geometry=[
+                Point(0, 0, 100),
+                Point(0, 1, 100),
+                Point(1, 0, 100),
+                Point(1, 1, 100),
+            ],
+            crs="EPSG:32606",
+        )
+        ordered = _order_source_pts_for_track(pts)
+        assert ordered["id"].tolist() == [0, 1, 3, 2]
 
 
 class TestPoiHistoryMapping:
@@ -165,14 +184,28 @@ class TestAamMultiprocessPickle:
         assert restored_model._root == model._root
 
 
-class TestAamResilientPredict:
+class TestAamPredictSkipOnFailure:
+    def _dummy_site(self):
+        return SimpleNamespace(terrain=None)
+
+    def _passthrough_filter(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def passthrough(self, site, source_pts, job_name=""):
+            return source_pts, source_pts.iloc[0:0]
+
+        monkeypatch.setattr(AamPropagationModel, "filter_below_terrain", passthrough)
+        monkeypatch.setattr(
+            "nps_active_space.active_space.aam_propagation_model.split_safe_aam_track_runs",
+            lambda terrain, pts, job_name="": [pts],
+        )
+
     def test_chunk_failure_continues_other_chunks(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
+        self._passthrough_filter(monkeypatch)
         model = AamPropagationModel(str(tmp_path))
-        site = object()
+        site = self._dummy_site()
         xs = [float(i) for i in range(75)]
         source_pts = _make_source_pts(xs)
         monkeypatch.setenv("AAM_CHUNK_SIZE", "50")
@@ -186,7 +219,7 @@ class TestAamResilientPredict:
             job_name,
             heading=None,
         ) -> pd.DataFrame:
-            if "_c001" in job_name:
+            if "_r001" in job_name:
                 raise RuntimeError("simulated AAM abort")
             return _predictions_for(batch_pts)
 
@@ -196,16 +229,57 @@ class TestAamResilientPredict:
         assert len(result) == 50
         assert set(result["Xpos"]) == set(xs[:50])
 
-    def test_binary_split_isolates_bad_point(
+    def test_failed_batch_is_skipped_not_bisected(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
+        self._passthrough_filter(monkeypatch)
         model = AamPropagationModel(str(tmp_path))
-        site = object()
-        bad_x = 500020.0
-        xs = [500000.0, 500010.0, bad_x, 500030.0]
-        source_pts = _make_source_pts(xs)
+        site = self._dummy_site()
+        source_pts = _make_source_pts([500000.0, 500010.0, 500020.0])
+
+        def fake_batch(self, *args, **kwargs) -> pd.DataFrame:
+            raise RuntimeError("AAM abort")
+
+        monkeypatch.setattr(AamPropagationModel, "_predict_batch", fake_batch)
+        result = model.predict(site, source_pts, "O_+000.src", 1000, "skip_job")
+        assert result.empty
+
+    def test_single_point_failure_returns_empty(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        self._passthrough_filter(monkeypatch)
+        model = AamPropagationModel(str(tmp_path))
+        site = self._dummy_site()
+        source_pts = _make_source_pts([500000.0])
+
+        def fake_batch(self, *args, **kwargs) -> pd.DataFrame:
+            raise RuntimeError("single point below ground")
+
+        monkeypatch.setattr(AamPropagationModel, "_predict_batch", fake_batch)
+        result = model.predict(site, source_pts, "O_+000.src", 1000, "solo_job")
+
+        assert result.empty
+
+    def test_predict_issues_one_batch_per_hop_run(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        source_pts = _make_source_pts([500000.0, 500010.0, 500020.0, 500030.0])
+
+        def passthrough(self, site, pts, job_name=""):
+            return pts, pts.iloc[0:0]
+
+        monkeypatch.setattr(AamPropagationModel, "filter_below_terrain", passthrough)
+        monkeypatch.setattr(
+            "nps_active_space.active_space.aam_propagation_model.split_safe_aam_track_runs",
+            lambda terrain, pts, job_name="": [pts.iloc[:2], pts.iloc[2:]],
+        )
+        jobs: list[str] = []
 
         def fake_batch(
             self,
@@ -216,36 +290,15 @@ class TestAamResilientPredict:
             job_name,
             heading=None,
         ) -> pd.DataFrame:
-            batch_xs = set(batch_pts.geometry.x)
-            if len(batch_pts) > 1 and bad_x in batch_xs:
-                raise RuntimeError("bad point poisons batch")
-            if bad_x in batch_xs:
-                raise RuntimeError("bad point alone")
+            jobs.append(job_name)
             return _predictions_for(batch_pts)
 
         monkeypatch.setattr(AamPropagationModel, "_predict_batch", fake_batch)
-        result = model.predict(site, source_pts, "O_+000.src", 1000, "split_job")
-
-        assert len(result) == 3
-        assert bad_x not in set(result["Xpos"])
-        assert set(result["Xpos"]) == {500000.0, 500010.0, 500030.0}
-
-    def test_single_point_failure_returns_empty(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
-    ) -> None:
         model = AamPropagationModel(str(tmp_path))
-        site = object()
-        source_pts = _make_source_pts([500000.0])
+        result = model.predict(self._dummy_site(), source_pts, "O_+000.src", 1000, "split_job")
 
-        def fake_batch(self, *args, **kwargs) -> pd.DataFrame:
-            raise RuntimeError("single point below ground")
-
-        monkeypatch.setattr(AamPropagationModel, "_predict_batch", fake_batch)
-        result = model.predict(site, source_pts, "O_+000.src", 1000, "solo_job")
-
-        assert result.empty
+        assert jobs == ["split_job_r000", "split_job_r001"]
+        assert len(result) == 4
 
 
 class TestAamSubprocessEnv:
@@ -297,3 +350,23 @@ class TestAamSubprocessEnv:
         env = _aam_subprocess_env(exe)
         expected = str(nc.resolve()) + os.sep
         assert env["ROTOR_NOISE"] == expected
+
+
+class TestPadSinglePointTrack:
+    def test_leaves_multi_point_track_unchanged(self) -> None:
+        track = [
+            TrackPoint(lon=-148.87, lat=63.66, alt_m=1500.0),
+            TrackPoint(lon=-148.86, lat=63.66, alt_m=1500.0),
+        ]
+        assert _pad_single_point_track(track) == track
+
+    def test_pads_one_vertex_about_one_meter_east(self) -> None:
+        point = TrackPoint(lon=-148.87, lat=63.66, alt_m=1500.0)
+        padded = _pad_single_point_track([point])
+        assert len(padded) == 2
+        assert padded[0] == point
+        assert padded[1].lat == point.lat
+        assert padded[1].alt_m == point.alt_m
+        meters_per_deg_lon = 111_320.0 * abs(math.cos(math.radians(point.lat)))
+        east_m = (padded[1].lon - padded[0].lon) * meters_per_deg_lon
+        assert east_m == pytest.approx(SINGLE_TRACK_PAD_M, rel=1e-4)

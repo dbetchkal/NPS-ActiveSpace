@@ -447,3 +447,78 @@ def split_below_aam_terrain(
     above = source_pts.loc[~below].copy()
     below_pts = source_pts.loc[below].copy()
     return above, below_pts
+
+
+def _hop_segment_below_terrain(
+    terrain: TerrainResult,
+    start_pt,
+    end_pt,
+    source_crs,
+    to_aeqd: Transformer,
+    from_aeqd: Transformer,
+) -> bool:
+    """True if the 3D hop between two vertices intersects the ELV surface."""
+    spec = terrain.spec
+    step_m = max(min(spec.cell_dx_m, spec.cell_dy_m) / 2.0, 1.0)
+    ax0, ay0 = to_aeqd.transform(float(start_pt.x), float(start_pt.y))
+    ax1, ay1 = to_aeqd.transform(float(end_pt.x), float(end_pt.y))
+    dist_m = float(np.hypot(ax1 - ax0, ay1 - ay0))
+    n = max(3, int(np.ceil(dist_m / step_m)) + 1)
+    t = np.linspace(0.0, 1.0, n)
+    ax = ax0 + t * (ax1 - ax0)
+    ay = ay0 + t * (ay1 - ay0)
+    xs, ys = from_aeqd.transform(ax, ay)
+    z0 = float(start_pt.z)
+    z1 = float(end_pt.z)
+    zs = z0 + t * (z1 - z0)
+    samples = gpd.GeoDataFrame(
+        geometry=gpd.points_from_xy(xs, ys, zs),
+        crs=source_crs,
+    )
+    surface_m = _terrain_surface_elevation_m(samples, terrain)
+    agl_m = zs - surface_m
+    invalid = np.isnan(surface_m)
+    # Vertices are already ELV-filtered; only the interpolated interior can clip.
+    interior = slice(1, -1)
+    return bool(np.any(invalid[interior] | (agl_m[interior] <= AAM_BELOW_SURFACE_TOLERANCE_M)))
+
+
+def split_safe_aam_track_runs(
+    terrain: TerrainResult,
+    source_pts: gpd.GeoDataFrame,
+    *,
+    job_name: str = "",
+) -> list[gpd.GeoDataFrame]:
+    """Break an ordered mesh into ``ONE TRACK`` runs whose hops stay above ELV.
+
+    AAM interpolates between consecutive vertices and aborts the whole track if
+    any interpolated sample is below ground. Vertex filtering is not enough.
+    """
+    if len(source_pts) == 0:
+        return []
+    if len(source_pts) == 1:
+        return [source_pts]
+
+    to_aeqd = Transformer.from_crs(source_pts.crs, terrain.aeqd_crs, always_xy=True)
+    from_aeqd = Transformer.from_crs(terrain.aeqd_crs, source_pts.crs, always_xy=True)
+    runs: list[list[int]] = [[0]]
+    n_cut = 0
+    for i in range(len(source_pts) - 1):
+        start = source_pts.geometry.iloc[i]
+        end = source_pts.geometry.iloc[i + 1]
+        if _hop_segment_below_terrain(
+            terrain, start, end, source_pts.crs, to_aeqd, from_aeqd,
+        ):
+            n_cut += 1
+            runs.append([i + 1])
+        else:
+            runs[-1].append(i + 1)
+
+    if n_cut > 0:
+        label = f"{job_name}: " if job_name else ""
+        aam_log(
+            "filter",
+            f"{label}split ONE TRACK into {len(runs)} runs "
+            f"({n_cut} hops below AAM terrain)",
+        )
+    return [source_pts.iloc[idx].copy() for idx in runs]
