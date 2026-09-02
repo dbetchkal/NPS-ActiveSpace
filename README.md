@@ -135,7 +135,7 @@ On Windows, set the path in your config as above. In Docker, `container_example.
 
 **AAM (optional):** AAM propagation adapter work uses the same Docker+Wine path with `-m aam`. Stage runtime from a directory with `AAM_3.0.0.exe` and `NCfiles/` (e.g. tier-4 reciprocal case in `nmsim-aam-experiments`). See [docker/README.md](docker/README.md) and [docs/aam_integration_notes.md](docs/aam_integration_notes.md).
 
-Required for `generate_active_space.py`, `generate_3d_active_space.py`, and `generate_active_space_mesh.py`. **Not** required for ground-truthing, audible transits, or validation.
+Required for `generate_active_space.py` and `generate_3d_active_space.py`. **Not** required for ground-truthing, audible transits, or validation.
 
 ### Configuration
 

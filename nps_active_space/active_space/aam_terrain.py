@@ -24,7 +24,6 @@ from nps_active_space.active_space.propagation_model import AAM_INPUT_SUBDIR, AA
 from nps_active_space.utils.computation import project_raster
 
 AAM_INP_BASENAME = "scenario"
-AAM_ELEVATION_MASK = "elevation_mask.tif"
 AAM_TERRAIN_CACHE_META = "terrain_cache.json"
 AAM_DEFAULT_FLOW_RESISTIVITY = 200.0
 AOI_BOUNDS_TOLERANCE_DEG = 1e-4
@@ -250,35 +249,27 @@ def resolve_dem_for_aam(
     project_dem: bool,
     suffix: str,
 ) -> str:
-    """Return DEM path for AAM, optionally warping to the study-area CRS."""
-    elevation_dir = Path(root_dir) / "Input_Data/01_ELEVATION"
-    masked_dem = elevation_dir / AAM_ELEVATION_MASK
+    """Return the DEM path AAM should resample into ELV/IMP.
 
+    Callers pass the ``project_setup`` GeoTIFF (already clipped to the study area).
+    A full-extent warp is only used if ``project_dem`` is true and CRS still differs.
+    """
     aam_log(
         "terrain",
-        f"prepare_site: parent DEM {_dem_raster_summary(dem_src)}; "
+        f"prepare_site: DEM {_dem_raster_summary(dem_src)}; "
         f"study_area CRS={study_area.crs}",
     )
-    if masked_dem.is_file():
-        aam_log(
-            "terrain",
-            f"NMSim clipped DEM available "
-            f"({_dem_raster_summary(str(masked_dem))}); "
-            "AAM still uses config [data] dem",
-        )
-
-    dem_file = dem_src
     if not project_dem:
-        return dem_file
-
-    dem_projected = str(elevation_dir / f"elevation_aam{suffix}.tif")
+        return dem_src
     if _crs_matches_dem(study_area.crs, dem_src):
         aam_log(
             "terrain",
             "skipping GDAL warp: DEM CRS already matches study_area",
         )
-        return dem_file
+        return dem_src
 
+    elevation_dir = Path(root_dir) / "Input_Data/01_ELEVATION"
+    dem_projected = str(elevation_dir / f"elevation_aam{suffix}.tif")
     with timed_terrain_step(
         f"GDAL warp to study_area CRS -> {Path(dem_projected).name}"
     ):

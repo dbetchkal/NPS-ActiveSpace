@@ -30,8 +30,6 @@ class _StubPropagationModel:
 
 class TestPropagationModelWiring:
     def test_generator_accepts_custom_propagation_model(self, tmp_path) -> None:
-        dem = tmp_path / "dem.tif"
-        dem.write_bytes(b"")
         study_area = gpd.GeoDataFrame(
             geometry=[Point(0, 0).buffer(1)],
             crs="EPSG:4326",
@@ -41,15 +39,12 @@ class TestPropagationModelWiring:
             NMSIM=None,
             study_area=study_area,
             root_dir=str(tmp_path),
-            dem_src=str(dem),
             ambience=30.0,
             propagation_model=stub,
         )
         assert gen.propagation_model.max_points_per_run == 7
 
     def test_preprocess_uses_model_batch_cap(self, tmp_path) -> None:
-        dem = tmp_path / "dem.tif"
-        dem.write_bytes(b"")
         crs = "EPSG:32606"
         study_area = gpd.GeoDataFrame(
             geometry=[Point(500000, 6000000).buffer(5000)],
@@ -60,7 +55,6 @@ class TestPropagationModelWiring:
             NMSIM=None,
             study_area=study_area,
             root_dir=str(tmp_path),
-            dem_src=str(dem),
             ambience=30.0,
             propagation_model=stub,
         )

@@ -201,13 +201,12 @@ AAM aborts the **entire** ``ONE TRACK`` when any vertex is below the ELV surface
 
 Residual caveats: a chunk that still contains a below-ground point will fail; 4+ omni pool workers were not load-tested above 50-point batches.
 
-### Merge note: `fix/structured-active-space-batch-results` (PR #110)
+### Elevation contract (merged from PR #110)
 
-That branch replaces brittle ``parse_output()`` regex with the same ``--results-out`` JSON contract now ported on this branch. **Do not blind-merge** — it also refactors ``active_space_generator.py`` (drops ``dem_src``, project_setup elevation) and ambience helpers. When merging:
-
-1. Keep AAM ``PropagationModel`` architecture as the base.
-2. Take JSON batch reader / tests from PR #110 if not already present.
-3. Reconcile ``active_space_generator.py`` and ``computation.py`` manually (high conflict risk).
+Active space generation reads ``project_setup`` artifacts
+(``Input_Data/01_ELEVATION/elevation_m_nad83_utm*.tif`` + ``.flt``/``.hdr``).
+``[data] dem`` is the parent raster for ``project_setup`` only. NMSim and AAM
+``prepare_site`` must not remask or warp that parent DEM at generate time.
 
 ---
 

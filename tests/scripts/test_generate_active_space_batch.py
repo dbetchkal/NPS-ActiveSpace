@@ -25,7 +25,11 @@ class TestReadResultsFile:
     @pytest.mark.parametrize(
         ("file_content", "expect_error_substring", "expected_values"),
         [
-            (json.dumps(VALID_RESULTS), None, VALID_RESULTS),
+            (
+                json.dumps(VALID_RESULTS),
+                None,
+                VALID_RESULTS,
+            ),
             (
                 json.dumps({
                     "Number of valid annotated segments": 12,
@@ -36,7 +40,11 @@ class TestReadResultsFile:
                 "missing required keys",
                 None,
             ),
-            ("{not valid json", "Invalid JSON", None),
+            (
+                "{not valid json",
+                "Invalid JSON",
+                None,
+            ),
         ],
     )
     def test_read_results_file(
@@ -74,4 +82,4 @@ class TestRunDeployment:
         assert result_series is not None
         assert result_series["Designator"] == designator
         assert result_series["Mean altitude"] == altitude_m
-        assert result_series["F1"] == 0.91
+        assert result_series["Number of valid annotated segments"] == 5

@@ -5,7 +5,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
-import contextlib
 import os
 from shapely.geometry import Point
 from nps_active_space.utils.helpers import load_annotations, load_studyarea, load_layered_activespace
@@ -103,10 +102,7 @@ def fit_varying_n_tracks(
     
         # Reduce point density to median density, so very dense areas (e.g. airports) don't skew the fit
         # This takes a while relatively to the other things, but we have to redo it for each n value
-        # Use a null context manager to suppress print statements for cleanliness
-        with open(os.devnull, "w") as fnull:
-            with contextlib.redirect_stdout(fnull):
-                pts = normalize_point_density(pts, study_area, random_seed=679)
+        pts = normalize_point_density(pts, study_area, random_seed=679)
     
         # Compute F1 for each gain
         f1s = {}

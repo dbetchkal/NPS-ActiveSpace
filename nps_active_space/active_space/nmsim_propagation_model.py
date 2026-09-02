@@ -2,23 +2,21 @@
 
 from __future__ import annotations
 
-import glob
 import logging
 import os
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
-from uuid import uuid4
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from osgeo import gdal
 
 from nps_active_space import ACTIVE_SPACE_DIR
+from nps_active_space.setup.elevation import get_project_setup_elevation
 from nps_active_space.setup.site_writer import write_listener_site_file
 from nps_active_space.utils.constants import IS_WINDOWS
-from nps_active_space.utils.computation import coords_to_utm, project_raster
 from nps_active_space.active_space.propagation_model import (
     NMSIM_PREDICTIONS_SUBDIR,
     NMSIM_SCRATCH_SUBDIR,
@@ -59,10 +57,19 @@ class NmsimPropagationModel:
         project_dem: bool = True,
         suffix: str = "",
     ) -> NmsimSiteContext:
-        dem_file = self._mask_dem_file(dem_src, study_area, project=project_dem, suffix=suffix)
-        flt_file = self._create_dem_flt(dem_file)
-        site_file = self._create_site_file(mic, flt_file)
-        return NmsimSiteContext(dem_file=dem_file, flt_file=flt_file, site_file=site_file)
+        tif_path = Path(dem_src)
+        flt_path = tif_path.with_suffix(".flt")
+        if not tif_path.is_file() or not flt_path.is_file():
+            tif_path, flt_path = get_project_setup_elevation(self.root_dir)
+        flt_for_sit = flt_path
+        if flt_for_sit.is_relative_to(Path(self.root_dir)):
+            flt_for_sit = flt_for_sit.relative_to(Path(self.root_dir))
+        site_file = self._create_site_file(mic, str(flt_for_sit))
+        return NmsimSiteContext(
+            dem_file=str(tif_path),
+            flt_file=str(flt_path),
+            site_file=site_file,
+        )
 
     def predict(
         self,
@@ -90,72 +97,6 @@ class NmsimPropagationModel:
             f"{self.root_dir}/{NMSIM_SCRATCH_SUBDIR}/{job_name}.tis",
             cleanup=True,
         )
-
-    def _mask_dem_file(
-        self,
-        dem_src: str,
-        study_area: gpd.GeoDataFrame,
-        project: bool = False,
-        buffer: Optional[int] = None,
-        suffix: str = "",
-    ) -> str:
-        if project:
-            dem_projected_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation{suffix}.tif"
-            project_raster(dem_src, dem_projected_filename, study_area.crs)
-            dem_src = dem_projected_filename
-
-        study_area_filename_prefix = (
-            f"{self.root_dir}/Input_Data/01_ELEVATION/study_area{suffix}_{uuid4()}"
-        )
-        study_area_filename = f"{study_area_filename_prefix}.shp"
-        if buffer:
-            equal_area_crs, _ = coords_to_utm(
-                study_area.centroid.iat[0].y, study_area.centroid.iat[0].x,
-            )
-            study_area_m = study_area.to_crs(equal_area_crs)
-            study_area_m = study_area_m.buffer(buffer * 1000)
-            study_area = study_area_m.to_crs(study_area.crs)
-
-        if "FID" in study_area.columns:
-            study_area = study_area.drop(columns=["FID"])
-
-        study_area.to_file(study_area_filename)
-
-        dem_masked_filename = f"{self.root_dir}/Input_Data/01_ELEVATION/elevation{suffix}_masked.tif"
-        # Pass the path to Warp: GDAL Dataset is not a context manager on the
-        # versions we ship in Docker (osgeo.gdal < 3.8).
-        gdal.Warp(
-            dem_masked_filename,
-            dem_src,
-            cutlineDSName=study_area_filename,
-            cropToCutline=True,
-            dstNodata=-9999,
-        )
-
-        for filename in glob.glob(f"{study_area_filename_prefix}*"):
-            os.remove(filename)
-
-        return dem_masked_filename
-
-    def _create_dem_flt(self, dem_file: str) -> str:
-        flt_filename = dem_file.replace(".tif", ".flt")
-        flt_header_filename = dem_file.replace(".tif", ".hdr")
-
-        gdal.Translate(flt_filename, dem_file, options="-ot Float32 -of ehdr -a_nodata -9999")
-
-        old_hdr = pd.read_csv(flt_header_filename, header=None, sep=r"\s+", index_col=0).T
-        yllcorner = float(old_hdr.ULYMAP) - float(old_hdr.NROWS) * float(old_hdr.XDIM)
-
-        with open(flt_header_filename, "w") as header:
-            header.write("{:14}{:}\n".format("ncols", old_hdr.NCOLS.values[0]))
-            header.write("{:14}{:}\n".format("nrows", old_hdr.NROWS.values[0]))
-            header.write("{:14}{:}\n".format("xllcorner", old_hdr.ULXMAP.values[0]))
-            header.write("{:14}{:}\n".format("yllcorner", yllcorner))
-            header.write("{:14}{:}\n".format("cellsize", old_hdr.XDIM.values[0]))
-            header.write("{:14}{:}\n".format("NODATA_value", old_hdr.NODATA.values[0]))
-            header.write("{:14}{:}".format("byteorder", "LSBFIRST"))
-
-        return flt_filename
 
     def _create_site_file(self, mic: Microphone, dem_file: str) -> str:
         return str(write_listener_site_file(

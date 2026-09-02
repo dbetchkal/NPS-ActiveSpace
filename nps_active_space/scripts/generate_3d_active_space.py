@@ -1,10 +1,12 @@
 import argparse
-import subprocess
-import iyore
 import os
+import subprocess
+import sys
 import matplotlib.pyplot as plt
-from nps_active_space.utils.models import Nvspl
-from nps_active_space.utils.computation import ambience_from_nvspl
+from nps_active_space.utils.computation import (
+    compute_ambience_from_nvspl_archive,
+    load_spectral_ambience_pickle,
+)
 import nps_active_space.utils.config as cfg
 from nps_active_space.utils import paths as p
 from nps_active_space.utils.enums import AcousticModel
@@ -74,15 +76,26 @@ if __name__ == "__main__":
         ambience_pkl_path = os.path.join(ambience_dir, f"{usy}_ambience.pkl")
         ambience_plot_path = os.path.join(ambience_dir, f"{usy}_ambience_plot.png")
 
-        if os.path.exists(ambience_pkl_path):
+        cached_ambience = load_spectral_ambience_pickle(ambience_pkl_path)
+        if cached_ambience is not None:
             print(f"Found existing NVSPL ambience, using it: {ambience_pkl_path}")
         else:
-            print("Computing NVSPL ambience")
-            archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
-            nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year))]
-            nvspl = Nvspl(nvspl_files)
+            if os.path.exists(ambience_pkl_path):
+                print(
+                    f"Existing ambience pickle has no usable spectral bands; recomputing: {ambience_pkl_path}"
+                )
+            else:
+                print("Computing NVSPL ambience")
+            archive = cfg.read('data', 'nvspl_archive')
             ambience_quantile = 90  # L90 = 90% exceedance = 10% quantile sound level
-            ambience = ambience_from_nvspl(nvspl, ambience_quantile, broadband=False)
+            ambience = compute_ambience_from_nvspl_archive(
+                archive,
+                args.unit,
+                args.site,
+                args.year,
+                ambience_quantile,
+                broadband=False,
+            )
 
             # make a plot too
             ambience.plot()
@@ -119,15 +132,31 @@ if __name__ == "__main__":
     if not args.only_prep:
         print("Running generate_active_space_batch.py on the commands file\n")
         batch_script = os.path.join(os.path.dirname(__file__), "generate_active_space_batch.py")
-        process = subprocess.Popen(
-            ["python", batch_script, cmds_file]
+        batch_process = subprocess.run(
+            [sys.executable, batch_script, cmds_file],
+            check=False,
         )
-        process.wait()
+        if batch_process.returncode != 0:
+            print(
+                f"generate_active_space_batch.py exited with code {batch_process.returncode}. "
+                "Skipping fit_3d_active_space.py. Fix batch errors above and rerun, "
+                "or run the batch script directly on the commands file.",
+                flush=True,
+            )
+            sys.exit(batch_process.returncode)
 
         print("\nRunning fit_3d_active_space.py to fit the active space\n")
         fit_script = os.path.join(os.path.dirname(__file__), "fit_3d_active_space.py")
-        process = subprocess.Popen(
-            ["python", fit_script, "-e", args.environment, "-u", args.unit, "-s", args.site,
-             "-y", str(args.year), "--model", args.model]
+        fit_process = subprocess.run(
+            [
+                sys.executable,
+                fit_script,
+                "-e", args.environment,
+                "-u", args.unit,
+                "-s", args.site,
+                "-y", str(args.year),
+                "--model", args.model,
+            ],
+            check=False,
         )
-        process.wait()
+        sys.exit(fit_process.returncode)

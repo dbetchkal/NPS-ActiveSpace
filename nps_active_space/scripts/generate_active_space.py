@@ -1,3 +1,4 @@
+import logging
 import multiprocessing as mp
 import os
 import signal
@@ -13,14 +14,19 @@ from shapely.geometry import Point
 from tqdm import tqdm
 import pickle
 import sys
-import iyore
 
 import nps_active_space.utils.config as cfg
 from nps_active_space.utils.enums import AcousticModel
 from nps_active_space.utils.helpers import get_deployment, get_logger, get_omni_sources, load_annotations, omni_to_gain
 from nps_active_space.utils import paths as p
-from nps_active_space.utils.models import Annotations, Nvspl
-from nps_active_space.utils.computation import select_optimal, ambience_from_nvspl, ambience_from_raster, normalize_point_density
+from nps_active_space.utils.models import Annotations
+from nps_active_space.utils.computation import (
+    select_optimal,
+    compute_ambience_from_nvspl_archive,
+    ambience_from_raster,
+    normalize_point_density,
+    load_spectral_ambience_pickle,
+)
 from nps_active_space.active_space import ActiveSpaceGenerator
 from nps_active_space.active_space.active_space_setup import (
     DEFAULT_SRC_PT_DENSITY,
@@ -254,6 +260,24 @@ def resolve_pool_n_workers(model: AcousticModel) -> int:
     return max(1, min(int(raw), max_workers))
 
 
+def _nonempty_active_space_count(results: list[tuple[str, gpd.GeoDataFrame]]) -> int:
+    """Count generated active space layers that contain at least one non-empty geometry."""
+    count = 0
+    for _, active_space in results:
+        if active_space.empty:
+            continue
+        geometries = active_space.geometry
+        if geometries.notna().any() and (~geometries.is_empty).any():
+            count += 1
+    return count
+
+
+def _fail_active_space_generation(message: str) -> None:
+    print(message, flush=True)
+    logging.getLogger(__name__).error(message)
+    sys.exit(1)
+
+
 def build_parser() -> ArgumentParser:
     parser = ArgumentParser()
 
@@ -329,7 +353,10 @@ if __name__ == '__main__':
     args = build_parser().parse_args()
     model = resolve_acoustic_model(args.model)
 
-    ambience_valid = (args.ambience == "nvspl") or (args.ambience == "mennitt") or (args.ambience.endswith(".pkl") and os.path.exists(args.ambience))
+    ambience_valid = (
+        args.ambience in {"nvspl", "mennitt"}
+        or args.ambience.endswith(".pkl")
+    )
     assert ambience_valid, "Ambience argument must be 'nvspl', 'mennitt', or a .pkl file"
 
     # --------------- INIT --------------- #
@@ -349,16 +376,23 @@ if __name__ == '__main__':
     # Compute ambience
     # Load NVSPL data or the mennitt raster depending on the user input.
     if args.ambience == 'nvspl':
-        archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
-        nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year))]
-        nvspl = Nvspl(nvspl_files)
         ambience_quantile = 90  # L90 = 90% exceedance = 10% quantile sound level
-        ambience = ambience_from_nvspl(nvspl, ambience_quantile, broadband=False)
+        ambience = compute_ambience_from_nvspl_archive(
+            cfg.read('data', 'nvspl_archive'),
+            args.unit,
+            args.site,
+            args.year,
+            ambience_quantile,
+            broadband=False,
+        )
     elif args.ambience == 'mennitt':
         ambience = ambience_from_raster(cfg.read('data', 'mennitt'), mic_)
     else:
-        # should be a .pkl filename
-        ambience = pd.read_pickle(args.ambience)
+        ambience = load_spectral_ambience_pickle(args.ambience)
+        if ambience is None:
+            _fail_active_space_generation(
+                f"Ambience pickle is missing or has no usable spectral bands: {args.ambience}"
+            )
         print(f"Read ambience from {args.ambience}")
 
     # --------------- ANNOTATION LOGIC --------------- #
@@ -416,14 +450,17 @@ if __name__ == '__main__':
         f"at {altitude_}m (density={src_pt_density})..."
     )
 
-    generator_ = build_active_space_generator(
-        site_dir,
-        cfg.read('data', 'dem'),
-        study_area,
-        ambience,
-        mic_,
-        model,
-    )
+    logger.info("Caching project_setup elevation...")
+    try:
+        generator_ = build_active_space_generator(
+            site_dir,
+            study_area,
+            ambience,
+            mic_,
+            model,
+        )
+    except FileNotFoundError as exc:
+        _fail_active_space_generation(str(exc))
 
     active_savedir = p.activespace_layer_dir(
         site_dir, args.unit, args.site, args.year, altitude_, model,
@@ -483,6 +520,21 @@ if __name__ == '__main__':
         cleanup_propagation_artifacts(site_dir, model)
 
     # --------------- ANALYSIS --------------- #
+
+    if not results:
+        _fail_active_space_generation(
+            "No active space layers were generated successfully. "
+            "Check worker errors above, model configuration, and site inputs under "
+            f"{site_dir}."
+        )
+
+    nonempty_layers = _nonempty_active_space_count(results)
+    if nonempty_layers == 0:
+        _fail_active_space_generation(
+            f"Active space generation finished but all {len(results)} geojson layers are empty. "
+            "The model likely produced no audible source points. Check DEM elevation files under "
+            f"{site_dir}/Input_Data/01_ELEVATION before continuing the 3D workflow."
+        )
 
     best_omni_for_results: str | None = None
     f1_for_results: float | None = None

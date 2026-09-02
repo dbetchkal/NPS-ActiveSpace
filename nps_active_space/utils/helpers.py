@@ -66,7 +66,11 @@ def omni_to_gain(omni_source: str) -> float:
     Converts an omni source name to the corresponding gain.
     Pure omni strings ("O_+125") or paths "directory/O_+125.src" can be passed, since regex is used.
     """
+    if omni_source is None:
+        raise ValueError("omni_source is None; no optimal omni source was selected.")
     match = re.search(r"O_([+-]\d\d\d)", omni_source)
+    if match is None:
+        raise ValueError(f"Could not parse omni source gain from: {omni_source!r}")
     return int(match.group(1)) / 10
 
 

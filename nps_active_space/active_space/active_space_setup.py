@@ -55,7 +55,6 @@ def resolve_aam_exe(*, aam_exe: str | None = None) -> str:
 
 def build_active_space_generator(
     site_dir: str,
-    dem_src: str,
     study_area: gpd.GeoDataFrame,
     ambience: pd.Series,
     mic: Microphone,
@@ -87,7 +86,6 @@ def build_active_space_generator(
                 root_dir=site_dir,
                 study_area=study_area,
                 ambience=ambience,
-                dem_src=dem_src,
             )
         case AcousticModel.NMSIM:
             exe = nmsim_exe or cfg.read("project", "nmsim")
@@ -96,7 +94,6 @@ def build_active_space_generator(
                 root_dir=site_dir,
                 study_area=study_area,
                 ambience=ambience,
-                dem_src=dem_src,
             )
     gen.set_dem(mic)
     return gen

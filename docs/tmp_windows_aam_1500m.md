@@ -18,8 +18,9 @@ In `windows.config` set:
 - `[project] dir` — folder that contains `DENATRLA\`
 - `[project] aam` — `AAM_3.0.0.exe` (`NCfiles\` must sit next to it)
 - `[project] nmsim` — `Nord2000batch.exe`
-- `[data] dem` — site DEM GeoTIFF
 - `[data] nvspl_archive` — NVSPL archive (ambience is computed from NVSPL; no pickle yet)
+
+Generation uses `Input_Data\01_ELEVATION\elevation_m_nad83_utm*.tif` (and `.flt`/`.hdr`) from `project_setup`. `[data] dem` is only the parent raster for that setup step. Do not point generate at full-state `AKR_DEM.TIF`.
 
 ## Same inputs on both runs
 

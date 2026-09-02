@@ -238,16 +238,15 @@ def parse_args() -> ValidateArgs:
     )
 
 
-def initialize_site(args: ValidateArgs) -> tuple[str, str, Microphone, gpd.GeoDataFrame]:
+def initialize_site(args: ValidateArgs) -> tuple[str, Microphone, gpd.GeoDataFrame]:
     cfg.initialize(environment=args.environment)
     proj_dir = cfg.read("project", "dir")
     site_dir = f"{proj_dir}/{args.unit}{args.site}"
 
-    dem = cfg.read("data", "dem")
     log(f"env={args.environment} site={args.unit}{args.site}{args.year} model={args.model}")
     if args.model is AcousticModel.NMSIM:
         log(f"nmsim={cfg.read('project', 'nmsim')}")
-    log(f"dem={dem}")
+    log("elevation from project_setup artifacts under Input_Data/01_ELEVATION")
 
     with timed_step("loading microphone deployment"):
         mic = get_deployment(proj_dir, args.unit, args.site, args.year, elevation=False)
@@ -256,7 +255,7 @@ def initialize_site(args: ValidateArgs) -> tuple[str, str, Microphone, gpd.GeoDa
     with timed_step("loading study area"):
         study_area = gpd.read_file(glob.glob(f"{site_dir}/*study*.shp")[0])
 
-    return site_dir, dem, mic, study_area
+    return site_dir, mic, study_area
 
 
 def load_ambience(unit: str, site: str, year: int) -> pd.Series:
@@ -272,15 +271,14 @@ def load_ambience(unit: str, site: str, year: int) -> pd.Series:
 
 def build_generator(
     site_dir: str,
-    dem: str,
     study_area: gpd.GeoDataFrame,
     ambience: pd.Series,
     mic: Microphone,
     model: AcousticModel,
 ) -> ActiveSpaceGenerator:
-    with timed_step("masking/projecting DEM (set_dem)"):
+    with timed_step("caching project_setup elevation (set_dem)"):
         return build_active_space_generator(
-            site_dir, dem, study_area, ambience, mic, model, aam_shim=str(AAM_SHIM),
+            site_dir, study_area, ambience, mic, model, aam_shim=str(AAM_SHIM),
         )
 
 
@@ -507,9 +505,9 @@ def main() -> None:
     args = parse_args()
     wall_start = time.perf_counter()
 
-    site_dir, dem, mic, study_area = initialize_site(args)
+    site_dir, mic, study_area = initialize_site(args)
     ambience = load_ambience(args.unit, args.site, args.year)
-    gen = build_generator(site_dir, dem, study_area, ambience, mic, args.model)
+    gen = build_generator(site_dir, study_area, ambience, mic, args.model)
 
     out_dir = output_dir(site_dir, args)
     os.makedirs(out_dir, exist_ok=True)

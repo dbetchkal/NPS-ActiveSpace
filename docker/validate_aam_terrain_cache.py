@@ -10,6 +10,7 @@ import geopandas as gpd
 
 import nps_active_space.utils.config as cfg
 from nps_active_space.active_space.aam_propagation_model import AamPropagationModel
+from nps_active_space.setup.elevation import get_project_setup_elevation
 from nps_active_space.utils.computation import NMSIM_bbox_utm
 from nps_active_space.utils.helpers import get_deployment
 
@@ -18,7 +19,7 @@ def main() -> None:
     cfg.initialize("container")
     proj_dir = cfg.read("project", "dir")
     site_dir = f"{proj_dir}/DENATRLA"
-    dem = cfg.read("data", "dem")
+    dem, _ = get_project_setup_elevation(site_dir)
     study_area = gpd.read_file(glob.glob(f"{site_dir}/*study*.shp")[0])
     mic = get_deployment(proj_dir, "DENA", "TRLA", 2025, elevation=False)
     mic = mic.to_crs(NMSIM_bbox_utm(study_area.iloc[[0]]))
@@ -26,10 +27,10 @@ def main() -> None:
     model = AamPropagationModel(site_dir)
     start = time.perf_counter()
     model.prepare_site(
-        dem,
+        str(dem),
         study_area.iloc[[0]],
         mic,
-        project_dem=True,
+        project_dem=False,
         suffix=f"_{mic.name}",
     )
     elapsed_s = time.perf_counter() - start
