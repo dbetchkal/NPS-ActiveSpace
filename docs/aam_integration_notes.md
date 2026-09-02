@@ -22,9 +22,9 @@ See `activespace-experiments/README.md` (NMSim reciprocal two-point ridge) and t
 
 ---
 
-## `aam_translator` — sibling library (v0.1.2)
+## `aam_translator` — sibling library (v0.2.0)
 
-Optional dependency via `pyproject.toml` `[aam]` extra: `pip install -e ".[dev,aam]"` (pins `aam-translator@v0.1.2` from GitHub). The Docker image uses the same extra (`pip install -e ".[aam]"`). For simultaneous library development, use `pip install -e ~/dev/aam_translator` to override the git pin locally.
+Optional dependency via `pyproject.toml` `[aam]` extra: `pip install -e ".[dev,aam]"` (pins `aam-translator@v0.2.0` from GitHub). The Docker image uses the same extra (`pip install -e ".[aam]"`). For simultaneous library development, use `pip install -e ~/dev/aam_translator` to override the git pin locally.
 
 ### What it provides today
 
@@ -112,7 +112,7 @@ Work on branch **`feature/aam-propagation-model`** (or similar), rebased onto `m
 
 ### Phase 1 — Adapter skeleton — **done on `feature/aam-propagation-model`**
 
-1. ✅ Optional `aam_translator` dependency (`pyproject.toml` `[aam]` @ v0.1.2 from GitHub; Docker image uses the same extra).
+1. ✅ Optional `aam_translator` dependency (`pyproject.toml` `[aam]` @ v0.2.0 from GitHub; Docker image uses the same extra).
 2. ✅ `PropagationModel` protocol, `NmsimPropagationModel` (extracted), `AamPropagationModel`:
    - `write_terrain` + `write_inp` + `hop_speed_kn`, AAM shim, `read_run_log`, `read_poi`, `assert_track_alignment`.
    - Maps to NMSim TIS-shaped DataFrame (`Xpos`, `Ypos`, `Zpos`, `A`, bands `"10"`…`"12500"`; 12.5 kHz = `NaN`).
