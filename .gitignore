@@ -52,6 +52,7 @@ example_data/site_projects/*/Input_Data/01_ELEVATION/elevation_*.tif
 example_data/site_projects/*/Input_Data/01_ELEVATION/elevation_*_masked.*
 example_data/site_projects/*/Input_Data/01_ELEVATION/study_area_*
 !example_data/site_projects/*/Input_Data/01_ELEVATION/elevation_m_nad83_utm*.tif
+example_data/site_projects/*/Input_Data/aam/
 example_data/site_projects/*/Input_Data/AAM/
 
 # Local compare / fit bookkeeping under site directories

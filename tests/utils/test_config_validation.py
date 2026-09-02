@@ -353,7 +353,7 @@ class TestTemplateSchemaSync:
 
 
 class TestExampleConfigs:
-    @pytest.mark.parametrize("environment", ["DENA_example", "GLBA_example"])
+    @pytest.mark.parametrize("environment", ["DENA_example", "GLBA_example", "AK_example"])
     def test_shipped_example_configs_validate(
         self, environment, repo_root, monkeypatch
     ):
