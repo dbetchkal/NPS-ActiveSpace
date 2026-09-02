@@ -16,7 +16,7 @@ copy nps_active_space\config\template.config nps_active_space\config\windows.con
 In `windows.config` set:
 
 - `[project] dir` — folder that contains `DENATRLA\`
-- `[project] aam` — `AAM_3.0.0.exe` (`NCfiles\` must sit next to it)
+- `[project] aam` — `AAM_3.0.0.exe` (`NCfiles\` next to the exe, or under the parent `AAM\` folder; override with env `AAM_NC`)
 - `[project] nmsim` — `Nord2000batch.exe`
 - `[data] nvspl_archive` — NVSPL archive (ambience is computed from NVSPL; no pickle yet)
 
@@ -46,6 +46,27 @@ Outputs: `Output_Data\aam\ACTIVESPACES\DENATRLA2025_1500m\` and `Output_Data\nms
   NMSim orange, AAM cyan. Uncheck non-1500 m layers. Viz `--annotation-file` needs a full path.
 
 ## If it fails
+
+**`AAM NCfiles/ not found`:** On the Windows host, check where NetCDF lives:
+
+```bat
+dir "T:\ResMgmt\Sound\Applications\AAM\AAM_v3_dec2020\AAM-v3-Software\AAM\Bin\NCfiles"
+dir "T:\ResMgmt\Sound\Applications\AAM\AAM_v3_dec2020\AAM-v3-Software\AAM\NCfiles"
+```
+
+If `NCfiles` is only under `AAM\` (not `Bin\`), either set `AAM_NC` before running:
+
+```bat
+set AAM_NC=T:\ResMgmt\Sound\Applications\AAM\AAM_v3_dec2020\AAM-v3-Software\AAM\NCfiles
+```
+
+or create a junction next to the exe:
+
+```bat
+mklink /J "T:\...\AAM\Bin\NCfiles" "T:\...\AAM\NCfiles"
+```
+
+**`Permission denied` on `Output_Data\aam\active_space.log`:** Usually a network-share write/lock issue when several omni workers log at once. Confirm you can create/edit files under `Output_Data\aam\`. For a one-off rerun, try `set AAM_PARALLEL_N=1`. Recent code drops log lines instead of crashing if the share rejects append.
 
 Send both JSON files and the last ~80 console lines.
 

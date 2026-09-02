@@ -270,3 +270,30 @@ class TestAamSubprocessEnv:
         assert env["ROTOR_NOISE"] == expected
         assert env["FWING_NOISE"] == expected
         assert env["QUARRY_NOISE"] == expected
+
+    def test_exe_finds_ncfiles_in_parent_directory(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("AAM_NC", raising=False)
+        bin_dir = tmp_path / "Bin"
+        bin_dir.mkdir()
+        exe = bin_dir / "AAM_3.0.0.exe"
+        exe.write_bytes(b"")
+        nc = tmp_path / "NCfiles"
+        nc.mkdir()
+        env = _aam_subprocess_env(exe)
+        expected = str(nc.resolve()) + os.sep
+        assert env["ROTOR_NOISE"] == expected
+
+    def test_aam_nc_override(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        exe = tmp_path / "Bin" / "AAM_3.0.0.exe"
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b"")
+        nc = tmp_path / "custom" / "NCfiles"
+        nc.mkdir(parents=True)
+        monkeypatch.setenv("AAM_NC", str(nc))
+        env = _aam_subprocess_env(exe)
+        expected = str(nc.resolve()) + os.sep
+        assert env["ROTOR_NOISE"] == expected

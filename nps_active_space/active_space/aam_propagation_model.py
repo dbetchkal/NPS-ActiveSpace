@@ -53,17 +53,41 @@ AAM_RUN_TIMEOUT_S = 600
 DEFAULT_AAM_CHUNK_SIZE = 50
 
 
+def _resolve_aam_ncfiles_dir(aam_exe: str | Path) -> Path:
+    """Locate AAM NetCDF noise database for a native Windows ``.exe`` launch."""
+    override = os.environ.get("AAM_NC", "").strip()
+    if override:
+        nc_root = Path(override)
+        if nc_root.is_dir():
+            return nc_root
+        raise FileNotFoundError(
+            f"AAM_NC is set but not a directory: {nc_root}",
+        )
+
+    exe = Path(aam_exe)
+    candidates = [
+        exe.parent / "NCfiles",
+        exe.parent.parent / "NCfiles",
+    ]
+    for nc_root in candidates:
+        if nc_root.is_dir():
+            return nc_root
+
+    tried = ", ".join(str(path) for path in candidates)
+    raise FileNotFoundError(
+        f"AAM NCfiles/ not found for {exe}; tried {tried}. "
+        "Set AAM_NC to the NCfiles directory, or place NCfiles next to the exe "
+        "(typical layouts: ...\\Bin\\NCfiles or ...\\AAM\\NCfiles).",
+    )
+
+
 def _aam_subprocess_env(aam_exe: str | Path) -> dict[str, str]:
     """Env for one AAM subprocess. Native Windows exe needs NCfiles next to it."""
     env = os.environ.copy()
     exe = Path(aam_exe)
     if exe.suffix.lower() != ".exe":
         return env
-    nc_root = exe.parent / "NCfiles"
-    if not nc_root.is_dir():
-        raise FileNotFoundError(
-            f"AAM NCfiles/ not found next to {exe}; expected {nc_root}"
-        )
+    nc_root = _resolve_aam_ncfiles_dir(exe)
     nc = str(nc_root.resolve()) + os.sep
     env["ROTOR_NOISE"] = nc
     env["FWING_NOISE"] = nc

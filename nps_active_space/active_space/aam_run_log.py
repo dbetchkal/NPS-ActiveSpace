@@ -138,11 +138,17 @@ def append_aam_run_summary(lines: Iterable[str]) -> None:
 def _append_line(line: str) -> None:
     if _log_path is None:
         return
-    with _log_path.open("a", encoding="utf-8") as handle:
-        if fcntl is not None:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            handle.write(line + "\n")
-        finally:
+    try:
+        with _log_path.open("a", encoding="utf-8") as handle:
             if fcntl is not None:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                handle.write(line + "\n")
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError as exc:
+        print(
+            f"[aam-log] could not append to {_log_path} ({exc}); line dropped",
+            flush=True,
+        )
