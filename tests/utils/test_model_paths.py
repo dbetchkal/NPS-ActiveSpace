@@ -78,7 +78,7 @@ class TestLegacyNmsimResolvers:
         expected = site_dir / "Output_Data" / "ACTIVESPACES"
         assert legacy.resolve_nmsim_activespaces_dir(str(site_dir)) == str(expected)
 
-    def test_layer_dirs_prefers_new_layout(self, site_tree) -> None:
+    def test_layer_dirs_merges_new_and_legacy_by_altitude(self, site_tree) -> None:
         project_dir, unit, site, year = site_tree
         site_dir = project_dir / f"{unit}{site}"
         new_layer = site_dir / "Output_Data" / "nmsim" / "ACTIVESPACES" / f"{unit}{site}{year}_1000m"
@@ -87,7 +87,33 @@ class TestLegacyNmsimResolvers:
         legacy_layer.mkdir(parents=True)
 
         matches = legacy.resolve_activespace_layer_dirs(str(project_dir), unit, site, year)
+        assert matches == [str(legacy_layer), str(new_layer)]
+
+    def test_layer_dirs_same_altitude_prefers_new(self, site_tree) -> None:
+        project_dir, unit, site, year = site_tree
+        site_dir = project_dir / f"{unit}{site}"
+        new_layer = site_dir / "Output_Data" / "nmsim" / "ACTIVESPACES" / f"{unit}{site}{year}_1000m"
+        new_layer.mkdir(parents=True)
+        legacy_layer = site_dir / "Output_Data" / "ACTIVESPACES" / f"{unit}{site}{year}_1000m"
+        legacy_layer.mkdir(parents=True)
+
+        matches = legacy.resolve_activespace_layer_dirs(str(project_dir), unit, site, year)
         assert matches == [str(new_layer)]
+
+    def test_find_layer_geojson_falls_back_to_legacy(self, site_tree) -> None:
+        project_dir, unit, site, year = site_tree
+        site_dir = project_dir / f"{unit}{site}"
+        usy = f"{unit}{site}{year}"
+        new_layer = site_dir / "Output_Data" / "nmsim" / "ACTIVESPACES" / f"{usy}_1500m"
+        new_layer.mkdir(parents=True)
+        (new_layer / f"{usy}_O_+000.geojson").write_text("{}")
+        legacy_layer = site_dir / "Output_Data" / "ACTIVESPACES" / f"{usy}_1500m"
+        legacy_layer.mkdir(parents=True)
+        legacy_file = legacy_layer / f"{usy}_O_+020.geojson"
+        legacy_file.write_text("{}")
+
+        found = legacy.find_layer_geojson(str(new_layer), 2.0)
+        assert found == str(legacy_file)
 
     def test_layer_dirs_falls_back_to_legacy(self, site_tree) -> None:
         project_dir, unit, site, year = site_tree

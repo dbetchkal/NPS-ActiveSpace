@@ -67,21 +67,60 @@ def resolve_nmsim_activespaces_dir(site_dir: str, *, for_write: bool = False) ->
     return _join(site_dir, LEGACY_ACTIVESPACES_SUBDIR)
 
 
+def _altitude_m_from_layer_dir(layer_dir: str) -> int:
+    name = os.path.basename(layer_dir)
+    return int(name.rsplit("_", 1)[-1].removesuffix("m"))
+
+
+def alternate_activespace_layer_dir(layer_dir: str) -> str | None:
+    """Return the other NMSim ACTIVESPACES folder for the same altitude, if it exists."""
+    layer_dir = os.path.abspath(layer_dir)
+    name = os.path.basename(layer_dir)
+    activespaces_dir = os.path.dirname(layer_dir)
+    parent = os.path.dirname(activespaces_dir)
+    if os.path.basename(parent) == "nmsim":
+        other = _join(os.path.dirname(parent), "ACTIVESPACES", name)
+        return other if os.path.isdir(other) else None
+    if os.path.basename(parent) == "Output_Data":
+        other = _join(parent, "nmsim", "ACTIVESPACES", name)
+        return other if os.path.isdir(other) else None
+    return None
+
+
+def find_layer_geojson(layer_dir: str, gain: float) -> str | None:
+    """Find ``*_O_+020.geojson`` in this layer dir, or the sibling NMSim layout."""
+    sign = "-" if gain < 0 else "+"
+    gain_string = str(abs(int(10 * gain))).zfill(3)
+    pattern = f"*_O_{sign}{gain_string}.geojson"
+    for directory in (layer_dir, alternate_activespace_layer_dir(layer_dir)):
+        if not directory:
+            continue
+        matches = glob.glob(_join(directory, pattern))
+        if matches:
+            return matches[0]
+    return None
+
+
 def resolve_activespace_layer_dirs(
     project_dir: str,
     unit: str,
     site: str,
     year,
 ) -> list[str]:
-    """Glob layer dirs under new layout first, then legacy ACTIVESPACES."""
+    """Union new + legacy layer dirs; new layout wins when both exist for an altitude."""
     site_path = _join(project_dir, f"{unit}{site}")
     usy = _deployment_id(unit, site, year)
     pattern = f"{usy}_*m"
-    new_matches = glob.glob(_join(site_path, NMSIM_ACTIVESPACES_SUBDIR, pattern))
-    if new_matches:
-        return _filter_altitude_layer_dirs(new_matches, usy)
-    legacy_matches = glob.glob(_join(site_path, LEGACY_ACTIVESPACES_SUBDIR, pattern))
-    return _filter_altitude_layer_dirs(legacy_matches, usy)
+    by_alt: dict[int, str] = {}
+    for match in _filter_altitude_layer_dirs(
+        glob.glob(_join(site_path, LEGACY_ACTIVESPACES_SUBDIR, pattern)), usy,
+    ):
+        by_alt[_altitude_m_from_layer_dir(match)] = match
+    for match in _filter_altitude_layer_dirs(
+        glob.glob(_join(site_path, NMSIM_ACTIVESPACES_SUBDIR, pattern)), usy,
+    ):
+        by_alt[_altitude_m_from_layer_dir(match)] = match
+    return [by_alt[alt] for alt in sorted(by_alt)]
 
 
 def resolve_activespace_geojson(

@@ -16,6 +16,7 @@ from nps_active_space.utils.models import Annotations
 from nps_active_space.utils.computation import NMSIM_bbox_utm
 import nps_active_space.utils.config as cfg
 import argparse
+from vtkmodules.vtkRenderingCore import vtkTextActor
 
 # helper functions ============================================
 
@@ -68,9 +69,9 @@ class Visualizer():
     nmsim_activespace_color = "orange"
     aam_activespace_color = "cyan"
     mic_color = "white"
-    _checkbox_label_font = 8
     _layer_widget_dy = 28
-    _layer_widget_right_margin = 170
+    _layer_checkbox_x = 10
+    _layer_checkbox_y0 = 220
     audible_annotation_color = "deepskyblue"
     inaudible_annotation_color = "red"
     audible_transits_color = "purple"
@@ -91,6 +92,8 @@ class Visualizer():
         self.project_dir = cfg.read("project", "dir")
         self.fill_layers = fill_layers
         self.max_tracks = max_tracks
+        self._legend_models: list[tuple[str, str]] = []
+        self._master_toggle_count = 0
 
         # study area and crs
         self.study_area = load_studyarea(self.project_dir, self.unit, self.site, self.year)
@@ -116,6 +119,7 @@ class Visualizer():
         self.plotter.camera.elevation = 45
         self.plotter.enable_terrain_style()
         self.setup_z_scale()
+        self._add_color_legend(compare_models=compare_models)
         self.plotter.add_title(f"{unit}{site}{year}", font_size=12)
         self.plotter.show_axes()
         self.plotter.show()
@@ -195,6 +199,11 @@ class Visualizer():
             print(f"No active space layers loaded for {model} at gain {gain} dB.")
             return
         prefix = self._model_display_name(model)
+        self._legend_models.append((prefix, color))
+        print(
+            f"Loaded {prefix} at {gain} dB: "
+            f"{', '.join(f'{z} m' for z in active_3d.activespaces)}"
+        )
         if terraced:
             self.plot_terraced_activespace(active_3d, color=color, label_prefix=prefix)
         else:
@@ -216,7 +225,12 @@ class Visualizer():
             if active_3d.activespaces is None:
                 print(f"No active space layers loaded for {model} at gain {model_gain} dB.")
                 continue
+            print(
+                f"Loaded {self._model_display_name(model)} at {model_gain} dB: "
+                f"{', '.join(f'{z} m' for z in active_3d.activespaces)}"
+            )
             prefix = self._model_display_name(model)
+            self._legend_models.append((prefix, color))
             if terraced:
                 self.plot_terraced_activespace(
                     active_3d, color=color, label_prefix=prefix, widget_row=widget_row,
@@ -235,9 +249,11 @@ class Visualizer():
             case AcousticModel.NMSIM:
                 return "NMSim"
 
-    def _layer_widget_x(self) -> int:
-        width = int(self.plotter.window_size[0])
-        return max(10, width - self._layer_widget_right_margin)
+    def _layer_checkbox_xy(self, row: int) -> tuple[int, int]:
+        return (
+            self._layer_checkbox_x,
+            self._layer_checkbox_y0 + self._layer_widget_dy * row,
+        )
 
     def _add_labeled_checkbox(
         self,
@@ -249,6 +265,7 @@ class Visualizer():
         color_on: str,
         label: str,
     ):
+        """Checkbox plus a 2D label in the same VTK display-pixel space."""
         checkbox = self.plotter.add_checkbox_button_widget(
             callback=callback,
             value=value,
@@ -257,15 +274,44 @@ class Visualizer():
             color_on=color_on,
         )
         x, y = position
-        self.plotter.add_text(
-            label,
-            position=(x + size + 6, y + 4),
-            font_size=self._checkbox_label_font,
-            color="white",
-            shadow=True,
-            name=f"checkbox_label_{x}_{y}",
-        )
+        text = vtkTextActor()
+        text.SetInput(label)
+        text.SetTextScaleModeToNone()
+        text.GetPositionCoordinate().SetCoordinateSystemToDisplay()
+        # Vertically center the label on the square.
+        text.SetPosition(x + size + 8, y + max(2, (size - 16) // 2))
+        prop = text.GetTextProperty()
+        prop.SetFontFamilyToArial()
+        prop.SetFontSize(16)
+        prop.SetColor(1.0, 1.0, 1.0)
+        prop.BoldOn()
+        prop.ShadowOn()
+        prop.SetJustificationToLeft()
+        prop.SetVerticalJustificationToBottom()
+        self.plotter.renderer.AddActor2D(text)
         return checkbox
+
+    def _add_color_legend(self, *, compare_models: bool) -> None:
+        legend_entries = self._legend_models
+        if not legend_entries and compare_models:
+            legend_entries = [
+                ("NMSim", self.nmsim_activespace_color),
+                ("AAM", self.aam_activespace_color),
+            ]
+        if not legend_entries:
+            return
+        unique: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for name, color in legend_entries:
+            if name not in seen:
+                unique.append((name, color))
+                seen.add(name)
+        self.plotter.add_legend(
+            unique,
+            loc="upper right",
+            bcolor=None,
+            face="r",
+        )
 
     def plot_contoured_activespace(
         self, active_3d, color=None, label_prefix: str = "", widget_row: int = 0,
@@ -276,25 +322,8 @@ class Visualizer():
             return widget_row
         layer_checkboxes = []
         layer_callbacks = []
-        x = self._layer_widget_x()
         row = widget_row
         prefix = f"{label_prefix} " if label_prefix else ""
-
-        def toggle_all_actives(flag):
-            for box, toggle_cb in zip(layer_checkboxes, layer_callbacks):
-                box.GetRepresentation().SetState(int(flag))
-                toggle_cb(flag)
-            self.plotter.render()
-
-        self._add_labeled_checkbox(
-            toggle_all_actives,
-            value=True,
-            position=(x, 10 + self._layer_widget_dy * row),
-            size=25,
-            color_on=color,
-            label=f"{prefix}all".strip() or "all",
-        )
-        row += 1
 
         for active_z, active in active_3d.activespaces.items():
             if not active.empty:
@@ -308,6 +337,23 @@ class Visualizer():
                 layer_checkboxes.append(checkbox)
                 layer_callbacks.append(toggle_cb)
                 row += 1
+
+        def toggle_all_actives(flag):
+            for box, toggle_cb in zip(layer_checkboxes, layer_callbacks):
+                box.GetRepresentation().SetState(int(flag))
+                toggle_cb(flag)
+            self.plotter.render()
+
+        master_x = 10 + 160 * self._master_toggle_count
+        self._master_toggle_count += 1
+        self._add_labeled_checkbox(
+            toggle_all_actives,
+            value=True,
+            position=(master_x, 5),
+            size=35,
+            color_on=color,
+            label=f"{prefix}all".strip() or "all",
+        )
         return row
 
     def plot_active_layer(self, active_layer, elevation, i=0, color=None, label: str | None = None):
@@ -333,15 +379,13 @@ class Visualizer():
             for actor in line_actors:
                 actor.SetVisibility(flag)
 
-        if label is None:
-            label = f"{int(elevation)} m"
         checkbox = self._add_labeled_checkbox(
             toggle,
             value=True,
-            position=(self._layer_widget_x(), 10 + self._layer_widget_dy * i),
+            position=self._layer_checkbox_xy(i),
             size=25,
             color_on=color,
-            label=label,
+            label=label or f"{int(elevation)} m",
         )
 
         return checkbox, toggle
@@ -388,13 +432,16 @@ class Visualizer():
             if actor is not None:
                 actor.SetVisibility(flag)
         prefix = f"{label_prefix} " if label_prefix else ""
+        terrace_label = f"{prefix}terraced".strip()
+        master_x = 10 + 160 * self._master_toggle_count
+        self._master_toggle_count += 1
         self._add_labeled_checkbox(
             toggle,
             value=True,
-            position=(self._layer_widget_x(), 10 + self._layer_widget_dy * widget_row),
-            size=25,
+            position=(master_x, 5),
+            size=35,
             color_on=color,
-            label=f"{prefix}terraced".strip(),
+            label=terrace_label,
         )
     
     def plot_annotations(self, annotation_file=None):

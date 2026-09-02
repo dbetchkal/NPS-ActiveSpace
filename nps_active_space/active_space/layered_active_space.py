@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from shapely.geometry import Point
 from nps_active_space.utils.computation import normalize_point_density
+from nps_active_space.utils.legacy_nmsim_paths import find_layer_geojson
 
 logger = logging.getLogger(__name__)
 
@@ -39,19 +40,20 @@ class LayeredActiveSpace():
     def load_activespaces(self, gain: float) -> dict[int, gpd.GeoDataFrame] | None:
         if gain in self.all_activespaces:
             return self.all_activespaces[gain]
-        
-        sign = "-" if gain < 0 else "+"
-        gain_string = str(np.abs(int(10*gain))).zfill(3)
 
         activespaces: dict[int, gpd.GeoDataFrame] = {}
-        for altitude, dir in self.layer_dirs.items():
-            glob_result = glob.glob(os.path.join(dir, f"*_O_{sign}{gain_string}.geojson"))
-            if len(glob_result) == 0:
-                logger.warning(f"Couldn't find active space for gain {gain} in {dir}")
-                return None
-            activespace_file = glob_result[0]
+        for altitude, layer_dir in self.layer_dirs.items():
+            activespace_file = find_layer_geojson(layer_dir, gain)
+            if activespace_file is None:
+                logger.warning(
+                    "No active space for gain %s in %s; skipping altitude %s m",
+                    gain, layer_dir, altitude,
+                )
+                continue
             activespaces[altitude] = gpd.read_file(activespace_file).to_crs(self.crs)
-        
+
+        if not activespaces:
+            return None
         return activespaces
 
     def preload_all_activespaces(self) -> None:
