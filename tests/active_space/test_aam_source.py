@@ -19,6 +19,7 @@ from nps_active_space.active_space.aam_source import (
     omni_stem_to_aam_token,
     read_avg_spectrum_db,
     site_ncfiles_dir,
+    stage_run_ncfiles,
     write_aam_nc,
 )
 
@@ -106,6 +107,23 @@ class TestEnsureAamNcForSource:
         token, cached = ensure_aam_nc_for_source(src_nc, tmp_path, template_nc)
         assert token == "OMNI_042"
         assert cached.is_file()
+
+
+class TestStageRunNcfiles:
+    def test_stages_single_omni_only(self, tmp_path: Path, template_nc: Path) -> None:
+        cache_dir = site_ncfiles_dir(tmp_path)
+        cache_dir.mkdir(parents=True)
+        omni_000 = cache_dir / "OMNI_000.nc"
+        omni_005 = cache_dir / "OMNI_005.nc"
+        shutil.copy2(template_nc, omni_000)
+        shutil.copy2(template_nc, omni_005)
+
+        work_dir = tmp_path / "runs" / "job_r000"
+        staged = stage_run_ncfiles(work_dir, omni_005)
+
+        assert staged == work_dir / "NCfiles"
+        staged_names = sorted(p.name for p in staged.iterdir())
+        assert staged_names == ["OMNI_005.nc"]
 
 
 class TestWriteAamNc:

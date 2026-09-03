@@ -190,7 +190,7 @@ NMSim omni ladder files (``O_±XXX.src`` + sibling ``.avg``) are converted to AA
 
 - **Template:** vendor ``OMNI_200.nc`` on the AAM install (read-only; set ``AAM_NC`` if ``Bin\NCfiles`` is an empty stub).
 - **Cache:** ``Input_Data/aam/NCfiles/{token}.nc`` where ``O_+000`` → ``OMNI_000``, ``O_-100`` → ``OMNIM100``.
-- **Subprocess:** ``ROTOR_NOISE`` / ``AAM_NC`` point at the **site** cache, not the vendor tree.
+- **Subprocess:** each AAM run gets ``work_dir/NCfiles/`` with **only** that job's omni NetCDF on ``ROTOR_NOISE`` / ``AAM_NC``. The site cache may hold many gains; pointing AAM at the whole cache triggers ``Same Profile data found in multiple spheres`` when omni ``--max`` > 0.
 - No post-hoc dB offset on POI output; levels come from the generated NetCDF.
 
 Optional ``--source PATH`` (repeatable) adds ``.src`` (both models) or ``.nc`` (AAM-only) on top of ``--omni-min/max``.

@@ -1,0 +1,15 @@
+{
+  "compare": "denatrla-3d-windows",
+  "site": "DENATRLA2025",
+  "data_root": "example_data/site_projects",
+  "altitude_m_min": 900,
+  "altitude_m_max": 2100,
+  "altitude_step_m": 300,
+  "density": 48,
+  "omni_min": 0,
+  "omni_max": 2,
+  "headings": [0],
+  "ambience": "nvspl",
+  "annotation_file": "DENATRLA2025_saved_annotations.geojson",
+  "notes": "3D pipeline: generate_3d_active_space.py -> batch -> fit_3d_active_space.py per model. Layers 900/1200/1500/1800/2100 m (300 m step). Standard mesh/gain (density 48, omni 0-2) — same as tmp_windows_aam_1500m.bat full, not macparity smoke (d10 omni0). Windows macparity single-layer baseline ~204s AAM / ~108s NMSim. Outputs: Output_Data/{aam,nmsim}/ACTIVESPACES/DENATRLA2025_*m/, project fits.csv rows with Model column, PrecisionRecallPlot_3d_DENATRLA2025_f1p0.png per model."
+}

@@ -34,7 +34,7 @@ from nps_active_space.active_space.aam_output import poi_history_to_predictions_
 from nps_active_space.active_space.aam_source import (
     AAM_TEMPLATE_NC_FILENAME,
     ensure_aam_nc_for_source,
-    site_ncfiles_dir,
+    stage_run_ncfiles,
 )
 from nps_active_space.active_space.aam_terrain import (
     AAM_INP_BASENAME,
@@ -206,7 +206,6 @@ class AamPropagationModel:
         self.receiver_agl_m = receiver_agl_m
         self._root = Path(root_dir).resolve()
         self._runs_dir = _runs_dir_for_site(root_dir)
-        self._site_ncfiles_dir = site_ncfiles_dir(root_dir)
         configure_aam_run_log(self._root)
 
     def __setstate__(self, state: dict) -> None:
@@ -350,11 +349,12 @@ class AamPropagationModel:
         track = _pad_single_point_track(self._build_track(ordered_pts))
         pois = self._build_pois(site)
         template_nc = _aam_template_nc_path(self.aam_shim)
-        source_id, _cached_nc = ensure_aam_nc_for_source(
+        source_id, cached_nc = ensure_aam_nc_for_source(
             omni_source,
             self.root_dir,
             template_nc,
         )
+        run_nc_dir = stage_run_ncfiles(work_dir, cached_nc)
         heading_deg = float(heading if heading is not None else 90.0)
         speed_kn = hop_speed_kn(track, site.terrain)
         inp_path = work_dir / f"{AAM_INP_BASENAME}.inp"
@@ -371,7 +371,7 @@ class AamPropagationModel:
                 heading_deg,
                 speed_kn,
             )
-            self._run_aam(inp_path, work_dir)
+            self._run_aam(inp_path, work_dir, run_nc_dir)
             frame = self._read_run_predictions(
                 work_dir, site, track, ordered_pts, omni_source, job_name,
             )
@@ -495,7 +495,7 @@ class AamPropagationModel:
             )
         return poi_history_to_predictions_df(history, source_pts)
 
-    def _run_aam(self, inp_path: Path, work_dir: Path) -> None:
+    def _run_aam(self, inp_path: Path, work_dir: Path, nc_root: Path) -> None:
         if not os.path.isfile(self.aam_shim):
             raise FileNotFoundError(
                 f"AAM executable not found at {self.aam_shim}; "
@@ -508,7 +508,7 @@ class AamPropagationModel:
             capture_output=True,
             text=True,
             timeout=AAM_RUN_TIMEOUT_S,
-            env=_aam_subprocess_env(self.aam_shim, self._site_ncfiles_dir),
+            env=_aam_subprocess_env(self.aam_shim, nc_root),
         )
         combined = "\n".join(
             part for part in (proc.stderr, proc.stdout) if part

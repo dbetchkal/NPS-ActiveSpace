@@ -36,19 +36,34 @@ The parity bats pass `--annotation-file DENATRLA2025_saved_annotations.geojson` 
 
 ## Mac-parity smoke (platform compare)
 
-The full `docs\tmp_windows_aam_1500m.bat` is density **48**, omni **0–2**. For the same job Mac Docker ran, use:
+**Lightweight** cross-platform job — density **10**, omni **+000** only (not the standard d48 mesh):
 
 ```bat
 docs\tmp_windows_aam_macparity.bat
 ```
 
-That is **example_data**, 1500 m, density **10**, one omni (`+000`), heading 0, AAM then NMSim, live NVSPL. Same generate flags as:
+Same flags as Mac Docker `docs/tmp_docker_aam_macparity.sh`. Writes `docker/denatrla_1500m_macparity_{aam,nmsim,metrics}.json`.
 
-```bash
-docs/tmp_docker_aam_macparity.sh
+## Standard single-layer 1500 m
+
+**Standard** mesh/gain — density **48** (default), omni **0–2**:
+
+```bat
+docs\tmp_windows_aam_1500m.bat
 ```
 
-Both write `docker/denatrla_1500m_macparity_{aam,nmsim,metrics}.json`.
+Quick smoke variant (d10, omni 0): `docs\tmp_windows_aam_1500m.bat smoke`.
+
+## 3D pipeline (AAM + NMSim)
+
+Full 3D product path (900–2100 m layers, density **48**, omni **0–2**, batch + `fit_3d_active_space.py`):
+
+```bat
+docs\tmp_windows_aam_3d.bat
+docs\tmp_windows_aam_3d.bat aam
+```
+
+See [tmp_windows_aam_3d.md](tmp_windows_aam_3d.md). Mac Docker: `docs/tmp_docker_aam_3d.sh`.
 
 ## Run
 
@@ -91,6 +106,8 @@ mklink /J "T:\...\AAM\Bin\NCfiles" "T:\...\AAM\NCfiles"
 ```
 
 **`Permission denied` on `Output_Data\aam\active_space.log`:** Usually a network-share write/lock issue when several omni workers log at once. For a one-off rerun, try `set AAM_PARALLEL_N=1`.
+
+**`Same Profile data found in multiple spheres`:** AAM was pointed at the whole site ``Input_Data\aam\NCfiles`` folder (multiple ``OMNI_*.nc`` from omni 0–2). Current code stages one omni per run under ``Output_Data\aam\runs\{job}\NCfiles\``. Pull the branch fix or rerun after upgrade; older builds need ``--omni-max 0`` as a workaround.
 
 **All AAM batches empty POI:** Often `Bin\NCfiles` is an empty stub without `OMNI_200.nc` (the read-only template). ActiveSpace now generates per-gain sources under `Input_Data\aam\NCfiles\` from sibling `.avg` files; the vendor tree only supplies the template. Check:
 

@@ -26,6 +26,7 @@ __all__ = [
     "omni_stem_to_aam_token",
     "read_avg_spectrum_db",
     "site_ncfiles_dir",
+    "stage_run_ncfiles",
     "write_aam_nc",
 ]
 
@@ -189,6 +190,22 @@ def ensure_aam_nc_for_source(
     raise ValueError(
         f"AAM source must be .src (with sibling .avg) or .nc, got {source_path}",
     )
+
+
+def stage_run_ncfiles(work_dir: str | Path, omni_nc: str | Path) -> Path:
+    """Stage one omni NetCDF under ``work_dir/NCfiles`` for a single AAM subprocess.
+
+    AAM loads every sphere under ``ROTOR_NOISE``. Per-gain files cloned from the
+    vendor template share PROFILE metadata, so a shared site cache with multiple
+    ``OMNI_*.nc`` files triggers "Same Profile data found in multiple spheres".
+    """
+    work_dir = Path(work_dir)
+    omni_nc = Path(omni_nc)
+    run_nc_dir = work_dir / "NCfiles"
+    run_nc_dir.mkdir(parents=True, exist_ok=True)
+    dest = run_nc_dir / omni_nc.name
+    shutil.copy2(omni_nc, dest)
+    return run_nc_dir
 
 
 def _needs_refresh(source: Path, cached: Path) -> bool:
