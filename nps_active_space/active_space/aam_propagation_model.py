@@ -65,27 +65,28 @@ def _ncfiles_has_template(nc_root: Path) -> bool:
     return (nc_root / AAM_TEMPLATE_NC_FILENAME).is_file()
 
 
+def _template_ncfiles_candidates(aam_exe: str | Path) -> list[Path]:
+    """Search order for vendor ``NCfiles/`` containing ``OMNI_200.nc``."""
+    exe = Path(aam_exe)
+    candidates: list[Path] = [
+        exe.parent / "NCfiles",
+        exe.parent.parent / "NCfiles",
+    ]
+    aam_home = os.environ.get("AAM_HOME", "").strip()
+    if aam_home:
+        candidates.insert(0, Path(aam_home) / "NCfiles")
+    return candidates
+
+
 def _resolve_aam_template_ncfiles_dir(aam_exe: str | Path) -> Path:
     """Locate vendor ``NCfiles/`` containing the read-only ``OMNI_200.nc`` template."""
     override = os.environ.get("AAM_NC", "").strip()
     if override:
         nc_root = Path(override)
-        if not nc_root.is_dir():
-            raise FileNotFoundError(
-                f"AAM_NC is set but not a directory: {nc_root}",
-            )
-        if not _ncfiles_has_template(nc_root):
-            raise FileNotFoundError(
-                f"AAM_NC={nc_root} has no {AAM_TEMPLATE_NC_FILENAME}; "
-                "generated omni sources require it as a template.",
-            )
-        return nc_root
+        if nc_root.is_dir() and _ncfiles_has_template(nc_root):
+            return nc_root
 
-    exe = Path(aam_exe)
-    candidates = [
-        exe.parent / "NCfiles",
-        exe.parent.parent / "NCfiles",
-    ]
+    candidates = _template_ncfiles_candidates(aam_exe)
     for nc_root in candidates:
         if nc_root.is_dir() and _ncfiles_has_template(nc_root):
             return nc_root
@@ -99,10 +100,11 @@ def _resolve_aam_template_ncfiles_dir(aam_exe: str | Path) -> Path:
             "(often ...\\AAM\\NCfiles, not an empty ...\\Bin\\NCfiles stub).",
         )
 
+    exe = Path(aam_exe)
     tried = ", ".join(str(path) for path in candidates)
     raise FileNotFoundError(
         f"AAM NCfiles/ not found for {exe}; tried {tried}. "
-        "Set AAM_NC to the NCfiles directory, or place NCfiles next to the exe "
+        "Set AAM_NC or AAM_HOME to the NCfiles directory, or place NCfiles next to the exe "
         "(typical layouts: ...\\Bin\\NCfiles or ...\\AAM\\NCfiles).",
     )
 

@@ -346,6 +346,23 @@ class TestAamSubprocessEnv:
         resolved = _resolve_aam_template_ncfiles_dir(exe)
         assert resolved == nc
 
+    def test_aam_home_template_resolution(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from nps_active_space.active_space.aam_propagation_model import (
+            _resolve_aam_template_ncfiles_dir,
+        )
+
+        monkeypatch.delenv("AAM_NC", raising=False)
+        aam_home = tmp_path / "opt" / "aam"
+        nc = aam_home / "NCfiles"
+        nc.mkdir(parents=True)
+        (nc / AAM_TEMPLATE_NC_FILENAME).write_bytes(b"")
+        shim = tmp_path / "usr" / "local" / "bin" / "aam"
+        shim.parent.mkdir(parents=True)
+        shim.write_text("#!/bin/sh\n")
+        monkeypatch.setenv("AAM_HOME", str(aam_home))
+        resolved = _resolve_aam_template_ncfiles_dir(shim)
+        assert resolved == nc
+
     def test_aam_nc_override_for_template(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from nps_active_space.active_space.aam_propagation_model import (
             _resolve_aam_template_ncfiles_dir,
