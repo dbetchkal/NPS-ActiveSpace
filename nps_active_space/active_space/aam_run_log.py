@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from collections.abc import Iterable
 from datetime import UTC, datetime
@@ -74,8 +75,12 @@ def summarize_aam_error(message: str) -> str:
     """Short console/site-log reason for an AAM batch failure."""
     text = summarize_aam_cli_output(str(message))
     lower = text.lower()
-    if "fpa" in lower or "forrtl" in lower:
+    if "filename" in lower and ("length" in lower or "substring" in lower):
+        return "AAM path too long (FILENAME 140)"
+    if "fpa" in lower:
         return "AAM FPA bounds"
+    if "forrtl" in lower:
+        return text[:120]
     if "empty .poi" in lower or "no data rows" in lower:
         return "empty POI"
     if "read error" in lower:
@@ -83,6 +88,12 @@ def summarize_aam_error(message: str) -> str:
     if "below aam terrain" in lower:
         return "below terrain"
     return text[:160]
+
+
+def short_aam_work_dir_name(job_name: str) -> str:
+    """Short ``runs/`` subdirectory name so ``ROTOR_NOISE`` paths stay under AAM's 140-char FILENAME cap."""
+    digest = hashlib.sha1(job_name.encode()).hexdigest()[:12]
+    return f"x{digest}"
 
 
 def aam_log(category: str, msg: str, *, to_console: bool = True) -> None:

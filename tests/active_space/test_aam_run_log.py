@@ -11,6 +11,7 @@ from nps_active_space.active_space.aam_run_log import (
     append_aam_run_summary,
     configure_aam_run_log,
     log_run_batch,
+    short_aam_work_dir_name,
     summarize_aam_cli_output,
     summarize_aam_error,
 )
@@ -101,6 +102,20 @@ class TestAamRunLog:
         assert "Unknown" not in summarize_aam_cli_output(blob)
         assert summarize_aam_error(blob) == "AAM FPA bounds"
         assert summarize_aam_error("empty .POI file: /tmp/scenario.POI") == "empty POI"
+
+    def test_summarize_filename_path_length(self) -> None:
+        blob = (
+            "forrtl: severe (408): fort: (12): Variable FILENAME has substring "
+            "ending point 164 which is greater than the variable length of 140"
+        )
+        assert summarize_aam_error(blob) == "AAM path too long (FILENAME 140)"
+
+    def test_short_work_dir_name_is_stable_and_short(self) -> None:
+        long_job = "DENASUSH2026O_+000_2100m_mesh1_r000_a0_a1_a2_a3"
+        name = short_aam_work_dir_name(long_job)
+        assert name == short_aam_work_dir_name(long_job)
+        assert name.startswith("x")
+        assert len(name) == 13
 
     def test_append_summary_block(self, tmp_path: Path) -> None:
         configure_aam_run_log(tmp_path)

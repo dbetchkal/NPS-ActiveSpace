@@ -27,6 +27,7 @@ from nps_active_space.active_space.aam_run_log import (
     aam_log,
     configure_aam_run_log,
     log_run_batch,
+    short_aam_work_dir_name,
     summarize_aam_cli_output,
     summarize_aam_error,
 )
@@ -146,7 +147,6 @@ def resolve_aam_chunk_size() -> int:
 
 def _is_fpa_bounds_error(exc: BaseException) -> bool:
     return summarize_aam_error(str(exc)) == "AAM FPA bounds"
-
 
 def _pad_single_point_track(track: list[TrackPoint]) -> list[TrackPoint]:
     """Duplicate a lone vertex ~1 m east so AAM can interpolate a track."""
@@ -360,7 +360,7 @@ class AamPropagationModel:
                 source_pts.iloc[:mid],
                 omni_source,
                 altitude_m,
-                f"{job_name}_a{split_depth}",
+                f"{job_name}_sa{split_depth}",
                 heading,
                 split_depth=split_depth + 1,
             )
@@ -369,7 +369,7 @@ class AamPropagationModel:
                 source_pts.iloc[mid:],
                 omni_source,
                 altitude_m,
-                f"{job_name}_b{split_depth}",
+                f"{job_name}_sb{split_depth}",
                 heading,
                 split_depth=split_depth + 1,
             )
@@ -385,8 +385,10 @@ class AamPropagationModel:
         heading: int | None = None,
     ) -> pd.DataFrame:
         start = time.perf_counter()
-        work_dir = self._runs_dir / job_name
+        work_dir_name = short_aam_work_dir_name(job_name)
+        work_dir = self._runs_dir / work_dir_name
         work_dir.mkdir(parents=True, exist_ok=True)
+        aam_log("run-dir", f"{work_dir_name} <- {job_name}", to_console=False)
 
         above_pts, below_pts = self.filter_below_terrain(
             site, source_pts, job_name=job_name,
