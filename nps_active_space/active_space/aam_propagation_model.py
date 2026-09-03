@@ -144,6 +144,10 @@ def resolve_aam_chunk_size() -> int:
     return max(1, int(os.environ.get("AAM_CHUNK_SIZE", str(DEFAULT_AAM_CHUNK_SIZE))))
 
 
+def _is_fpa_bounds_error(exc: BaseException) -> bool:
+    return summarize_aam_error(str(exc)) == "AAM FPA bounds"
+
+
 def _pad_single_point_track(track: list[TrackPoint]) -> list[TrackPoint]:
     """Duplicate a lone vertex ~1 m east so AAM can interpolate a track."""
     if len(track) != 1:
@@ -295,7 +299,7 @@ class AamPropagationModel:
                 chunk_job = f"{job_name}_r{run_idx:03d}"
                 run_idx += 1
                 try:
-                    chunk_frame = self._predict_batch(
+                    chunk_frame = self._predict_batch_with_fpa_split(
                         site,
                         chunk_pts,
                         omni_source,
@@ -321,6 +325,55 @@ class AamPropagationModel:
                 "and aam_stderr.txt (terrain, NCfiles, below-ground).",
             )
         return pd.concat(frames, ignore_index=True)
+
+    def _predict_batch_with_fpa_split(
+        self,
+        site: AamSiteContext,
+        source_pts: gpd.GeoDataFrame,
+        omni_source: str,
+        altitude_m: int,
+        job_name: str,
+        heading: int | None,
+        *,
+        split_depth: int = 0,
+    ) -> pd.DataFrame:
+        """Run one batch; on AAM FPA bounds, halve the track and retry (not below-ground bisect)."""
+        try:
+            return self._predict_batch(
+                site,
+                source_pts,
+                omni_source,
+                altitude_m,
+                job_name,
+                heading,
+            )
+        except Exception as exc:
+            if not _is_fpa_bounds_error(exc) or len(source_pts) <= 2:
+                raise
+            mid = len(source_pts) // 2
+            aam_log(
+                "predict",
+                f"split {job_name} n={len(source_pts)} after AAM FPA bounds",
+            )
+            left = self._predict_batch_with_fpa_split(
+                site,
+                source_pts.iloc[:mid],
+                omni_source,
+                altitude_m,
+                f"{job_name}_a{split_depth}",
+                heading,
+                split_depth=split_depth + 1,
+            )
+            right = self._predict_batch_with_fpa_split(
+                site,
+                source_pts.iloc[mid:],
+                omni_source,
+                altitude_m,
+                f"{job_name}_b{split_depth}",
+                heading,
+                split_depth=split_depth + 1,
+            )
+            return pd.concat([left, right], ignore_index=True)
 
     def _predict_batch(
         self,
@@ -402,6 +455,7 @@ class AamPropagationModel:
             inp_path=inp_path,
             aam_log_path=aam_log_path if aam_log_path.is_file() else None,
             ok=True,
+            to_console=False,
         )
         return frame
 

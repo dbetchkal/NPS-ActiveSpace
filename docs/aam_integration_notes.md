@@ -211,7 +211,7 @@ AAM aborts the **entire** ``ONE TRACK`` when any vertex **or interpolated hop** 
 - Snakes the lattice (alternate *y* direction each *x* column) so consecutive hops stay one cell, not a domain-width wrap
 - Splits the ordered track in ``split_safe_aam_track_runs`` wherever a hop still clips terrain, then chunks each run at ``AAM_CHUNK_SIZE`` (default **400**, AAM's ``ONE TRACK`` cap)
 - Pads a leftover 1-vertex ``ONE TRACK`` with a ~1 m hop and ``hop_speed_kn``. AAM 3.0.0 crashes on a single vertex (Wine exit 152 / FPA, empty ``.POI``); ``speed_kn=0`` on N>1 is ``INTRTIME``. See ``nmsim-aam-experiments/notes/aam_inp_format.md``
-- If AAM still fails, skip that chunk once (missing points are inaudible downstream). Do not bisect.
+- If AAM still fails, skip that chunk once (missing points are inaudible downstream). Do not bisect below-ground aborts. **AAM FPA bounds** on a multi-point track is retried by halving the chunk (common when high-altitude meshes stay one long ``ONE TRACK`` because terrain hops no longer split the snake).
 
 Residual caveats: skipped chunks lose those source points; contour/scattered sets are not a lattice so hop-splits can still add extra runs.
 

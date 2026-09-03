@@ -228,7 +228,7 @@ class TestAamPredictSkipOnFailure:
         assert len(result) == 50
         assert set(result["Xpos"]) == set(xs[:50])
 
-    def test_failed_batch_is_skipped_not_bisected(
+    def test_non_fpa_failure_is_skipped_not_bisected(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
@@ -244,6 +244,40 @@ class TestAamPredictSkipOnFailure:
         monkeypatch.setattr(AamPropagationModel, "_predict_batch", fake_batch)
         with pytest.raises(RuntimeError, match="no predictions"):
             model.predict(site, source_pts, "O_+000.src", 1000, "skip_job")
+
+    def test_fpa_bounds_splits_batch_and_retries(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        self._passthrough_filter(monkeypatch)
+        model = AamPropagationModel(str(tmp_path))
+        site = self._dummy_site()
+        xs = [float(i) for i in range(4)]
+        source_pts = _make_source_pts(xs)
+        fpa_error = (
+            "forrtl: severe (408): fort: (11): Subscript #2 of the array FPA "
+            "has value 0 which is less than the lower bound of 1"
+        )
+
+        def fake_batch(
+            self,
+            site_ctx,
+            batch_pts,
+            omni_source,
+            altitude_m,
+            job_name,
+            heading=None,
+        ) -> pd.DataFrame:
+            if len(batch_pts) >= 3:
+                raise RuntimeError(fpa_error)
+            return _predictions_for(batch_pts)
+
+        monkeypatch.setattr(AamPropagationModel, "_predict_batch", fake_batch)
+        result = model.predict(site, source_pts, "O_+000.src", 1800, "mesh_job")
+
+        assert len(result) == 4
+        assert set(result["Xpos"]) == set(xs)
 
     def test_all_batches_fail_raises(
         self,

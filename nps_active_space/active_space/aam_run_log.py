@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -105,9 +106,20 @@ def log_run_batch(
     aam_log_path: Path | None = None,
     ok: bool = True,
     error: str | None = None,
-    to_console: bool = True,
+    to_console: bool | None = None,
 ) -> None:
-    """Log one AAM propagation batch with pointers to on-disk artifacts."""
+    """Log one AAM propagation batch with pointers to on-disk artifacts.
+
+    Successful runs default to site log only; failures print to console unless
+    ``to_console`` is set explicitly. Set ``AAM_VERBOSE=1`` for per-run console lines.
+    """
+    if to_console is None:
+        verbose = os.environ.get("AAM_VERBOSE", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+        to_console = (not ok) or verbose
     rel_inp = site_relative_path(root_dir, inp_path)
     parts = [
         job_name,
