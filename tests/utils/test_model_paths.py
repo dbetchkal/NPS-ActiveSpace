@@ -267,3 +267,14 @@ class TestModelAwarePaths:
         assert path.endswith(
             f"Output_Data/aam/PRECISION_RECALL/PrecisionRecallPlot_3d_{unit}{site}{year}_f1p0.png"
         )
+
+    def test_site_model_paths_omni_aware_layer_skip(self, site_tree) -> None:
+        project_dir, unit, site, year = site_tree
+        layout = p.SiteModelPaths.from_project(
+            str(project_dir), unit, site, year, AcousticModel.AAM,
+        )
+        layer = Path(layout.layer_dir(1500))
+        layer.mkdir(parents=True)
+        (layer / f"{layout.usy}_O_+000.geojson").write_text("{}")
+        assert layout.has_layer_outputs(1500)
+        assert not layout.has_layer_outputs(1500, 0.0, 2.0)

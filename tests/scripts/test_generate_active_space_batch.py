@@ -15,6 +15,7 @@ from nps_active_space.scripts.generate_active_space_batch import (
 )
 from nps_active_space.utils.enums import AcousticModel
 from nps_active_space.utils.paths import layer_has_activespace_outputs
+from nps_active_space.utils import paths as p
 from script_test_helpers import stub_generate_active_space_cmd
 
 VALID_RESULTS = {
@@ -100,6 +101,19 @@ class TestLayerOutputSkip:
         assert not layer_has_activespace_outputs(layer_dir)
         (layer_dir / "DENATRLA2025_O_+000.geojson").write_text("{}")
         assert layer_has_activespace_outputs(layer_dir)
+
+    def test_layer_has_required_omni_outputs_partial_gain(self, tmp_path: Path) -> None:
+        layer_dir = tmp_path / "DENASUSH2026_1500m"
+        layer_dir.mkdir()
+        (layer_dir / "DENASUSH2026_O_+000.geojson").write_text("{}")
+        assert not p.layer_has_required_omni_outputs(
+            layer_dir, "DENASUSH2026", 0.0, 2.0,
+        )
+        for stem in ("O_+000", "O_+005", "O_+010", "O_+015", "O_+020"):
+            (layer_dir / f"DENASUSH2026_{stem}.geojson").write_text("{}")
+        assert p.layer_has_required_omni_outputs(
+            layer_dir, "DENASUSH2026", 0.0, 2.0,
+        )
 
     def test_resolve_layer_output_dir_is_model_scoped(
         self,

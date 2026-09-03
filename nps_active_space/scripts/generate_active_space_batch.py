@@ -39,6 +39,8 @@ _LAYER_OPTION_PARSER.add_argument(
     type=AcousticModel,
     choices=list(AcousticModel),
 )
+_LAYER_OPTION_PARSER.add_argument("--omni-min", type=float, default=-10)
+_LAYER_OPTION_PARSER.add_argument("--omni-max", type=float, default=40)
 
 
 def parse_layer_command_options(options: str):
@@ -205,10 +207,14 @@ if __name__ == "__main__":
         designator, options = re.split(r'\s+', line, maxsplit=1)
 
         layout, altitude_m = resolve_layer_layout(options)
-        if layout.has_layer_outputs(altitude_m):
+        cmd_args = parse_layer_command_options(options)
+        if layout.has_layer_outputs(
+            altitude_m, cmd_args.omni_min, cmd_args.omni_max,
+        ):
             print(
-                f"Skipping {designator} ({layout.model}): active-space outputs already in "
-                f"{display_path(layout.layer_dir(altitude_m))} "
+                f"Skipping {designator} ({layout.model}): all omni "
+                f"{cmd_args.omni_min:g}-{cmd_args.omni_max:g} dB active-space geojson "
+                f"already in {display_path(layout.layer_dir(altitude_m))} "
                 "(delete that directory to force rerun)."
             )
             continue

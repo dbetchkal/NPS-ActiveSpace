@@ -97,6 +97,25 @@ def layer_has_activespace_outputs(layer_dir: str | Path) -> bool:
     return any(layer_path.glob("*_O_*.geojson"))
 
 
+def layer_has_required_omni_outputs(
+    layer_dir: str | Path,
+    usy: str,
+    omni_min: float,
+    omni_max: float,
+) -> bool:
+    """True when every omni in ``[omni_min, omni_max]`` has a layer geojson."""
+    from nps_active_space.utils.helpers import get_omni_sources
+
+    layer_path = Path(layer_dir)
+    if not layer_path.is_dir():
+        return False
+    for src in get_omni_sources(omni_min, omni_max):
+        stem = Path(src).stem
+        if not (layer_path / f"{usy}_{stem}.geojson").is_file():
+            return False
+    return True
+
+
 @dataclass(frozen=True)
 class SiteModelPaths:
     """Model-scoped site layout. Build once per generate/batch/fit call."""
@@ -192,7 +211,16 @@ class SiteModelPaths:
             f"PrecisionRecallPlot_{self.usy}_{altitude_m}m_{beta_str}.png",
         )
 
-    def has_layer_outputs(self, altitude_m: int) -> bool:
+    def has_layer_outputs(
+        self,
+        altitude_m: int,
+        omni_min: float | None = None,
+        omni_max: float | None = None,
+    ) -> bool:
+        if omni_min is not None and omni_max is not None:
+            return layer_has_required_omni_outputs(
+                self.layer_dir(altitude_m), self.usy, omni_min, omni_max,
+            )
         return layer_has_activespace_outputs(self.layer_dir(altitude_m))
 
     def failure_hint(self) -> str:

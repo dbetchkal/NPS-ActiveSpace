@@ -10,10 +10,11 @@ UNIT=DENA
 SITE_CODE=SUSH
 YEAR=2026
 MIN_ALTITUDE=1200
-MAX_ALTITUDE=1800
+MAX_ALTITUDE=2400
 DENSITY=10
+# Omni ladder step is 0.5 dB (0-2 = gains 0, 0.5, 1, 1.5, 2).
 OMNI_MIN=0
-OMNI_MAX=0
+OMNI_MAX=2
 HEADINGS=0
 ANNOT=DENASUSH2026_saved_annotations.geojson
 # Set to 1 to record wall/cpu in docker/denasush2026_test_metrics.json
