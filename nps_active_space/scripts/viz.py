@@ -459,6 +459,10 @@ class Visualizer():
         if annotation_file is None:
             annotations = load_annotations(self.project_dir, self.unit, self.site, self.year, only_valid=True)
         else:
+            if not os.path.isabs(annotation_file):
+                site_path = os.path.join(self.project_dir, f"{self.unit}{self.site}", annotation_file)
+                if os.path.isfile(site_path):
+                    annotation_file = site_path
             print(f"Loading annotations from custom file: {annotation_file}")
             annotations = Annotations(annotation_file, only_valid=True)
         

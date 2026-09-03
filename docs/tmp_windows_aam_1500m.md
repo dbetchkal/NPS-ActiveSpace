@@ -63,6 +63,8 @@ docs\tmp_windows_aam_3d.bat
 docs\tmp_windows_aam_3d.bat aam
 ```
 
+Quick **example** smoke (3 layers 1200–1800 m, d10, omni `+000`): `docs\tmp_windows_aam_3d_example.bat`.
+
 See [tmp_windows_aam_3d.md](tmp_windows_aam_3d.md). Mac Docker: `docs/tmp_docker_aam_3d.sh`.
 
 ## Run

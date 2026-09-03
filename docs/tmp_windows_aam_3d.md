@@ -22,7 +22,18 @@ docs\tmp_windows_aam_3d.bat nmsim
 
 Default **both** models. Use `aam` only if NMSim 3D layers already exist locally (common on dev Macs — not committed to git).
 
-### What this job uses
+### Quick example smoke (recommended first on Windows)
+
+**~3 layers**, macparity mesh (density 10, omni `+000`), committed annotations:
+
+```bat
+docs\tmp_windows_aam_3d_example.bat
+docs\tmp_windows_aam_3d_example.bat aam
+```
+
+Layers **1200, 1500, 1800 m**. Metadata: [tmp_platform_aam_3d_example_job.json](tmp_platform_aam_3d_example_job.json). Mac Docker: `docs/tmp_docker_aam_3d_example.sh`.
+
+### Full standard run
 
 | Setting | Value |
 |---------|--------|
@@ -30,7 +41,9 @@ Default **both** models. Use `aam` only if NMSim 3D layers already exist locally
 | Density | **48** (`DEFAULT_SRC_PT_DENSITY`; same as `tmp_windows_aam_1500m.bat` full) |
 | Omni | **0–2 dB** (0, +0.5, +1, +1.5, +2) |
 | Headings | 0 |
-| Annotations | `DENATRLA2025_saved_annotations.geojson` |
+| Annotations | `example_data\site_projects\DENATRLA\DENATRLA2025_saved_annotations.geojson` (bat passes basename; generate joins site dir) |
+
+### What the full job uses
 
 Metadata: [tmp_platform_aam_3d_job.json](tmp_platform_aam_3d_job.json).
 
@@ -57,11 +70,11 @@ Project **`example_data\site_projects\fits.csv`** gets one row per model (`Model
 
 ## Viz
 
-After `fit_3d_active_space.py`, viz can use the fitted gain (omit `-g`):
+After `fit_3d_active_space.py`, viz can use the fitted gain (omit `-g`). Basename is OK for `--annotation-file` (resolved under the site dir); full path also works:
 
 ```bat
 python nps_active_space\scripts\viz.py DENATRLA2025 -e AK -s -a --compare --terraced ^
-  --annotation-file example_data\site_projects\DENATRLA\DENATRLA2025_saved_annotations.geojson
+  --annotation-file DENATRLA2025_saved_annotations.geojson
 ```
 
 ## Existing NMSim 3D layers
