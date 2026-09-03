@@ -39,6 +39,17 @@ class TestGenerateActiveSpaceParser:
         ])
         assert args.density == 12
 
+    def test_source_flag(self):
+        args = build_parser().parse_args([
+            "-e", "container",
+            "-u", "DENA",
+            "-s", "TRLA",
+            "-y", "2025",
+            "--source", "/path/O_+000.src",
+            "--source", "/path/custom.nc",
+        ])
+        assert args.sources == ["/path/O_+000.src", "/path/custom.nc"]
+
 
 class TestResolvePoolNWorkers:
     def test_aam_matches_nmsim_without_docker_cap(self, monkeypatch):

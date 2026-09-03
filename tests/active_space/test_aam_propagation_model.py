@@ -19,10 +19,9 @@ pytest.importorskip("aam_translator")
 from aam_translator import read_poi, read_run_log
 from aam_translator.write_inp import TrackPoint
 
-from nps_active_space.active_space.aam_output import (
-    aam_source_id_from_omni,
-    poi_history_to_predictions_df,
-)
+from nps_active_space.active_space.aam_output import poi_history_to_predictions_df
+from nps_active_space.active_space.aam_source import aam_source_id_from_omni, site_ncfiles_dir
+from nps_active_space.active_space.aam_source import AAM_TEMPLATE_NC_FILENAME
 from nps_active_space.active_space.aam_propagation_model import (
     AAM_PREDICTIONS_SUBDIR,
     SINGLE_TRACK_PAD_M,
@@ -60,12 +59,12 @@ def _predictions_for(source_pts: gpd.GeoDataFrame, level_db: float = 50.0) -> pd
 
 
 class TestAamSourceMapping:
-    def test_omni_o_plus_200_maps_to_flato200(self) -> None:
-        assert aam_source_id_from_omni("/data/tuning/O_+200.avg") == "FLATO200"
+    def test_omni_o_plus_200_maps_to_omni_200(self) -> None:
+        assert aam_source_id_from_omni("/data/tuning/O_+200.avg") == "OMNI_200"
 
-    def test_nmsim_omni_stem_maps_to_flato200(self) -> None:
-        assert aam_source_id_from_omni("/data/tuning/O_+000.src") == "FLATO200"
-        assert aam_source_id_from_omni("/data/tuning/O_+005.src") == "FLATO200"
+    def test_nmsim_omni_stem_maps_to_omni_tokens(self) -> None:
+        assert aam_source_id_from_omni("/data/tuning/O_+000.src") == "OMNI_000"
+        assert aam_source_id_from_omni("/data/tuning/O_+005.src") == "OMNI_005"
 
 
 class TestAamPredictionsLayout:
@@ -301,54 +300,66 @@ class TestAamPredictSkipOnFailure:
 
 
 class TestAamSubprocessEnv:
-    def test_shim_does_not_inject_ncfiles(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        monkeypatch.delenv("ROTOR_NOISE", raising=False)
+    def test_sets_site_ncfiles_for_shim(self, tmp_path: Path) -> None:
+        site_root = tmp_path / "site"
+        nc_dir = site_ncfiles_dir(site_root)
+        nc_dir.mkdir(parents=True)
         shim = tmp_path / "aam"
         shim.write_text("#!/bin/sh\n")
-        env = _aam_subprocess_env(shim)
-        assert "ROTOR_NOISE" not in env
+        env = _aam_subprocess_env(shim, nc_dir)
+        expected = str(nc_dir.resolve()) + os.sep
+        assert env["ROTOR_NOISE"] == expected
+        assert env["AAM_NC"] == str(nc_dir.resolve())
 
-    def test_exe_sets_noise_paths_from_sibling_ncfiles(self, tmp_path: Path) -> None:
+    def test_exe_sets_noise_paths_from_site_ncfiles(self, tmp_path: Path) -> None:
+        site_root = tmp_path / "site"
+        nc_dir = site_ncfiles_dir(site_root)
+        nc_dir.mkdir(parents=True)
         exe = tmp_path / "AAM_3.0.0.exe"
         exe.write_bytes(b"")
-        nc = tmp_path / "NCfiles"
-        nc.mkdir()
-        env = _aam_subprocess_env(exe)
-        expected = str(nc.resolve()) + os.sep
+        env = _aam_subprocess_env(exe, nc_dir)
+        expected = str(nc_dir.resolve()) + os.sep
         assert env["ROTOR_NOISE"] == expected
         assert env["FWING_NOISE"] == expected
         assert env["QUARRY_NOISE"] == expected
+        assert env["AAM_NC"] == str(nc_dir.resolve())
 
-    def test_exe_finds_ncfiles_in_parent_directory(
+    def test_template_resolution_prefers_parent_when_bin_stub_lacks_template(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        from nps_active_space.active_space.aam_propagation_model import (
+            _resolve_aam_template_ncfiles_dir,
+        )
+
         monkeypatch.delenv("AAM_NC", raising=False)
         bin_dir = tmp_path / "Bin"
         bin_dir.mkdir()
         exe = bin_dir / "AAM_3.0.0.exe"
         exe.write_bytes(b"")
+        stub = bin_dir / "NCfiles"
+        stub.mkdir()
         nc = tmp_path / "NCfiles"
         nc.mkdir()
-        env = _aam_subprocess_env(exe)
-        expected = str(nc.resolve()) + os.sep
-        assert env["ROTOR_NOISE"] == expected
+        (nc / AAM_TEMPLATE_NC_FILENAME).write_bytes(b"")
+        resolved = _resolve_aam_template_ncfiles_dir(exe)
+        assert resolved == nc
 
-    def test_aam_nc_override(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_aam_nc_override_for_template(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from nps_active_space.active_space.aam_propagation_model import (
+            _resolve_aam_template_ncfiles_dir,
+        )
+
         exe = tmp_path / "Bin" / "AAM_3.0.0.exe"
         exe.parent.mkdir(parents=True)
         exe.write_bytes(b"")
         nc = tmp_path / "custom" / "NCfiles"
         nc.mkdir(parents=True)
+        (nc / AAM_TEMPLATE_NC_FILENAME).write_bytes(b"")
         monkeypatch.setenv("AAM_NC", str(nc))
-        env = _aam_subprocess_env(exe)
-        expected = str(nc.resolve()) + os.sep
-        assert env["ROTOR_NOISE"] == expected
+        resolved = _resolve_aam_template_ncfiles_dir(exe)
+        assert resolved == nc
 
 
 class TestPadSinglePointTrack:

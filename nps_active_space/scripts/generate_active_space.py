@@ -1,6 +1,7 @@
 import logging
 import multiprocessing as mp
 import os
+import re
 import signal
 import numpy as np
 from argparse import ArgumentParser
@@ -40,6 +41,8 @@ from nps_active_space.active_space.active_space_setup import (
 
 if TYPE_CHECKING:
     from nps_active_space.utils.models import Microphone
+
+OMNI_GAIN_STEM_RE = re.compile(r"O_[+-]\d{3}$")
 
 
 def _run_active_space(outfile: str, omni_source: str, generator: ActiveSpaceGenerator, headings: List[int],
@@ -296,6 +299,13 @@ def build_parser() -> ArgumentParser:
                         help="Propagation model (default: nmsim). Docker -m aam also sets this.")
     parser.add_argument('--headings', nargs='+', type=int, default=[0, 120, 240],
                         help="Headings of active spaces to dissolve. Accepts one or more values.")
+    parser.add_argument(
+        '--source',
+        action='append',
+        dest='sources',
+        metavar='PATH',
+        help="Additional source path (.src for both models, .nc for AAM only). Repeatable.",
+    )
     parser.add_argument('--omni-min', type=float, default=-10,
                         help="The minimum omni source to run the mesh for.")
     parser.add_argument('--omni-max', type=float, default=40,
@@ -329,13 +339,20 @@ def _process_omni_group(
 ) -> None:
     processes = []
     for omni_source_ in group:
-        gain = omni_to_gain(omni_source_)
-        name = f"{usy}_{Path(omni_source_).stem}"
+        stem = Path(omni_source_).stem
+        pretested_pts_dict = None
+        if OMNI_GAIN_STEM_RE.fullmatch(stem):
+            pretested_pts_dict = get_pretested_pts(
+                tested_pts_record,
+                omni_to_gain(omni_source_),
+                headings,
+            )
+        name = f"{usy}_{stem}"
         kwds = {
             'omni_source': omni_source_,
             'outfile': f'{active_savedir}/{name}.geojson',
             'tested_pts_outfile': f'{tested_pts_savedir}/{name}.pkl',
-            'pretested_pts_dict': get_pretested_pts(tested_pts_record, gain, headings)
+            'pretested_pts_dict': pretested_pts_dict,
         }
         processes.append(run_fn(kwds=kwds))
 
@@ -345,7 +362,8 @@ def _process_omni_group(
             continue
         omni, active, tested_pts_dict = output
         results.append((omni, active))
-        tested_pts_record[omni_to_gain(omni)] = tested_pts_dict
+        if OMNI_GAIN_STEM_RE.fullmatch(omni):
+            tested_pts_record[omni_to_gain(omni)] = tested_pts_dict
 
 
 if __name__ == '__main__':
@@ -365,7 +383,14 @@ if __name__ == '__main__':
     site_dir = p.site_dir(cfg.read('project', 'dir'), args.unit, args.site)
     logger = get_logger(f"ACTIVE-SPACE: {args.unit}{args.site}{args.year}")
 
-    omni_sources = get_omni_sources(lower=args.omni_min, upper=args.omni_max)
+    ladder_sources = get_omni_sources(lower=args.omni_min, upper=args.omni_max)
+    extra_sources = args.sources or []
+    for src in extra_sources:
+        if Path(src).suffix.lower() == ".nc" and model is not AcousticModel.AAM:
+            _fail_active_space_generation(
+                f"--source {src}: .nc sources are AAM-only (use --model aam)",
+            )
+    omni_sources = ladder_sources + extra_sources
 
     # --------------- DATA SELECTION --------------- #
 
@@ -483,7 +508,12 @@ if __name__ == '__main__':
         src_pt_density=src_pt_density,
     )
 
-    omni_groups = group_omni_sources(omni_sources)
+    if extra_sources:
+        ladder_groups = group_omni_sources(ladder_sources)
+        extra_groups = [[src] for src in extra_sources]
+        omni_groups = ladder_groups + extra_groups
+    else:
+        omni_groups = group_omni_sources(ladder_sources)
     with tqdm(desc='Omni Sources', unit='omni source', colour='green', total=len(omni_sources)) as pbar:
         try:
             pool = mp.Pool(resolve_pool_n_workers(model), init_worker)

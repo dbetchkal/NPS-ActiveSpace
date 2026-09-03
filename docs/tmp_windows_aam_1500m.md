@@ -92,7 +92,16 @@ mklink /J "T:\...\AAM\Bin\NCfiles" "T:\...\AAM\NCfiles"
 
 **`Permission denied` on `Output_Data\aam\active_space.log`:** Usually a network-share write/lock issue when several omni workers log at once. For a one-off rerun, try `set AAM_PARALLEL_N=1`.
 
-**All AAM batches empty POI:** Delete `Input_Data\aam\terrain\` under the site and rerun (stale ELV cache). Inspect `Output_Data\aam\runs\*_r000\scenario.txt`.
+**All AAM batches empty POI:** Often `Bin\NCfiles` is an empty stub without `OMNI_200.nc` (the read-only template). ActiveSpace now generates per-gain sources under `Input_Data\aam\NCfiles\` from sibling `.avg` files; the vendor tree only supplies the template. Check:
+
+```bat
+dir "T:\...\AAM\Bin\NCfiles\OMNI_200.nc"
+dir "T:\...\AAM\NCfiles\OMNI_200.nc"
+set AAM_NC=T:\...\AAM\NCfiles
+dir "%SITE%\Input_Data\aam\NCfiles\OMNI_000.nc"
+```
+
+If the template exists but POI is still empty, open `Output_Data\aam\runs\*_r000\scenario.txt` and search `NETCDF`, `OMNI`, `Below ground`. Delete `Input_Data\aam\terrain\` if ELV looks stale.
 
 Send both JSON files and the last ~80 console lines.
 

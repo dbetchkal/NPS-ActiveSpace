@@ -30,10 +30,11 @@ from nps_active_space.active_space.aam_run_log import (
     summarize_aam_cli_output,
     summarize_aam_error,
 )
-from nps_active_space.active_space.aam_output import (
-    aam_source_id_from_omni,
-    apply_omni_gain_offset,
-    poi_history_to_predictions_df,
+from nps_active_space.active_space.aam_output import poi_history_to_predictions_df
+from nps_active_space.active_space.aam_source import (
+    AAM_TEMPLATE_NC_FILENAME,
+    ensure_aam_nc_for_source,
+    site_ncfiles_dir,
 )
 from nps_active_space.active_space.aam_terrain import (
     AAM_INP_BASENAME,
@@ -60,16 +61,25 @@ SINGLE_TRACK_PAD_M = 1.0
 METERS_PER_DEG_LAT = 111_320.0
 
 
-def _resolve_aam_ncfiles_dir(aam_exe: str | Path) -> Path:
-    """Locate AAM NetCDF noise database for a native Windows ``.exe`` launch."""
+def _ncfiles_has_template(nc_root: Path) -> bool:
+    return (nc_root / AAM_TEMPLATE_NC_FILENAME).is_file()
+
+
+def _resolve_aam_template_ncfiles_dir(aam_exe: str | Path) -> Path:
+    """Locate vendor ``NCfiles/`` containing the read-only ``OMNI_200.nc`` template."""
     override = os.environ.get("AAM_NC", "").strip()
     if override:
         nc_root = Path(override)
-        if nc_root.is_dir():
-            return nc_root
-        raise FileNotFoundError(
-            f"AAM_NC is set but not a directory: {nc_root}",
-        )
+        if not nc_root.is_dir():
+            raise FileNotFoundError(
+                f"AAM_NC is set but not a directory: {nc_root}",
+            )
+        if not _ncfiles_has_template(nc_root):
+            raise FileNotFoundError(
+                f"AAM_NC={nc_root} has no {AAM_TEMPLATE_NC_FILENAME}; "
+                "generated omni sources require it as a template.",
+            )
+        return nc_root
 
     exe = Path(aam_exe)
     candidates = [
@@ -77,8 +87,17 @@ def _resolve_aam_ncfiles_dir(aam_exe: str | Path) -> Path:
         exe.parent.parent / "NCfiles",
     ]
     for nc_root in candidates:
-        if nc_root.is_dir():
+        if nc_root.is_dir() and _ncfiles_has_template(nc_root):
             return nc_root
+
+    existing = [path for path in candidates if path.is_dir()]
+    if existing:
+        tried = ", ".join(str(path) for path in existing)
+        raise FileNotFoundError(
+            f"AAM NCfiles/ found but missing {AAM_TEMPLATE_NC_FILENAME}: {tried}. "
+            "Set AAM_NC to the directory that contains OMNI_200.nc "
+            "(often ...\\AAM\\NCfiles, not an empty ...\\Bin\\NCfiles stub).",
+        )
 
     tried = ", ".join(str(path) for path in candidates)
     raise FileNotFoundError(
@@ -88,24 +107,25 @@ def _resolve_aam_ncfiles_dir(aam_exe: str | Path) -> Path:
     )
 
 
-def _aam_subprocess_env(aam_exe: str | Path) -> dict[str, str]:
-    """Env for one AAM subprocess. Native Windows exe needs NCfiles next to it."""
+def _aam_template_nc_path(aam_exe: str | Path) -> Path:
+    return _resolve_aam_template_ncfiles_dir(aam_exe) / AAM_TEMPLATE_NC_FILENAME
+
+
+def _aam_subprocess_env(aam_exe: str | Path, nc_root: Path) -> dict[str, str]:
+    """Env for one AAM subprocess. Points noise DB vars at the site NCfiles cache."""
     env = os.environ.copy()
-    exe = Path(aam_exe)
-    if exe.suffix.lower() != ".exe":
-        return env
-    nc_root = _resolve_aam_ncfiles_dir(exe)
-    nc = str(nc_root.resolve()) + os.sep
+    nc_path = str(nc_root.resolve())
+    nc = nc_path + os.sep
     env["ROTOR_NOISE"] = nc
     env["FWING_NOISE"] = nc
     env["QUARRY_NOISE"] = nc
+    env["AAM_NC"] = nc_path
     return env
 
 __all__ = [
     "AAM_PREDICTIONS_SUBDIR",
     "AamPropagationModel",
     "AamSiteContext",
-    "aam_source_id_from_omni",
     "poi_history_to_predictions_df",
     "split_below_aam_terrain",
 ]
@@ -184,6 +204,7 @@ class AamPropagationModel:
         self.receiver_agl_m = receiver_agl_m
         self._root = Path(root_dir).resolve()
         self._runs_dir = _runs_dir_for_site(root_dir)
+        self._site_ncfiles_dir = site_ncfiles_dir(root_dir)
         configure_aam_run_log(self._root)
 
     def __setstate__(self, state: dict) -> None:
@@ -326,7 +347,12 @@ class AamPropagationModel:
 
         track = _pad_single_point_track(self._build_track(ordered_pts))
         pois = self._build_pois(site)
-        source_id = aam_source_id_from_omni(omni_source)
+        template_nc = _aam_template_nc_path(self.aam_shim)
+        source_id, _cached_nc = ensure_aam_nc_for_source(
+            omni_source,
+            self.root_dir,
+            template_nc,
+        )
         heading_deg = float(heading if heading is not None else 90.0)
         speed_kn = hop_speed_kn(track, site.terrain)
         inp_path = work_dir / f"{AAM_INP_BASENAME}.inp"
@@ -465,8 +491,7 @@ class AamPropagationModel:
                 broadband_db=history.broadband_db[:n_real],
                 band_levels_db=history.band_levels_db[:n_real],
             )
-        frame = poi_history_to_predictions_df(history, source_pts)
-        return apply_omni_gain_offset(frame, omni_source)
+        return poi_history_to_predictions_df(history, source_pts)
 
     def _run_aam(self, inp_path: Path, work_dir: Path) -> None:
         if not os.path.isfile(self.aam_shim):
@@ -481,7 +506,7 @@ class AamPropagationModel:
             capture_output=True,
             text=True,
             timeout=AAM_RUN_TIMEOUT_S,
-            env=_aam_subprocess_env(self.aam_shim),
+            env=_aam_subprocess_env(self.aam_shim, self._site_ncfiles_dir),
         )
         combined = "\n".join(
             part for part in (proc.stderr, proc.stdout) if part

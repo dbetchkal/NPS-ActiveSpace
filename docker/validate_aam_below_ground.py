@@ -8,7 +8,7 @@ stratified sample. A 2-point hop probe checks interpolated-track terrain.
 Run:
   docker/run_activespace.sh -m aam docker/validate_aam_below_ground.py
 
-Requires staged ``vendor/aam-runtime/`` with ``FLATO200.nc``.
+Requires staged ``vendor/aam-runtime/`` with ``OMNI_200.nc`` (template).
 """
 
 from __future__ import annotations
@@ -27,11 +27,11 @@ from shapely.geometry import Point
 from aam_translator import hop_speed_kn, lonlat_to_model_ft, read_poi, read_run_log
 from aam_translator.constants import FT_PER_M
 
+from nps_active_space.active_space.aam_source import aam_source_id_from_omni
 from nps_active_space.active_space.aam_propagation_model import (
     AAM_INP_BASENAME,
     AamPropagationModel,
     _pad_single_point_track,
-    aam_source_id_from_omni,
 )
 from nps_active_space.active_space.aam_terrain import (
     AAM_BELOW_SURFACE_TOLERANCE_M,

@@ -150,6 +150,7 @@ AAM does **not** use ``Output_Data/TIG_TIS/`` (NMSim-only: ``.tis`` + centibel C
 | Path | Role |
 |------|------|
 | ``Input_Data/aam/terrain/{mic}/`` | Cached ``.ELV`` / ``.IMP`` + ``terrain_cache.json`` (model **input**, rebuild when DEM/AOI changes) |
+| ``Input_Data/aam/NCfiles/`` | Generated per-omni NetCDF sources (``OMNI_000.nc``, etc.); runtime cache, not committed |
 | ``Output_Data/aam/predictions/`` | Incremental spectral cache CSVs (``{alt}m_{omni}_{heading}deg.csv``) |
 | ``Output_Data/aam/runs/{job}/`` | Per-batch scratch (``.inp``, ``.POI``, ``scenario.txt``) |
 | ``Output_Data/aam/active_space.log`` | Append-only run log (terrain, batches, summaries; points at on-disk artifacts) |
@@ -182,6 +183,17 @@ Two layers — both are required for AAM pipeline runs:
 | Python | `generate_active_space.py --model aam` | Select ``AamPropagationModel``, ``Output_Data/aam/`` paths, batch cap 400 |
 
 NMSim is the default when either flag is omitted.
+
+### AAM omni NetCDF sources
+
+NMSim omni ladder files (``O_±XXX.src`` + sibling ``.avg``) are converted to AAM NetCDF at first use:
+
+- **Template:** vendor ``OMNI_200.nc`` on the AAM install (read-only; set ``AAM_NC`` if ``Bin\NCfiles`` is an empty stub).
+- **Cache:** ``Input_Data/aam/NCfiles/{token}.nc`` where ``O_+000`` → ``OMNI_000``, ``O_-100`` → ``OMNIM100``.
+- **Subprocess:** ``ROTOR_NOISE`` / ``AAM_NC`` point at the **site** cache, not the vendor tree.
+- No post-hoc dB offset on POI output; levels come from the generated NetCDF.
+
+Optional ``--source PATH`` (repeatable) adds ``.src`` (both models) or ``.nc`` (AAM-only) on top of ``--omni-min/max``.
 
 ### AAM omni-source parallelism
 
