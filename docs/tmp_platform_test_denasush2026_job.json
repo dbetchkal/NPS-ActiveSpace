@@ -1,0 +1,13 @@
+{
+  "compare": "denasush2026-1500m-smoke",
+  "site": "DENASUSH2026",
+  "data_root": "example_data/site_projects",
+  "altitude_m": 1500,
+  "density": 10,
+  "omni_min": 0,
+  "omni_max": 0,
+  "headings": [0],
+  "ambience": "nvspl",
+  "annotation_file": "DENASUSH2026_saved_annotations.geojson",
+  "notes": "Same generate_active_space flags as tmp_windows_aam_macparity.bat but unit/site/year DENA/SUSH/2026. Requires DENASUSH under [project] dir with committed or local annotations, elevation, and .sit metadata. Windows: -e AK (or your env) with nmsim/aam paths set. Mac Docker: -e container."
+}
