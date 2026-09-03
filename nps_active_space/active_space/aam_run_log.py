@@ -12,6 +12,7 @@ from nps_active_space.active_space.propagation_model import (
     AAM_OUTPUT_SUBDIR,
     AAM_RUN_LOG_FILENAME,
 )
+from nps_active_space.utils.paths import display_path
 
 try:
     import fcntl
@@ -46,9 +47,9 @@ def configure_aam_run_log(root_dir: str | Path) -> Path:
 
 def site_relative_path(root_dir: Path, path: str | Path) -> str:
     try:
-        return str(Path(path).resolve().relative_to(root_dir.resolve()))
+        return display_path(Path(path).resolve().relative_to(root_dir.resolve()))
     except ValueError:
-        return str(path)
+        return display_path(path)
 
 
 def summarize_aam_cli_output(text: str) -> str:
@@ -172,6 +173,6 @@ def _append_line(line: str) -> None:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     except OSError as exc:
         print(
-            f"[aam-log] could not append to {_log_path} ({exc}); line dropped",
+            f"[aam-log] could not append to {display_path(_log_path)} ({exc}); line dropped",
             flush=True,
         )

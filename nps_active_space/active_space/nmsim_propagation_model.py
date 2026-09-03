@@ -17,6 +17,7 @@ from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.setup.elevation import get_project_setup_elevation
 from nps_active_space.setup.site_writer import write_listener_site_file
 from nps_active_space.utils.constants import IS_WINDOWS
+from nps_active_space.utils import paths as p
 from nps_active_space.active_space.propagation_model import (
     NMSIM_PREDICTIONS_SUBDIR,
     NMSIM_SCRATCH_SUBDIR,
@@ -94,7 +95,7 @@ class NmsimPropagationModel:
                 logger.error(line.strip())
         return self._postprocess_trj_tis(
             trajectory_filename,
-            f"{self.root_dir}/{NMSIM_SCRATCH_SUBDIR}/{job_name}.tis",
+            p.join(self.root_dir, NMSIM_SCRATCH_SUBDIR, f"{job_name}.tis"),
             cleanup=True,
         )
 
@@ -110,7 +111,9 @@ class NmsimPropagationModel:
         filename: str,
         heading: Optional[int] = None,
     ) -> str:
-        trajectory_filename = f"{self.root_dir}/Input_Data/03_TRAJECTORY/{filename}.trj"
+        trajectory_filename = p.join(
+            self.root_dir, "Input_Data", "03_TRAJECTORY", f"{filename}.trj",
+        )
 
         trajectory = points.to_crs(crs)
         trajectory["heading"] = (
@@ -178,13 +181,15 @@ class NmsimPropagationModel:
         trajectory_file: str,
         omni_source_file: str,
     ) -> str:
-        control_file = (
-            f"{self.root_dir}/control_{os.path.basename(trajectory_file).replace('.trj', '')}.nms"
+        control_file = p.join(
+            self.root_dir,
+            f"control_{os.path.basename(trajectory_file).replace('.trj', '')}.nms",
         )
-        batch_file = (
-            f"{self.root_dir}/batch_{os.path.basename(trajectory_file).replace('.trj', '')}.txt"
+        batch_file = p.join(
+            self.root_dir,
+            f"batch_{os.path.basename(trajectory_file).replace('.trj', '')}.txt",
         )
-        tis_directory = f"{self.root_dir}/{NMSIM_SCRATCH_SUBDIR}"
+        tis_directory = p.join(self.root_dir, NMSIM_SCRATCH_SUBDIR)
 
         with open(control_file, "w") as nms:
             nms.write(nmsim_control_path(flt_file) + "\n")
@@ -204,7 +209,10 @@ class NmsimPropagationModel:
             batch.write("site\n")
             batch.write(
                 nmsim_control_path(
-                    f"{tis_directory}/{os.path.basename(trajectory_file)[:-4]}",
+                    p.join(
+                        tis_directory,
+                        os.path.basename(trajectory_file)[:-4],
+                    ),
                 ) + "\n",
             )
             batch.write("dbf: no\n")

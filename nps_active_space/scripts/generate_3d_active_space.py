@@ -81,11 +81,12 @@ if __name__ == "__main__":
 
         cached_ambience = load_spectral_ambience_pickle(ambience_pkl_path)
         if cached_ambience is not None:
-            print(f"Found existing NVSPL ambience, using it: {ambience_pkl_path}")
+            print(f"Found existing NVSPL ambience, using it: {p.display_path(ambience_pkl_path)}")
         else:
             if os.path.exists(ambience_pkl_path):
                 print(
-                    f"Existing ambience pickle has no usable spectral bands; recomputing: {ambience_pkl_path}"
+                    f"Existing ambience pickle has no usable spectral bands; recomputing: "
+                    f"{p.display_path(ambience_pkl_path)}"
                 )
             else:
                 print("Computing NVSPL ambience")
@@ -110,7 +111,7 @@ if __name__ == "__main__":
             os.makedirs(ambience_dir, exist_ok=True)
             ambience.to_pickle(ambience_pkl_path)
             plt.savefig(ambience_plot_path)
-            print(f"Saved ambience to {ambience_pkl_path}")
+            print(f"Saved ambience to {p.display_path(ambience_pkl_path)}")
     
     # create commands file
     cmds_file = os.path.join(site_dir, f"{usy}_commands.txt")

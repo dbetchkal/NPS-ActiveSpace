@@ -7,6 +7,9 @@ explicit and keeps globs working on Linux/Mac.
 
 Prefer :class:`SiteModelPaths` when a caller already knows site + model (+
 deployment). The module-level functions remain for one-off lookups.
+
+Use :func:`display_path` when printing or logging filesystem paths so output
+uses forward slashes on all platforms.
 """
 from __future__ import annotations
 
@@ -38,6 +41,15 @@ from nps_active_space.utils.legacy_nmsim_paths import (
 
 def join(*parts: str) -> str:
     return os.path.join(*parts)
+
+
+def display_path(path: str | Path) -> str:
+    """Format a filesystem path for logs and user-facing messages.
+
+    Uses forward slashes so paths stay copy-pasteable in Explorer, terminals,
+    and docs regardless of host OS. Do not use for ``open()`` or other I/O.
+    """
+    return os.fspath(Path(path).expanduser()).replace("\\", "/")
 
 
 def deployment_id(unit: str, site: str, year) -> str:
@@ -188,13 +200,15 @@ class SiteModelPaths:
         match self.model:
             case AcousticModel.AAM:
                 return (
-                    f"check {self.aam_input_dir}, {self.scratch_dir}, "
+                    f"check {display_path(self.aam_input_dir)}, "
+                    f"{display_path(self.scratch_dir)}, "
                     f"and {AAM_RUN_LOG_FILENAME}"
                 )
             case AcousticModel.NMSIM:
                 return (
-                    f"check {self.trajectory_dir}, {self.predictions_dir}, "
-                    f"and {self.scratch_dir}"
+                    f"check {display_path(self.trajectory_dir)}, "
+                    f"{display_path(self.predictions_dir)}, "
+                    f"and {display_path(self.scratch_dir)}"
                 )
 
     def nmsim_scratch_glob_patterns(self) -> list[str]:
@@ -313,7 +327,7 @@ def study_area_shapefile(project_dir: str, unit: str, site: str) -> str:
     if not matches:
         matches = glob.glob(join(site, f"{unit}{site}*study*area*.shp"))
     if not matches:
-        raise FileNotFoundError(f"No study area shapefile under {site}")
+        raise FileNotFoundError(f"No study area shapefile under {display_path(site)}")
     return matches[0]
 
 
@@ -321,7 +335,9 @@ def dem_raster(project_dir: str, unit: str, site: str) -> str:
     elevation_dir = join(input_data_dir(project_dir, unit, site), "01_ELEVATION")
     matches = glob.glob(join(elevation_dir, "elevation_m_nad83_utm*.tif"))
     if not matches:
-        raise FileNotFoundError(f"No elevation_m_nad83_utm*.tif under {elevation_dir}")
+        raise FileNotFoundError(
+            f"No elevation_m_nad83_utm*.tif under {display_path(elevation_dir)}"
+        )
     return matches[0]
 
 

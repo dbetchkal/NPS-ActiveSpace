@@ -26,6 +26,7 @@ from nps_active_space.active_space.propagation_model import (
     AAM_TERRAIN_SUBDIR,
 )
 from nps_active_space.utils.computation import project_raster
+from nps_active_space.utils.paths import display_path
 
 AAM_INP_BASENAME = "scenario"
 AAM_TERRAIN_CACHE_META = "terrain_cache.json"
@@ -248,7 +249,7 @@ def _try_load_cached_terrain(
         )
     aam_log(
         "terrain",
-        f"reusing cached terrain in {terrain_dir} "
+        f"reusing cached terrain in {display_path(terrain_dir)} "
         f"(ELV not older than {Path(dem_file).name})",
     )
     return terrain
@@ -308,7 +309,7 @@ def ensure_aam_terrain(
 
     aam_log(
         "terrain",
-        f"write_terrain -> {terrain_dir}/scenario.elv "
+        f"write_terrain -> {display_path(terrain_dir)}/scenario.elv "
         f"(receiver AGL {params.receiver_agl_m:.2f} m)",
     )
     with timed_terrain_step("write_terrain (AEQD resample + ELV/IMP)"):
@@ -399,7 +400,7 @@ def _terrain_surface_elevation_m(
     """Sample AAM terrain MSL (meters) at each source point from the ELV grid."""
     elv_path = terrain.elv_path
     if not elv_path or not Path(elv_path).is_file():
-        raise FileNotFoundError(f"AAM ELV grid missing: {elv_path}")
+        raise FileNotFoundError(f"AAM ELV grid missing: {display_path(elv_path)}")
 
     values = _elv_grid_values(Path(elv_path))
     to_aeqd = Transformer.from_crs(source_pts.crs, terrain.aeqd_crs, always_xy=True)

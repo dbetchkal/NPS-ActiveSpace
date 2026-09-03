@@ -10,6 +10,7 @@ import geopandas as gpd
 import pandas as pd
 
 from nps_active_space.active_space.propagation_model import prediction_cache_csv_path
+from nps_active_space.utils.paths import display_path
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ def load_prediction_cache(
             logger.warning(
                 "Ignoring unreadable prediction cache at %s (%s). "
                 "Removing file; points will be recomputed and cache rewritten after predict.",
-                csv_filename,
+                display_path(csv_filename),
                 reason,
             )
             try:
@@ -79,7 +80,7 @@ def load_prediction_cache(
             except OSError as exc:
                 logger.warning(
                     "Could not remove unreadable prediction cache %s: %s",
-                    csv_filename,
+                    display_path(csv_filename),
                     exc,
                 )
         return pd.DataFrame(), pd.DataFrame(), source_pts

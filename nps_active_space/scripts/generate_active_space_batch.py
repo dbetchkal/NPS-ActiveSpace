@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 from nps_active_space.utils.enums import AcousticModel
-from nps_active_space.utils.paths import SiteModelPaths
+from nps_active_space.utils.paths import SiteModelPaths, display_path
 
 RESULT_COLUMNS = [
     "Designator",
@@ -96,15 +96,15 @@ def read_results_file(results_path: Path, designator: str) -> tuple[pd.Series | 
         with open(results_path) as results_file:
             data = json.load(results_file)
     except json.JSONDecodeError as exc:
-        return None, f"Invalid JSON in results file {results_path}: {exc}"
+        return None, f"Invalid JSON in results file {display_path(results_path)}: {exc}"
 
     if not isinstance(data, dict):
-        return None, f"Results file must contain a JSON object: {results_path}"
+        return None, f"Results file must contain a JSON object: {display_path(results_path)}"
 
     missing_keys = [key for key in REQUIRED_RESULT_KEYS if key not in data]
     if missing_keys:
         return None, (
-            f"Results file is missing required keys {missing_keys}: {results_path}"
+            f"Results file is missing required keys {missing_keys}: {display_path(results_path)}"
         )
 
     series = pd.Series(data)
@@ -152,7 +152,7 @@ def run_deployment(
             return None
         if not results_path.exists():
             print(
-                f"Run succeeded but no results file was written: {results_path}",
+                f"Run succeeded but no results file was written: {display_path(results_path)}",
                 flush=True,
             )
             return None
@@ -182,7 +182,7 @@ if __name__ == "__main__":
     if args.output is None:
         name, ext = os.path.splitext(args.input)
         args.output = name + "_output.csv"
-        print(f"No output file provided, using: {args.output}")
+        print(f"No output file provided, using: {display_path(args.output)}")
 
     assert args.input.endswith(".txt")
     assert args.output.endswith(".csv")
@@ -208,7 +208,8 @@ if __name__ == "__main__":
         if layout.has_layer_outputs(altitude_m):
             print(
                 f"Skipping {designator} ({layout.model}): active-space outputs already in "
-                f"{layout.layer_dir(altitude_m)} (delete that directory to force rerun)."
+                f"{display_path(layout.layer_dir(altitude_m))} "
+                "(delete that directory to force rerun)."
             )
             continue
 

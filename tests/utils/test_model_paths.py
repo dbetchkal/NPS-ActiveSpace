@@ -166,6 +166,23 @@ class TestLegacyNmsimResolvers:
         assert path == str(expected)
 
 
+class TestDisplayPath:
+    def test_normalizes_backslashes(self) -> None:
+        assert p.display_path(r"C:\projects\DENATRLA\Output_Data\nmsim") == (
+            "C:/projects/DENATRLA/Output_Data/nmsim"
+        )
+
+    def test_preserves_forward_slashes(self) -> None:
+        assert p.display_path("/data/DENATRLA/Output_Data/aam") == (
+            "/data/DENATRLA/Output_Data/aam"
+        )
+
+    def test_normalizes_mixed_separators(self) -> None:
+        assert p.display_path(r"C:\projects\DENATRLA\Output_Data/nmsim/scratch") == (
+            "C:/projects/DENATRLA/Output_Data/nmsim/scratch"
+        )
+
+
 class TestModelAwarePaths:
     def test_model_output_dirs(self, site_tree) -> None:
         project_dir, unit, site, _year = site_tree

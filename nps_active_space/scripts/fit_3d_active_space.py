@@ -39,4 +39,4 @@ if __name__ == "__main__":
     result = layered.fit(annots, plot_savepath=plot_savepath)
 
     csv_file = upsert_project_fit(project_dir, usy, args.model, result)
-    print(f"Fit results saved to {csv_file}")
+    print(f"Fit results saved to {p.display_path(csv_file)}")

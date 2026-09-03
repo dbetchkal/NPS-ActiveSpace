@@ -52,6 +52,7 @@ from nps_active_space.active_space.propagation_model import (
     AAM_RUNS_SUBDIR,
 )
 from nps_active_space.utils.models import Microphone
+from nps_active_space.utils.paths import display_path
 
 AAM_RUN_TIMEOUT_S = 600
 DEFAULT_AAM_CHUNK_SIZE = 400
@@ -94,7 +95,7 @@ def _resolve_aam_template_ncfiles_dir(aam_exe: str | Path) -> Path:
 
     existing = [path for path in candidates if path.is_dir()]
     if existing:
-        tried = ", ".join(str(path) for path in existing)
+        tried = ", ".join(display_path(path) for path in existing)
         raise FileNotFoundError(
             f"AAM NCfiles/ found but missing {AAM_TEMPLATE_NC_FILENAME}: {tried}. "
             "Set AAM_NC to the directory that contains OMNI_200.nc "
@@ -102,7 +103,7 @@ def _resolve_aam_template_ncfiles_dir(aam_exe: str | Path) -> Path:
         )
 
     exe = Path(aam_exe)
-    tried = ", ".join(str(path) for path in candidates)
+    tried = ", ".join(display_path(path) for path in candidates)
     raise FileNotFoundError(
         f"AAM NCfiles/ not found for {exe}; tried {tried}. "
         "Set AAM_NC or AAM_HOME to the NCfiles directory, or place NCfiles next to the exe "
@@ -554,7 +555,7 @@ class AamPropagationModel:
     def _run_aam(self, inp_path: Path, work_dir: Path, nc_root: Path) -> None:
         if not os.path.isfile(self.aam_shim):
             raise FileNotFoundError(
-                f"AAM executable not found at {self.aam_shim}; "
+                f"AAM executable not found at {display_path(self.aam_shim)}; "
                 "set [project] aam in your .config (path to AAM_3.0.0.exe, "
                 "or /usr/local/bin/aam in Docker)",
             )

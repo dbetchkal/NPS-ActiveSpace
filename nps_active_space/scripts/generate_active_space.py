@@ -433,7 +433,7 @@ if __name__ == '__main__':
             _fail_active_space_generation(
                 f"Ambience pickle is missing or has no usable spectral bands: {args.ambience}"
             )
-        print(f"Read ambience from {args.ambience}")
+        print(f"Read ambience from {p.display_path(args.ambience)}")
 
     # --------------- ANNOTATION LOGIC --------------- #
 
@@ -566,7 +566,7 @@ if __name__ == '__main__':
         _fail_active_space_generation(
             "No active space layers were generated successfully. "
             "Check worker errors above, model configuration, and site inputs under "
-            f"{site_dir}."
+            f"{p.display_path(site_dir)}."
         )
 
     nonempty_layers = _nonempty_active_space_count(results)
@@ -574,7 +574,7 @@ if __name__ == '__main__':
         _fail_active_space_generation(
             f"Active space generation finished but all {len(results)} geojson layers are empty. "
             "The model likely produced no audible source points. Check DEM elevation files under "
-            f"{site_dir}/Input_Data/01_ELEVATION before continuing the 3D workflow."
+            f"{p.display_path(site_dir)}/Input_Data/01_ELEVATION before continuing the 3D workflow."
         )
 
     best_omni_for_results: str | None = None
@@ -598,7 +598,7 @@ if __name__ == '__main__':
         logger.info(
             f"The best performing omni source for F-{beta_} is: {best_omni} (fbeta: {max_fbeta})"
         )
-        logger.info(f"PR plot -> {plot_savepath}")
+        logger.info("PR plot -> %s", p.display_path(plot_savepath))
 
         if beta_ == 1.0:
             best_omni_for_results = best_omni
