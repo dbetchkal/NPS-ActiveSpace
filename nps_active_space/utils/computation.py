@@ -440,25 +440,31 @@ def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50,
     -------
     Lx
     """
-    wind = pd.to_numeric(ambience_src["WindSpeed"], errors="coerce")
     n_total = len(ambience_src)
-    if wind.notna().any():
-        # Include rows with missing wind — sites without a wind sensor should not be dropped entirely.
-        ambience_rows = ambience_src.loc[wind.le(5.0) | wind.isna(), :]
-        if ambience_rows.empty:
-            _log_ambience_progress(
-                "No NVSPL rows with WindSpeed <= 5 m/s; using all rows for ambience."
-            )
-            ambience_rows = ambience_src
-        else:
-            _log_ambience_progress(
-                f"Wind filter (<= 5 m/s or missing): {len(ambience_rows):,} / {n_total:,} rows retained"
-            )
-    else:
+    if "WindSpeed" not in ambience_src.columns:
         _log_ambience_progress(
-            "NVSPL WindSpeed is missing or all NaN; skipping wind filter for ambience."
+            "NVSPL WindSpeed column absent after load; skipping wind filter for ambience."
         )
         ambience_rows = ambience_src
+    else:
+        wind = pd.to_numeric(ambience_src["WindSpeed"], errors="coerce")
+        if wind.notna().any():
+            # Include rows with missing wind — sites without a wind sensor should not be dropped entirely.
+            ambience_rows = ambience_src.loc[wind.le(5.0) | wind.isna(), :]
+            if ambience_rows.empty:
+                _log_ambience_progress(
+                    "No NVSPL rows with WindSpeed <= 5 m/s; using all rows for ambience."
+                )
+                ambience_rows = ambience_src
+            else:
+                _log_ambience_progress(
+                    f"Wind filter (<= 5 m/s or missing): {len(ambience_rows):,} / {n_total:,} rows retained"
+                )
+        else:
+            _log_ambience_progress(
+                "NVSPL WindSpeed is missing or all NaN; skipping wind filter for ambience."
+            )
+            ambience_rows = ambience_src
 
     if broadband:
         Lx = ambience_rows.loc[:, "dbA"].quantile(1 - (quantile / 100))

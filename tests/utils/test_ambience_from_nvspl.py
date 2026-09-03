@@ -50,6 +50,12 @@ class TestAmbienceFromNvspl:
         assert ambience.loc["1000"] == pytest.approx(25.0, abs=0.01)
         assert is_usable_spectral_ambience(ambience)
 
+    def test_absent_wind_column_skips_filter(self):
+        df = _make_nvspl_df().drop(columns=["WindSpeed"])
+        ambience = ambience_from_nvspl(df, quantile=90, broadband=False)
+        assert ambience.loc["1000"] == pytest.approx(25.0, abs=0.01)
+        assert is_usable_spectral_ambience(ambience)
+
     def test_all_high_wind_falls_back_to_all_rows(self):
         ambience = ambience_from_nvspl(_make_nvspl_df(wind_speed=10.0), quantile=90, broadband=False)
         assert ambience.loc["1000"] == pytest.approx(25.0, abs=0.01)
