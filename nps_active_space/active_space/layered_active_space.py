@@ -29,6 +29,14 @@ class LayeredActiveSpace():
             self.set_gain(gain)
         self.fit_pbar: tqdm | None = None
 
+        if not self.layer_dirs:
+            self.min_gain = 0.0
+            self.max_gain = 0.0
+            self.activespaces = None
+            if gain is not None:
+                self.gain = gain
+            return
+
         # determine min and max gain - import here to avoid circular import
         from nps_active_space.utils.helpers import omni_to_gain
         first_layer_dir = list(self.layer_dirs.values())[0]

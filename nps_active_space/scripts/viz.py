@@ -195,8 +195,13 @@ class Visualizer():
             self.project_dir, self.unit, self.site, self.year,
             gain, self.crs, model=model,
         )
-        if active_3d.activespaces is None:
-            print(f"No active space layers loaded for {model} at gain {gain} dB.")
+        if not active_3d.layer_dirs or active_3d.activespaces is None:
+            site = p.site_dir(self.project_dir, self.unit, self.site)
+            root = p.model_activespaces_dir(site, model)
+            print(
+                f"No active space layers loaded for {self._model_display_name(model)} "
+                f"at gain {gain} dB (looked under {root})."
+            )
             return
         prefix = self._model_display_name(model)
         self._legend_models.append((prefix, color))
@@ -222,8 +227,13 @@ class Visualizer():
                 self.project_dir, self.unit, self.site, self.year,
                 model_gain, self.crs, model=model,
             )
-            if active_3d.activespaces is None:
-                print(f"No active space layers loaded for {model} at gain {model_gain} dB.")
+            if not active_3d.layer_dirs or active_3d.activespaces is None:
+                site = p.site_dir(self.project_dir, self.unit, self.site)
+                root = p.model_activespaces_dir(site, model)
+                print(
+                    f"No active space layers loaded for {self._model_display_name(model)} "
+                    f"at gain {model_gain} dB (looked under {root})."
+                )
                 continue
             print(
                 f"Loaded {self._model_display_name(model)} at {model_gain} dB: "

@@ -89,6 +89,15 @@ def load_layered_activespace(
     for dir in p.activespace_layer_dirs(project_dir, unit, site, year, model=model):
         altitude = int(os.path.basename(dir).split("_")[1].split("m")[0])
         layer_dirs[altitude] = dir
+    if not layer_dirs:
+        site_dir_path = p.site_dir(project_dir, unit, site)
+        activespaces_root = p.model_activespaces_dir(site_dir_path, model)
+        logging.getLogger(__name__).warning(
+            "No active space layers under %s for %s (%s)",
+            activespaces_root,
+            p.deployment_id(unit, site, year),
+            model,
+        )
     study_area = load_studyarea(project_dir, unit, site, year)
     return LayeredActiveSpace(p.deployment_id(unit, site, year), layer_dirs, study_area, gain, crs)
 
