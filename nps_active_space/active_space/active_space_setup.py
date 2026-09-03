@@ -237,7 +237,10 @@ def upsert_project_fit(
 
 
 def cleanup_propagation_artifacts(site_dir: str, model: AcousticModel, max_tries: int = 5) -> None:
-    """Remove NMSim control/batch/TRJ/TIS scratch files. AAM run dirs are left intact."""
+    """Delete NMSim scratch files after a layer run (see ``--cleanup-nmsim-scratch``).
+
+    AAM outputs and prediction CSV caches are left intact.
+    """
     if AcousticModel.parse(model) is not AcousticModel.NMSIM:
         return
     patterns = [

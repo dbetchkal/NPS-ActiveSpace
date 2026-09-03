@@ -125,7 +125,7 @@ Work on branch **`feature/aam-propagation-model`** (or similar), rebased onto `m
 1. ✅ Constructor injection of `AamPropagationModel`; `_run_propagation_model` replaces NMSim-only subprocess path.
 2. ✅ Batching at `propagation_model.max_points_per_run` via `_preprocess_source_points`.
 3. ✅ Cache CSV, audibility, contour, polygon unchanged.
-4. ✅ AAM outputs under ``Output_Data/aam/predictions/`` and ``Output_Data/aam/runs/`` (NMSim stays ``TIG_TIS/``).
+4. ✅ AAM outputs under ``Output_Data/aam/``; NMSim under ``Output_Data/nmsim/`` (predictions, scratch, ACTIVESPACES).
 5. ✅ 12.5 kHz: AAM POI has no band 41 → `NaN` in adapter (audibility uses `max(ambience, hearing threshold)` per band).
 6. ✅ CLI/config flag to select AAM in `generate_active_space.py` (`--model`, model-scoped paths, `fits.csv`).
 
@@ -145,7 +145,7 @@ Work on branch **`feature/aam-propagation-model`** (or similar), rebased onto `m
 
 ## Site directory layout (AAM)
 
-AAM does **not** use ``Output_Data/TIG_TIS/`` (NMSim-only: ``.tis`` + centibel CSV cache).
+AAM does **not** use NMSim scratch or prediction paths (``.tis`` / centibel CSV cache under ``Output_Data/nmsim/``).
 
 | Path | Role |
 |------|------|
@@ -157,7 +157,7 @@ AAM does **not** use ``Output_Data/TIG_TIS/`` (NMSim-only: ``.tis`` + centibel C
 | ``Output_Data/aam/ACTIVESPACES/`` | Final active-space GeoJSON (model-scoped layout) |
 
 Legacy paths (still read if present): ``Input_Data/AAM/terrain/{mic}/`` and ``Input_Data/AAM/terrain_{mic}/`` for terrain;
-``Output_Data/TIG_TIS/*.csv`` from early AAM runs should be deleted (they mixed with NMSim caches).
+stale ``Output_Data/TIG_TIS/*.csv`` from early AAM runs should be deleted (they mixed with NMSim caches). New runs use ``Output_Data/nmsim/predictions/``.
 
 ---
 

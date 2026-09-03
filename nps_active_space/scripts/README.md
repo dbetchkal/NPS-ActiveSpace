@@ -98,7 +98,9 @@ check_study_duration_robustness.py
 
 If you want to generate many active spaces at the same time, you can leverage the batch script to do so. This is useful for running it overnight or while you do other work.
 
-The batch runner collects per-run metrics from a JSON output written by `generate_active_space.py` (`--results-out`), then appends a row to the output CSV. Failed runs are skipped (no CSV row).
+The batch runner collects per-run metrics from a JSON output written by `generate_active_space.py` (`--results-out`), then upserts a row in the output CSV keyed by **designator + model**. Failed runs are skipped (no CSV row).
+
+**Resume / skip:** a layer is skipped only when its **model-scoped** `Output_Data/{nmsim|aam}/ACTIVESPACES/{deployment}_{alt}m/` folder already contains `*_O_*.geojson` files. The batch CSV is **not** used to skip layers — so an NMSim batch run does not block a later AAM run for the same altitude. Delete the layer directory to force regeneration.
 
 ### Batch 3D Active Space
 
@@ -406,7 +408,7 @@ Run [`project_setup.py`](#project-setup) for each deployment before generating a
 | `--omni-max`            | **_default 40.0_**<br/>The highest gain to generate an active space for. Active spaces will be generated for all gains between `--omni-min` and `--omni-max`.                                                                                                           |
 | `-l`, `--altitude`      | Use this flag to generate the active spaces at a particular altitude (in meters). _Ex_: `-l 1524` generates active spaces at 1524 meters or 5000 feet.<br/>If not passed, the average altitude of the valid, audible ground-truthed tracks will be calculated and used. |
 | `-b`, `--beta`          | **_default 1.0_**<br/>the beta value to use when calculating the f-beta for each active space.<br/>https://en.wikipedia.org/wiki/F-score#F%CE%B2_score)                                                                                                                 |
-| `--cleanup`             | If this flag is added, all intermediary control and batch files will be deleted upon script completion.                                                                                                                                                                 |
+| `--cleanup-nmsim-scratch`, `--cleanup` | **NMSim only.** After the run, delete scratch files (control*/batch* at site root, `.trj`, `.tis`). Does **not** remove prediction CSV caches, ACTIVESPACES geojson, or AAM `Output_Data/aam/`. No effect when `--model aam`. |
 | `--annotation-file`     | If provided, basename of GEOJSON annotations file to use instead of the default. File should be in the site directory.                                                                                                                                                  |
 | `--results-out`         | Optional path to write structured run results as JSON. Keys match the [batch output CSV columns](#generate-active-space-batch) (`Number of valid annotated segments`, `Mean altitude`, `KDE reduction (%)`, `1/3rd Octave Gain (F1)`, `F1`). Used internally by `generate_active_space_batch.py`. |
 
@@ -428,7 +430,7 @@ This script generates active space estimates for a set of senarios provided in a
 
 *NOTE: this script may be run independently and also works "behind the scenes" as part of [`generate_3d_active_space.py`](#generate-3d-active-space)*
 
-Each command invokes `generate_active_space.py` with a temporary `--results-out` JSON path. On success, the JSON is read and appended as one row to the output CSV; on failure, that run is skipped and the CSV is left unchanged.
+Each command invokes `generate_active_space.py` with a temporary `--results-out` JSON path. On success, the JSON is read and upserted as one row in the output CSV (keyed by designator and `--model`); on failure, that run is skipped and the CSV is left unchanged.
 
 | command-line arg           | description                                                                                                                                      |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |

@@ -316,8 +316,17 @@ def build_parser() -> ArgumentParser:
                         help="Source-point mesh density (default: pipeline default).")
     parser.add_argument('-b', '--beta', nargs='+', type=float, default=[1.0],
                         help="Beta value(s) to use when calculating fbeta. Accepts one or more values.")
-    parser.add_argument('--cleanup', action='store_true',
-                        help="Remove intermediary NMSim control/batch/TRJ/TIS files.")
+    parser.add_argument(
+        '--cleanup-nmsim-scratch',
+        '--cleanup',
+        action='store_true',
+        dest='cleanup_nmsim_scratch',
+        help=(
+            "After the run, delete NMSim scratch only: control*/batch* at the site root, "
+            ".trj under Input_Data/03_TRAJECTORY, and .tis under Output_Data/nmsim/scratch. "
+            "No effect on AAM. Does not remove prediction CSV caches or ACTIVESPACES geojson."
+        ),
+    )
     parser.add_argument('--annotation-file',
                         help="Basename of GEOJSON annotations file to use, if not the default. File should be in the site directory.")
     parser.add_argument(
@@ -542,11 +551,11 @@ if __name__ == '__main__':
                 pool.join()
                 raise
         except KeyboardInterrupt:
-            if args.cleanup:
+            if args.cleanup_nmsim_scratch:
                 cleanup_propagation_artifacts(site_dir, model)
             sys.exit(1)
 
-    if args.cleanup:
+    if args.cleanup_nmsim_scratch:
         cleanup_propagation_artifacts(site_dir, model)
 
     # --------------- ANALYSIS --------------- #
