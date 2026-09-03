@@ -8,13 +8,13 @@ import pytest
 import nps_active_space.utils.config as cfg
 from nps_active_space.scripts.generate_active_space_batch import (
     batch_failure_hint,
-    layer_has_activespace_outputs,
     read_results_file,
     resolve_layer_output_dir,
     run_deployment,
     upsert_result_row,
 )
 from nps_active_space.utils.enums import AcousticModel
+from nps_active_space.utils.paths import layer_has_activespace_outputs
 from script_test_helpers import stub_generate_active_space_cmd
 
 VALID_RESULTS = {

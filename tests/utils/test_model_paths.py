@@ -225,6 +225,23 @@ class TestModelAwarePaths:
         tested = p.tested_points_dir(site_dir, unit, site, year, 1000, AcousticModel.AAM)
         assert tested.endswith(f"Output_Data/aam/TESTED_POINTS/{unit}{site}{year}_1000m")
 
+    def test_site_model_paths_reuses_layout(self, site_tree) -> None:
+        project_dir, unit, site, year = site_tree
+        layout = p.SiteModelPaths.from_project(
+            str(project_dir), unit, site, year, AcousticModel.AAM,
+        )
+        assert layout.layer_dir(1500) == p.activespace_layer_dir(
+            layout.site_dir, unit, site, year, 1500, AcousticModel.AAM,
+        )
+        assert layout.tested_points_dir(1500) == p.tested_points_dir(
+            layout.site_dir, unit, site, year, 1500, AcousticModel.AAM,
+        )
+        assert "Input_Data/aam" in layout.failure_hint()
+        assert "TIG_TIS" not in layout.failure_hint()
+        nmsim = p.SiteModelPaths.for_site(layout.site_dir, AcousticModel.NMSIM)
+        assert nmsim.nmsim_scratch_glob_patterns()
+        assert not layout.nmsim_scratch_glob_patterns()
+
     def test_precision_recall_3d_plot_model_scoped(self, site_tree) -> None:
         project_dir, unit, site, year = site_tree
         path = p.precision_recall_3d_plot(

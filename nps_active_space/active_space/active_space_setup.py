@@ -13,11 +13,9 @@ import pandas as pd
 
 import nps_active_space.utils.config as cfg
 from nps_active_space.active_space import ActiveSpaceGenerator
-from nps_active_space.active_space.propagation_model import NMSIM_SCRATCH_SUBDIR
 from nps_active_space.utils import paths as p
 from nps_active_space.utils.enums import AcousticModel
 from nps_active_space.utils.helpers import omni_to_gain
-from nps_active_space.utils.legacy_nmsim_paths import LEGACY_PREDICTIONS_SUBDIR
 
 if TYPE_CHECKING:
     from nps_active_space.utils.models import Microphone
@@ -140,12 +138,9 @@ def precision_recall_plot_path(
     beta: float,
     model: AcousticModel,
 ) -> str:
-    usy = p.deployment_id(unit, site, year)
-    plot_name = (
-        f"PrecisionRecallPlot_{usy}_{altitude_m}m_"
-        f"{str(beta).replace('.', 'p')}.png"
-    )
-    return os.path.join(p.precision_recall_dir(site_dir, model), plot_name)
+    return p.SiteModelPaths(
+        site_dir, AcousticModel.parse(model), unit, site, year,
+    ).precision_recall_plot(altitude_m, beta)
 
 
 def resolve_3d_fit_gain(
@@ -241,15 +236,10 @@ def cleanup_propagation_artifacts(site_dir: str, model: AcousticModel, max_tries
 
     AAM outputs and prediction CSV caches are left intact.
     """
-    if AcousticModel.parse(model) is not AcousticModel.NMSIM:
+    layout = p.SiteModelPaths.for_site(site_dir, model)
+    patterns = layout.nmsim_scratch_glob_patterns()
+    if not patterns:
         return
-    patterns = [
-        f"{site_dir}/control*",
-        f"{site_dir}/batch*",
-        f"{site_dir}/Input_Data/03_TRAJECTORY/*.trj",
-        f"{site_dir}/{LEGACY_PREDICTIONS_SUBDIR}/*.tis",
-        f"{site_dir}/{NMSIM_SCRATCH_SUBDIR}/*.tis",
-    ]
     try:
         for pattern in patterns:
             for file in glob.glob(pattern):

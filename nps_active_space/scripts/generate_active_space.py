@@ -34,7 +34,6 @@ from nps_active_space.active_space.active_space_setup import (
     build_active_space_generator,
     build_batch_run_results,
     cleanup_propagation_artifacts,
-    precision_recall_plot_path,
     resolve_acoustic_model,
     write_batch_run_results,
 )
@@ -389,8 +388,15 @@ if __name__ == '__main__':
     # --------------- INIT --------------- #
 
     cfg.initialize(environment=args.environment)
-    site_dir = p.site_dir(cfg.read('project', 'dir'), args.unit, args.site)
-    logger = get_logger(f"ACTIVE-SPACE: {args.unit}{args.site}{args.year}")
+    layout = p.SiteModelPaths.from_project(
+        cfg.read('project', 'dir'),
+        args.unit,
+        args.site,
+        args.year,
+        model,
+    )
+    site_dir = layout.site_dir
+    logger = get_logger(f"ACTIVE-SPACE: {layout.usy}")
 
     ladder_sources = get_omni_sources(lower=args.omni_min, upper=args.omni_max)
     extra_sources = args.sources or []
@@ -477,7 +483,7 @@ if __name__ == '__main__':
 
     # --------------- ACTIVE SPACE GENERATION --------------- #
 
-    usy = p.deployment_id(args.unit, args.site, args.year)
+    usy = layout.usy
     src_pt_density = args.density if args.density is not None else DEFAULT_SRC_PT_DENSITY
     logger.info(
         f"Generating active spaces for {usy} using {model} "
@@ -496,15 +502,11 @@ if __name__ == '__main__':
     except FileNotFoundError as exc:
         _fail_active_space_generation(str(exc))
 
-    active_savedir = p.activespace_layer_dir(
-        site_dir, args.unit, args.site, args.year, altitude_, model,
-    )
-    tested_pts_savedir = p.tested_points_dir(
-        site_dir, args.unit, args.site, args.year, altitude_, model,
-    )
+    active_savedir = layout.layer_dir(altitude_)
+    tested_pts_savedir = layout.tested_points_dir(altitude_)
     os.makedirs(active_savedir, exist_ok=True)
     os.makedirs(tested_pts_savedir, exist_ok=True)
-    os.makedirs(p.precision_recall_dir(site_dir, model), exist_ok=True)
+    os.makedirs(layout.precision_recall_dir, exist_ok=True)
 
     results = []
     tested_pts_record = {}
@@ -579,9 +581,7 @@ if __name__ == '__main__':
     f1_for_results: float | None = None
 
     for beta_ in args.beta:
-        plot_savepath = precision_recall_plot_path(
-            site_dir, args.unit, args.site, args.year, altitude_, beta_, model,
-        )
+        plot_savepath = layout.precision_recall_plot(altitude_, beta_)
         os.makedirs(os.path.dirname(plot_savepath), exist_ok=True)
         best_omni, max_fbeta, best_precision, best_recall, _ = select_optimal(
             unit=args.unit,

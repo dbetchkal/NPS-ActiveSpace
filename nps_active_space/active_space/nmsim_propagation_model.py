@@ -235,6 +235,7 @@ class NmsimPropagationModel:
             "1250", "1600", "2000", "2500", "3150", "4000", "5000", "6300", "8000", "10000", "12500",
         ]
         tis_df = tis_df.drop("TIME", axis=1)
+        # NMSIM .tis band columns are integer centibels; convert to dB here.
         tis_df = (tis_df.astype(float) * 0.1).round(6)
 
         assert not tis_df.empty, (

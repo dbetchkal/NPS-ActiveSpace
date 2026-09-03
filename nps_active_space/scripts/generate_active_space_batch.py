@@ -7,14 +7,12 @@ import sys
 import pandas as pd
 import re
 from argparse import ArgumentParser
-import glob
 import shlex
-import shutil
 import tempfile
 from pathlib import Path
 
-from nps_active_space.utils import paths as p
 from nps_active_space.utils.enums import AcousticModel
+from nps_active_space.utils.paths import SiteModelPaths
 
 RESULT_COLUMNS = [
     "Designator",
@@ -48,46 +46,29 @@ def parse_layer_command_options(options: str):
     return _LAYER_OPTION_PARSER.parse_known_args(shlex.split(options))[0]
 
 
-def resolve_layer_output_dir(options: str) -> tuple[Path, AcousticModel]:
-    """Return the per-layer ACTIVESPACES directory for a batch command."""
+def resolve_layer_layout(options: str) -> tuple[SiteModelPaths, int]:
+    """Return site/model layout and altitude for one batch command line."""
     cmd_args = parse_layer_command_options(options)
     cfg.initialize(cmd_args.environment)
-    site_dir = p.site_dir(cfg.read("project", "dir"), cmd_args.unit, cmd_args.site)
-    model = AcousticModel.parse(cmd_args.model)
-    layer_dir = Path(
-        p.activespace_layer_dir(
-            site_dir,
-            cmd_args.unit,
-            cmd_args.site,
-            cmd_args.year,
-            cmd_args.altitude,
-            model,
-        ),
+    layout = SiteModelPaths.from_project(
+        cfg.read("project", "dir"),
+        cmd_args.unit,
+        cmd_args.site,
+        cmd_args.year,
+        cmd_args.model,
     )
-    return layer_dir, model
+    return layout, cmd_args.altitude
 
 
-def layer_has_activespace_outputs(layer_dir: Path) -> bool:
-    """True when the model-scoped layer folder already has omni geojson outputs."""
-    if not layer_dir.is_dir():
-        return False
-    return any(layer_dir.glob("*_O_*.geojson"))
+def resolve_layer_output_dir(options: str) -> tuple[Path, AcousticModel]:
+    """Return the per-layer ACTIVESPACES directory for a batch command."""
+    layout, altitude_m = resolve_layer_layout(options)
+    return Path(layout.layer_dir(altitude_m)), layout.model
 
 
 def batch_failure_hint(site_dir: str, model: AcousticModel) -> str:
     """Model-specific paths to inspect after a failed batch layer."""
-    match AcousticModel.parse(model):
-        case AcousticModel.AAM:
-            return (
-                f"check {site_dir}/Input_Data/aam, "
-                f"{site_dir}/Output_Data/aam/runs, and active_space.log"
-            )
-        case AcousticModel.NMSIM:
-            return (
-                f"check {site_dir}/Input_Data/03_TRAJECTORY, "
-                f"{site_dir}/Output_Data/nmsim/predictions, and "
-                f"{site_dir}/Output_Data/nmsim/scratch"
-            )
+    return SiteModelPaths.for_site(site_dir, model).failure_hint()
 
 
 def upsert_result_row(output_df: pd.DataFrame, result_series: pd.Series) -> pd.DataFrame:
@@ -186,66 +167,6 @@ def run_deployment(
             results_path.unlink()
 
 
-def copy_output_files(option_str, savedir, designator):
-    """
-    Copies output files from the site directory to another directory.
-    This keeps things organized, and avoids these files being overwritten
-    by future runs that use the same site directory.
-
-    Parameters
-    ----------
-    option_str: str
-        The string representing the command options for this run. E.g.,
-        "-e DENA_streamline -u DENA -s TRLA -y 2025 --cleanup"
-    savedir: str
-        Path to a directory to save files to. Files will be copied to a subdirectory
-        in savedir named with the designator.
-    designator: str
-        Unique string representing this run.
-    """
-    dst_dir = os.path.join(savedir, designator)
-    os.makedirs(dst_dir, exist_ok=True)
-    print(f"Copying output to {dst_dir}...")
-
-    # Parse command options to get project dir, unit, and site.
-    # We need these to locate the site directory where the files we want to copy are,
-    # and to figure out which files are relevant to this run that we should copy
-    argparse = ArgumentParser()
-    argparse.add_argument("-e", "--environment")
-    argparse.add_argument("-u", "--unit")
-    argparse.add_argument("-s", "--site")
-    argparse.add_argument("-y", "--year")
-    argparse.add_argument('--annotation-file')
-    # Use shlex to convert option str into a list for argparse.
-    # shlex avoids splitting on spaces that are inside quotes
-    args, _ = argparse.parse_known_args(shlex.split(option_str))
-
-    cfg.initialize(environment=args.environment)
-    site_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
-    deployment = f"{args.unit}{args.site}{args.year}"
-
-    # Get filenames we wish to copy
-    activespace_files = glob.glob(os.path.join(
-        site_dir, "Output_Data", "ACTIVESPACES", f"{deployment}_O_*.geojson"))
-    tested_pt_files = glob.glob(os.path.join(
-        site_dir, "Output_Data", "TESTED_POINTS", f"{deployment}_O_*.pkl"))
-    pr_plots = glob.glob(os.path.join(
-        site_dir, f"PrecisionRecallPlot_{deployment}*.png"))
-    # If a custom annotation file was used, copy that.
-    # Otherwise, copy the default annotations file(s)
-    if args.annotation_file is not None:
-        annotation_files = [os.path.join(site_dir, args.annotation_file)]
-    else:
-        annotation_files = glob.glob(os.path.join(
-            site_dir, f"{args.unit}{args.site}{args.year}*saved_annotations*.geojson"))
-
-    # Copy files
-    for src_path in activespace_files + tested_pt_files + pr_plots + annotation_files:
-        basename = os.path.basename(src_path)
-        dst_path = os.path.join(dst_dir, basename)
-        shutil.copy2(src_path, dst_path)  # copy2 to preserve metadata
-
-
 if __name__ == "__main__":
     argparse = ArgumentParser()
     argparse.add_argument("input", help="Path to input .txt file containing commands to run. This file is a sequence of lines,"
@@ -283,29 +204,24 @@ if __name__ == "__main__":
         print(line)
         designator, options = re.split(r'\s+', line, maxsplit=1)
 
-        layer_dir, model = resolve_layer_output_dir(options)
-        if layer_has_activespace_outputs(layer_dir):
+        layout, altitude_m = resolve_layer_layout(options)
+        if layout.has_layer_outputs(altitude_m):
             print(
-                f"Skipping {designator} ({model}): active-space outputs already in "
-                f"{layer_dir} (delete that directory to force rerun)."
+                f"Skipping {designator} ({layout.model}): active-space outputs already in "
+                f"{layout.layer_dir(altitude_m)} (delete that directory to force rerun)."
             )
             continue
 
         # assemble and run the command
         script_path = Path(ACTIVE_SPACE_DIR) / "scripts" / "generate_active_space.py"
         cmd = [sys.executable, "-u", "-W", "ignore", str(script_path)] + shlex.split(options)
-        cmd_args = parse_layer_command_options(options)
-        site_dir = p.site_dir(cfg.read("project", "dir"), cmd_args.unit, cmd_args.site)
-        result_series = run_deployment(designator, cmd, model)
+        result_series = run_deployment(designator, cmd, layout.model)
         if result_series is None:
             print(
-                f"Run failed for {designator} ({model}); skipping CSV update. "
-                f"See errors above ({batch_failure_hint(site_dir, model)})."
+                f"Run failed for {designator} ({layout.model}); skipping CSV update. "
+                f"See errors above ({layout.failure_hint()})."
             )
             continue
 
         output_df = upsert_result_row(output_df, result_series)
         output_df.to_csv(output_csv, index=False)
-
-        # if args.savedir is not None:
-        #     copy_output_files(options, args.savedir, designator)

@@ -62,8 +62,11 @@ if __name__ == "__main__":
 
     cfg.initialize(args.environment)
     project_dir = cfg.read("project", "dir")
-    site_dir = p.site_dir(project_dir, args.unit, args.site)
-    usy = f"{args.unit}{args.site}{args.year}"
+    layout = p.SiteModelPaths.from_project(
+        project_dir, args.unit, args.site, args.year, args.model,
+    )
+    site_dir = layout.site_dir
+    usy = layout.usy
 
     # determine altitudes and print to console, so user can quickly verify we're doing what they wanted
     # before we get into NVSPL processing
@@ -72,7 +75,7 @@ if __name__ == "__main__":
 
     # Precompute NVSPL ambience to save time, if applicable
     if args.ambience == "nvspl":
-        ambience_dir = os.path.join(site_dir, "Output_Data", "AMBIENCE")
+        ambience_dir = layout.ambience_dir
         ambience_pkl_path = os.path.join(ambience_dir, f"{usy}_ambience.pkl")
         ambience_plot_path = os.path.join(ambience_dir, f"{usy}_ambience_plot.png")
 

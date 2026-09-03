@@ -4,18 +4,30 @@ All filesystem paths in the pipeline should be built through these helpers (or
 ``os.path.join`` directly) rather than hard-coded backslashes or ``f"{a}/{b}"``
 strings. Forward slashes often work on Windows too, but ``os.path.join`` is
 explicit and keeps globs working on Linux/Mac.
+
+Prefer :class:`SiteModelPaths` when a caller already knows site + model (+
+deployment). The module-level functions remain for one-off lookups.
 """
 from __future__ import annotations
 
 import glob
 import os
+from dataclasses import dataclass
+from pathlib import Path
 
 from nps_active_space.active_space.propagation_model import (
+    AAM_INPUT_SUBDIR,
     AAM_OUTPUT_SUBDIR,
+    AAM_PREDICTIONS_SUBDIR,
+    AAM_RUN_LOG_FILENAME,
+    AAM_RUNS_SUBDIR,
     NMSIM_OUTPUT_SUBDIR,
+    NMSIM_PREDICTIONS_SUBDIR,
+    NMSIM_SCRATCH_SUBDIR,
 )
 from nps_active_space.utils.enums import AcousticModel
 from nps_active_space.utils.legacy_nmsim_paths import (
+    LEGACY_PREDICTIONS_SUBDIR,
     NMSIM_ACTIVESPACES_SUBDIR,
     is_standard_altitude_layer_dir,
     resolve_activespace_geojson as _resolve_activespace_geojson,
@@ -65,6 +77,139 @@ def model_activespaces_dir(site_dir_path: str, model: AcousticModel) -> str:
             return join(site_dir_path, NMSIM_ACTIVESPACES_SUBDIR)
 
 
+def layer_has_activespace_outputs(layer_dir: str | Path) -> bool:
+    """True when a layer folder already has omni geojson outputs."""
+    layer_path = Path(layer_dir)
+    if not layer_path.is_dir():
+        return False
+    return any(layer_path.glob("*_O_*.geojson"))
+
+
+@dataclass(frozen=True)
+class SiteModelPaths:
+    """Model-scoped site layout. Build once per generate/batch/fit call."""
+
+    site_dir: str
+    model: AcousticModel
+    unit: str
+    site: str
+    year: int | str
+
+    @classmethod
+    def from_project(
+        cls,
+        project_dir: str,
+        unit: str,
+        site: str,
+        year: int | str,
+        model: AcousticModel | str,
+    ) -> SiteModelPaths:
+        return cls(
+            site_dir=site_dir(project_dir, unit, site),
+            model=AcousticModel.parse(model),
+            unit=unit,
+            site=site,
+            year=year,
+        )
+
+    @classmethod
+    def for_site(cls, site_dir_path: str, model: AcousticModel | str) -> SiteModelPaths:
+        """Layout for site-level dirs that do not need a deployment id."""
+        return cls(
+            site_dir=site_dir_path,
+            model=AcousticModel.parse(model),
+            unit="",
+            site="",
+            year="",
+        )
+
+    @property
+    def usy(self) -> str:
+        return deployment_id(self.unit, self.site, self.year)
+
+    @property
+    def output_dir(self) -> str:
+        return model_output_dir(self.site_dir, self.model)
+
+    @property
+    def activespaces_dir(self) -> str:
+        return model_activespaces_dir(self.site_dir, self.model)
+
+    @property
+    def predictions_dir(self) -> str:
+        match self.model:
+            case AcousticModel.AAM:
+                return join(self.site_dir, AAM_PREDICTIONS_SUBDIR)
+            case AcousticModel.NMSIM:
+                return join(self.site_dir, NMSIM_PREDICTIONS_SUBDIR)
+
+    @property
+    def scratch_dir(self) -> str:
+        match self.model:
+            case AcousticModel.AAM:
+                return join(self.site_dir, AAM_RUNS_SUBDIR)
+            case AcousticModel.NMSIM:
+                return join(self.site_dir, NMSIM_SCRATCH_SUBDIR)
+
+    @property
+    def precision_recall_dir(self) -> str:
+        return join(self.output_dir, "PRECISION_RECALL")
+
+    @property
+    def ambience_dir(self) -> str:
+        return join(self.site_dir, "Output_Data", "AMBIENCE")
+
+    @property
+    def aam_input_dir(self) -> str:
+        return join(self.site_dir, AAM_INPUT_SUBDIR)
+
+    @property
+    def trajectory_dir(self) -> str:
+        return join(self.site_dir, "Input_Data", "03_TRAJECTORY")
+
+    def layer_dir(self, altitude_m: int) -> str:
+        return join(self.activespaces_dir, f"{self.usy}_{altitude_m}m")
+
+    def tested_points_dir(self, altitude_m: int) -> str:
+        return join(self.output_dir, "TESTED_POINTS", f"{self.usy}_{altitude_m}m")
+
+    def precision_recall_plot(self, altitude_m: int, beta: float) -> str:
+        beta_str = str(beta).replace(".", "p")
+        return join(
+            self.precision_recall_dir,
+            f"PrecisionRecallPlot_{self.usy}_{altitude_m}m_{beta_str}.png",
+        )
+
+    def has_layer_outputs(self, altitude_m: int) -> bool:
+        return layer_has_activespace_outputs(self.layer_dir(altitude_m))
+
+    def failure_hint(self) -> str:
+        """Model-specific paths to inspect after a failed layer run."""
+        match self.model:
+            case AcousticModel.AAM:
+                return (
+                    f"check {self.aam_input_dir}, {self.scratch_dir}, "
+                    f"and {AAM_RUN_LOG_FILENAME}"
+                )
+            case AcousticModel.NMSIM:
+                return (
+                    f"check {self.trajectory_dir}, {self.predictions_dir}, "
+                    f"and {self.scratch_dir}"
+                )
+
+    def nmsim_scratch_glob_patterns(self) -> list[str]:
+        """Glob patterns for ``--cleanup-nmsim-scratch``. Empty for AAM."""
+        if self.model is not AcousticModel.NMSIM:
+            return []
+        return [
+            join(self.site_dir, "control*"),
+            join(self.site_dir, "batch*"),
+            join(self.trajectory_dir, "*.trj"),
+            join(self.site_dir, LEGACY_PREDICTIONS_SUBDIR, "*.tis"),
+            join(self.site_dir, NMSIM_SCRATCH_SUBDIR, "*.tis"),
+        ]
+
+
 def activespaces_dir(project_dir: str, unit: str, site: str) -> str:
     """Legacy-compatible ACTIVESPACES root (prefers new NMSim layout when populated)."""
     return resolve_nmsim_activespaces_dir(site_dir(project_dir, unit, site))
@@ -78,8 +223,9 @@ def activespace_layer_dir(
     altitude_m: int,
     model: AcousticModel,
 ) -> str:
-    usy = deployment_id(unit, site, year)
-    return join(model_activespaces_dir(site_dir_path, model), f"{usy}_{altitude_m}m")
+    return SiteModelPaths(
+        site_dir_path, AcousticModel.parse(model), unit, site, year,
+    ).layer_dir(altitude_m)
 
 
 def activespace_layer_dirs(
@@ -149,12 +295,9 @@ def tested_points_dir(
     altitude_m: int,
     model: AcousticModel,
 ) -> str:
-    usy = deployment_id(unit, site, year)
-    return join(
-        model_output_dir(site_dir_path, model),
-        "TESTED_POINTS",
-        f"{usy}_{altitude_m}m",
-    )
+    return SiteModelPaths(
+        site_dir_path, AcousticModel.parse(model), unit, site, year,
+    ).tested_points_dir(altitude_m)
 
 
 def annotation_files(project_dir: str, unit: str, site: str, year) -> list[str]:

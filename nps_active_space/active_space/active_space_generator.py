@@ -15,7 +15,11 @@ from shapely.validation import make_valid
 from tqdm import tqdm
 from warnings import warn
 
-from nps_active_space.active_space.propagation_model import PropagationModel, prediction_cache_csv_path
+from nps_active_space.active_space.prediction_cache import predict_with_cache
+from nps_active_space.active_space.propagation_model import (
+    PropagationModel,
+    prediction_cache_csv_path,
+)
 from nps_active_space.setup.elevation import get_project_setup_elevation
 from nps_active_space.setup.site_writer import create_site_dir
 from nps_active_space.utils.models import Microphone
@@ -209,156 +213,6 @@ class ActiveSpaceGenerator:
         
         return source_pts.iloc[aboveground_indices], source_pts.iloc[underground_indices]
 
-    @staticmethod
-    def _nmsim_cache_failure_reason(csv_filename: str) -> str | None:
-        """
-        Return why an on-disk cache cannot be used, or None if the file is readable.
-
-        Returns None when ``csv_filename`` does not exist (no cache yet) or when the
-        file contains valid NMSIM prediction rows.
-        """
-        if not os.path.exists(csv_filename):
-            return None
-        if os.path.getsize(csv_filename) == 0:
-            return "file is empty (0 bytes)"
-        try:
-            preview = pd.read_csv(csv_filename, nrows=1)
-        except pd.errors.EmptyDataError:
-            return "file has no parseable CSV content"
-        if preview.empty:
-            return "file has a header but no data rows"
-        required = {"Xpos", "Ypos", "A"}
-        missing = sorted(required - set(preview.columns))
-        if missing:
-            return f"missing required columns: {missing}"
-        return None
-
-    @staticmethod
-    def _nmsim_cache_is_readable(csv_filename: str) -> bool:
-        """Return True when ``csv_filename`` exists and contains parseable NMSIM cache rows."""
-        return (
-            os.path.exists(csv_filename)
-            and ActiveSpaceGenerator._nmsim_cache_failure_reason(csv_filename) is None
-        )
-
-    @staticmethod
-    def load_prev_nmsim_predictions(source_pts: gpd.GeoDataFrame, csv_filename: str, altitude_m: int
-                                     ) -> Tuple[pd.DataFrame, pd.DataFrame, gpd.GeoDataFrame]:
-        """
-        Loads previous NMSIM predictions and compares them against source points we want to compute
-        to see if any have been previously computed. This method is static so external scripts can use
-        it to examine NMSIM predictions easily.
-
-        Parameters
-        ----------
-        source_pts: gpd.GeoDataFrame
-            GeoDataFrame of 3D source points we wish to get NMSIM predictions for.
-        csv_filename: str
-            Path to CSV file containing previous NMSIM predictions.
-        altitude_m: int
-            Altitude of the points in the CSV file.
-
-        Returns
-        -------
-        nmsim_df_all: pd.DataFrame
-            DataFrame containing all past NMSIM predictions.
-        nmsim_df: pd.DataFrame
-            DataFrame containing past NMSIM predictions that correspond to some source point.
-        new_pts: gpd.GeoDataFrame
-            Subset of source_pts containing only the points we don't have previous results for.
-        """
-        if not ActiveSpaceGenerator._nmsim_cache_is_readable(csv_filename):
-            cache_failure = ActiveSpaceGenerator._nmsim_cache_failure_reason(csv_filename)
-            if cache_failure is not None:
-                logger.warning(
-                    "Ignoring unreadable NMSIM prediction cache at %s (%s). "
-                    "Removing file; points will be recomputed and cache rewritten after NMSIM.",
-                    csv_filename,
-                    cache_failure,
-                )
-                try:
-                    os.remove(csv_filename)
-                except OSError as exc:
-                    logger.warning(
-                        "Could not remove unreadable NMSIM prediction cache %s: %s",
-                        csv_filename,
-                        exc,
-                    )
-            nmsim_df_all = pd.DataFrame()
-            nmsim_df = pd.DataFrame()
-            new_pts = source_pts
-        else:
-            # Stored as centibels with NA for no sound (-99.9 dB); convert back to dB.
-            # Zpos is omitted in the file because it is constant within a cache.
-            nmsim_df_all = pd.read_csv(csv_filename).fillna(-999).astype("float64")
-            if not nmsim_df_all.empty:
-                sound_cols = [
-                    col for col in nmsim_df_all.columns
-                    if col not in {"Xpos", "Ypos", "Zpos"}
-                ]
-                nmsim_df_all[sound_cols] /= 10
-            nmsim_df_all["Zpos"] = altitude_m
-
-            source_idx = pd.MultiIndex.from_frame(pd.DataFrame({
-                "Xpos": source_pts.geometry.x,
-                "Ypos": source_pts.geometry.y,
-            }))
-            prev_idx = pd.MultiIndex.from_frame(nmsim_df_all[["Xpos", "Ypos"]])
-
-            nmsim_df = nmsim_df_all[prev_idx.isin(source_idx)].drop_duplicates(["Xpos", "Ypos"])
-            new_pts = source_pts[~source_idx.isin(prev_idx)].drop_duplicates("geometry")
-            assert len(new_pts) + len(nmsim_df) == len(source_pts)
-
-        return nmsim_df_all, nmsim_df, new_pts
-
-    @staticmethod
-    def _source_pts_missing_predictions(
-        source_pts: gpd.GeoDataFrame,
-        pred_df: pd.DataFrame,
-    ) -> gpd.GeoDataFrame:
-        """Points sent to predict() that have no row in the returned prediction DataFrame."""
-        if len(source_pts) == 0:
-            return source_pts.iloc[0:0]
-        if len(pred_df) == 0:
-            return source_pts
-
-        source_idx = pd.MultiIndex.from_frame(pd.DataFrame({
-            "Xpos": source_pts.geometry.x,
-            "Ypos": source_pts.geometry.y,
-        }))
-        pred_idx = pd.MultiIndex.from_frame(pred_df[["Xpos", "Ypos"]].drop_duplicates())
-        return source_pts[~source_idx.isin(pred_idx)].drop_duplicates("geometry")
-
-    @staticmethod
-    def save_nmsim_predictions(nmsim_df_all: pd.DataFrame, csv_filename: str):
-        """
-        Saves NMSIM predictions to a CSV file for future reference.
-        Compresses the data somewhat for better read-write performance and disk space usage.
-
-        Parameters
-        ----------
-        nmsim_df_all: pd.DataFrame
-            DataFrame of NMSIM predictions. Should contain columns Xpos, Ypos, Zpos (optional), A, and 1/3 octave bands
-        csv_filename: str
-            Path to CSV file to store NMSIM predictions in.
-        """
-        if nmsim_df_all.empty:
-            return
-
-        # remove duplicate points, this can happen sometimes I think and cause counting weirdness
-        nmsim_df_all = nmsim_df_all.drop_duplicates(subset=["Xpos", "Ypos"])
-
-        # Save to CSV, saving disk space and read-write time by:
-        # - using centibels to avoid writing the decimal point
-        # - storing no sound (-99.9dB) as NA
-        # - omitting the constant-valued Zpos field
-        dB_cols = nmsim_df_all.loc[:,"A":"12500"].columns
-        nmsim_df_all[dB_cols] = (
-            (nmsim_df_all[dB_cols] * 10).round().astype("Int64").replace(-999, pd.NA)
-        )
-        nmsim_df_all.drop("Zpos", axis=1, inplace=True, errors="ignore")
-        nmsim_df_all.to_csv(csv_filename, index=False)
-
     def _run_propagation_model(self, job_name: str, source_pts: gpd.GeoDataFrame,
                                omni_source: str, altitude_m: int,
                                heading: Optional[int] = None) -> gpd.GeoDataFrame:
@@ -418,9 +272,8 @@ class ActiveSpaceGenerator:
         if len(aboveground_pts) == 0:
             return audibility_pts
 
-        # Check if we've run any of the aboveground points through NMSIM before
-        # The csv filename is important - we assume all gains, altitudes, and headings in a csv are the same,
-        # and so omit this information inside the csv to save space / read-write time
+        # Cache lookup / predict / rewrite lives in prediction_cache; this method
+        # only filters geometry and turns spectra into audibility.
         omni_str = os.path.splitext(os.path.basename(omni_source))[0]
         csv_filename = prediction_cache_csv_path(
             self.root_dir,
@@ -429,50 +282,29 @@ class ActiveSpaceGenerator:
             omni_str,
             heading,
         )
-        nmsim_df_all, nmsim_df, new_pts = ActiveSpaceGenerator.load_prev_nmsim_predictions(
-            aboveground_pts, csv_filename, altitude_m)
-        # print(f"{job_name} n={len(aboveground_pts)}, old={len(nmsim_df)}, new={len(new_pts)}")
-
-        if len(new_pts) == 0:
-            # no need to run propagation model, we have all the predictions already
-            new_nmsim_df = pd.DataFrame()
-        else:
-            new_nmsim_df = self.propagation_model.predict(
+        pred_df, failed_pts = predict_with_cache(
+            lambda pts: self.propagation_model.predict(
                 self._site_context,
-                new_pts,
+                pts,
                 omni_source,
                 altitude_m,
                 job_name,
                 heading,
+            ),
+            aboveground_pts,
+            csv_filename,
+            altitude_m,
+            job_name,
+        )
+        if len(failed_pts) > 0:
+            failed_audibility = failed_pts.copy()
+            failed_audibility["audible"] = 0
+            audibility_pts = pd.concat(
+                [audibility_pts, failed_audibility],
+                ignore_index=True,
             )
-            if len(new_pts) > 0 and len(new_nmsim_df) == 0:
-                raise RuntimeError(
-                    f"{job_name}: propagation model returned no predictions "
-                    f"for {len(new_pts)} point(s)",
-                )
-            failed_pts = self._source_pts_missing_predictions(new_pts, new_nmsim_df)
-            if len(failed_pts) > 0:
-                logger.warning(
-                    "%s: marking %d point(s) inaudible after predict failure/skip",
-                    job_name,
-                    len(failed_pts),
-                )
-                failed_audibility = failed_pts.copy()
-                failed_audibility["audible"] = 0
-                audibility_pts = pd.concat(
-                    [audibility_pts, failed_audibility],
-                    ignore_index=True,
-                )
-            nmsim_df = pd.concat([nmsim_df, new_nmsim_df], ignore_index=True)
-            nmsim_df = nmsim_df.drop_duplicates(subset=["Xpos", "Ypos"])
 
-        # Combine new predictions with ALL previous predictions (not just ones matching source_pts),
-        # and save back to the csv file
-        nmsim_df_all = pd.concat([nmsim_df_all, new_nmsim_df], ignore_index=True)
-        ActiveSpaceGenerator.save_nmsim_predictions(nmsim_df_all, csv_filename)
-
-        # Determine the audibility of points that were tested.
-        nmsim_audibility_pts = self._find_audible_points(nmsim_df, crs)
+        nmsim_audibility_pts = self._find_audible_points(pred_df, crs)
         audibility_pts = pd.concat([audibility_pts, nmsim_audibility_pts], ignore_index=True)
 
         return audibility_pts

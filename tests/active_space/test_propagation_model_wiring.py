@@ -10,6 +10,7 @@ import pytest
 from shapely.geometry import Point
 
 from nps_active_space.active_space.active_space_generator import ActiveSpaceGenerator
+from nps_active_space.active_space.prediction_cache import source_pts_missing_predictions
 from nps_active_space.active_space.propagation_model import NMSIM_BAND_COLUMNS
 
 
@@ -202,6 +203,6 @@ class TestMissingPredictionHandling:
             "Zpos": [1000.0],
             "A": [50.0],
         })
-        missing = ActiveSpaceGenerator._source_pts_missing_predictions(pts, preds)
+        missing = source_pts_missing_predictions(pts, preds)
         assert len(missing) == 1
         assert missing.geometry.x.iloc[0] == 500010.0
