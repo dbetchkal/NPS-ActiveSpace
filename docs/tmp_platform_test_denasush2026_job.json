@@ -1,13 +1,15 @@
 {
-  "compare": "denasush2026-1500m-smoke",
+  "compare": "denasush2026-3d",
   "site": "DENASUSH2026",
   "data_root": "example_data/site_projects",
-  "altitude_m": 1500,
+  "altitude_m_min": 1200,
+  "altitude_m_max": 1800,
+  "altitude_step_m": 300,
   "density": 10,
   "omni_min": 0,
   "omni_max": 0,
   "headings": [0],
   "ambience": "nvspl",
   "annotation_file": "DENASUSH2026_saved_annotations.geojson",
-  "notes": "Same generate_active_space flags as tmp_windows_aam_macparity.bat but unit/site/year DENA/SUSH/2026. Requires DENASUSH under [project] dir with committed or local annotations, elevation, and .sit metadata. Windows: -e AK (or your env) with nmsim/aam paths set. Mac Docker: -e container."
+  "notes": "3D pipeline via docs/tmp_test_denasush2026.bat|.sh: generate_3d_active_space.py (writes batch commands, runs generate_active_space_batch.py, fit_3d_active_space.py). Edit MIN_ALTITUDE/MAX_ALTITUDE in script CONFIG (300 m steps). Outputs: Output_Data/{aam,nmsim}/ACTIVESPACES/DENASUSH2026_*m/, project fits.csv, PrecisionRecallPlot_3d_DENASUSH2026_f1p0.png per model. Optional USE_METRICS=1 for docker/denasush2026_test_metrics.json."
 }
