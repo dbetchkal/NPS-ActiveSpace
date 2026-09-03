@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import re
 from pathlib import Path
 
 from nps_active_space.active_space.aam_run_log import (
@@ -16,6 +17,12 @@ from nps_active_space.active_space.aam_run_log import (
     summarize_aam_error,
 )
 from nps_active_space.active_space.propagation_model import AAM_RUN_LOG_FILENAME
+
+_LOG_LINE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z ")
+
+
+def _strip_log_timestamp(line: str) -> str:
+    return _LOG_LINE_PREFIX.sub("", line, count=1)
 
 
 class TestAamRunLog:
@@ -31,7 +38,8 @@ class TestAamRunLog:
         configure_aam_run_log(tmp_path)
         aam_log("terrain", "grid 10×10 cells")
         lines = aam_run_log_path(tmp_path).read_text(encoding="utf-8").splitlines()
-        assert lines[-1] == "[aam-terrain] grid 10×10 cells"
+        assert _strip_log_timestamp(lines[-1]) == "[aam-terrain] grid 10×10 cells"
+        assert _LOG_LINE_PREFIX.match(lines[-1])
 
     def test_log_run_batch_records_artifact_paths(self, tmp_path: Path) -> None:
         configure_aam_run_log(tmp_path)
@@ -54,7 +62,9 @@ class TestAamRunLog:
             aam_log_path=log_path,
         )
 
-        last = aam_run_log_path(tmp_path).read_text(encoding="utf-8").splitlines()[-1]
+        last = _strip_log_timestamp(
+            aam_run_log_path(tmp_path).read_text(encoding="utf-8").splitlines()[-1]
+        )
         assert "[aam-run]" in last
         assert "job1" in last
         assert "n=12" in last
@@ -84,7 +94,9 @@ class TestAamRunLog:
             error=traceback,
             to_console=False,
         )
-        last = aam_run_log_path(tmp_path).read_text(encoding="utf-8").splitlines()[-1]
+        last = _strip_log_timestamp(
+            aam_run_log_path(tmp_path).read_text(encoding="utf-8").splitlines()[-1]
+        )
         assert "skip" in last
         assert "reason=AAM FPA bounds" in last
         assert "Unknown" not in last
@@ -123,6 +135,10 @@ class TestAamRunLog:
         text = aam_run_log_path(tmp_path).read_text(encoding="utf-8")
         assert "=== summary ===" in text
         assert "gain=0.0 tested=100 audible=40" in text
+        summary_line = next(
+            line for line in text.splitlines() if "gain=0.0 tested=100 audible=40" in line
+        )
+        assert _LOG_LINE_PREFIX.match(summary_line)
 
 
 def _append_log_lines(root: str, tag: str, n: int) -> None:
@@ -142,8 +158,9 @@ class TestAamRunLogConcurrency:
                 [(str(tmp_path), "a", n_per_worker), (str(tmp_path), "b", n_per_worker)],
             )
         run_lines = [
-            line for line in aam_run_log_path(tmp_path).read_text(encoding="utf-8").splitlines()
-            if line.startswith("[aam-run]")
+            _strip_log_timestamp(line)
+            for line in aam_run_log_path(tmp_path).read_text(encoding="utf-8").splitlines()
+            if "[aam-run]" in line
         ]
         assert len(run_lines) == n_per_worker * 2
         assert {line.split("] ", 1)[1] for line in run_lines} == {

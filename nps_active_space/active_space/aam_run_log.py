@@ -19,8 +19,18 @@ try:
 except ImportError:
     fcntl = None
 
+_LOG_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
 _configured_root: Path | None = None
 _log_path: Path | None = None
+
+
+def _format_log_line(line: str) -> str:
+    """Prefix a content line with a UTC timestamp; leave structural lines unchanged."""
+    if not line or line.startswith("==="):
+        return line
+    timestamp = datetime.now(UTC).strftime(_LOG_TIMESTAMP_FORMAT)
+    return f"{timestamp} {line}"
 
 
 def aam_run_log_path(root_dir: str | Path) -> Path:
@@ -40,7 +50,7 @@ def configure_aam_run_log(root_dir: str | Path) -> Path:
     _log_path = aam_run_log_path(root)
     _log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    timestamp = datetime.now(UTC).strftime(_LOG_TIMESTAMP_FORMAT)
     _append_line(f"=== session {timestamp} ===")
     return _log_path
 
@@ -99,7 +109,7 @@ def short_aam_work_dir_name(job_name: str) -> str:
 
 def aam_log(category: str, msg: str, *, to_console: bool = True) -> None:
     """Write one line to the site log, and optionally stdout."""
-    line = f"[aam-{category}] {msg}"
+    line = _format_log_line(f"[aam-{category}] {msg}")
     if to_console:
         print(line, flush=True)
     _append_line(line)
@@ -156,7 +166,7 @@ def append_aam_run_summary(lines: Iterable[str]) -> None:
     _append_line("")
     _append_line("=== summary ===")
     for line in lines:
-        _append_line(line)
+        _append_line(_format_log_line(line))
 
 
 def _append_line(line: str) -> None:
