@@ -24,9 +24,11 @@ set "YEAR=2026"
 set "MIN_ALTITUDE=1200"
 set "MAX_ALTITUDE=2400"
 set "DENSITY=10"
-REM Omni ladder step is 0.5 dB (0-2 = gains 0, 0.5, 1, 1.5, 2). Layers with gain 0 only still run for missing gains.
-set "OMNI_MIN=0"
-set "OMNI_MAX=2"
+REM Full NMSim gain span (-10 to +40 dB) with 5 dB steps = 11 omni/layer (-10,-5,0,...,40).
+REM Use OMNI_STEP=0.5 for the full 101-gain ladder (same as generate_active_space default).
+set "OMNI_MIN=-10"
+set "OMNI_MAX=40"
+set "OMNI_STEP=5"
 set "HEADINGS=0"
 set "ANNOT=DENASUSH2026_saved_annotations.geojson"
 REM Optional: set USE_METRICS=1 to append wall/cpu to docker\denasush2026_test_metrics.json
@@ -36,7 +38,7 @@ REM --- end CONFIG ---
 set "GEN3D=nps_active_space\scripts\generate_3d_active_space.py"
 set "SITE=-e %ENV% -u %UNIT% -s %SITE% -y %YEAR% -a nvspl"
 set "ALT=--min-altitude %MIN_ALTITUDE% --max-altitude %MAX_ALTITUDE%"
-set "EXTRA=--headings %HEADINGS% --omni-min %OMNI_MIN% --omni-max %OMNI_MAX% --density %DENSITY% --cleanup --annotation-file %ANNOT%"
+set "EXTRA=--headings %HEADINGS% --omni-min %OMNI_MIN% --omni-max %OMNI_MAX% --omni-step %OMNI_STEP% --density %DENSITY% --cleanup --annotation-file %ANNOT%"
 
 set "OUTDIR=docker"
 set "METRICS=python -u docs\tmp_platform_run_metrics.py"
@@ -52,7 +54,7 @@ if /i "%~1"=="both" (
   set "RUN_NMSIM=1"
 )
 
-echo DENASUSH2026 3D: layers %MIN_ALTITUDE%-%MAX_ALTITUDE% m ^(300 m step^), density %DENSITY%, omni %OMNI_MIN%-%OMNI_MAX%
+echo DENASUSH2026 3D: layers %MIN_ALTITUDE%-%MAX_ALTITUDE% m ^(300 m step^), density %DENSITY%, omni %OMNI_MIN%-%OMNI_MAX% dB step %OMNI_STEP% dB
 echo Models: AAM=%RUN_AAM% NMSim=%RUN_NMSIM%
 echo Site dir: see [project] dir in %ENV%.config ^(DENASUSH^)
 echo.

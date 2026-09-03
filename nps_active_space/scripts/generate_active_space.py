@@ -309,6 +309,12 @@ def build_parser() -> ArgumentParser:
                         help="The minimum omni source to run the mesh for.")
     parser.add_argument('--omni-max', type=float, default=40,
                         help="The maximum omni source to run the mesh for.")
+    parser.add_argument(
+        '--omni-step',
+        type=float,
+        default=0.5,
+        help="Spacing between omni gains in dB (multiple of 0.5). Default 0.5 matches full NMSim ladder.",
+    )
     parser.add_argument('-l', '--altitude', type=int, required=False,
                         help="Source altitude in meters (default: mean audible annotation altitude).")
     parser.add_argument('--density', type=int, default=None,
@@ -398,7 +404,9 @@ if __name__ == '__main__':
     site_dir = layout.site_dir
     logger = get_logger(f"ACTIVE-SPACE: {layout.usy}")
 
-    ladder_sources = get_omni_sources(lower=args.omni_min, upper=args.omni_max)
+    ladder_sources = get_omni_sources(
+        lower=args.omni_min, upper=args.omni_max, step_db=args.omni_step,
+    )
     extra_sources = args.sources or []
     for src in extra_sources:
         if Path(src).suffix.lower() == ".nc" and model is not AcousticModel.AAM:

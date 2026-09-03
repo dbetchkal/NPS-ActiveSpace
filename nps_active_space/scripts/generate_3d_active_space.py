@@ -2,6 +2,9 @@ import argparse
 import os
 import subprocess
 import sys
+import time
+from datetime import UTC, datetime
+
 import matplotlib.pyplot as plt
 from nps_active_space.utils.computation import (
     compute_ambience_from_nvspl_archive,
@@ -27,7 +30,40 @@ since ambience doesn't have to be recomputed for each active space layer.
 ALTITUDE_STEP = 300  # meters between 3D active space layers
 
 
+def _format_elapsed_s(elapsed_s: float) -> str:
+    hours, rem = divmod(elapsed_s, 3600)
+    minutes, seconds = divmod(rem, 60)
+    if hours:
+        return f"{int(hours)}h {int(minutes):02d}m {seconds:05.1f}s"
+    if minutes:
+        return f"{int(minutes)}m {seconds:05.1f}s"
+    return f"{seconds:.1f}s"
+
+
+def _log_pipeline_timing(
+    label: str,
+    start_ts: datetime,
+    start_wall: float,
+) -> None:
+    end_ts = datetime.now(UTC)
+    elapsed_s = time.perf_counter() - start_wall
+    print(
+        f"{label} finished at {end_ts.strftime('%Y-%m-%dT%H:%M:%SZ')} "
+        f"(started {start_ts.strftime('%Y-%m-%dT%H:%M:%SZ')}, "
+        f"elapsed {_format_elapsed_s(elapsed_s)})",
+        flush=True,
+    )
+
+
 if __name__ == "__main__":
+    pipeline_start_wall = time.perf_counter()
+    pipeline_start_ts = datetime.now(UTC)
+    print(
+        f"3D active-space pipeline started at "
+        f"{pipeline_start_ts.strftime('%Y-%m-%dT%H:%M:%SZ')}",
+        flush=True,
+    )
+
     parser = argparse.ArgumentParser()
 
     # arguments used only by this script
@@ -130,37 +166,40 @@ if __name__ == "__main__":
             )
             line = format_commands_file_line(f"{usy}_{altitude}m", parts)
             f.write(f"{line}\n")
-    
-    # if we're not only prepping a commands file, run generate_active_space_batch.py
-    # and then fit the active space
-    if not args.only_prep:
-        print("Running generate_active_space_batch.py on the commands file\n")
-        batch_script = os.path.join(os.path.dirname(__file__), "generate_active_space_batch.py")
-        batch_process = subprocess.run(
-            [sys.executable, batch_script, cmds_file],
-            check=False,
-        )
-        if batch_process.returncode != 0:
-            print(
-                f"generate_active_space_batch.py exited with code {batch_process.returncode}. "
-                "Skipping fit_3d_active_space.py. Fix batch errors above and rerun, "
-                "or run the batch script directly on the commands file.",
-                flush=True,
-            )
-            sys.exit(batch_process.returncode)
 
-        print("\nRunning fit_3d_active_space.py to fit the active space\n")
-        fit_script = os.path.join(os.path.dirname(__file__), "fit_3d_active_space.py")
-        fit_process = subprocess.run(
-            [
-                sys.executable,
-                fit_script,
-                "-e", args.environment,
-                "-u", args.unit,
-                "-s", args.site,
-                "-y", str(args.year),
-                "--model", args.model,
-            ],
-            check=False,
+    if args.only_prep:
+        _log_pipeline_timing("3D active-space prep (commands file only)", pipeline_start_ts, pipeline_start_wall)
+        sys.exit(0)
+
+    print("Running generate_active_space_batch.py on the commands file\n")
+    batch_script = os.path.join(os.path.dirname(__file__), "generate_active_space_batch.py")
+    batch_process = subprocess.run(
+        [sys.executable, batch_script, cmds_file],
+        check=False,
+    )
+    if batch_process.returncode != 0:
+        print(
+            f"generate_active_space_batch.py exited with code {batch_process.returncode}. "
+            "Skipping fit_3d_active_space.py. Fix batch errors above and rerun, "
+            "or run the batch script directly on the commands file.",
+            flush=True,
         )
-        sys.exit(fit_process.returncode)
+        _log_pipeline_timing("3D active-space pipeline (batch failed)", pipeline_start_ts, pipeline_start_wall)
+        sys.exit(batch_process.returncode)
+
+    print("\nRunning fit_3d_active_space.py to fit the active space\n")
+    fit_script = os.path.join(os.path.dirname(__file__), "fit_3d_active_space.py")
+    fit_process = subprocess.run(
+        [
+            sys.executable,
+            fit_script,
+            "-e", args.environment,
+            "-u", args.unit,
+            "-s", args.site,
+            "-y", str(args.year),
+            "--model", args.model,
+        ],
+        check=False,
+    )
+    _log_pipeline_timing("3D active-space pipeline", pipeline_start_ts, pipeline_start_wall)
+    sys.exit(fit_process.returncode)

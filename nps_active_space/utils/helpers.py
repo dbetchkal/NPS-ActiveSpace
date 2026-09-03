@@ -559,7 +559,7 @@ def get_logger(name: str, verbose: bool = False, logfile: str = None, make_log_b
     return logger
 
 
-def get_omni_sources(lower: float, upper: float) -> List[str]:
+def get_omni_sources(lower: float, upper: float, step_db: float = 0.5) -> List[str]:
     """
     Get a list of omni source files for tuning NMSim within a specific gain range.
     Source files are provided in the data directory for gains between -30 and +50.
@@ -574,6 +574,8 @@ def get_omni_sources(lower: float, upper: float) -> List[str]:
         The lowest gain omni source file to pull.
     upper : float
         The high gain omni source file to pull
+    step_db : float, default 0.5
+        Spacing between omni gains in dB (must be a positive multiple of 0.5).
 
     Returns
     -------
@@ -588,11 +590,21 @@ def get_omni_sources(lower: float, upper: float) -> List[str]:
         30 <= lower <= 50 and upper >= lower, "Bounds must be ordered and between [-30, 50]."
     assert upper % .5 == 0, "Invalid upper limit. Value must be divisible by 0.5."
     assert lower % .5 == 0, "Invalid lower limit. Value must be divisible by 0.5."
+    assert step_db > 0, "omni step must be positive"
+    step_units = int(round(step_db * 10))
+    assert step_units >= 1 and step_units % 5 == 0, (
+        "omni step must be a positive multiple of 0.5 dB"
+    )
+    lower_units = int(round(lower * 10))
+    upper_units = int(round(upper * 10))
+    assert lower_units % step_units == 0 and upper_units % step_units == 0, (
+        f"omni-min/max must align to omni-step ({step_db} dB)"
+    )
 
     omni_source_dir = os.path.join(ACTIVE_SPACE_DIR, "data", "tuning")
     omni_sources = []
 
-    for i in range(int(lower*10), int(upper*10+5), 5):
+    for i in range(lower_units, upper_units + step_units, step_units):
         if i < 0:
             omni_sources.append(os.path.join(omni_source_dir, f"O_{i:04}.src"))
         elif i >= 0:

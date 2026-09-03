@@ -102,6 +102,7 @@ def layer_has_required_omni_outputs(
     usy: str,
     omni_min: float,
     omni_max: float,
+    step_db: float = 0.5,
 ) -> bool:
     """True when every omni in ``[omni_min, omni_max]`` has a layer geojson."""
     from nps_active_space.utils.helpers import get_omni_sources
@@ -109,7 +110,7 @@ def layer_has_required_omni_outputs(
     layer_path = Path(layer_dir)
     if not layer_path.is_dir():
         return False
-    for src in get_omni_sources(omni_min, omni_max):
+    for src in get_omni_sources(omni_min, omni_max, step_db):
         stem = Path(src).stem
         if not (layer_path / f"{usy}_{stem}.geojson").is_file():
             return False
@@ -216,10 +217,15 @@ class SiteModelPaths:
         altitude_m: int,
         omni_min: float | None = None,
         omni_max: float | None = None,
+        omni_step_db: float = 0.5,
     ) -> bool:
         if omni_min is not None and omni_max is not None:
             return layer_has_required_omni_outputs(
-                self.layer_dir(altitude_m), self.usy, omni_min, omni_max,
+                self.layer_dir(altitude_m),
+                self.usy,
+                omni_min,
+                omni_max,
+                omni_step_db,
             )
         return layer_has_activespace_outputs(self.layer_dir(altitude_m))
 

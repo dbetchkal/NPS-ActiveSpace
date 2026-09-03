@@ -12,9 +12,10 @@ YEAR=2026
 MIN_ALTITUDE=1200
 MAX_ALTITUDE=2400
 DENSITY=10
-# Omni ladder step is 0.5 dB (0-2 = gains 0, 0.5, 1, 1.5, 2).
-OMNI_MIN=0
-OMNI_MAX=2
+# Full NMSim gain span with 5 dB steps (11 omni/layer). OMNI_STEP=0.5 for full 101-gain ladder.
+OMNI_MIN=-10
+OMNI_MAX=40
+OMNI_STEP=5
 HEADINGS=0
 ANNOT=DENASUSH2026_saved_annotations.geojson
 # Set to 1 to record wall/cpu in docker/denasush2026_test_metrics.json
@@ -26,7 +27,7 @@ SITE=(-e "$ENV" -u "$UNIT" -s "$SITE_CODE" -y "$YEAR" -a nvspl)
 ALT=(--min-altitude "$MIN_ALTITUDE" --max-altitude "$MAX_ALTITUDE")
 EXTRA=(
   --headings "$HEADINGS"
-  --omni-min "$OMNI_MIN" --omni-max "$OMNI_MAX"
+  --omni-min "$OMNI_MIN" --omni-max "$OMNI_MAX" --omni-step "$OMNI_STEP"
   --density "$DENSITY"
   --cleanup
   --annotation-file "$ANNOT"
@@ -48,7 +49,7 @@ case "${1:-both}" in
     ;;
 esac
 
-echo "DENASUSH2026 3D: layers ${MIN_ALTITUDE}-${MAX_ALTITUDE} m (300 m step), density=${DENSITY}, omni ${OMNI_MIN}-${OMNI_MAX}"
+echo "DENASUSH2026 3D: layers ${MIN_ALTITUDE}-${MAX_ALTITUDE} m (300 m step), density=${DENSITY}, omni ${OMNI_MIN}-${OMNI_MAX} dB step ${OMNI_STEP} dB"
 echo "Models: AAM=${RUN_AAM} NMSim=${RUN_NMSIM}"
 echo
 

@@ -6,10 +6,11 @@
   "altitude_m_max": 2400,
   "altitude_step_m": 300,
   "density": 10,
-  "omni_min": 0,
-  "omni_max": 2,
+  "omni_min": -10,
+  "omni_max": 40,
+  "omni_step_db": 5,
   "headings": [0],
   "ambience": "nvspl",
   "annotation_file": "DENASUSH2026_saved_annotations.geojson",
-  "notes": "3D pipeline via docs/tmp_test_denasush2026.bat|.sh: generate_3d_active_space.py (batch + fit). Omni 0.5 dB steps. Batch skips a layer only when all omni geojson in [omni_min,omni_max] exist; gain-0-only layers still run for higher gains. Prediction CSV cache under Output_Data/{model}/predictions/ speeds redo of gain 0."
+  "notes": "3D pipeline via docs/tmp_test_denasush2026.bat|.sh. Omni -10 to +40 dB at 5 dB steps (11 gains/layer), matching NMSim full-range span with coarser ladder than default 0.5 dB. Batch skips only when all omni geojson in range+step exist."
 }
