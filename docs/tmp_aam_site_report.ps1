@@ -1,4 +1,4 @@
-# AAM site diagnostics — run via docs\tmp_aam_site_report.bat
+# AAM site diagnostics - run via docs\tmp_aam_site_report.bat
 param(
     [Parameter(Mandatory = $true)]
     [string] $Site
@@ -65,20 +65,20 @@ if (Test-Path $pred) {
 
 if (-not (Test-Path $log)) {
     Write-Section "Log"
-    Write-Output "(active_space.log not found — skip log sections)"
+    Write-Output "(active_space.log not found - skip log sections)"
     exit 0
 }
 
-Write-Section "[aam-run] batches by altitude (from job name)"
-Select-String -Path $log -Pattern "\[aam-run\]" |
+Write-Section 'aam-run batches by altitude (from job name)'
+Select-String -Path $log -Pattern '\[aam-run\]' |
     ForEach-Object {
         if ($_.Line -match '(\d+)m_(mesh|contour)') { "$($matches[1])" }
     } |
     Group-Object | Sort-Object { [int]$_.Name } |
     ForEach-Object { Write-Output "$($_.Name)m: $($_.Count) batches" }
 
-Write-Section "[aam-run] timing summary by altitude"
-$batchRows = Select-String -Path $log -Pattern "\[aam-run\]" |
+Write-Section 'aam-run timing summary by altitude'
+$batchRows = Select-String -Path $log -Pattern '\[aam-run\]' |
     ForEach-Object {
         $line = $_.Line
         $alt = $null
@@ -104,11 +104,11 @@ if ($batchRows) {
             )
         }
 } else {
-    Write-Output "(no parseable [aam-run] lines)"
+    Write-Output '(no parseable aam-run lines)'
 }
 
-Write-Section "ONE TRACK splits by altitude (hop below terrain)"
-Select-String -Path $log -Pattern "split ONE TRACK" |
+Write-Section 'ONE TRACK splits by altitude (hop below terrain)'
+Select-String -Path $log -Pattern 'split ONE TRACK' |
     ForEach-Object {
         if ($_.Line -match '(\d+)m_') { "$($matches[1])" }
         else { "unknown" }
@@ -116,8 +116,8 @@ Select-String -Path $log -Pattern "split ONE TRACK" |
     Group-Object | Sort-Object { if ($_.Name -eq 'unknown') { 999999 } else { [int]$_.Name } } |
     ForEach-Object { Write-Output "$($_.Name)m: $($_.Count) split events" }
 
-Write-Section "Last 15 [aam-run] lines"
-Select-String -Path $log -Pattern "\[aam-run\]" |
+Write-Section 'last 15 aam-run lines'
+Select-String -Path $log -Pattern '\[aam-run\]' |
     Select-Object -Last 15 |
     ForEach-Object { Write-Output $_.Line }
 
