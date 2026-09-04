@@ -78,21 +78,17 @@ def build_active_space_generator(
             propagation_model = AamPropagationModel(
                 site_dir, aam_shim=resolve_aam_exe(aam_exe=aam_shim),
             )
-            gen = ActiveSpaceGenerator(
-                NMSIM=None,
-                propagation_model=propagation_model,
-                root_dir=site_dir,
-                study_area=study_area,
-                ambience=ambience,
-            )
         case AcousticModel.NMSIM:
+            from nps_active_space.propagation_model.nmsim.model import NmsimPropagationModel
+
             exe = nmsim_exe or cfg.read("project", "nmsim")
-            gen = ActiveSpaceGenerator(
-                NMSIM=exe,
-                root_dir=site_dir,
-                study_area=study_area,
-                ambience=ambience,
-            )
+            propagation_model = NmsimPropagationModel(exe, site_dir)
+    gen = ActiveSpaceGenerator(
+        study_area=study_area,
+        root_dir=site_dir,
+        ambience=ambience,
+        propagation_model=propagation_model,
+    )
     gen.set_dem(mic)
     return gen
 

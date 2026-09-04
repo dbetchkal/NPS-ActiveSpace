@@ -10,6 +10,7 @@ import pytest
 from shapely.geometry import box
 
 from nps_active_space.active_space.active_space_generator import ActiveSpaceGenerator
+from nps_active_space.propagation_model.nmsim.model import NmsimPropagationModel
 from nps_active_space.setup import setup_site
 from nps_active_space.setup.elevation import get_project_setup_elevation
 from nps_active_space.setup.site_writer import create_site_dir
@@ -61,10 +62,10 @@ class TestActiveSpaceGeneratorSetDem:
         study_area = load_studyarea(str(project_dir), "TEST", "SITE", 2025)
         mic = get_deployment(str(project_dir), "TEST", "SITE", 2025, elevation=False)
         generator = ActiveSpaceGenerator(
-            NMSIM=str(nmsim_exe),
             study_area=study_area,
             root_dir=str(site_dir),
             ambience=pd.Series({"1000": 40.0}),
+            propagation_model=NmsimPropagationModel(str(nmsim_exe), str(site_dir)),
         )
         generator.set_dem(mic)
 
@@ -91,10 +92,10 @@ class TestActiveSpaceGeneratorSetDem:
         mic = Microphone(name="TESTSITE2025", lat=58.55, lon=-136.05, z=100.0, crs=mic_crs)
 
         generator = ActiveSpaceGenerator(
-            NMSIM=str(nmsim_exe),
             study_area=study_area,
             root_dir=str(site_dir),
             ambience=pd.Series({"1000": 40.0}),
+            propagation_model=NmsimPropagationModel(str(nmsim_exe), str(site_dir)),
         )
 
         with pytest.raises(FileNotFoundError, match="project_setup"):

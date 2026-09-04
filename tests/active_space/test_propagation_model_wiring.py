@@ -42,7 +42,6 @@ class TestPropagationModelWiring:
         )
         stub = _StubPropagationModel()
         gen = ActiveSpaceGenerator(
-            NMSIM=None,
             study_area=study_area,
             root_dir=str(tmp_path),
             ambience=30.0,
@@ -58,7 +57,6 @@ class TestPropagationModelWiring:
         )
         stub = _StubPropagationModel()
         gen = ActiveSpaceGenerator(
-            NMSIM=None,
             study_area=study_area,
             root_dir=str(tmp_path),
             ambience=30.0,
@@ -118,7 +116,6 @@ class TestMissingPredictionHandling:
             crs=crs,
         )
         gen = ActiveSpaceGenerator(
-            NMSIM=None,
             study_area=study_area,
             root_dir=str(tmp_path),
             ambience=pd.Series({"1000": 40.0, "12500": 40.0}),
@@ -152,7 +149,6 @@ class TestMissingPredictionHandling:
             crs=crs,
         )
         gen = ActiveSpaceGenerator(
-            NMSIM=None,
             study_area=study_area,
             root_dir=str(tmp_path),
             ambience=40.0,

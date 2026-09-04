@@ -39,8 +39,6 @@ class ActiveSpaceGenerator:
 
     Parameters
     ----------
-    NMSIM : str, optional
-        Absolute path to the NMSIM executable. Required unless ``propagation_model`` is passed.
     study_area : gpd.GeoDataFrame
         A gpd.GeoDataFrame of polygon(s) that make up the study area.
     root_dir : str
@@ -51,14 +49,15 @@ class ActiveSpaceGenerator:
         The ambience level(s) at the microphone site.
         If float (broadband ambience), will be compared against the predicted A-weighted broadband level of noises.
         If pd.Series[float], should contain sound levels for the 12.5 to 12500 Hz 1/3 octave bands.
+    propagation_model : PropagationModel
+        Acoustic propagation backend (e.g. NMSim or AAM).
     """
     def __init__(
         self,
-        NMSIM: str | None,
         study_area: gpd.GeoDataFrame,
         root_dir: str,
         ambience: float | int | pd.Series,
-        propagation_model: PropagationModel | None = None,
+        propagation_model: PropagationModel,
     ):
         assert os.path.exists(root_dir), "Root directory not found"
         assert isinstance(ambience, (float, int)) or isinstance(ambience, pd.Series), "Improper ambience input"
@@ -66,15 +65,9 @@ class ActiveSpaceGenerator:
             warn("Using broadband ambience. This feature has not been maintained and has possible buggy, incorrect, "
                  "or unexpected behavior. Only use if you know what you are doing.", UserWarning)
 
-        if propagation_model is None:
-            assert NMSIM is not None and os.path.exists(NMSIM), "NMSIM not found"
-            from nps_active_space.propagation_model.nmsim.model import NmsimPropagationModel
-            propagation_model = NmsimPropagationModel(NMSIM, root_dir)
-
         self.study_area = study_area.to_crs('epsg:4269')
         self.root_dir = root_dir
         self.ambience = ambience
-        self.NMSIM = NMSIM
         self.propagation_model = propagation_model
         self._site_context = None
         self._dem_file = None
