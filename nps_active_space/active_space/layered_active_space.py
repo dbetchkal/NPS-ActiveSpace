@@ -30,6 +30,7 @@ class LayeredActiveSpace():
         self.fit_pbar: tqdm | None = None
 
         if not self.layer_dirs:
+            self.gain_values: list[float] = []
             self.min_gain = 0.0
             self.max_gain = 0.0
             self.activespaces = None
@@ -37,13 +38,30 @@ class LayeredActiveSpace():
                 self.gain = gain
             return
 
-        # determine min and max gain - import here to avoid circular import
+        self.gain_values = self._discover_gain_values()
+        if self.gain_values:
+            self.min_gain: float = self.gain_values[0]
+            self.max_gain: float = self.gain_values[-1]
+        else:
+            self.min_gain = 0.0
+            self.max_gain = 0.0
+
+    @staticmethod
+    def _gains_in_layer_dir(layer_dir: str) -> set[float]:
         from nps_active_space.utils.helpers import omni_to_gain
-        first_layer_dir = list(self.layer_dirs.values())[0]
-        active_names = glob.glob(os.path.join(first_layer_dir, "*_O_*.geojson"))
-        gains = list(map(lambda f: omni_to_gain(f), active_names))
-        self.min_gain: float = min(gains)
-        self.max_gain: float = max(gains)
+
+        active_names = glob.glob(os.path.join(layer_dir, "*_O_*.geojson"))
+        return {omni_to_gain(path) for path in active_names}
+
+    def _discover_gain_values(self) -> list[float]:
+        """Omni gains present on every altitude layer (intersection across layers)."""
+        if not self.layer_dirs:
+            return []
+        common: set[float] | None = None
+        for layer_dir in self.layer_dirs.values():
+            layer_gains = self._gains_in_layer_dir(layer_dir)
+            common = layer_gains if common is None else common & layer_gains
+        return sorted(common or [])
     
     def load_activespaces(self, gain: float) -> dict[int, gpd.GeoDataFrame] | None:
         if gain in self.all_activespaces:
@@ -66,7 +84,7 @@ class LayeredActiveSpace():
 
     def preload_all_activespaces(self) -> None:
         self.all_activespaces = {}
-        for gain in tqdm(np.arange(self.min_gain, self.max_gain + 0.5, 0.5), desc="Loading all active spaces"):
+        for gain in tqdm(self.gain_values, desc="Loading all active spaces"):
             self.all_activespaces[gain] = self.load_activespaces(gain)
 
     def set_gain(self, gain: float) -> None:
@@ -102,15 +120,29 @@ class LayeredActiveSpace():
         logger.info("Assigning points to their closest layer")
         points = self.assign_layers(points)
 
-        # Compute precision, recall, and F-Beta for each gain
-        logger.info(f"Computing performance for each gain {min_gain}dB to {max_gain}dB")
+        gain_values = self._resolve_fit_gain_values(min_gain, max_gain)
+        if not gain_values:
+            raise ValueError(
+                f"No omni gain geojsons found on all layers for {self.designator} "
+                f"(discovered {self.gain_values!r})",
+            )
+
+        # Compute precision, recall, and F-Beta for each gain on disk
+        logger.info(
+            "Computing performance for gains %s dB (%d values)",
+            gain_values,
+            len(gain_values),
+        )
         detection_results = pd.DataFrame([])
-        self.fit_pbar = tqdm(np.arange(min_gain, max_gain + 0.5, 0.5), unit=" Gain Values")
+        self.fit_pbar = tqdm(gain_values, unit=" Gain Values")
         for gain in self.fit_pbar:
             desc = f"{gain}dB, loading actives"
             self.fit_pbar.set_description(f"{desc:<25}")
 
             self.set_gain(gain)
+            if not self.activespaces:
+                logger.warning("Skipping gain %s dB: no active-space layers loaded", gain)
+                continue
 
             in_AS = self.predict(points)
             audible = points["audible"]
@@ -130,6 +162,12 @@ class LayeredActiveSpace():
             detection_results.loc[gain, "Precision"] = precision
             detection_results.loc[gain, "Recall"] = recall
         self.fit_pbar.close()
+
+        if detection_results.empty:
+            raise ValueError(
+                f"No F{beta} scores computed for {self.designator}; "
+                "check ACTIVESPACES geojson naming matches omni stems (e.g. O_-100 = -10 dB)",
+            )
 
         best_gain = detection_results[f"F{beta}"].idxmax()
         best = detection_results.loc[best_gain]
@@ -160,6 +198,17 @@ class LayeredActiveSpace():
             f"F{beta}": best[f"F{beta}"]
         })
 
+    def _resolve_fit_gain_values(
+        self,
+        min_gain: float,
+        max_gain: float,
+    ) -> list[float]:
+        """Gains to evaluate during fit: on-disk ladder clipped to [min_gain, max_gain]."""
+        return [
+            g for g in self.gain_values
+            if min_gain <= g <= max_gain
+        ]
+
     def assign_layers(self, points: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         """
         Returns a copy of points with a new column added representing the active space layer
@@ -181,7 +230,8 @@ class LayeredActiveSpace():
         predictions: pd.Series
             Boolean series representing whether the model predicts each point is audible.
         """
-        assert len(self.activespaces) > 0, "Can't predict with no activespaces"
+        if not self.activespaces:
+            raise ValueError("Can't predict with no activespaces")
         assert points.crs == self.crs
 
         if "layer" not in points.columns:

@@ -48,6 +48,7 @@ from nps_active_space.utils.helpers import (
     get_deployment,
     get_omni_sources,
     load_annotations,
+    omni_to_gain,
 )
 from nps_active_space.utils.models import Microphone, Nvspl
 from nps_active_space.utils.enums import AcousticModel
@@ -73,6 +74,7 @@ class ValidateArgs:
     gains: list[float]
     omni_min: float
     omni_max: float
+    omni_step: float
     fit: bool
     beta: float
     altitude: int
@@ -188,6 +190,12 @@ def parse_args() -> ValidateArgs:
         help="Maximum gain (dB) for --fit gain sweep.",
     )
     ap.add_argument(
+        "--omni-step",
+        type=float,
+        default=0.5,
+        help="Spacing between omni gains in dB for --fit (multiple of 0.5).",
+    )
+    ap.add_argument(
         "--beta",
         type=float,
         default=1.0,
@@ -213,7 +221,8 @@ def parse_args() -> ValidateArgs:
 
     if ns.fit:
         gains = [
-            g / 10 for g in range(int(ns.omni_min * 10), int(ns.omni_max * 10) + 5, 5)
+            omni_to_gain(src)
+            for src in get_omni_sources(ns.omni_min, ns.omni_max, ns.omni_step)
         ]
     elif ns.gains is not None:
         gains = ns.gains
@@ -229,6 +238,7 @@ def parse_args() -> ValidateArgs:
         gains=gains,
         omni_min=ns.omni_min,
         omni_max=ns.omni_max,
+        omni_step=ns.omni_step,
         fit=ns.fit,
         beta=ns.beta,
         altitude=ns.altitude,
@@ -528,7 +538,7 @@ def main() -> None:
     if args.fit:
         log(
             f"fit mode: gains {args.gains[0]}–{args.gains[-1]} dB "
-            f"({len(args.gains)} steps), beta={args.beta}"
+            f"({len(args.gains)} values, step {args.omni_step:g} dB), beta={args.beta}"
         )
 
     results = run_all_gains(args.gains, ctx, ncpu)
