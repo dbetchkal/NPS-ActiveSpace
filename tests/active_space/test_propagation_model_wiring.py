@@ -109,7 +109,9 @@ class _PartialFailurePropagationModel:
 
 
 class TestMissingPredictionHandling:
-    def test_run_propagation_model_raises_on_total_predict_failure(self, tmp_path) -> None:
+    def test_run_propagation_model_marks_total_predict_failure_inaudible(
+        self, tmp_path,
+    ) -> None:
         crs = "EPSG:32606"
         study_area = gpd.GeoDataFrame(
             geometry=[Point(500000, 6000000).buffer(5000)],
@@ -134,13 +136,15 @@ class TestMissingPredictionHandling:
             "_determine_underground_pts",
             return_value=(source_pts, source_pts.iloc[0:0]),
         ):
-            with pytest.raises(RuntimeError, match="no predictions"):
-                gen._run_propagation_model(
-                    "test_job",
-                    source_pts,
-                    "/fake/omni.omni",
-                    altitude_m=1000,
-                )
+            audibility_pts = gen._run_propagation_model(
+                "test_job",
+                source_pts,
+                "/fake/omni.omni",
+                altitude_m=1000,
+            )
+
+        assert len(audibility_pts) == 2
+        assert audibility_pts["audible"].tolist() == [0, 0]
 
     def test_run_propagation_model_marks_partial_failures_inaudible(self, tmp_path) -> None:
         crs = "EPSG:32606"

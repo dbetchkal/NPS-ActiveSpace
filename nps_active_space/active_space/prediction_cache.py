@@ -165,11 +165,6 @@ def predict_with_cache(
         return cache_hits, source_pts.iloc[0:0]
 
     new_df = predict_fn(new_pts)
-    if len(new_pts) > 0 and len(new_df) == 0:
-        raise RuntimeError(
-            f"{job_name}: propagation model returned no predictions "
-            f"for {len(new_pts)} point(s)",
-        )
     failed_pts = source_pts_missing_predictions(new_pts, new_df)
     if len(failed_pts) > 0:
         logger.warning(

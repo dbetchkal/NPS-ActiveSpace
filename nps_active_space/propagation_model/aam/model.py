@@ -279,7 +279,8 @@ class AamPropagationModel:
         chunk at ``resolve_aam_chunk_size()``. Pad a leftover singleton (~1 m).
         Skip a failed below-ground chunk (do not bisect). Fortran FPA-bounds
         errors on a long high-altitude track may be retried by halving via
-        ``_predict_batch_with_fpa_split``.
+        ``_predict_batch_with_fpa_split``. When every batch fails, returns an
+        empty frame so the caller can mark those points inaudible.
         """
         ordered = _order_source_pts_for_track(source_pts)
         above_pts, _below_pts = self.filter_below_terrain(
@@ -292,13 +293,15 @@ class AamPropagationModel:
             site, above_pts, omni_source, altitude_m, job_name, heading,
         )
         if not frames:
-            raise RuntimeError(
-                f"AAM produced no predictions for {job_name}: "
-                f"0/{run_idx} batch(es) succeeded for {len(above_pts)} "
-                f"above-ground point(s). Inspect "
+            aam_log(
+                "predict",
+                f"no predictions for {job_name}: 0/{run_idx} batch(es) "
+                f"succeeded for {len(above_pts)} above-ground point(s); "
+                "caller will mark inaudible. Inspect "
                 f"Output_Data/aam/runs/{job_name}_r*/scenario.txt "
                 "and aam_stderr.txt (terrain, NCfiles, below-ground).",
             )
+            return pd.DataFrame()
         return pd.concat(frames, ignore_index=True)
 
     def _predict_chunked_runs(

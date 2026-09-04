@@ -20,7 +20,8 @@ REM Mesh/gain match docs\tmp_windows_aam_1500m.bat full (not macparity smoke).
 set "GEN3D=nps_active_space\scripts\generate_3d_active_space.py"
 set "SITE=-e AK -u DENA -s TRLA -y 2025 -a nvspl"
 set "ALT=--min-altitude 900 --max-altitude 2100"
-set "EXTRA=--headings 0 --omni-min 0 --omni-max 2 --density 48 --cleanup --annotation-file DENATRLA2025_saved_annotations.geojson"
+set "DENSITY=48"
+set "EXTRA=--headings 0 --omni-min 0 --omni-max 2 --density %DENSITY% --cleanup --annotation-file DENATRLA2025_saved_annotations.geojson"
 
 set "RUN_AAM=1"
 set "RUN_NMSIM=1"
@@ -31,7 +32,7 @@ if /i "%~1"=="both" (
   set "RUN_NMSIM=1"
 )
 
-echo DENATRLA 3D: layers 900-2100 m, density 48, omni 0-2 ^(5 layers; expect hours vs macparity ~204s AAM / ~108s NMSim for 1 layer d10 omni0^)
+echo DENATRLA 3D: layers 900-2100 m, density %DENSITY%, omni 0-2 ^(5 layers; expect hours at d48 vs macparity ~204s AAM / ~108s NMSim for 1 layer d10 omni0^)
 echo Existing NMSim layers: example_data\site_projects\DENATRLA\Output_Data\nmsim\ACTIVESPACES\DENATRLA2025_*m
 echo Existing AAM layers:   example_data\site_projects\DENATRLA\Output_Data\aam\ACTIVESPACES\DENATRLA2025_*m
 echo.

@@ -53,7 +53,7 @@ Mac Docker equivalent: `docs/tmp_docker_aam_3d.sh`.
 
 Mac-parity single layer (`docs\tmp_windows_aam_macparity.bat`: 1500 m, density 10, omni `+000`) was about **204 s AAM** and **108 s NMSim** on the Windows host.
 
-This 3D job is **five layers**, **~5× omni gains**, and a **much denser mesh** — expect **hours**, not minutes. For a quick pipeline check only, temporarily edit `EXTRA=` in the bat to macparity settings (`--density 10 --omni-max 0`).
+This 3D job is **five layers**, **~5× omni gains**, and a **much denser mesh** — expect **hours**, not minutes. For a quick pipeline check only, set `DENSITY=10` (and optionally `--omni-max 0`) near the top of `docs\tmp_windows_aam_3d.bat`.
 
 ## Outputs
 

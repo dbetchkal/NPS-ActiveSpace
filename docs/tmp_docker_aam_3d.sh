@@ -6,10 +6,11 @@ cd "$(dirname "$0")/.."
 GEN3D=nps_active_space/scripts/generate_3d_active_space.py
 SITE=(-e container -u DENA -s TRLA -y 2025 -a nvspl)
 ALT=(--min-altitude 900 --max-altitude 2100)
+DENSITY=48
 EXTRA=(
   --headings 0
   --omni-min 0 --omni-max 2
-  --density 48
+  --density "$DENSITY"
   --cleanup
   --annotation-file DENATRLA2025_saved_annotations.geojson
 )
@@ -23,7 +24,7 @@ case "${1:-both}" in
   *) echo "Usage: $0 [aam|nmsim|both]" >&2; exit 2 ;;
 esac
 
-echo "DENATRLA 3D: layers 900-2100 m, density 48, omni 0-2"
+echo "DENATRLA 3D: layers 900-2100 m, density ${DENSITY}, omni 0-2"
 
 if [[ "$run_aam" -eq 1 ]]; then
   echo "=== AAM 3D (generate + batch + fit) ==="
