@@ -24,7 +24,7 @@ import geopandas as gpd
 from rasterio import open as rio_open
 from shapely.geometry import Point, box
 
-from nps_active_space.active_space.aam_propagation_model import AamPropagationModel
+from nps_active_space.propagation_model.aam.model import AamPropagationModel
 from nps_active_space.utils.models import Microphone
 
 AAM_SHIM = Path("/usr/local/bin/aam")
@@ -70,7 +70,10 @@ def _build_adapter_site(root: Path) -> tuple[AamPropagationModel, object, gpd.Ge
         mic,
         project_dem=False,
     )
-    omni = os.environ.get("OMNI_SOURCE", "/repo/nps_active_space/data/tuning/O_+200.avg")
+    omni = os.environ.get(
+        "OMNI_SOURCE",
+        "/repo/nps_active_space/propagation_model/nmsim/data/tuning/O_+200.avg",
+    )
     return model, site, source_pts, omni
 
 

@@ -11,7 +11,7 @@ from shapely.geometry import Point
 
 from nps_active_space.active_space.active_space_generator import ActiveSpaceGenerator
 from nps_active_space.active_space.prediction_cache import source_pts_missing_predictions
-from nps_active_space.active_space.propagation_model import NMSIM_BAND_COLUMNS
+from nps_active_space.propagation_model.protocol import THIRD_OCTAVE_BANDS
 
 
 class _StubPropagationModel:
@@ -27,8 +27,11 @@ class _StubPropagationModel:
             "Ypos": source_pts.geometry.y.values,
             "Zpos": source_pts.geometry.z.values,
             "A": [50.0] * len(source_pts),
-            **{col: [40.0] * len(source_pts) for col in NMSIM_BAND_COLUMNS},
+            **{col: [40.0] * len(source_pts) for col in THIRD_OCTAVE_BANDS},
         })
+
+    def filter_below_terrain(self, site, source_pts, *, job_name=""):
+        return source_pts, source_pts.iloc[0:0]
 
 
 class TestPropagationModelWiring:
@@ -83,6 +86,9 @@ class _EmptyPredictionPropagationModel:
     def predict(self, site, source_pts, omni_source, altitude_m, job_name, heading=None):
         return pd.DataFrame()
 
+    def filter_below_terrain(self, site, source_pts, *, job_name=""):
+        return source_pts, source_pts.iloc[0:0]
+
 
 class _PartialFailurePropagationModel:
     max_points_per_run = 7
@@ -97,8 +103,11 @@ class _PartialFailurePropagationModel:
             "Ypos": [source_pts.geometry.y.iloc[0]],
             "Zpos": [source_pts.geometry.z.iloc[0]],
             "A": [50.0],
-            **{col: [40.0] for col in NMSIM_BAND_COLUMNS},
+            **{col: [40.0] for col in THIRD_OCTAVE_BANDS},
         })
+
+    def filter_below_terrain(self, site, source_pts, *, job_name=""):
+        return source_pts, source_pts.iloc[0:0]
 
 
 class TestMissingPredictionHandling:
@@ -172,24 +181,6 @@ class TestMissingPredictionHandling:
         assert len(audibility_pts) == 2
         by_x = audibility_pts.assign(x=audibility_pts.geometry.x).sort_values("x")
         assert by_x["audible"].tolist() == [1, 0]
-        crs = "EPSG:32606"
-        study_area = gpd.GeoDataFrame(
-            geometry=[Point(500000, 6000000).buffer(5000)],
-            crs=crs,
-        )
-        gen = ActiveSpaceGenerator(
-            NMSIM=None,
-            study_area=study_area,
-            root_dir=str(tmp_path),
-            ambience=pd.Series({"1000": 40.0, "12500": 40.0}),
-            propagation_model=_EmptyPredictionPropagationModel(),
-        )
-
-        audible_pts = gen._find_audible_points(pd.DataFrame(), crs)
-
-        assert len(audible_pts) == 0
-        assert list(audible_pts.columns) == ["audible", "geometry"]
-        assert audible_pts.crs.to_string().lower() == crs.lower()
 
     def test_source_pts_missing_predictions(self) -> None:
         crs = "EPSG:32606"

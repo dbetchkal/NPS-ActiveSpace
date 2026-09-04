@@ -27,21 +27,26 @@ from shapely.geometry import Point
 from aam_translator import hop_speed_kn, lonlat_to_model_ft, read_poi, read_run_log
 from aam_translator.constants import FT_PER_M
 
-from nps_active_space.active_space.aam_source import aam_source_id_from_omni
-from nps_active_space.active_space.aam_propagation_model import (
-    AAM_INP_BASENAME,
+from nps_active_space.propagation_model.aam.source import (
+    ensure_aam_nc_for_source,
+    stage_run_ncfiles,
+)
+from nps_active_space.propagation_model.aam.model import (
     AamPropagationModel,
+    _aam_template_nc_path,
     _pad_single_point_track,
 )
-from nps_active_space.active_space.aam_terrain import (
+from nps_active_space.propagation_model.aam.terrain import (
     AAM_BELOW_SURFACE_TOLERANCE_M,
+    AAM_INP_BASENAME,
     _bilinear_sample_grid,
     _elv_grid_values,
+    _northup_row_from_model_j,
     _terrain_surface_elevation_m,
     split_below_aam_terrain,
 )
 from nps_active_space.setup.elevation import get_project_setup_elevation
-from nps_active_space.utils.computation import NMSIM_bbox_utm, build_src_point_mesh
+from nps_active_space.utils.computation import study_area_utm_crs, build_src_point_mesh
 from nps_active_space.utils.helpers import get_deployment
 
 REPO = Path(os.environ.get("REPO_ROOT", "/repo"))
@@ -51,7 +56,15 @@ AAM_SHIM = Path("/usr/local/bin/aam")
 OMNI = Path(
     os.environ.get(
         "OMNI_SOURCE",
-        str(REPO / "nps_active_space" / "data" / "tuning" / "O_+000.src"),
+        str(
+            REPO
+            / "nps_active_space"
+            / "propagation_model"
+            / "nmsim"
+            / "data"
+            / "tuning"
+            / "O_+000.src"
+        ),
     )
 )
 MESH_DENSITY = int(os.environ.get("MESH_DENSITY", "10"))
@@ -98,7 +111,9 @@ def _surface_from_lonlat_m(terrain, wgs84_pts: gpd.GeoDataFrame) -> np.ndarray:
         x_ft, y_ft = lonlat_to_model_ft(terrain, float(geom.x), float(geom.y))
         col_i[i] = x_ft / (spec.cell_dx_m * FT_PER_M)
         row_j[i] = y_ft / (spec.cell_dy_m * FT_PER_M)
-    raw = _bilinear_sample_grid(values, col_i, row_j)
+    raw = _bilinear_sample_grid(
+        values, col_i, _northup_row_from_model_j(row_j, values.shape[0]),
+    )
     if terrain.elv_header_feet:
         return raw / FT_PER_M
     return raw
@@ -144,7 +159,11 @@ def _run_aam_unfiltered(
     work_dir.mkdir(parents=True, exist_ok=True)
     track = _pad_single_point_track(model._build_track(source_pts))
     pois = model._build_pois(site)
-    source_id = aam_source_id_from_omni(omni)
+    template_nc = _aam_template_nc_path(model.aam_shim)
+    source_id, cached_nc = ensure_aam_nc_for_source(
+        omni, model.root_dir, template_nc,
+    )
+    run_nc_dir = stage_run_ncfiles(work_dir, cached_nc)
     heading_deg = 0.0
     speed_kn = hop_speed_kn(track, site.terrain)
     inp_path = work_dir / f"{AAM_INP_BASENAME}.inp"
@@ -156,7 +175,7 @@ def _run_aam_unfiltered(
         model._stage_run_dir(
             work_dir, site, track, pois, source_id, job_name, heading_deg, speed_kn,
         )
-        model._run_aam(inp_path, work_dir)
+        model._run_aam(inp_path, work_dir, run_nc_dir)
         if poi_path.is_file():
             histories = read_poi(poi_path)
             poi_rows = 0 if not histories else histories[0].n_samples
@@ -194,7 +213,7 @@ def _dem_stats(dem_path: Path) -> tuple[float, float]:
 
 
 def _build_mesh(study_area: gpd.GeoDataFrame, altitude_m: int) -> gpd.GeoDataFrame:
-    crs = NMSIM_bbox_utm(study_area.iloc[[0]])
+    crs = study_area_utm_crs(study_area.iloc[[0]])
     area_utm = study_area.to_crs(crs)
     mesh = build_src_point_mesh(area_utm, MESH_DENSITY, altitude_m)
     inside = mesh[mesh.within(area_utm.union_all())].copy()
@@ -374,6 +393,35 @@ def main() -> int:
                 )
             else:
                 log("hop probe: skipped (need two AAM-ok filter-above points)")
+
+            below_ground_misses = [
+                (row, res) for row, res in above_fail if res["reason"] == "below_ground"
+            ]
+            log(
+                f"filter-above / AAM-below_ground={len(below_ground_misses)} "
+                "(should be 0 after north-up row fix)"
+            )
+            if successes:
+                kept = classified.loc[[row.name for row in successes[:5]]]
+                kept_run = _run_aam_unfiltered(
+                    model, site, kept, str(OMNI), f"kept_a{altitude_m}",
+                )
+                log(
+                    f"kept-only track n={len(kept)} "
+                    f"{'ok' if kept_run['ok'] else 'FAIL'} ({kept_run['reason']})  "
+                    f"{kept_run['excerpt']}"
+                )
+            below_sample = sample[sample["filter_below"]]
+            if successes and len(below_sample) > 0:
+                poison = classified.loc[[successes[0].name, below_sample.index[0]]]
+                poison_run = _run_aam_unfiltered(
+                    model, site, poison, str(OMNI), f"poison_a{altitude_m}",
+                )
+                log(
+                    f"poison track (1 kept + 1 filter-below) "
+                    f"{'ok' if poison_run['ok'] else 'FAIL'} ({poison_run['reason']})  "
+                    f"{poison_run['excerpt']}"
+                )
 
             if n_below > 0 or altitude_m != altitudes[0]:
                 break

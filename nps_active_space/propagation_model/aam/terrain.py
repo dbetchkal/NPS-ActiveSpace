@@ -19,21 +19,23 @@ from aam_translator import load_terrain, read_nmbgf_grid, write_terrain
 from aam_translator.constants import FT_PER_M
 from aam_translator.context import TerrainResult
 
-from nps_active_space.active_space.aam_run_log import aam_log
-from nps_active_space.active_space.propagation_model import (
+from nps_active_space.propagation_model.aam.run_log import aam_log
+from nps_active_space.utils.computation import project_raster
+from nps_active_space.utils.paths import (
     AAM_INPUT_SUBDIR,
     AAM_INPUT_SUBDIR_LEGACY,
     AAM_TERRAIN_SUBDIR,
+    display_path,
 )
-from nps_active_space.utils.computation import project_raster
-from nps_active_space.utils.paths import display_path
 
 AAM_INP_BASENAME = "scenario"
 AAM_TERRAIN_CACHE_META = "terrain_cache.json"
 AAM_DEFAULT_FLOW_RESISTIVITY = 200.0
 AOI_BOUNDS_TOLERANCE_DEG = 1e-4
-# AAM bilinear-interpolates ELV and rejects the whole batch when z <= surface.
-# Filter uses the same ELV grid; tolerance is float noise only, not a clearance margin.
+# AAM bilinear-samples ELV under the flight track (ONE TRACK vertices and the
+# linear hops between them; SW-origin j) and aborts that track if vehicle z is
+# below ground. POIs are not checked. read_nmbgf_grid is north-up; convert
+# model row_j before sampling. Tolerance is float noise only, not a clearance.
 AAM_BELOW_SURFACE_TOLERANCE_M = 0.01
 
 
@@ -67,6 +69,201 @@ def timed_terrain_step(label: str):
         aam_log("terrain", f"{label} ({time.perf_counter() - start:.1f}s)")
 
 
+def terrain_dir_for_site(root_dir: str | Path, suffix: str) -> Path:
+    """Return terrain cache dir, preferring ``Input_Data/aam/terrain/{mic}/``."""
+    root = Path(root_dir)
+    mic_key = suffix.removeprefix("_") or "default"
+    canonical = root / AAM_TERRAIN_SUBDIR / mic_key
+    if canonical.is_dir():
+        return canonical
+
+    legacy_candidates = (
+        root / AAM_INPUT_SUBDIR_LEGACY / "terrain" / mic_key,
+        root / AAM_INPUT_SUBDIR_LEGACY / f"terrain{suffix}",
+        root / AAM_INPUT_SUBDIR / f"terrain{suffix}",
+    )
+    for legacy_dir in legacy_candidates:
+        if legacy_dir.is_dir():
+            return legacy_dir
+
+    canonical.mkdir(parents=True, exist_ok=True)
+    return canonical
+
+
+def resolve_dem_for_aam(
+    dem_src: str,
+    study_area: gpd.GeoDataFrame,
+    root_dir: str | Path,
+    *,
+    project_dem: bool,
+    suffix: str,
+) -> str:
+    """Return the DEM path AAM should resample into ELV/IMP.
+
+    Callers pass the ``project_setup`` GeoTIFF (already clipped to the study area).
+    A full-extent warp is only used if ``project_dem`` is true and CRS still differs.
+    """
+    aam_log(
+        "terrain",
+        f"prepare_site: DEM {_dem_raster_summary(dem_src)}; "
+        f"study_area CRS={study_area.crs}",
+    )
+    if not project_dem:
+        return dem_src
+    if _crs_matches_dem(study_area.crs, dem_src):
+        aam_log(
+            "terrain",
+            "skipping GDAL warp: DEM CRS already matches study_area",
+        )
+        return dem_src
+
+    elevation_dir = Path(root_dir) / "Input_Data/01_ELEVATION"
+    dem_projected = str(elevation_dir / f"elevation_aam{suffix}.tif")
+    with timed_terrain_step(
+        f"GDAL warp to study_area CRS -> {Path(dem_projected).name}"
+    ):
+        project_raster(dem_src, dem_projected, study_area.crs)
+    aam_log("terrain", f"warped DEM {_dem_raster_summary(dem_projected)}")
+    return dem_projected
+
+
+def ensure_aam_terrain(
+    root_dir: str | Path,
+    terrain_dir: Path,
+    dem_file: str,
+    aoi_wgs84,
+    params: AamTerrainParams,
+) -> TerrainResult:
+    """Load cached ELV/IMP or build fresh AAM terrain for the AOI."""
+    root = Path(root_dir)
+    aam_log("terrain", f"AOI clip envelope (WGS84): {_aoi_bounds_deg(aoi_wgs84)}")
+
+    terrain = _try_load_cached_terrain(terrain_dir, root, dem_file, params)
+    if terrain is not None:
+        return terrain
+
+    aam_log(
+        "terrain",
+        f"write_terrain -> {display_path(terrain_dir)}/scenario.elv "
+        f"(receiver AGL {params.receiver_agl_m:.2f} m)",
+    )
+    with timed_terrain_step("write_terrain (AEQD resample + ELV/IMP)"):
+        terrain = write_terrain(
+            dem_file,
+            aoi_wgs84,
+            terrain_dir,
+            crs_in="EPSG:4326",
+            elv_basename="scenario.elv",
+            imp_basename="scenario.imp",
+            flow_resistivity=params.flow_resistivity,
+            grid_agl_ft=params.grid_agl_ft,
+        )
+    _write_terrain_cache_meta(terrain_dir, root, dem_file=dem_file, params=params)
+    return terrain
+
+
+def log_terrain_summary(terrain: TerrainResult) -> None:
+    aam_log("terrain", terrain_grid_summary(terrain))
+    if terrain.clip_tif_path:
+        aam_log("terrain", f"clip sidecar: {Path(terrain.clip_tif_path).name}")
+
+
+def terrain_grid_summary(terrain: TerrainResult) -> str:
+    spec = terrain.spec
+    return (
+        f"AEQD grid {spec.cell_count_x}×{spec.cell_count_y} cells "
+        f"at {spec.cell_dx_m:.1f}×{spec.cell_dy_m:.1f} m "
+        f"({spec.cell_count_x * spec.cell_count_y:,} cells)"
+    )
+
+
+def split_below_aam_terrain(
+    terrain: TerrainResult,
+    source_pts: gpd.GeoDataFrame,
+    *,
+    job_name: str = "",
+) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+    """Split points that are at or below the AAM ELV terrain surface.
+
+    Samples the same ``.ELV`` grid AAM uses (bilinear, SW-origin model indices
+    mapped onto the north-up payload). AAM aborts the whole batch when any track
+    point is below that surface; filter them here instead of clip-TIF resampling.
+    """
+    if len(source_pts) == 0:
+        return source_pts, source_pts.iloc[0:0]
+
+    surface_m = _terrain_surface_elevation_m(source_pts, terrain)
+    z_m = source_pts.geometry.z.to_numpy()
+    agl_m = z_m - surface_m
+    invalid = np.isnan(surface_m)
+    below = invalid | (agl_m <= AAM_BELOW_SURFACE_TOLERANCE_M)
+
+    n_below = int(below.sum())
+    if n_below > 0:
+        deficits_m = -agl_m[below & ~invalid]
+        label = f"{job_name}: " if job_name else ""
+        if len(deficits_m) > 0:
+            aam_log(
+                "filter",
+                f"{label}filtered {n_below}/{len(source_pts)} below AAM terrain "
+                f"(deficit min={deficits_m.min():.2f}m "
+                f"max={deficits_m.max():.2f}m mean={deficits_m.mean():.2f}m)",
+            )
+        else:
+            aam_log(
+                "filter",
+                f"{label}filtered {n_below}/{len(source_pts)} "
+                "(no AAM terrain sample / nodata)",
+            )
+
+    above = source_pts.loc[~below].copy()
+    below_pts = source_pts.loc[below].copy()
+    return above, below_pts
+
+
+def split_safe_aam_track_runs(
+    terrain: TerrainResult,
+    source_pts: gpd.GeoDataFrame,
+    *,
+    job_name: str = "",
+) -> list[gpd.GeoDataFrame]:
+    """Break an ordered mesh into ``ONE TRACK`` runs whose hops stay above ELV.
+
+    AAM interpolates between consecutive vertices and aborts the whole track if
+    any interpolated sample is below ground. Vertex filtering is not enough.
+    Callers must not binary-split a failed below-ground batch (that explodes
+    Wine launches); skip the chunk instead.
+    """
+    if len(source_pts) == 0:
+        return []
+    if len(source_pts) == 1:
+        return [source_pts]
+
+    to_aeqd = Transformer.from_crs(source_pts.crs, terrain.aeqd_crs, always_xy=True)
+    from_aeqd = Transformer.from_crs(terrain.aeqd_crs, source_pts.crs, always_xy=True)
+    runs: list[list[int]] = [[0]]
+    n_cut = 0
+    for i in range(len(source_pts) - 1):
+        start = source_pts.geometry.iloc[i]
+        end = source_pts.geometry.iloc[i + 1]
+        if _hop_segment_below_terrain(
+            terrain, start, end, source_pts.crs, to_aeqd, from_aeqd,
+        ):
+            n_cut += 1
+            runs.append([i + 1])
+        else:
+            runs[-1].append(i + 1)
+
+    if n_cut > 0:
+        label = f"{job_name}: " if job_name else ""
+        aam_log(
+            "filter",
+            f"{label}split ONE TRACK into {len(runs)} runs "
+            f"({n_cut} hops below AAM terrain)",
+        )
+    return [source_pts.iloc[idx].copy() for idx in runs]
+
+
 def _dem_raster_summary(path: str) -> str:
     with rasterio.open(path) as src:
         res_x, res_y = src.res
@@ -89,36 +286,6 @@ def _aoi_bounds_deg(aoi_wgs84) -> str:
         f"lon [{xmin:.5f}, {xmax:.5f}], "
         f"lat [{ymin:.5f}, {ymax:.5f}]"
     )
-
-
-def terrain_grid_summary(terrain: TerrainResult) -> str:
-    spec = terrain.spec
-    return (
-        f"AEQD grid {spec.cell_count_x}×{spec.cell_count_y} cells "
-        f"at {spec.cell_dx_m:.1f}×{spec.cell_dy_m:.1f} m "
-        f"({spec.cell_count_x * spec.cell_count_y:,} cells)"
-    )
-
-
-def terrain_dir_for_site(root_dir: str | Path, suffix: str) -> Path:
-    """Return terrain cache dir, preferring ``Input_Data/aam/terrain/{mic}/``."""
-    root = Path(root_dir)
-    mic_key = suffix.removeprefix("_") or "default"
-    canonical = root / AAM_TERRAIN_SUBDIR / mic_key
-    if canonical.is_dir():
-        return canonical
-
-    legacy_candidates = (
-        root / AAM_INPUT_SUBDIR_LEGACY / "terrain" / mic_key,
-        root / AAM_INPUT_SUBDIR_LEGACY / f"terrain{suffix}",
-        root / AAM_INPUT_SUBDIR / f"terrain{suffix}",
-    )
-    for legacy_dir in legacy_candidates:
-        if legacy_dir.is_dir():
-            return legacy_dir
-
-    canonical.mkdir(parents=True, exist_ok=True)
-    return canonical
 
 
 def _bounds_close(
@@ -255,84 +422,6 @@ def _try_load_cached_terrain(
     return terrain
 
 
-def resolve_dem_for_aam(
-    dem_src: str,
-    study_area: gpd.GeoDataFrame,
-    root_dir: str | Path,
-    *,
-    project_dem: bool,
-    suffix: str,
-) -> str:
-    """Return the DEM path AAM should resample into ELV/IMP.
-
-    Callers pass the ``project_setup`` GeoTIFF (already clipped to the study area).
-    A full-extent warp is only used if ``project_dem`` is true and CRS still differs.
-    """
-    aam_log(
-        "terrain",
-        f"prepare_site: DEM {_dem_raster_summary(dem_src)}; "
-        f"study_area CRS={study_area.crs}",
-    )
-    if not project_dem:
-        return dem_src
-    if _crs_matches_dem(study_area.crs, dem_src):
-        aam_log(
-            "terrain",
-            "skipping GDAL warp: DEM CRS already matches study_area",
-        )
-        return dem_src
-
-    elevation_dir = Path(root_dir) / "Input_Data/01_ELEVATION"
-    dem_projected = str(elevation_dir / f"elevation_aam{suffix}.tif")
-    with timed_terrain_step(
-        f"GDAL warp to study_area CRS -> {Path(dem_projected).name}"
-    ):
-        project_raster(dem_src, dem_projected, study_area.crs)
-    aam_log("terrain", f"warped DEM {_dem_raster_summary(dem_projected)}")
-    return dem_projected
-
-
-def ensure_aam_terrain(
-    root_dir: str | Path,
-    terrain_dir: Path,
-    dem_file: str,
-    aoi_wgs84,
-    params: AamTerrainParams,
-) -> TerrainResult:
-    """Load cached ELV/IMP or build fresh AAM terrain for the AOI."""
-    root = Path(root_dir)
-    aam_log("terrain", f"AOI clip envelope (WGS84): {_aoi_bounds_deg(aoi_wgs84)}")
-
-    terrain = _try_load_cached_terrain(terrain_dir, root, dem_file, params)
-    if terrain is not None:
-        return terrain
-
-    aam_log(
-        "terrain",
-        f"write_terrain -> {display_path(terrain_dir)}/scenario.elv "
-        f"(receiver AGL {params.receiver_agl_m:.2f} m)",
-    )
-    with timed_terrain_step("write_terrain (AEQD resample + ELV/IMP)"):
-        terrain = write_terrain(
-            dem_file,
-            aoi_wgs84,
-            terrain_dir,
-            crs_in="EPSG:4326",
-            elv_basename="scenario.elv",
-            imp_basename="scenario.imp",
-            flow_resistivity=params.flow_resistivity,
-            grid_agl_ft=params.grid_agl_ft,
-        )
-    _write_terrain_cache_meta(terrain_dir, root, dem_file=dem_file, params=params)
-    return terrain
-
-
-def log_terrain_summary(terrain: TerrainResult) -> None:
-    aam_log("terrain", terrain_grid_summary(terrain))
-    if terrain.clip_tif_path:
-        aam_log("terrain", f"clip sidecar: {Path(terrain.clip_tif_path).name}")
-
-
 @lru_cache(maxsize=16)
 def _cached_elv_values(elv_path: str, mtime_ns: int) -> np.ndarray:
     """Load ELV payload; cache keyed by path and mtime."""
@@ -349,11 +438,19 @@ def _model_ij_from_aeqd_m(
     aeqd_x_m: np.ndarray,
     aeqd_y_m: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Fractional ELV column/row indices from AEQD plane coordinates."""
+    """Fractional ELV column/row indices from AEQD plane coordinates.
+
+    ``row_j`` is SW-origin (0 at the south edge), matching AAM cell ``j``.
+    """
     spec = terrain.spec
     col_i = (aeqd_x_m - spec.grid_origin_x_m) / spec.cell_dx_m
     row_j = (aeqd_y_m - spec.grid_origin_y_m) / spec.cell_dy_m
     return col_i, row_j
+
+
+def _northup_row_from_model_j(row_south: np.ndarray, nrows: int) -> np.ndarray:
+    """Map SW-origin model ``row_j`` onto a north-up ELV array (row 0 = north)."""
+    return (nrows - 1) - row_south
 
 
 def _bilinear_sample_grid(
@@ -412,55 +509,12 @@ def _terrain_surface_elevation_m(
         aeqd_y_m = np.asarray([aeqd_y_m], dtype=np.float64)
     else:
         aeqd_x_m, aeqd_y_m = to_aeqd.transform(xs, ys)
-    col_i, row_j = _model_ij_from_aeqd_m(terrain, aeqd_x_m, aeqd_y_m)
-    raw = _bilinear_sample_grid(values, col_i, row_j)
+    col_i, row_south = _model_ij_from_aeqd_m(terrain, aeqd_x_m, aeqd_y_m)
+    row_north = _northup_row_from_model_j(row_south, values.shape[0])
+    raw = _bilinear_sample_grid(values, col_i, row_north)
     if terrain.elv_header_feet:
         return raw / FT_PER_M
     return raw
-
-
-def split_below_aam_terrain(
-    terrain: TerrainResult,
-    source_pts: gpd.GeoDataFrame,
-    *,
-    job_name: str = "",
-) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
-    """Split points that are at or below the AAM ELV terrain surface.
-
-    Samples the same ``.ELV`` grid AAM uses (bilinear, model indices). AAM aborts
-    the whole batch when any track point is below that surface; filter them here
-    instead of relying on clip-TIF resampling or a large clearance margin.
-    """
-    if len(source_pts) == 0:
-        return source_pts, source_pts.iloc[0:0]
-
-    surface_m = _terrain_surface_elevation_m(source_pts, terrain)
-    z_m = source_pts.geometry.z.to_numpy()
-    agl_m = z_m - surface_m
-    invalid = np.isnan(surface_m)
-    below = invalid | (agl_m <= AAM_BELOW_SURFACE_TOLERANCE_M)
-
-    n_below = int(below.sum())
-    if n_below > 0:
-        deficits_m = -agl_m[below & ~invalid]
-        label = f"{job_name}: " if job_name else ""
-        if len(deficits_m) > 0:
-            aam_log(
-                "filter",
-                f"{label}filtered {n_below}/{len(source_pts)} below AAM terrain "
-                f"(deficit min={deficits_m.min():.2f}m "
-                f"max={deficits_m.max():.2f}m mean={deficits_m.mean():.2f}m)",
-            )
-        else:
-            aam_log(
-                "filter",
-                f"{label}filtered {n_below}/{len(source_pts)} "
-                "(no AAM terrain sample / nodata)",
-            )
-
-    above = source_pts.loc[~below].copy()
-    below_pts = source_pts.loc[below].copy()
-    return above, below_pts
 
 
 def _hop_segment_below_terrain(
@@ -495,44 +549,3 @@ def _hop_segment_below_terrain(
     # Vertices are already ELV-filtered; only the interpolated interior can clip.
     interior = slice(1, -1)
     return bool(np.any(invalid[interior] | (agl_m[interior] <= AAM_BELOW_SURFACE_TOLERANCE_M)))
-
-
-def split_safe_aam_track_runs(
-    terrain: TerrainResult,
-    source_pts: gpd.GeoDataFrame,
-    *,
-    job_name: str = "",
-) -> list[gpd.GeoDataFrame]:
-    """Break an ordered mesh into ``ONE TRACK`` runs whose hops stay above ELV.
-
-    AAM interpolates between consecutive vertices and aborts the whole track if
-    any interpolated sample is below ground. Vertex filtering is not enough.
-    """
-    if len(source_pts) == 0:
-        return []
-    if len(source_pts) == 1:
-        return [source_pts]
-
-    to_aeqd = Transformer.from_crs(source_pts.crs, terrain.aeqd_crs, always_xy=True)
-    from_aeqd = Transformer.from_crs(terrain.aeqd_crs, source_pts.crs, always_xy=True)
-    runs: list[list[int]] = [[0]]
-    n_cut = 0
-    for i in range(len(source_pts) - 1):
-        start = source_pts.geometry.iloc[i]
-        end = source_pts.geometry.iloc[i + 1]
-        if _hop_segment_below_terrain(
-            terrain, start, end, source_pts.crs, to_aeqd, from_aeqd,
-        ):
-            n_cut += 1
-            runs.append([i + 1])
-        else:
-            runs[-1].append(i + 1)
-
-    if n_cut > 0:
-        label = f"{job_name}: " if job_name else ""
-        aam_log(
-            "filter",
-            f"{label}split ONE TRACK into {len(runs)} runs "
-            f"({n_cut} hops below AAM terrain)",
-        )
-    return [source_pts.iloc[idx].copy() for idx in runs]

@@ -9,8 +9,8 @@ import pandas as pd
 from aam_translator.bands import band_number_for_frequency
 from aam_translator.read_poi import PoiTimeHistory
 
-from nps_active_space.active_space.aam_source import aam_source_id_from_omni
-from nps_active_space.active_space.propagation_model import NMSIM_BAND_COLUMNS
+from nps_active_space.propagation_model.aam.source import aam_source_id_from_omni
+from nps_active_space.propagation_model.protocol import THIRD_OCTAVE_BANDS
 
 __all__ = [
     "aam_source_id_from_omni",
@@ -22,7 +22,11 @@ def poi_history_to_predictions_df(
     history: PoiTimeHistory,
     source_pts: gpd.GeoDataFrame,
 ) -> pd.DataFrame:
-    """Map one POI zone (single receiver) to the NMSim TIS-shaped DataFrame."""
+    """Map one POI zone (single receiver) to the NMSim TIS-shaped DataFrame.
+
+    Bands AAM does not emit (including 12.5 kHz / band 41) are ``NaN``, so they
+    cannot satisfy ``spectrum_is_audible``.
+    """
     n = history.n_samples
     if n != len(source_pts):
         raise ValueError(
@@ -37,7 +41,7 @@ def poi_history_to_predictions_df(
     })
 
     band_index = {bn: i for i, bn in enumerate(history.band_numbers)}
-    for col in NMSIM_BAND_COLUMNS:
+    for col in THIRD_OCTAVE_BANDS:
         band_num = band_number_for_frequency(float(col))
         if band_num in band_index:
             frame[col] = history.band_levels_db[:, band_index[band_num]]

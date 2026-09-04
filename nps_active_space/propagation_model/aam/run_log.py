@@ -8,11 +8,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from nps_active_space.active_space.propagation_model import (
-    AAM_OUTPUT_SUBDIR,
-    AAM_RUN_LOG_FILENAME,
-)
-from nps_active_space.utils.paths import display_path
+from nps_active_space.utils.paths import AAM_OUTPUT_SUBDIR, AAM_RUN_LOG_FILENAME, display_path
 
 try:
     import fcntl
@@ -20,6 +16,9 @@ except ImportError:
     fcntl = None
 
 _LOG_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+# Short site-log label when AAM stderr mentions Fortran array ``FPA`` subscript bounds.
+FORTRAN_FPA_SUBSCRIPT_ERROR = "Fortran FPA array subscript error"
 
 _configured_root: Path | None = None
 _log_path: Path | None = None
@@ -83,13 +82,20 @@ def summarize_aam_cli_output(text: str) -> str:
 
 
 def summarize_aam_error(message: str) -> str:
-    """Short console/site-log reason for an AAM batch failure."""
+    """Short console/site-log reason for an AAM batch failure.
+
+    When stderr or exception text contains ``fpa`` (case-insensitive), returns
+    :data:`FORTRAN_FPA_SUBSCRIPT_ERROR`. Typical Fortran message:
+    ``Subscript #2 of the array FPA has value 0 which is less than the lower bound of 1``.
+    FPA is an internal AAM Fortran array (expansion unknown); the root cause in the
+    AAM deck is not documented here.
+    """
     text = summarize_aam_cli_output(str(message))
     lower = text.lower()
     if "filename" in lower and ("length" in lower or "substring" in lower):
         return "AAM path too long (FILENAME 140)"
     if "fpa" in lower:
-        return "AAM FPA bounds"
+        return FORTRAN_FPA_SUBSCRIPT_ERROR
     if "forrtl" in lower:
         return text[:120]
     if "empty .poi" in lower or "no data rows" in lower:
@@ -102,7 +108,11 @@ def summarize_aam_error(message: str) -> str:
 
 
 def short_aam_work_dir_name(job_name: str) -> str:
-    """Short ``runs/`` subdirectory name so ``ROTOR_NOISE`` paths stay under AAM's 140-char FILENAME cap."""
+    """Short ``runs/`` subdirectory name so ``ROTOR_NOISE`` paths stay under AAM's 140-char FILENAME cap.
+
+    Hashed as ``x{hash12}``. Full job names are mapped in ``active_space.log``
+    (``[aam-run-dir]``).
+    """
     digest = hashlib.sha1(job_name.encode()).hexdigest()[:12]
     return f"x{digest}"
 

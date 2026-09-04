@@ -42,4 +42,4 @@ Do **not** commit the binaries to a public GitHub repo unless NPS legal explicit
 redistribution. Size (~10 MB) is git-friendly; **licensing is the constraint**.
 
 Omni tuning sources (`.src`/`.avg`) used by the pipeline live in-repo at
-`nps_active_space/data/tuning/` and are separate from the NMSim executable runtime.
+`nps_active_space/propagation_model/nmsim/data/tuning/` and are separate from the NMSim executable runtime.

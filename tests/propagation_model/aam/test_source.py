@@ -13,7 +13,7 @@ pytest.importorskip("netCDF4")
 
 from aam_translator.bands import band_number_for_frequency
 
-from nps_active_space.active_space.aam_source import (
+from nps_active_space.propagation_model.aam.source import (
     aam_source_id_from_omni,
     ensure_aam_nc_for_source,
     omni_stem_to_aam_token,
@@ -23,9 +23,9 @@ from nps_active_space.active_space.aam_source import (
     write_aam_nc,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 VENDOR_TEMPLATE = REPO_ROOT / "vendor/aam-runtime/NCfiles/OMNI_200.nc"
-TUNING_O_000 = REPO_ROOT / "nps_active_space/data/tuning/O_+000.avg"
+TUNING_O_000 = REPO_ROOT / "nps_active_space/propagation_model/nmsim/data/tuning/O_+000.avg"
 
 
 @pytest.fixture

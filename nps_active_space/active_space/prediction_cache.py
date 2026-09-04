@@ -9,13 +9,24 @@ from collections.abc import Callable
 import geopandas as gpd
 import pandas as pd
 
-from nps_active_space.active_space.propagation_model import prediction_cache_csv_path
 from nps_active_space.utils.paths import display_path
 
 logger = logging.getLogger(__name__)
 
+
+def prediction_cache_csv_path(
+    root_dir: str,
+    predictions_subdir: str,
+    altitude_m: int,
+    omni_stem: str,
+    heading: int,
+) -> str:
+    """Path to the merged prediction cache CSV for one alt/omni/heading combination."""
+    cache_dir = os.path.join(root_dir, predictions_subdir)
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, f"{altitude_m}m_{omni_stem}_{heading}deg.csv")
+
 _REQUIRED_CACHE_COLUMNS = {"Xpos", "Ypos", "A"}
-_POSITION_COLUMNS = {"Xpos", "Ypos", "Zpos"}
 _NO_SOUND_DB = -99.9
 _CACHE_UNITS_HEADER = "# units=dB\n"
 
@@ -26,6 +37,10 @@ def cache_failure_reason(csv_filename: str) -> str | None:
         return None
     if os.path.getsize(csv_filename) == 0:
         return "file is empty (0 bytes)"
+    with open(csv_filename, encoding="utf-8") as cache_file:
+        first_line = cache_file.readline()
+    if not first_line.lstrip().startswith("# units=dB"):
+        return "missing # units=dB header"
     try:
         preview = pd.read_csv(csv_filename, comment="#", nrows=1)
     except pd.errors.EmptyDataError:
@@ -40,17 +55,6 @@ def cache_failure_reason(csv_filename: str) -> str | None:
 
 def cache_is_readable(csv_filename: str) -> bool:
     return os.path.exists(csv_filename) and cache_failure_reason(csv_filename) is None
-
-
-def _sound_columns(predictions: pd.DataFrame) -> list[str]:
-    return [col for col in predictions.columns if col not in _POSITION_COLUMNS]
-
-
-def _is_legacy_centibel_csv(csv_filename: str) -> bool:
-    """True for pre-dB caches (no ``# units=dB`` header; integer centibels)."""
-    with open(csv_filename, encoding="utf-8") as cache_file:
-        first_line = cache_file.readline()
-    return not first_line.lstrip().startswith("#")
 
 
 def load_prediction_cache(
@@ -87,12 +91,7 @@ def load_prediction_cache(
 
     cache_df_all = pd.read_csv(csv_filename, comment="#")
     # Zpos is omitted on disk because it is constant within a cache file.
-    if _is_legacy_centibel_csv(csv_filename):
-        cache_df_all = cache_df_all.fillna(-999).astype("float64")
-        if not cache_df_all.empty:
-            cache_df_all[_sound_columns(cache_df_all)] /= 10
-    else:
-        cache_df_all = cache_df_all.fillna(_NO_SOUND_DB).astype("float64")
+    cache_df_all = cache_df_all.fillna(_NO_SOUND_DB).astype("float64")
     cache_df_all["Zpos"] = altitude_m
 
     source_idx = pd.MultiIndex.from_frame(pd.DataFrame({

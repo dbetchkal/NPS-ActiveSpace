@@ -23,21 +23,22 @@ from aam_translator import (
 from aam_translator.context import TerrainResult
 from aam_translator.write_inp import PoiPoint, TrackPoint
 
-from nps_active_space.active_space.aam_run_log import (
+from nps_active_space.propagation_model.aam.output import poi_history_to_predictions_df
+from nps_active_space.propagation_model.aam.run_log import (
     aam_log,
     configure_aam_run_log,
+    FORTRAN_FPA_SUBSCRIPT_ERROR,
     log_run_batch,
     short_aam_work_dir_name,
     summarize_aam_cli_output,
     summarize_aam_error,
 )
-from nps_active_space.active_space.aam_output import poi_history_to_predictions_df
-from nps_active_space.active_space.aam_source import (
+from nps_active_space.propagation_model.aam.source import (
     AAM_TEMPLATE_NC_FILENAME,
     ensure_aam_nc_for_source,
     stage_run_ncfiles,
 )
-from nps_active_space.active_space.aam_terrain import (
+from nps_active_space.propagation_model.aam.terrain import (
     AAM_INP_BASENAME,
     AamTerrainParams,
     ensure_aam_terrain,
@@ -47,20 +48,26 @@ from nps_active_space.active_space.aam_terrain import (
     split_safe_aam_track_runs,
     terrain_dir_for_site,
 )
-from nps_active_space.active_space.propagation_model import (
-    AAM_PREDICTIONS_SUBDIR,
-    AAM_RUNS_SUBDIR,
-)
 from nps_active_space.utils.models import Microphone
-from nps_active_space.utils.paths import display_path
+from nps_active_space.utils.paths import AAM_PREDICTIONS_SUBDIR, AAM_RUNS_SUBDIR, display_path
 
 AAM_RUN_TIMEOUT_S = 600
 DEFAULT_AAM_CHUNK_SIZE = 400
-# AAM 3.0.0 crashes on a 1-vertex ONE TRACK (Wine exit 152 / FPA, empty .POI).
-# Pad ~1 m so a leftover singleton stays two vertices. See nmsim-aam-experiments
+# AAM 3.0.0 crashes on a 1-vertex ONE TRACK (Wine exit 152; related Fortran crash
+# whose stderr often mentions the internal array FPA; empty .POI). Pad ~1 m so a
+# leftover singleton stays two vertices. See nmsim-aam-experiments
 # notes/aam_inp_format.md (batch limits).
 SINGLE_TRACK_PAD_M = 1.0
 METERS_PER_DEG_LAT = 111_320.0
+
+
+def resolve_aam_chunk_size() -> int:
+    """Points per Wine/AAM invocation.
+
+    Default is ``DEFAULT_AAM_CHUNK_SIZE`` (400), AAM's ``ONE TRACK`` cap /
+    ``aam_translator.MAX_TRACK_POINTS``. Override with env ``AAM_CHUNK_SIZE``.
+    """
+    return max(1, int(os.environ.get("AAM_CHUNK_SIZE", str(DEFAULT_AAM_CHUNK_SIZE))))
 
 
 def _ncfiles_has_template(nc_root: Path) -> bool:
@@ -126,14 +133,6 @@ def _aam_subprocess_env(aam_exe: str | Path, nc_root: Path) -> dict[str, str]:
     env["AAM_NC"] = nc_path
     return env
 
-__all__ = [
-    "AAM_PREDICTIONS_SUBDIR",
-    "AamPropagationModel",
-    "AamSiteContext",
-    "poi_history_to_predictions_df",
-    "split_below_aam_terrain",
-]
-
 
 def _runs_dir_for_site(root_dir: str | Path) -> Path:
     runs_dir = Path(root_dir) / AAM_RUNS_SUBDIR
@@ -141,13 +140,10 @@ def _runs_dir_for_site(root_dir: str | Path) -> Path:
     return runs_dir
 
 
-def resolve_aam_chunk_size() -> int:
-    """Points per Wine/AAM invocation (see docs/aam_integration_notes.md)."""
-    return max(1, int(os.environ.get("AAM_CHUNK_SIZE", str(DEFAULT_AAM_CHUNK_SIZE))))
+def _is_fortran_fpa_subscript_error(exc: BaseException) -> bool:
+    """True when ``summarize_aam_error`` classifies *exc* as a Fortran FPA subscript failure."""
+    return summarize_aam_error(str(exc)) == FORTRAN_FPA_SUBSCRIPT_ERROR
 
-
-def _is_fpa_bounds_error(exc: BaseException) -> bool:
-    return summarize_aam_error(str(exc)) == "AAM FPA bounds"
 
 def _pad_single_point_track(track: list[TrackPoint]) -> list[TrackPoint]:
     """Duplicate a lone vertex ~1 m east so AAM can interpolate a track."""
@@ -217,11 +213,6 @@ class AamPropagationModel:
         self.__dict__.update(state)
         configure_aam_run_log(self._root)
 
-    def _receiver_agl_m(self, mic: Microphone) -> float:
-        if self.receiver_agl_m is not None:
-            return self.receiver_agl_m
-        return mic.z
-
     def filter_below_terrain(
         self,
         site: AamSiteContext,
@@ -281,7 +272,15 @@ class AamPropagationModel:
         job_name: str,
         heading: int | None = None,
     ) -> pd.DataFrame:
-        chunk_size = resolve_aam_chunk_size()
+        """Predict spectra at the mic for each source point.
+
+        Avoids AAM below-ground aborts rather than retrying: filter vertices
+        against the ELV grid, snake the lattice, hop-split, then chunk at
+        ``resolve_aam_chunk_size()``. Pad a leftover singleton (~1 m). Skip a
+        failed below-ground chunk (do not bisect). Fortran FPA-bounds errors on
+        a long high-altitude track may be retried by halving via
+        ``_predict_batch_with_fpa_split``.
+        """
         ordered = _order_source_pts_for_track(source_pts)
         above_pts, _below_pts = self.filter_below_terrain(
             site, ordered, job_name=job_name,
@@ -289,6 +288,29 @@ class AamPropagationModel:
         if len(above_pts) == 0:
             return pd.DataFrame()
 
+        frames, run_idx = self._predict_chunked_runs(
+            site, above_pts, omni_source, altitude_m, job_name, heading,
+        )
+        if not frames:
+            raise RuntimeError(
+                f"AAM produced no predictions for {job_name}: "
+                f"0/{run_idx} batch(es) succeeded for {len(above_pts)} "
+                f"above-ground point(s). Inspect "
+                f"Output_Data/aam/runs/{job_name}_r*/scenario.txt "
+                "and aam_stderr.txt (terrain, NCfiles, below-ground).",
+            )
+        return pd.concat(frames, ignore_index=True)
+
+    def _predict_chunked_runs(
+        self,
+        site: AamSiteContext,
+        above_pts: gpd.GeoDataFrame,
+        omni_source: str,
+        altitude_m: int,
+        job_name: str,
+        heading: int | None,
+    ) -> tuple[list[pd.DataFrame], int]:
+        chunk_size = resolve_aam_chunk_size()
         frames: list[pd.DataFrame] = []
         runs = split_safe_aam_track_runs(
             site.terrain, above_pts, job_name=job_name,
@@ -317,15 +339,7 @@ class AamPropagationModel:
                     continue
                 if len(chunk_frame) > 0:
                     frames.append(chunk_frame)
-        if not frames:
-            raise RuntimeError(
-                f"AAM produced no predictions for {job_name}: "
-                f"0/{run_idx} batch(es) succeeded for {len(above_pts)} "
-                f"above-ground point(s). Inspect "
-                f"Output_Data/aam/runs/{job_name}_r*/scenario.txt "
-                "and aam_stderr.txt (terrain, NCfiles, below-ground).",
-            )
-        return pd.concat(frames, ignore_index=True)
+        return frames, run_idx
 
     def _predict_batch_with_fpa_split(
         self,
@@ -338,7 +352,7 @@ class AamPropagationModel:
         *,
         split_depth: int = 0,
     ) -> pd.DataFrame:
-        """Run one batch; on AAM FPA bounds, halve the track and retry (not below-ground bisect)."""
+        """Run one batch; if AAM exits with a Fortran subscript error on internal array FPA (see ``summarize_aam_error``), halve the track and retry. Not used for below-ground failures."""
         try:
             return self._predict_batch(
                 site,
@@ -349,12 +363,12 @@ class AamPropagationModel:
                 heading,
             )
         except Exception as exc:
-            if not _is_fpa_bounds_error(exc) or len(source_pts) <= 2:
+            if not _is_fortran_fpa_subscript_error(exc) or len(source_pts) <= 2:
                 raise
             mid = len(source_pts) // 2
             aam_log(
                 "predict",
-                f"split {job_name} n={len(source_pts)} after AAM FPA bounds",
+                f"split {job_name} n={len(source_pts)} after {FORTRAN_FPA_SUBSCRIPT_ERROR}",
             )
             left = self._predict_batch_with_fpa_split(
                 site,
@@ -578,3 +592,15 @@ class AamPropagationModel:
             raise RuntimeError(
                 f"AAM exited {proc.returncode}: {summarize_aam_cli_output(combined)}",
             )
+
+    def _receiver_agl_m(self, mic: Microphone) -> float:
+        if self.receiver_agl_m is not None:
+            return self.receiver_agl_m
+        return mic.z
+
+
+__all__ = [
+    "AamPropagationModel",
+    "AamSiteContext",
+    "resolve_aam_chunk_size",
+]

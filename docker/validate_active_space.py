@@ -481,7 +481,7 @@ def append_aam_site_log(
     results: Sequence[ValidationResult],
     fit: FitResult | None = None,
 ) -> None:
-    from nps_active_space.active_space.aam_run_log import append_aam_run_summary
+    from nps_active_space.propagation_model.aam.run_log import append_aam_run_summary
 
     summary_lines = [
         (

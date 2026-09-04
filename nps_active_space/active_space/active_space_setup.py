@@ -64,7 +64,7 @@ def build_active_space_generator(
     match AcousticModel.parse(model):
         case AcousticModel.AAM:
             try:
-                from nps_active_space.active_space.aam_propagation_model import (
+                from nps_active_space.propagation_model.aam.model import (
                     AamPropagationModel,
                 )
             except ModuleNotFoundError as exc:

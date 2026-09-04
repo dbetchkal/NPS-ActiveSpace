@@ -18,7 +18,7 @@ import geopandas as gpd
 from rasterio import open as rio_open
 from shapely.geometry import box, Point
 
-from nps_active_space.active_space.aam_propagation_model import AamPropagationModel
+from nps_active_space.propagation_model.aam.model import AamPropagationModel
 from nps_active_space.utils.models import Microphone
 
 FIXTURE_DIR = Path(
@@ -77,7 +77,7 @@ def main() -> int:
 
         omni = os.environ.get(
             "OMNI_SOURCE",
-            "/repo/nps_active_space/data/tuning/O_+200.avg",
+            "/repo/nps_active_space/propagation_model/nmsim/data/tuning/O_+200.avg",
         )
         preds = model.predict(
             site,

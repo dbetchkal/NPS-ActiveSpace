@@ -18,17 +18,19 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from nps_active_space.active_space.propagation_model import (
-    AAM_INPUT_SUBDIR,
-    AAM_OUTPUT_SUBDIR,
-    AAM_PREDICTIONS_SUBDIR,
-    AAM_RUN_LOG_FILENAME,
-    AAM_RUNS_SUBDIR,
-    NMSIM_OUTPUT_SUBDIR,
-    NMSIM_PREDICTIONS_SUBDIR,
-    NMSIM_SCRATCH_SUBDIR,
-)
 from nps_active_space.utils.enums import AcousticModel
+
+NMSIM_OUTPUT_SUBDIR = "Output_Data/nmsim"
+NMSIM_PREDICTIONS_SUBDIR = f"{NMSIM_OUTPUT_SUBDIR}/predictions"
+NMSIM_SCRATCH_SUBDIR = f"{NMSIM_OUTPUT_SUBDIR}/scratch"
+AAM_MODEL_SLUG = "aam"
+AAM_INPUT_SUBDIR = f"Input_Data/{AAM_MODEL_SLUG}"
+AAM_INPUT_SUBDIR_LEGACY = "Input_Data/AAM"
+AAM_TERRAIN_SUBDIR = f"{AAM_INPUT_SUBDIR}/terrain"
+AAM_OUTPUT_SUBDIR = f"Output_Data/{AAM_MODEL_SLUG}"
+AAM_PREDICTIONS_SUBDIR = f"{AAM_OUTPUT_SUBDIR}/predictions"
+AAM_RUNS_SUBDIR = f"{AAM_OUTPUT_SUBDIR}/runs"
+AAM_RUN_LOG_FILENAME = "active_space.log"
 from nps_active_space.utils.legacy_nmsim_paths import (
     LEGACY_PREDICTIONS_SUBDIR,
     NMSIM_ACTIVESPACES_SUBDIR,

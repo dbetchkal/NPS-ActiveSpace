@@ -6,7 +6,8 @@ import multiprocessing as mp
 import re
 from pathlib import Path
 
-from nps_active_space.active_space.aam_run_log import (
+from nps_active_space.propagation_model.aam.run_log import (
+    FORTRAN_FPA_SUBSCRIPT_ERROR,
     aam_log,
     aam_run_log_path,
     append_aam_run_summary,
@@ -16,7 +17,7 @@ from nps_active_space.active_space.aam_run_log import (
     summarize_aam_cli_output,
     summarize_aam_error,
 )
-from nps_active_space.active_space.propagation_model import AAM_RUN_LOG_FILENAME
+from nps_active_space.utils.paths import AAM_RUN_LOG_FILENAME
 
 _LOG_LINE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z ")
 
@@ -98,7 +99,7 @@ class TestAamRunLog:
             aam_run_log_path(tmp_path).read_text(encoding="utf-8").splitlines()[-1]
         )
         assert "skip" in last
-        assert "reason=AAM FPA bounds" in last
+        assert f"reason={FORTRAN_FPA_SUBSCRIPT_ERROR}" in last
         assert "Unknown" not in last
         assert "FAILED" not in last
 
@@ -112,7 +113,7 @@ class TestAamRunLog:
         )
         assert "forrtl" in summarize_aam_cli_output(blob)
         assert "Unknown" not in summarize_aam_cli_output(blob)
-        assert summarize_aam_error(blob) == "AAM FPA bounds"
+        assert summarize_aam_error(blob) == FORTRAN_FPA_SUBSCRIPT_ERROR
         assert summarize_aam_error("empty .POI file: /tmp/scenario.POI") == "empty POI"
 
     def test_summarize_filename_path_length(self) -> None:

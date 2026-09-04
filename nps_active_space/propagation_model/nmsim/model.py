@@ -13,17 +13,16 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 
-from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.setup.elevation import get_project_setup_elevation
 from nps_active_space.setup.site_writer import write_listener_site_file
 from nps_active_space.utils.constants import IS_WINDOWS
 from nps_active_space.utils import paths as p
-from nps_active_space.active_space.propagation_model import (
-    NMSIM_PREDICTIONS_SUBDIR,
-    NMSIM_SCRATCH_SUBDIR,
-)
+from nps_active_space.utils.models import Microphone
+from nps_active_space.utils.paths import NMSIM_PREDICTIONS_SUBDIR, NMSIM_SCRATCH_SUBDIR
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_WEATHER = Path(__file__).resolve().parent / "data" / "default.wea"
 
 
 def nmsim_control_path(path: str) -> str:
@@ -196,7 +195,7 @@ class NmsimPropagationModel:
             nms.write("-\n")
             nms.write(nmsim_control_path(site_file) + "\n")
             nms.write(nmsim_control_path(trajectory_file) + "\n")
-            nms.write(nmsim_control_path(f"{ACTIVE_SPACE_DIR}/data/default.wea") + "\n")
+            nms.write(nmsim_control_path(str(_DEFAULT_WEATHER)) + "\n")
             nms.write("-\n")
             nms.write(nmsim_control_path(omni_source_file) + "\n")
             nms.write("{0:11.4f}   \n".format(500.0000))
@@ -259,3 +258,12 @@ class NmsimPropagationModel:
             os.remove(tis_file)
 
         return new_rows
+
+    def filter_below_terrain(
+        self,
+        site: NmsimSiteContext,
+        source_pts: gpd.GeoDataFrame,
+        *,
+        job_name: str = "",
+    ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+        return source_pts, source_pts.iloc[0:0]

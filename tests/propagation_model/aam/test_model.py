@@ -19,10 +19,8 @@ pytest.importorskip("aam_translator")
 from aam_translator import read_poi, read_run_log
 from aam_translator.write_inp import TrackPoint
 
-from nps_active_space.active_space.aam_output import poi_history_to_predictions_df
-from nps_active_space.active_space.aam_source import aam_source_id_from_omni, site_ncfiles_dir
-from nps_active_space.active_space.aam_source import AAM_TEMPLATE_NC_FILENAME
-from nps_active_space.active_space.aam_propagation_model import (
+from nps_active_space.active_space.prediction_cache import prediction_cache_csv_path
+from nps_active_space.propagation_model.aam.model import (
     AAM_PREDICTIONS_SUBDIR,
     SINGLE_TRACK_PAD_M,
     AamPropagationModel,
@@ -31,12 +29,15 @@ from nps_active_space.active_space.aam_propagation_model import (
     _pad_single_point_track,
     resolve_aam_chunk_size,
 )
-from nps_active_space.active_space.propagation_model import (
-    NMSIM_BAND_COLUMNS,
-    prediction_cache_csv_path,
+from nps_active_space.propagation_model.aam.output import poi_history_to_predictions_df
+from nps_active_space.propagation_model.aam.source import (
+    AAM_TEMPLATE_NC_FILENAME,
+    aam_source_id_from_omni,
+    site_ncfiles_dir,
 )
+from nps_active_space.propagation_model.protocol import THIRD_OCTAVE_BANDS
 
-FIXTURES = Path(__file__).parent / "fixtures" / "two_point_ridge"
+FIXTURES = Path(__file__).resolve().parents[2] / "active_space" / "fixtures" / "two_point_ridge"
 CRS = "EPSG:32606"
 
 
@@ -54,7 +55,7 @@ def _predictions_for(source_pts: gpd.GeoDataFrame, level_db: float = 50.0) -> pd
         "Ypos": source_pts.geometry.y.values,
         "Zpos": source_pts.geometry.z.values,
         "A": [level_db] * len(source_pts),
-        **{col: [level_db - 10.0] * len(source_pts) for col in NMSIM_BAND_COLUMNS},
+        **{col: [level_db - 10.0] * len(source_pts) for col in THIRD_OCTAVE_BANDS},
     })
 
 
@@ -131,7 +132,7 @@ class TestPoiHistoryMapping:
 
     def test_poi_maps_to_nmsim_columns(self, poi_history, source_pts: gpd.GeoDataFrame) -> None:
         frame = poi_history_to_predictions_df(poi_history, source_pts)
-        expected_cols = {"Xpos", "Ypos", "Zpos", "A", *NMSIM_BAND_COLUMNS}
+        expected_cols = {"Xpos", "Ypos", "Zpos", "A", *THIRD_OCTAVE_BANDS}
         assert expected_cols == set(frame.columns)
         assert len(frame) == 2
         assert frame["A"].notna().all()
@@ -144,7 +145,7 @@ class TestPoiHistoryMapping:
 
 class TestAamMultiprocessPickle:
     def test_unpickle_reconfigures_site_log(self, tmp_path: Path) -> None:
-        from nps_active_space.active_space import aam_run_log
+        from nps_active_space.propagation_model.aam import run_log as aam_run_log
 
         site_root = tmp_path / "site"
         site_root.mkdir()
@@ -193,7 +194,7 @@ class TestAamPredictSkipOnFailure:
 
         monkeypatch.setattr(AamPropagationModel, "filter_below_terrain", passthrough)
         monkeypatch.setattr(
-            "nps_active_space.active_space.aam_propagation_model.split_safe_aam_track_runs",
+            "nps_active_space.propagation_model.aam.model.split_safe_aam_track_runs",
             lambda terrain, pts, job_name="": [pts],
         )
 
@@ -308,7 +309,7 @@ class TestAamPredictSkipOnFailure:
 
         monkeypatch.setattr(AamPropagationModel, "filter_below_terrain", passthrough)
         monkeypatch.setattr(
-            "nps_active_space.active_space.aam_propagation_model.split_safe_aam_track_runs",
+            "nps_active_space.propagation_model.aam.model.split_safe_aam_track_runs",
             lambda terrain, pts, job_name="": [pts.iloc[:2], pts.iloc[2:]],
         )
         jobs: list[str] = []
@@ -363,7 +364,7 @@ class TestAamSubprocessEnv:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from nps_active_space.active_space.aam_propagation_model import (
+        from nps_active_space.propagation_model.aam.model import (
             _resolve_aam_template_ncfiles_dir,
         )
 
@@ -381,7 +382,7 @@ class TestAamSubprocessEnv:
         assert resolved == nc
 
     def test_aam_home_template_resolution(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from nps_active_space.active_space.aam_propagation_model import (
+        from nps_active_space.propagation_model.aam.model import (
             _resolve_aam_template_ncfiles_dir,
         )
 
@@ -398,7 +399,7 @@ class TestAamSubprocessEnv:
         assert resolved == nc
 
     def test_aam_nc_override_for_template(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from nps_active_space.active_space.aam_propagation_model import (
+        from nps_active_space.propagation_model.aam.model import (
             _resolve_aam_template_ncfiles_dir,
         )
 

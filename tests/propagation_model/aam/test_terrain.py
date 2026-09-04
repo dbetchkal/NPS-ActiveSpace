@@ -17,17 +17,21 @@ from shapely.geometry import Point, box
 pytest.importorskip("aam_translator")
 
 from aam_translator import write_terrain
+from aam_translator.constants import FT_PER_M
 
-from nps_active_space.active_space.aam_terrain import (
+from nps_active_space.propagation_model.aam.terrain import (
     AAM_BELOW_SURFACE_TOLERANCE_M,
+    _bilinear_sample_grid,
+    _elv_grid_values,
     _hop_segment_below_terrain,
+    _northup_row_from_model_j,
     _terrain_surface_elevation_m,
     split_below_aam_terrain,
     split_safe_aam_track_runs,
     terrain_dir_for_site,
 )
 
-FIXTURES = Path(__file__).parent / "fixtures" / "two_point_ridge"
+FIXTURES = Path(__file__).resolve().parents[2] / "active_space" / "fixtures" / "two_point_ridge"
 
 
 def _fixture_dem_path() -> Path:
@@ -138,6 +142,101 @@ class TestSplitBelowAamTerrain:
         assert len(below) == 0
 
 
+def _utm_probe_at_elv_ij(terrain, col: float, row_south: float) -> gpd.GeoDataFrame:
+    spec = terrain.spec
+    aeqd_x_m = spec.grid_origin_x_m + col * spec.cell_dx_m
+    aeqd_y_m = spec.grid_origin_y_m + row_south * spec.cell_dy_m
+    from_aeqd = Transformer.from_crs(terrain.aeqd_crs, "EPSG:26906", always_xy=True)
+    x_m, y_m = from_aeqd.transform(aeqd_x_m, aeqd_y_m)
+    return gpd.GeoDataFrame(geometry=[Point(x_m, y_m, 0.0)], crs="EPSG:26906")
+
+
+class TestElvNorthUpIndexing:
+    def test_model_j_zero_is_south_array_row(self) -> None:
+        assert float(_northup_row_from_model_j(np.array([0.0]), 873)[0]) == 872.0
+        assert float(_northup_row_from_model_j(np.array([872.0]), 873)[0]) == 0.0
+
+    def test_south_probe_matches_south_elv_not_north_row(
+        self, terrain, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        values = _elv_grid_values(Path(terrain.elv_path))
+        scale = FT_PER_M if terrain.elv_header_feet else 1.0
+        nrows, ncols = values.shape
+        # North-up gradient: row 0 (north) = 1000 m, last row (south) = 0 m.
+        fake = np.zeros_like(values, dtype=np.float64)
+        for i in range(nrows):
+            fake[i, :] = 1000.0 * (1.0 - i / (nrows - 1)) * scale
+        monkeypatch.setattr(
+            "nps_active_space.propagation_model.aam.terrain._elv_grid_values",
+            lambda _path: fake,
+        )
+        col = ncols / 2.0
+        row_south = 2.0
+        sampled_m = float(
+            _terrain_surface_elevation_m(_utm_probe_at_elv_ij(terrain, col, row_south), terrain)[0]
+        )
+        row_north = _northup_row_from_model_j(np.array([row_south]), nrows)
+        expected_raw = float(_bilinear_sample_grid(fake, np.array([col]), row_north)[0])
+        wrong_raw = float(_bilinear_sample_grid(fake, np.array([col]), np.array([row_south]))[0])
+        expected_m = expected_raw / scale
+        wrong_m = wrong_raw / scale
+        assert sampled_m == pytest.approx(expected_m, abs=0.05)
+        assert abs(sampled_m - wrong_m) > 100.0
+
+    def test_filters_against_south_surface_not_flipped_north_row(
+        self, terrain, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        values = _elv_grid_values(Path(terrain.elv_path))
+        scale = FT_PER_M if terrain.elv_header_feet else 1.0
+        nrows, ncols = values.shape
+        fake = np.zeros_like(values, dtype=np.float64)
+        for i in range(nrows):
+            fake[i, :] = 1000.0 * (1.0 - i / (nrows - 1)) * scale
+        monkeypatch.setattr(
+            "nps_active_space.propagation_model.aam.terrain._elv_grid_values",
+            lambda _path: fake,
+        )
+        col = ncols / 2.0
+        row_south = 2.0
+        probe = _utm_probe_at_elv_ij(terrain, col, row_south)
+        south_m = float(_terrain_surface_elevation_m(probe, terrain)[0])
+        north_row_m = float(
+            _bilinear_sample_grid(fake, np.array([col]), np.array([row_south]))[0]
+        ) / scale
+        # Midway: above the south cell, below the unflipped north-row reading.
+        z_m = (south_m + north_row_m) / 2.0
+        assert z_m > south_m
+        assert z_m < north_row_m
+        source_pts = gpd.GeoDataFrame(
+            {"id": [0]},
+            geometry=[Point(probe.geometry.iloc[0].x, probe.geometry.iloc[0].y, z_m)],
+            crs="EPSG:26906",
+        )
+        above, below = split_below_aam_terrain(terrain, source_pts)
+        assert len(above) == 1
+        assert len(below) == 0
+
+    def test_ridge_south_of_center_differs_from_unflipped_row(self, terrain) -> None:
+        values = _elv_grid_values(Path(terrain.elv_path))
+        spec = terrain.spec
+        col = spec.cell_count_x / 2.0
+        row_south = spec.cell_count_y / 2.0 - 20.0
+        sampled_m = float(
+            _terrain_surface_elevation_m(_utm_probe_at_elv_ij(terrain, col, row_south), terrain)[0]
+        )
+        row_north = _northup_row_from_model_j(np.array([row_south]), values.shape[0])
+        expected_raw = float(
+            _bilinear_sample_grid(values, np.array([col]), row_north)[0]
+        )
+        wrong_raw = float(
+            _bilinear_sample_grid(values, np.array([col]), np.array([row_south]))[0]
+        )
+        expected_m = expected_raw / FT_PER_M if terrain.elv_header_feet else expected_raw
+        wrong_m = wrong_raw / FT_PER_M if terrain.elv_header_feet else wrong_raw
+        assert sampled_m == pytest.approx(expected_m, abs=0.05)
+        assert abs(sampled_m - wrong_m) > 10.0
+
+
 class TestSplitSafeAamTrackRuns:
     def test_keeps_one_run_when_hops_are_clear(
         self,
@@ -150,7 +249,7 @@ class TestSplitSafeAamTrackRuns:
             crs="EPSG:32606",
         )
         monkeypatch.setattr(
-            "nps_active_space.active_space.aam_terrain._hop_segment_below_terrain",
+            "nps_active_space.propagation_model.aam.terrain._hop_segment_below_terrain",
             lambda *args, **kwargs: False,
         )
         runs = split_safe_aam_track_runs(terrain, pts)
@@ -172,7 +271,7 @@ class TestSplitSafeAamTrackRuns:
             return float(start.x) == 10.0
 
         monkeypatch.setattr(
-            "nps_active_space.active_space.aam_terrain._hop_segment_below_terrain",
+            "nps_active_space.propagation_model.aam.terrain._hop_segment_below_terrain",
             fake_hop,
         )
         runs = split_safe_aam_track_runs(terrain, pts)
@@ -196,7 +295,7 @@ class TestSplitSafeAamTrackRuns:
             return surface
 
         monkeypatch.setattr(
-            "nps_active_space.active_space.aam_terrain._terrain_surface_elevation_m",
+            "nps_active_space.propagation_model.aam.terrain._terrain_surface_elevation_m",
             ridge_at_midpoint,
         )
         assert _hop_segment_below_terrain(
@@ -204,7 +303,7 @@ class TestSplitSafeAamTrackRuns:
         ) is True
 
         monkeypatch.setattr(
-            "nps_active_space.active_space.aam_terrain._terrain_surface_elevation_m",
+            "nps_active_space.propagation_model.aam.terrain._terrain_surface_elevation_m",
             lambda samples, terr: np.full(len(samples), z_m, dtype=float),
         )
         assert _hop_segment_below_terrain(

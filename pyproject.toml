@@ -69,6 +69,6 @@ exclude = ["legacy_code*", "tests*", "example_data*"]
 nps_active_space = [
     "config/template.config",
     "config/*_example.config",
-    "data/**/*",
+    "propagation_model/nmsim/data/**/*",
     "img/*",
 ]
