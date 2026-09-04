@@ -97,7 +97,7 @@ pip install "GDAL==${GDAL_VERSION}"
 pip install -e ".[dev]"
 ```
 
-Use **Python 3.12** explicitly (`python3.12 -m venv .venv`). For AAM adapter work, use `pip install -e ".[dev,aam]"` instead — the optional `[aam]` extra pins `aam-translator` v0.2.0 from GitHub (`pyproject.toml`).
+Use **Python 3.12** explicitly (`python3.12 -m venv .venv`). For AAM adapter work, use `pip install -e ".[dev,aam]"` instead — the optional `[aam]` extra pins `aam-translator` from GitHub (`pyproject.toml`).
 
 **Note: Using without a clone:** you can install directly from GitHub with `pip install "NPS-ActiveSpace @ git+https://github.com/dbetchkal/NPS-ActiveSpace.git"` (on macOS/Linux, complete the GDAL steps above first). Config files go in the installed package's `config/` directory — find it with `python -c "import nps_active_space, os; print(os.path.join(nps_active_space.ACTIVE_SPACE_DIR, 'config'))"`. Run scripts using `python -m ...` from outside the repo so Python uses the installed package, not a local checkout.
 

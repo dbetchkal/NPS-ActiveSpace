@@ -55,8 +55,8 @@ AAM_RUN_TIMEOUT_S = 600
 DEFAULT_AAM_CHUNK_SIZE = 400
 # AAM 3.0.0 crashes on a 1-vertex ONE TRACK (Wine exit 152; related Fortran crash
 # whose stderr often mentions the internal array FPA; empty .POI). Pad ~1 m so a
-# leftover singleton stays two vertices. See nmsim-aam-experiments
-# notes/aam_inp_format.md (batch limits).
+# leftover singleton stays two vertices. See aam-translator
+# docs/reading_aam_output.md and references/notes/aam_inp_format.md.
 SINGLE_TRACK_PAD_M = 1.0
 METERS_PER_DEG_LAT = 111_320.0
 

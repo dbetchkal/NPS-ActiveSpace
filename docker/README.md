@@ -42,7 +42,7 @@ AAM runs need **both** layers of model selection:
 - `docker/run_activespace.sh -m aam` — mounts the AAM Wine runtime at `/opt/aam` and caps Wine omni workers (`AAM_PARALLEL_N=2`)
 - `--model aam` on the Python script — selects `AamPropagationModel` and `Output_Data/aam/` layout
 
-The image already installs `[aam]` on build. For a host venv: `pip install -e ".[dev,aam]"` (GitHub pin `aam-translator@v0.2.0` in `pyproject.toml`).
+The image already installs `[aam]` on build. For a host venv: `pip install -e ".[dev,aam]"` (GitHub pin in `pyproject.toml`).
 
 Active space is one fixed microphone plus many source positions, so the adapter uses AAM `COMPUTEPOI` with 1 POI and N track points. General AAM I/O and runtime gotchas live in [aam-translator](https://github.com/elliott-ruebush/aam-translator) (`docs/reading_aam_output.md`).
 
