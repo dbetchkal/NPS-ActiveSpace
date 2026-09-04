@@ -16,7 +16,6 @@ import rasterio.plot
 from pyproj import Transformer
 from shapely.geometry import box
 
-from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.utils.models import Adsb, EarlyAdsb, Microphone, Annotations
 from nps_active_space.setup.site_decoder import decode_sit_geographic_coords, read_sit_file
 from nps_active_space.setup.site_writer import (
@@ -24,7 +23,7 @@ from nps_active_space.setup.site_writer import (
     deployment_sit_name,
     sit_file_path,
 )
-from nps_active_space.utils.computation import NMSIM_bbox_utm
+from nps_active_space.utils.computation import study_area_utm_crs
 from nps_active_space.utils.enums import AcousticModel
 from nps_active_space.utils import paths as p
 from tqdm import tqdm
@@ -280,7 +279,7 @@ def get_deployment(project_dir: str, unit: str, site: str, year: int, elevation:
 
     # get lat/lon so we can initialize a Microphone object, need to get crs of the .SIT file first
     study_area = load_studyarea(project_dir, unit, site, year)
-    mic_crs = NMSIM_bbox_utm(study_area)
+    mic_crs = study_area_utm_crs(study_area)
     lon, lat = decode_sit_geographic_coords(
         x,
         y,
@@ -601,7 +600,8 @@ def get_omni_sources(lower: float, upper: float, step_db: float = 0.5) -> List[s
         f"omni-min/max must align to omni-step ({step_db} dB)"
     )
 
-    omni_source_dir = os.path.join(ACTIVE_SPACE_DIR, "data", "tuning")
+    _TUNING_DIR = Path(__file__).resolve().parents[1] / "propagation_model" / "nmsim" / "data" / "tuning"
+    omni_source_dir = str(_TUNING_DIR)
     omni_sources = []
 
     for i in range(lower_units, upper_units + step_units, step_units):

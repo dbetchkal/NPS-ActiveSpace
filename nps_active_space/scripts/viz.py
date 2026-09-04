@@ -13,7 +13,7 @@ from nps_active_space.utils.enums import AcousticModel
 from nps_active_space.active_space.active_space_setup import resolve_3d_fit_gain
 from nps_active_space.scripts.run_audible_transits import AudibleTransits
 from nps_active_space.utils.models import Annotations
-from nps_active_space.utils.computation import NMSIM_bbox_utm
+from nps_active_space.utils.computation import study_area_utm_crs
 import nps_active_space.utils.config as cfg
 import argparse
 from vtkmodules.vtkRenderingCore import vtkTextActor
@@ -97,7 +97,7 @@ class Visualizer():
 
         # study area and crs
         self.study_area = load_studyarea(self.project_dir, self.unit, self.site, self.year)
-        self.crs = NMSIM_bbox_utm(self.study_area)
+        self.crs = study_area_utm_crs(self.study_area)
         self.study_area = self.study_area.to_crs(self.crs)
 
         # plot each element

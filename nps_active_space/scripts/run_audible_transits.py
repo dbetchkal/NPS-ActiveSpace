@@ -30,7 +30,7 @@ from nps_active_space.utils.helpers import (
     load_activespace,
     load_layered_activespace,
 )
-from nps_active_space.utils.computation import NMSIM_bbox_utm, contiguous_regions, interpolate_spline
+from nps_active_space.utils.computation import study_area_utm_crs, contiguous_regions, interpolate_spline
 from nps_active_space.utils.enums import AcousticModel
 from nps_active_space.utils.models import Tracks, FAAReleasable
 
@@ -339,7 +339,7 @@ class AudibleTransits(ABC):
 
         # Calculate the UTM zone from the study area
         study_area = load_studyarea(self.paths["project"], self.unit, self.site, self.activespace_year)
-        self.utm_zone = NMSIM_bbox_utm(study_area)
+        self.utm_zone = study_area_utm_crs(study_area)
 
         # Load in active space, based on if we are doing a 3D or 2D run
         # Always load in an activespace layer, will be used for plots in the 3D case

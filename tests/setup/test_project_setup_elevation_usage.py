@@ -13,7 +13,7 @@ from nps_active_space.active_space.active_space_generator import ActiveSpaceGene
 from nps_active_space.setup import setup_site
 from nps_active_space.setup.elevation import get_project_setup_elevation
 from nps_active_space.setup.site_writer import create_site_dir
-from nps_active_space.utils.computation import NMSIM_bbox_utm
+from nps_active_space.utils.computation import study_area_utm_crs
 from nps_active_space.utils.helpers import get_deployment, load_studyarea
 from nps_active_space.utils.models import Microphone
 from fixtures import (
@@ -87,7 +87,7 @@ class TestActiveSpaceGeneratorSetDem:
         )
         study_area.to_file(site_dir / "TESTSITE_study_area.shp")
 
-        mic_crs = NMSIM_bbox_utm(study_area)
+        mic_crs = study_area_utm_crs(study_area)
         mic = Microphone(name="TESTSITE2025", lat=58.55, lon=-136.05, z=100.0, crs=mic_crs)
 
         generator = ActiveSpaceGenerator(

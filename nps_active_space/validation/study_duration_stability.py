@@ -8,7 +8,7 @@ from matplotlib.ticker import MultipleLocator
 import os
 from shapely.geometry import Point
 from nps_active_space.utils.helpers import load_annotations, load_studyarea, load_layered_activespace
-from nps_active_space.utils.computation import normalize_point_density, NMSIM_bbox_utm
+from nps_active_space.utils.computation import normalize_point_density, study_area_utm_crs
 from nps_active_space.utils.enums import AcousticModel
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ def fit_varying_n_tracks(
         return
 
     study_area = load_studyarea(project_dir, unit, site, year)
-    utm_zone = NMSIM_bbox_utm(study_area)
+    utm_zone = study_area_utm_crs(study_area)
     annots = load_annotations(project_dir, unit, site, year).to_crs(utm_zone)
 
     # Determine chronological order of tracks

@@ -41,26 +41,30 @@ __all__ = [
     'coords_to_utm',
     'expected_Lp',
     'interpolate_spline',
-    'NMSIM_bbox_utm',
+    'study_area_utm_crs',
     'normalize_point_density',
     'round_points'
 ]
 
 
-def NMSIM_bbox_utm(study_area: gpd.GeoDataFrame) -> str:
+def study_area_utm_crs(study_area: gpd.GeoDataFrame) -> str:
     """
-    NMSIM references an entire project to the westernmost extent of the elevation (or landcover) file.
-    Given that, return the UTM Zone the project will eventually use. NMSIM uses NAD83 as its geographic
-    coordinate system, so the study area will be projected into NAD83 before calculating the UTM zone.
+    Return the UTM EPSG code for a study area's project coordinate system.
+
+    Uses the westernmost corner of the study-area bounding box in NAD83 (EPSG:4269),
+    matching the NMSim project convention for aligning elevation and site files.
+    The same CRS is used for AAM active-space runs so meshes, GDAL DEM sampling,
+    and ``project_setup`` elevation artifacts share one zone per deployment.
 
     Parameters
     ----------
     study_area : gpd.GeoDataFrame
-        A study area (Polygon) to find the UTM zone of the westernmost extent for.
+        Study area polygon(s). Reprojected to NAD83 when needed.
 
     Returns
     -------
-    UTM zone projection name (e.g.  'epsg:26905' for UTM 5N) that aligns with the westernmost extent of a study area.
+    str
+        UTM CRS name (e.g. ``epsg:26905`` for UTM zone 5N).
     """
     if study_area.crs.to_epsg() != 4269:
         study_area = study_area.to_crs(epsg='4269')
@@ -855,7 +859,7 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
 
     # convert to UTM because we are doing distance-based processing
     orig_crs = points.crs  # remember this so we can project back later
-    crs = NMSIM_bbox_utm(study_area)
+    crs = study_area_utm_crs(study_area)
     if points.crs != crs:
         points = points.to_crs(crs)
     

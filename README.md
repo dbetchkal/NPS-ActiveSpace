@@ -97,7 +97,7 @@ pip install "GDAL==${GDAL_VERSION}"
 pip install -e ".[dev]"
 ```
 
-Use **Python 3.12** explicitly (`python3.12 -m venv .venv`). For AAM adapter work, use `pip install -e ".[dev,aam]"` instead.
+Use **Python 3.12** explicitly (`python3.12 -m venv .venv`). For AAM adapter work, use `pip install -e ".[dev,aam]"` instead — the optional `[aam]` extra pins `aam-translator` v0.2.0 from GitHub (`pyproject.toml`).
 
 **Note: Using without a clone:** you can install directly from GitHub with `pip install "NPS-ActiveSpace @ git+https://github.com/dbetchkal/NPS-ActiveSpace.git"` (on macOS/Linux, complete the GDAL steps above first). Config files go in the installed package's `config/` directory — find it with `python -c "import nps_active_space, os; print(os.path.join(nps_active_space.ACTIVE_SPACE_DIR, 'config'))"`. Run scripts using `python -m ...` from outside the repo so Python uses the installed package, not a local checkout.
 
@@ -133,7 +133,7 @@ nmsim = C:\path\to\Nord2000batch.exe
 
 On Windows, set the path in your config as above. In Docker, `container_example.config` points at the bind-mounted runtime under `/opt/nmsim`.
 
-**AAM (optional):** AAM propagation adapter work uses the same Docker+Wine path with `-m aam`. Stage runtime from a directory with `AAM_3.0.0.exe` and `NCfiles/` (e.g. tier-4 reciprocal case in `nmsim-aam-experiments`). See [docker/README.md](docker/README.md) and [docs/aam_integration_notes.md](docs/aam_integration_notes.md).
+**AAM (optional):** AAM propagation adapter work uses the same Docker+Wine path with `-m aam`. Stage runtime from a directory with `AAM_3.0.0.exe` and `NCfiles/` (e.g. a reciprocal case in `nmsim-aam-experiments`). See [docker/README.md](docker/README.md).
 
 Required for `generate_active_space.py` and `generate_3d_active_space.py`. **Not** required for ground-truthing, audible transits, or validation.
 
