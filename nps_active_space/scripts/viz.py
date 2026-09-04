@@ -298,7 +298,7 @@ class Visualizer():
         prop.ShadowOn()
         prop.SetJustificationToLeft()
         prop.SetVerticalJustificationToBottom()
-        self.plotter.renderer.AddActor2D(text)
+        self.plotter.renderer.AddViewProp(text)
         return checkbox
 
     def _add_color_legend(self, *, compare_models: bool) -> None:
