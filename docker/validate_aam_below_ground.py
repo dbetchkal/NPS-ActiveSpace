@@ -34,6 +34,7 @@ from nps_active_space.propagation_model.aam.source import (
 from nps_active_space.propagation_model.aam.model import (
     AamPropagationModel,
     _aam_template_nc_path,
+    _order_source_pts_for_track,
     _pad_single_point_track,
 )
 from nps_active_space.propagation_model.aam.terrain import (
@@ -42,8 +43,10 @@ from nps_active_space.propagation_model.aam.terrain import (
     _bilinear_sample_grid,
     _elv_grid_values,
     _northup_row_from_model_j,
+    _split_sequential_hop_runs,
     _terrain_surface_elevation_m,
     split_below_aam_terrain,
+    split_safe_aam_track_runs,
 )
 from nps_active_space.setup.elevation import get_project_setup_elevation
 from nps_active_space.utils.computation import study_area_utm_crs, build_src_point_mesh
@@ -201,6 +204,46 @@ def _run_aam_unfiltered(
         "excerpt": _excerpt(log_text) or (exc_msg or "")[:240],
         "work_dir": str(work_dir),
     }
+
+
+def _probe_packed_tracks(model, site, classified, omni: str, altitude_m: int) -> None:
+    above_pts = classified.loc[~classified["filter_below"] & ~classified["filter_nan"]]
+    if len(above_pts) < 2:
+        log(f"pack probe {altitude_m}m: skipped (need ≥2 filter-above points)")
+        return
+    ordered = _order_source_pts_for_track(above_pts)
+    sequential = _split_sequential_hop_runs(site.terrain, ordered)
+    packed = split_safe_aam_track_runs(
+        site.terrain, ordered, job_name=f"pack_a{altitude_m}",
+    )
+    seq_lens = [len(r) for r in sequential]
+    pack_lens = [len(r) for r in packed]
+    log(
+        f"pack {altitude_m}m: n_above={len(ordered)} sequential_runs={len(sequential)} "
+        f"sizes={seq_lens}  packed_runs={len(packed)} sizes={pack_lens}"
+    )
+    below_ground_pack = 0
+    ok_pack = 0
+    launch = packed[:12]
+    if len(packed) > 12:
+        log(f"pack {altitude_m}m: launching first 12 of {len(packed)} tracks")
+    for i, run_pts in enumerate(launch):
+        pack_run = _run_aam_unfiltered(
+            model, site, run_pts, omni, f"pack_a{altitude_m}_r{i:03d}",
+        )
+        if pack_run["ok"]:
+            ok_pack += 1
+        elif pack_run["reason"] == "below_ground":
+            below_ground_pack += 1
+        log(
+            f"  packed r{i:03d} n={len(run_pts)} "
+            f"{'ok' if pack_run['ok'] else 'FAIL'} "
+            f"({pack_run['reason']})  {pack_run['excerpt']}"
+        )
+    log(
+        f"pack {altitude_m}m AAM: ok={ok_pack}/{len(launch)} "
+        f"below_ground={below_ground_pack}"
+    )
 
 
 def _dem_stats(dem_path: Path) -> tuple[float, float]:
@@ -422,6 +465,16 @@ def main() -> int:
                     f"{'ok' if poison_run['ok'] else 'FAIL'} ({poison_run['reason']})  "
                     f"{poison_run['excerpt']}"
                 )
+
+            _probe_packed_tracks(model, site, classified, str(OMNI), altitude_m)
+            if altitude_m != 1200:
+                mesh_1200 = _build_mesh(study_area, 1200)
+                classified_1200 = _annotate_filter(mesh_1200, site.terrain)
+                log(
+                    f"pack extra mesh 1200m: n={len(mesh_1200)} "
+                    f"below={int(classified_1200['filter_below'].sum())}"
+                )
+                _probe_packed_tracks(model, site, classified_1200, str(OMNI), 1200)
 
             if n_below > 0 or altitude_m != altitudes[0]:
                 break

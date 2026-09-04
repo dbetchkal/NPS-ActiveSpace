@@ -25,6 +25,7 @@ from nps_active_space.propagation_model.aam.terrain import (
     _elv_grid_values,
     _hop_segment_below_terrain,
     _northup_row_from_model_j,
+    _split_sequential_hop_runs,
     _terrain_surface_elevation_m,
     split_below_aam_terrain,
     split_safe_aam_track_runs,
@@ -276,6 +277,36 @@ class TestSplitSafeAamTrackRuns:
         )
         runs = split_safe_aam_track_runs(terrain, pts)
         assert [run["id"].tolist() for run in runs] == [[0, 1], [2]]
+
+    def test_reconnects_around_a_clipping_snake_gap(
+        self,
+        terrain,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pts = gpd.GeoDataFrame(
+            {"id": [0, 1, 2, 3]},
+            geometry=[
+                Point(0, 0, 100),
+                Point(1, 0, 100),
+                Point(2, 0, 100),
+                Point(1, 1, 100),
+            ],
+            crs="EPSG:32606",
+        )
+
+        def fake_hop(terrain_ctx, start, end, source_crs, to_aeqd, from_aeqd) -> bool:
+            xs = sorted((float(start.x), float(end.x)))
+            ys = sorted((float(start.y), float(end.y)))
+            return xs[0] < 1.5 < xs[1] and max(ys) < 0.5
+
+        monkeypatch.setattr(
+            "nps_active_space.propagation_model.aam.terrain._hop_segment_below_terrain",
+            fake_hop,
+        )
+        sequential = _split_sequential_hop_runs(terrain, pts)
+        packed = [run["id"].tolist() for run in split_safe_aam_track_runs(terrain, pts)]
+        assert sequential == [[0, 1], [2, 3]]
+        assert packed == [[0, 1, 3, 2]]
 
     def test_hop_interior_below_surface_is_detected(
         self,

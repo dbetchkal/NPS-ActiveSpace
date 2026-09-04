@@ -227,12 +227,14 @@ def split_safe_aam_track_runs(
     *,
     job_name: str = "",
 ) -> list[gpd.GeoDataFrame]:
-    """Break an ordered mesh into ``ONE TRACK`` runs whose hops stay above ELV.
+    """Pack points into ``ONE TRACK`` runs whose hops stay above ELV.
 
     AAM interpolates between consecutive vertices and aborts the whole track if
     any interpolated sample is below ground. Vertex filtering is not enough.
-    Callers must not binary-split a failed below-ground batch (that explodes
-    Wine launches); skip the chunk instead.
+
+    Grows each run by the nearest unused point whose chord is clear, so a
+    clipping snake-gap does not start a new AAM process. A new run starts only
+    when no remaining point has a clear hop from the current end.
     """
     if len(source_pts) == 0:
         return []
@@ -241,27 +243,101 @@ def split_safe_aam_track_runs(
 
     to_aeqd = Transformer.from_crs(source_pts.crs, terrain.aeqd_crs, always_xy=True)
     from_aeqd = Transformer.from_crs(terrain.aeqd_crs, source_pts.crs, always_xy=True)
-    runs: list[list[int]] = [[0]]
-    n_cut = 0
-    for i in range(len(source_pts) - 1):
-        start = source_pts.geometry.iloc[i]
-        end = source_pts.geometry.iloc[i + 1]
-        if _hop_segment_below_terrain(
-            terrain, start, end, source_pts.crs, to_aeqd, from_aeqd,
-        ):
-            n_cut += 1
-            runs.append([i + 1])
-        else:
-            runs[-1].append(i + 1)
-
-    if n_cut > 0:
+    index_runs = _pack_clear_hop_runs(terrain, source_pts, to_aeqd, from_aeqd)
+    if len(index_runs) > 1:
         label = f"{job_name}: " if job_name else ""
         aam_log(
             "filter",
-            f"{label}split ONE TRACK into {len(runs)} runs "
-            f"({n_cut} hops below AAM terrain)",
+            f"{label}packed {len(source_pts)} points into {len(index_runs)} "
+            "AAM tracks (clear hops)",
         )
-    return [source_pts.iloc[idx].copy() for idx in runs]
+    return [source_pts.iloc[idx].copy() for idx in index_runs]
+
+
+def _split_sequential_hop_runs(
+    terrain: TerrainResult,
+    source_pts: gpd.GeoDataFrame,
+) -> list[list[int]]:
+    """Cut the given order at every clipping hop (legacy snake split)."""
+    if len(source_pts) == 0:
+        return []
+    if len(source_pts) == 1:
+        return [[0]]
+
+    to_aeqd = Transformer.from_crs(source_pts.crs, terrain.aeqd_crs, always_xy=True)
+    from_aeqd = Transformer.from_crs(terrain.aeqd_crs, source_pts.crs, always_xy=True)
+    geoms = source_pts.geometry
+    runs: list[list[int]] = [[0]]
+    for i in range(len(source_pts) - 1):
+        if _hop_segment_below_terrain(
+            terrain, geoms.iloc[i], geoms.iloc[i + 1],
+            source_pts.crs, to_aeqd, from_aeqd,
+        ):
+            runs.append([i + 1])
+        else:
+            runs[-1].append(i + 1)
+    return runs
+
+
+def _pack_clear_hop_runs(
+    terrain: TerrainResult,
+    source_pts: gpd.GeoDataFrame,
+    to_aeqd: Transformer,
+    from_aeqd: Transformer,
+) -> list[list[int]]:
+    """Greedy nearest-clear-neighbor path cover over vertex-filtered points."""
+    n = len(source_pts)
+    geoms = source_pts.geometry
+    xs = geoms.x.to_numpy(dtype=np.float64)
+    ys = geoms.y.to_numpy(dtype=np.float64)
+    if n == 1:
+        aeqd_x, aeqd_y = to_aeqd.transform(float(xs[0]), float(ys[0]))
+        xy = np.array([[aeqd_x, aeqd_y]], dtype=np.float64)
+    else:
+        aeqd_x, aeqd_y = to_aeqd.transform(xs, ys)
+        xy = np.column_stack(
+            [np.asarray(aeqd_x, dtype=np.float64), np.asarray(aeqd_y, dtype=np.float64)]
+        )
+
+    hop_clips: dict[tuple[int, int], bool] = {}
+
+    def clips(i: int, j: int) -> bool:
+        key = (i, j) if i < j else (j, i)
+        cached = hop_clips.get(key)
+        if cached is None:
+            cached = _hop_segment_below_terrain(
+                terrain, geoms.iloc[i], geoms.iloc[j],
+                source_pts.crs, to_aeqd, from_aeqd,
+            )
+            hop_clips[key] = cached
+        return cached
+
+    unused = set(range(n))
+    runs: list[list[int]] = []
+    while unused:
+        start = min(unused)
+        track = [start]
+        unused.remove(start)
+        while unused:
+            current = track[-1]
+            remaining = np.fromiter(unused, dtype=np.int64)
+            dist_m = np.hypot(
+                xy[remaining, 0] - xy[current, 0],
+                xy[remaining, 1] - xy[current, 1],
+            )
+            nearest = remaining[np.lexsort((remaining, dist_m))]
+            pick: int | None = None
+            for cand in nearest:
+                cand_i = int(cand)
+                if not clips(current, cand_i):
+                    pick = cand_i
+                    break
+            if pick is None:
+                break
+            track.append(pick)
+            unused.remove(pick)
+        runs.append(track)
+    return runs
 
 
 def _dem_raster_summary(path: str) -> str:

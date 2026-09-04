@@ -62,7 +62,7 @@ METERS_PER_DEG_LAT = 111_320.0
 
 
 def resolve_aam_chunk_size() -> int:
-    """Points per Wine/AAM invocation.
+    """Points per AAM process (Windows native or Docker+Wine).
 
     Default is ``DEFAULT_AAM_CHUNK_SIZE`` (400), AAM's ``ONE TRACK`` cap /
     ``aam_translator.MAX_TRACK_POINTS``. Override with env ``AAM_CHUNK_SIZE``.
@@ -275,10 +275,10 @@ class AamPropagationModel:
         """Predict spectra at the mic for each source point.
 
         Avoids AAM below-ground aborts rather than retrying: filter vertices
-        against the ELV grid, snake the lattice, hop-split, then chunk at
-        ``resolve_aam_chunk_size()``. Pad a leftover singleton (~1 m). Skip a
-        failed below-ground chunk (do not bisect). Fortran FPA-bounds errors on
-        a long high-altitude track may be retried by halving via
+        against the ELV grid, snake the lattice, pack clear-hop tracks, then
+        chunk at ``resolve_aam_chunk_size()``. Pad a leftover singleton (~1 m).
+        Skip a failed below-ground chunk (do not bisect). Fortran FPA-bounds
+        errors on a long high-altitude track may be retried by halving via
         ``_predict_batch_with_fpa_split``.
         """
         ordered = _order_source_pts_for_track(source_pts)
