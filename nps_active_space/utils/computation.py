@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Iterable, TYPE_CHECKING
 
 import geopandas as gpd
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import os
@@ -814,6 +813,8 @@ def select_optimal(unit: str, site: str, year: int,
         logger.warning("select_optimal received no active space polygons to evaluate.")
     
     if plot:
+        import matplotlib.pyplot as plt
+
         # create Precision-Recall Plot.
         fig, ax = plt.subplots()
         ax.plot(detection_results["Recall"], detection_results["Precision"], ls="-", lw=0.2, marker="o", ms=2, color="k")
@@ -905,6 +906,8 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
     logger.info(f"Went from {n_before} to {len(points)} points when normalizing point density")
 
     if visualize:
+        import matplotlib.pyplot as plt
+
         # run it again to visualize the difference
         new_pos = np.stack([points.geometry.x, points.geometry.y], axis=1)
         new_grid_densities = FFTKDE(bw=bandwidth).fit(new_pos).evaluate(grid)

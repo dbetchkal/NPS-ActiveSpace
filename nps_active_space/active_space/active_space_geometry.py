@@ -2,9 +2,10 @@
 
 import geopandas as gpd
 import matplotlib as mpl
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 from shapely.geometry import Polygon, box
 from shapely.validation import make_valid
 
@@ -15,15 +16,19 @@ def audibility_contours(
     total_space: gpd.GeoDataFrame,
     levels: list[float] | np.ndarray,
 ) -> mpl.tri.TriContourSet:
-    """Delaunay-triangulate audibility points and return matplotlib contour set."""
-    fig, ax = plt.subplots()
+    """Delaunay-triangulate audibility points and return matplotlib contour set.
+
+    Uses an Agg canvas instead of pyplot so this is safe inside Windows
+    multiprocessing workers (TkAgg raises ``main thread is not in main loop``).
+    """
+    fig = Figure()
+    FigureCanvasAgg(fig)
+    ax = fig.add_subplot()
     tri = mpl.tri.Triangulation(
         total_space.geometry.x.tolist(),
         total_space.geometry.y.tolist(),
     )
-    cs = ax.tricontour(tri, total_space.audible.tolist(), levels=levels)
-    plt.close(fig)
-    return cs
+    return ax.tricontour(tri, total_space.audible.tolist(), levels=levels)
 
 
 def contour_active_space(

@@ -1,4 +1,8 @@
 import os
+
+# Headless CLI plots (savefig). Avoid TkAgg on Windows hosts.
+os.environ.setdefault("MPLBACKEND", "Agg")
+
 import pandas as pd
 from nps_active_space.utils.helpers import load_layered_activespace, load_annotations
 import nps_active_space.utils.config as cfg

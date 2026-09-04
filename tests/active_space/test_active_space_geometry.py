@@ -8,7 +8,10 @@ import geopandas as gpd
 import numpy as np
 from shapely.geometry import Point
 
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+
 from nps_active_space.active_space.active_space_geometry import (
+    audibility_contours,
     build_active_space,
     contour_active_space,
 )
@@ -37,6 +40,13 @@ def _audibility_point_cloud(crs: str) -> gpd.GeoDataFrame:
         geometry=gpd.points_from_xy(xs, ys),
         crs=crs,
     )
+
+
+class TestAudibilityContours:
+    def test_uses_agg_canvas(self) -> None:
+        total_space = _audibility_point_cloud(_UTM_CRS)
+        cs = audibility_contours(total_space, levels=[0.5])
+        assert isinstance(cs.axes.figure.canvas, FigureCanvasAgg)
 
 
 class TestContourActiveSpace:

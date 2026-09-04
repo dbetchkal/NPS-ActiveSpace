@@ -16,6 +16,10 @@ from tqdm import tqdm
 import pickle
 import sys
 
+# Contour extraction uses matplotlib inside worker processes. TkAgg on Windows
+# raises "main thread is not in main loop" / Tcl_AsyncDelete during figure teardown.
+os.environ.setdefault("MPLBACKEND", "Agg")
+
 import nps_active_space.utils.config as cfg
 from nps_active_space.utils.enums import AcousticModel
 from nps_active_space.utils.helpers import get_deployment, get_logger, get_omni_sources, load_annotations, omni_to_gain

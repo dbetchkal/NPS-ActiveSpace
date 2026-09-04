@@ -5,6 +5,9 @@ import sys
 import time
 from datetime import UTC, datetime
 
+# Headless CLI plots (savefig). Avoid TkAgg on Windows hosts.
+os.environ.setdefault("MPLBACKEND", "Agg")
+
 import matplotlib.pyplot as plt
 from nps_active_space.utils.computation import (
     compute_ambience_from_nvspl_archive,
