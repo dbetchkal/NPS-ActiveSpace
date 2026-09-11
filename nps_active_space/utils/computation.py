@@ -853,7 +853,9 @@ def barometric_pressure(h: float) -> float:
     p_0 = 101.325 # kPa  sea level standard atmospheric pressure
     
     # calculate air pressure at altitude using the Barometric Formula
-    patm = p_0 * np.power((1 - (L * h / T_0)), (g * M) / (R * L))   # Pa
+    # L is already signed (negative for the troposphere), so the temperature
+    # ratio is (T_0 + L*h)/T_0 and the exponent is -gM/(RL).
+    patm = p_0 * np.power((T_0 + L * h) / T_0, (-g * M) / (R * L))   # kPa
     
     return patm
 
