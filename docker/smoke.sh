@@ -3,13 +3,14 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Confirm the Docker+Wine image can run an acoustic model.
+Confirm Wine can launch the staged acoustic-model binary.
 
 Usage:
-  docker/smoke.sh        # NMSim on DENATRLA example data
-  docker/smoke.sh aam    # AAM binary (needs staged vendor/aam-runtime)
+  docker/smoke.sh        # Nord2000batch.exe via /usr/local/bin/nord2000
+  docker/smoke.sh aam    # AAM_3.0.0.exe via /usr/local/bin/aam (needs noisecon.inp)
 
-Requires: docker/build.sh, staged runtime, container.config (see docker/README.md).
+Does not run the active-space pipeline. After this passes:
+  docker/run_activespace.sh nps_active_space/scripts/generate_active_space.py ...
 EOF
 }
 
@@ -18,7 +19,7 @@ cd "$(dirname "$0")/.."
 case "${1:-nmsim}" in
   -h|--help) usage; exit 0 ;;
   nmsim)
-    exec docker/run_activespace.sh docker/validate_active_space.py
+    exec docker/run_activespace.sh docker/validate_nmsim_smoke.py
     ;;
   aam)
     exec docker/run_activespace.sh -m aam docker/validate_aam_smoke.py

@@ -13,23 +13,24 @@ NMSim and AAM binaries are **not redistributable** (NPS internal). Do not commit
 ```bash
 docker/stage_nmsim_runtime.sh /path/to/NMSim-install   # ~10 MB into vendor/nmsim-runtime/
 docker/build.sh                                        # ~13 min first time
-cp nps_active_space/config/container_example.config nps_active_space/config/container.config
-docker/smoke.sh                                        # NMSim on DENATRLA example data
+docker/smoke.sh                                        # Wine can launch Nord2000batch.exe
 ```
 
-`container.config` must set `project.nmsim` to the Wine shim (`/usr/local/bin/nord2000`).
-`/opt/nmsim` is the runtime bind-mount, not the executable path.
-
-Optional AAM (binary-only until later PRs wire it into the pipeline):
+Optional AAM:
 
 ```bash
-docker/stage_aam_runtime.sh /path/to/AAM_v3_dec2020    # needs AAM_3.0.0.exe, NCfiles/, noisecon.inp
-docker/smoke.sh aam
+docker/stage_aam_runtime.sh /path/to/AAM_v3_dec2020    # AAM_3.0.0.exe, NCfiles/, noisecon.inp
+docker/smoke.sh aam                                    # Wine can launch AAM_3.0.0.exe
 ```
 
 ## Run
 
+Copy a container config (absolute `/repo/...` paths; `project.nmsim` must be the Wine
+shim `/usr/local/bin/nord2000`, not the bind-mount at `/opt/nmsim`):
+
 ```bash
+cp nps_active_space/config/container_example.config nps_active_space/config/container.config
+
 docker/run_activespace.sh nps_active_space/scripts/generate_active_space.py \
   -e container -u DENA -s TRLA -y 2025 -l 1000
 ```
@@ -39,13 +40,12 @@ Ground-truthing, fit, and viz stay on the host (`-e DENA_example`) — see
 (root [README.md](../README.md)).
 
 Optional: `DATA_DRIVE=/Volumes/NPS_ADSB_Data docker/run_activespace.sh ...` mounts `/data`.
-Override runtime with `NMSIM_RUNTIME=` / `AAM_RUNTIME=`. Use `-e container` with
-absolute `/repo/...` paths.
+Override runtime with `NMSIM_RUNTIME=` / `AAM_RUNTIME=`.
 
 | | NMSim (default) | AAM |
 |-|-------|-----|
 | Setup check | `docker/smoke.sh` | `docker/smoke.sh aam` |
-| Run | `docker/run_activespace.sh …` | `docker/run_activespace.sh -m aam …` |
+| Pipeline | `generate_active_space.py` | later PRs; until then `docker/smoke.sh aam` |
 | Staging | `docker/stage_nmsim_runtime.sh` | `docker/stage_aam_runtime.sh` |
 | Local dir | `vendor/nmsim-runtime/` | `vendor/aam-runtime/` |
 | Mount | `/opt/nmsim` | `/opt/aam` |
