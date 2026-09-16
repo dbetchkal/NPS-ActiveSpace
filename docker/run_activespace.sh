@@ -25,8 +25,8 @@ Environment:
   DATA_DRIVE        optional host data directory
 
 Examples:
-  docker/run_activespace.sh docker/validate_active_space.py -u DENA -s TRLA -y 2025
-  docker/run_activespace.sh -m aam docker/validate_aam_smoke.py
+  docker/smoke.sh
+  docker/smoke.sh aam
   docker/run_activespace.sh nps_active_space/scripts/generate_active_space.py -e container ...
 EOF
 }
