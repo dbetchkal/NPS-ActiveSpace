@@ -28,7 +28,7 @@ def main() -> int:
     if not (aam_home / aam_exe).is_file():
         log(f"ERROR: {aam_home / aam_exe} missing")
         log("Stage: docker/stage_aam_runtime.sh /path/to/AAM  (dir with noisecon.inp)")
-        log("Run:   docker/run_activespace.sh -m aam docker/validate_aam_smoke.py")
+        log("Run:   docker/smoke.sh aam")
         return 1
     if not (aam_home / "NCfiles").is_dir():
         log("ERROR: NCfiles/ missing under AAM_HOME")

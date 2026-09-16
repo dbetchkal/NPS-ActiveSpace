@@ -11,7 +11,7 @@ from scipy.ndimage import sobel
 
 from nps_active_space.utils.enums import TrackSource
 from nps_active_space.utils.models import FAAReleasable, Nvspl, Tracks
-from nps_active_space.utils.computation import expected_Lp, NMSIM_bbox_utm, audible_time_delay, ambience_from_nvspl, interpolate_spline
+from nps_active_space.utils.computation import expected_Lp, study_area_utm_crs, audible_time_delay, ambience_from_nvspl, interpolate_spline
 from nps_active_space.utils.helpers import load_studyarea, get_deployment
 
 logger = logging.getLogger(__name__)
@@ -250,7 +250,7 @@ class ClockDriftFixer():
 
         logger.info("Loading site data")
         studyarea = load_studyarea(project_dir, unit, site, year)
-        utm_zone = NMSIM_bbox_utm(studyarea)
+        utm_zone = study_area_utm_crs(studyarea)
         mic = get_deployment(project_dir, unit, site, year).to_crs(utm_zone)
         mic_pt = Point(mic.x, mic.y, mic.z)
         self.nvspl = nvspl
