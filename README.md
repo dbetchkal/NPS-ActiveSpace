@@ -127,7 +127,7 @@ Active space generation runs the NMSIM Nord2000 physics model as an external pro
 nmsim = C:\path\to\Nord2000batch.exe
 ```
 
-On Windows, set the path in your config as above. In Docker, `container_example.config` points at the bind-mounted runtime under `/opt/nmsim`.
+On Windows, set the path in your config as above. In Docker, `container_example.config` sets `project.nmsim` to the Wine shim (`/usr/local/bin/nord2000`); the NMSim runtime is bind-mounted at `/opt/nmsim`.
 
 Required for `generate_active_space.py`, `generate_3d_active_space.py`, and `generate_active_space_mesh.py`. **Not** required for ground-truthing, audible transits, or validation.
 
