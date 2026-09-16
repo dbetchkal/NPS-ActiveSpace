@@ -1,13 +1,25 @@
 import argparse
-import subprocess
-import iyore
 import os
-import shlex
+import subprocess
+import sys
+import time
+from datetime import UTC, datetime
+
+# Headless CLI plots (savefig). Avoid TkAgg on Windows hosts.
+os.environ.setdefault("MPLBACKEND", "Agg")
+
 import matplotlib.pyplot as plt
-from nps_active_space.utils.models import Nvspl
-from nps_active_space.utils.computation import ambience_from_nvspl
+from nps_active_space.utils.computation import (
+    compute_ambience_from_nvspl_archive,
+    load_spectral_ambience_pickle,
+)
 import nps_active_space.utils.config as cfg
 from nps_active_space.utils import paths as p
+from nps_active_space.utils.enums import AcousticModel
+from nps_active_space.scripts.generate_3d_commands import (
+    build_layer_command_parts,
+    format_commands_file_line,
+)
 
 """
 This script creates a commands file for use with generate_active_space_batch.py, containing commands
@@ -21,7 +33,40 @@ since ambience doesn't have to be recomputed for each active space layer.
 ALTITUDE_STEP = 300  # meters between 3D active space layers
 
 
+def _format_elapsed_s(elapsed_s: float) -> str:
+    hours, rem = divmod(elapsed_s, 3600)
+    minutes, seconds = divmod(rem, 60)
+    if hours:
+        return f"{int(hours)}h {int(minutes):02d}m {seconds:05.1f}s"
+    if minutes:
+        return f"{int(minutes)}m {seconds:05.1f}s"
+    return f"{seconds:.1f}s"
+
+
+def _log_pipeline_timing(
+    label: str,
+    start_ts: datetime,
+    start_wall: float,
+) -> None:
+    end_ts = datetime.now(UTC)
+    elapsed_s = time.perf_counter() - start_wall
+    print(
+        f"{label} finished at {end_ts.strftime('%Y-%m-%dT%H:%M:%SZ')} "
+        f"(started {start_ts.strftime('%Y-%m-%dT%H:%M:%SZ')}, "
+        f"elapsed {_format_elapsed_s(elapsed_s)})",
+        flush=True,
+    )
+
+
 if __name__ == "__main__":
+    pipeline_start_wall = time.perf_counter()
+    pipeline_start_ts = datetime.now(UTC)
+    print(
+        f"3D active-space pipeline started at "
+        f"{pipeline_start_ts.strftime('%Y-%m-%dT%H:%M:%SZ')}",
+        flush=True,
+    )
+
     parser = argparse.ArgumentParser()
 
     # arguments used only by this script
@@ -44,6 +89,9 @@ if __name__ == "__main__":
                           help="Four digit year. E.g. 2018")
     parser.add_argument('-a', '--ambience', default='nvspl',
                           help="What type of ambience to use in NMSIM calculations. Choose from ['nvspl', 'mennitt', or a path to an ambience .pkl file]")
+    parser.add_argument('--model', type=AcousticModel, choices=list(AcousticModel),
+                          default=AcousticModel.NMSIM,
+                          help="Propagation model for each active-space layer command.")
     
     # other arguments will just be forwarded to generate_active_space.py via the batch commands text file
     args, extra_args = parser.parse_known_args()
@@ -53,8 +101,11 @@ if __name__ == "__main__":
 
     cfg.initialize(args.environment)
     project_dir = cfg.read("project", "dir")
-    site_dir = p.site_dir(project_dir, args.unit, args.site)
-    usy = f"{args.unit}{args.site}{args.year}"
+    layout = p.SiteModelPaths.from_project(
+        project_dir, args.unit, args.site, args.year, args.model,
+    )
+    site_dir = layout.site_dir
+    usy = layout.usy
 
     # determine altitudes and print to console, so user can quickly verify we're doing what they wanted
     # before we get into NVSPL processing
@@ -63,19 +114,31 @@ if __name__ == "__main__":
 
     # Precompute NVSPL ambience to save time, if applicable
     if args.ambience == "nvspl":
-        ambience_dir = os.path.join(site_dir, "Output_Data", "AMBIENCE")
+        ambience_dir = layout.ambience_dir
         ambience_pkl_path = os.path.join(ambience_dir, f"{usy}_ambience.pkl")
         ambience_plot_path = os.path.join(ambience_dir, f"{usy}_ambience_plot.png")
 
-        if os.path.exists(ambience_pkl_path):
-            print(f"Found existing NVSPL ambience, using it: {ambience_pkl_path}")
+        cached_ambience = load_spectral_ambience_pickle(ambience_pkl_path)
+        if cached_ambience is not None:
+            print(f"Found existing NVSPL ambience, using it: {p.display_path(ambience_pkl_path)}")
         else:
-            print("Computing NVSPL ambience")
-            archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
-            nvspl_files = [e.path for e in archive.nvspl(unit=args.unit, site=args.site, year=str(args.year))]
-            nvspl = Nvspl(nvspl_files)
+            if os.path.exists(ambience_pkl_path):
+                print(
+                    f"Existing ambience pickle has no usable spectral bands; recomputing: "
+                    f"{p.display_path(ambience_pkl_path)}"
+                )
+            else:
+                print("Computing NVSPL ambience")
+            archive = cfg.read('data', 'nvspl_archive')
             ambience_quantile = 90  # L90 = 90% exceedance = 10% quantile sound level
-            ambience = ambience_from_nvspl(nvspl, ambience_quantile, broadband=False)
+            ambience = compute_ambience_from_nvspl_archive(
+                archive,
+                args.unit,
+                args.site,
+                args.year,
+                ambience_quantile,
+                broadband=False,
+            )
 
             # make a plot too
             ambience.plot()
@@ -87,49 +150,59 @@ if __name__ == "__main__":
             os.makedirs(ambience_dir, exist_ok=True)
             ambience.to_pickle(ambience_pkl_path)
             plt.savefig(ambience_plot_path)
-            print(f"Saved ambience to {ambience_pkl_path}")
+            print(f"Saved ambience to {p.display_path(ambience_pkl_path)}")
     
     # create commands file
     cmds_file = os.path.join(site_dir, f"{usy}_commands.txt")
     with open(cmds_file, "w") as f:
         for altitude in altitudes:
-            parts = [
-                "-e", args.environment,
-                "-u", args.unit,
-                "-s", args.site,
-                "-y", args.year,
-                "-l", altitude
-            ]
-            # add in the rest of generate_active_space.py args
-            parts += extra_args
-
-            # use precomputed ambience if nvspl
-            # put ambience arg at the end because the pkl path is often long
-            # and this makes the commands file easier to read when opened
-            if args.ambience == "nvspl":
-                parts += ["-a", ambience_pkl_path]
-            else:
-                parts += ["-a", args.ambience]
-            
-            # use shlex.quote to put quotes around args, in case arguments have spaces within a path
-            line = f"{usy}_{altitude}m\t"
-            line += " ".join(shlex.quote(str(p)) for p in parts)
-
+            ambience_arg = ambience_pkl_path if args.ambience == "nvspl" else args.ambience
+            parts = build_layer_command_parts(
+                args.environment,
+                args.unit,
+                args.site,
+                args.year,
+                altitude,
+                ambience_arg,
+                model=args.model,
+                extra_args=extra_args,
+            )
+            line = format_commands_file_line(f"{usy}_{altitude}m", parts)
             f.write(f"{line}\n")
-    
-    # if we're not only prepping a commands file, run generate_active_space_batch.py
-    # and then fit the active space
-    if not args.only_prep:
-        print("Running generate_active_space_batch.py on the commands file\n")
-        batch_script = os.path.join(os.path.dirname(__file__), "generate_active_space_batch.py")
-        process = subprocess.Popen(
-            ["python", batch_script, cmds_file]
-        )
-        process.wait()
 
-        print("\nRunning fit_3d_active_space.py to fit the active space\n")
-        fit_script = os.path.join(os.path.dirname(__file__), "fit_3d_active_space.py")
-        process = subprocess.Popen(
-            ["python", fit_script, "-e", args.environment, "-u", args.unit, "-s", args.site, "-y", str(args.year)]
+    if args.only_prep:
+        _log_pipeline_timing("3D active-space prep (commands file only)", pipeline_start_ts, pipeline_start_wall)
+        sys.exit(0)
+
+    print("Running generate_active_space_batch.py on the commands file\n")
+    batch_script = os.path.join(os.path.dirname(__file__), "generate_active_space_batch.py")
+    batch_process = subprocess.run(
+        [sys.executable, batch_script, cmds_file],
+        check=False,
+    )
+    if batch_process.returncode != 0:
+        print(
+            f"generate_active_space_batch.py exited with code {batch_process.returncode}. "
+            "Skipping fit_3d_active_space.py. Fix batch errors above and rerun, "
+            "or run the batch script directly on the commands file.",
+            flush=True,
         )
-        process.wait()
+        _log_pipeline_timing("3D active-space pipeline (batch failed)", pipeline_start_ts, pipeline_start_wall)
+        sys.exit(batch_process.returncode)
+
+    print("\nRunning fit_3d_active_space.py to fit the active space\n")
+    fit_script = os.path.join(os.path.dirname(__file__), "fit_3d_active_space.py")
+    fit_process = subprocess.run(
+        [
+            sys.executable,
+            fit_script,
+            "-e", args.environment,
+            "-u", args.unit,
+            "-s", args.site,
+            "-y", str(args.year),
+            "--model", args.model,
+        ],
+        check=False,
+    )
+    _log_pipeline_timing("3D active-space pipeline", pipeline_start_ts, pipeline_start_wall)
+    sys.exit(fit_process.returncode)

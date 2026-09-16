@@ -1,5 +1,5 @@
+import json
 import nps_active_space.utils.config as cfg
-from nps_active_space.utils import paths as p
 from nps_active_space import ACTIVE_SPACE_DIR
 import subprocess
 import os
@@ -7,222 +7,167 @@ import sys
 import pandas as pd
 import re
 from argparse import ArgumentParser
-import threading
-import glob
 import shlex
-import shutil
+import tempfile
+from pathlib import Path
+
+from nps_active_space.utils.enums import AcousticModel
+from nps_active_space.utils.paths import SiteModelPaths, display_path
+
+RESULT_COLUMNS = [
+    "Designator",
+    "Model",
+    "Number of valid annotated segments",
+    "Mean altitude",
+    "KDE reduction (%)",
+    "1/3rd Octave Gain (F1)",
+    "F1",
+]
+REQUIRED_RESULT_KEYS = [
+    column for column in RESULT_COLUMNS if column not in {"Designator", "Model"}
+]
+
+_LAYER_OPTION_PARSER = ArgumentParser(add_help=False)
+_LAYER_OPTION_PARSER.add_argument("-e", "--environment", required=True)
+_LAYER_OPTION_PARSER.add_argument("-u", "--unit", required=True)
+_LAYER_OPTION_PARSER.add_argument("-s", "--site", required=True)
+_LAYER_OPTION_PARSER.add_argument("-y", "--year", type=int, required=True)
+_LAYER_OPTION_PARSER.add_argument("-l", "--altitude", type=int, required=True)
+_LAYER_OPTION_PARSER.add_argument(
+    "--model",
+    default=AcousticModel.NMSIM,
+    type=AcousticModel,
+    choices=list(AcousticModel),
+)
+_LAYER_OPTION_PARSER.add_argument("--omni-min", type=float, default=-10)
+_LAYER_OPTION_PARSER.add_argument("--omni-max", type=float, default=40)
+_LAYER_OPTION_PARSER.add_argument("--omni-step", type=float, default=0.5)
 
 
-def stream_and_capture(stream, buffer, target):
+def parse_layer_command_options(options: str):
+    """Parse generate_active_space.py flags from one batch command line."""
+    return _LAYER_OPTION_PARSER.parse_known_args(shlex.split(options))[0]
+
+
+def resolve_layer_layout(options: str) -> tuple[SiteModelPaths, int]:
+    """Return site/model layout and altitude for one batch command line."""
+    cmd_args = parse_layer_command_options(options)
+    cfg.initialize(cmd_args.environment)
+    layout = SiteModelPaths.from_project(
+        cfg.read("project", "dir"),
+        cmd_args.unit,
+        cmd_args.site,
+        cmd_args.year,
+        cmd_args.model,
+    )
+    return layout, cmd_args.altitude
+
+
+def resolve_layer_output_dir(options: str) -> tuple[Path, AcousticModel]:
+    """Return the per-layer ACTIVESPACES directory for a batch command."""
+    layout, altitude_m = resolve_layer_layout(options)
+    return Path(layout.layer_dir(altitude_m)), layout.model
+
+
+def batch_failure_hint(site_dir: str, model: AcousticModel) -> str:
+    """Model-specific paths to inspect after a failed batch layer."""
+    return SiteModelPaths.for_site(site_dir, model).failure_hint()
+
+
+def upsert_result_row(output_df: pd.DataFrame, result_series: pd.Series) -> pd.DataFrame:
+    """Replace any prior row for the same designator + model."""
+    designator = result_series["Designator"]
+    model = result_series["Model"]
+    if not output_df.empty and "Designator" in output_df.columns:
+        if "Model" in output_df.columns:
+            mask = (output_df["Designator"] == designator) & (output_df["Model"] == model)
+        else:
+            mask = output_df["Designator"] == designator
+        output_df = output_df[~mask]
+    return pd.concat([output_df, result_series.to_frame().T], ignore_index=True)
+
+
+def read_results_file(results_path: Path, designator: str) -> tuple[pd.Series | None, str | None]:
+    """Load structured run results written by generate_active_space.py.
+
+    Returns
+    -------
+    series, error_message
+        ``error_message`` is set when results cannot be loaded (for console display).
     """
-    Utility function for capturing stdout or stderr, and then forwarding it to the console.
+    try:
+        with open(results_path) as results_file:
+            data = json.load(results_file)
+    except json.JSONDecodeError as exc:
+        return None, f"Invalid JSON in results file {display_path(results_path)}: {exc}"
 
-    Parameters
-    ----------
-    stream
-        Stream to capture. Should be process.stdout or process.stderr
-    buffer: list
-        A list to store the bytes in, for reading later.
-    target
-        Where to forward the stream to. Should be sys.stdout.buffer or sys.stderr.buffer
+    if not isinstance(data, dict):
+        return None, f"Results file must contain a JSON object: {display_path(results_path)}"
+
+    missing_keys = [key for key in REQUIRED_RESULT_KEYS if key not in data]
+    if missing_keys:
+        return None, (
+            f"Results file is missing required keys {missing_keys}: {display_path(results_path)}"
+        )
+
+    series = pd.Series(data)
+    series["Designator"] = designator
+    return series.reindex([c for c in RESULT_COLUMNS if c != "Model"]), None
+
+
+def run_deployment(
+    designator: str,
+    cmd: list[str],
+    model: AcousticModel,
+) -> pd.Series | None:
     """
-    for chunk in iter(lambda: stream.read(1024), b''):
-        buffer.append(chunk)
-        target.write(chunk)
-        target.flush()
-    stream.close()
-
-
-def run_deployment(designator, cmd):
-    """
-    Runs generate active space, and parses the printed output to extract results we want.
+    Runs generate_active_space.py and reads structured results from a JSON output file.
 
     Parameters
     ----------
     designator: str
         Unique designator identifying this run. Included in the returned series.
-    cmd: str
-        Command line command to run, e.g. "python -u -W ignore nps_active_space/scripts/generate_active_space.py -e DENA_streamline ..."
+    cmd: list
+        Command to run, e.g. [sys.executable, "-u", "-W", "ignore", "...", "-e", "DENA_streamline", ...]
+    model: AcousticModel
+        Propagation model for this command (stored in the batch CSV).
 
     Returns
     -------
     results: pd.Series or None
         If the run errored out, returns None.
         If the run succeeded, returns a pandas series with the results. Contains columns:
-        "Designator", "Number of valid annotated segments", "Mean altitude", "KDE reduction (%)", "1/3rd Octave Gain (F1)", "F1"
+        "Designator", "Model", "Number of valid annotated segments", "Mean altitude",
+        "KDE reduction (%)", "1/3rd Octave Gain (F1)", "F1"
     """
-
-    # Configure tqdm - environment variables preceded by "TQDM_" get passed to all tqdm instances as default args.
-    # Since we are capturing the tqdm stream and then re-printing, tqdm doesn't know anything about the width
-    # of our display, and produces a very small progress bar as a result. So, make the progress bar a bit wider.
     env = os.environ.copy()
-    env["TQDM_NCOLS"] = "80"  # 80 characters wide progress bar
+    env["TQDM_NCOLS"] = "80"
 
-    # Run the command
-    process = subprocess.Popen(
-        # split cmd into a list, taking care that spaces inside quotes aren't split
-        shlex.split(cmd),
-        # capture printed output instead of printing to console
-        stdout=subprocess.PIPE,
-        # capture stderr output (e.g. tqdm) instead of printing to console
-        stderr=subprocess.PIPE,
-        bufsize=0,  # unbuffered
-        env=env
-    )
+    fd, results_name = tempfile.mkstemp(suffix=".json")
+    os.close(fd)
+    os.unlink(results_name)
+    results_path = Path(results_name)
 
-    # create lists to store byte chunks that are printed to the console
-    stdout_chunks = []
-    stderr_chunks = []
-
-    # In order to print stdout and stderr to the console in the same way as they
-    # would originally be printed, we need to capture them at the same time.
-    #   - BTW, not capturing stderr and letting it print naturally will mess up the ordering
-    #     of the stdout vs. stderr prints to the console (e.g. progress bars may come before
-    #     the associated print statements)
-    # To capture stdout and stderr at the same time, we need to iterate
-    # through both their streams simultaneously. This requires doing two things
-    # at the same time, so we use threading to allow this parallel operation.
-
-    # Initialize the threads.
-    stdout_thread = threading.Thread(
-        target=stream_and_capture, args=(
-            process.stdout, stdout_chunks, sys.stdout.buffer)
-    )
-    stderr_thread = threading.Thread(
-        target=stream_and_capture, args=(
-            process.stderr, stderr_chunks, sys.stderr.buffer)
-    )
-    # Run the threads.
-    stdout_thread.start()
-    stderr_thread.start()
-
-    # Wait for the threads to finish.
-    process.wait()
-    stdout_thread.join()
-    stderr_thread.join()
-
-    # If we errored out, return nothing
-    if process.returncode != 0:
-        return None
-
-    # Convert byte output to text output
-    stdout_text = b''.join(stdout_chunks).decode(errors='replace')
-
-    # Parse the printed output to get the results series
-    return parse_output(stdout_text, designator)
-
-
-def parse_output(s, designator):
-    """
-    Parses printed output to get the relevant information.
-
-    Parameters
-    ----------
-    s: str
-        String containing all printed output.
-    designator: str
-        Unique designator for this run. Included in the returned series.
-
-    Returns
-    -------
-    results: pd.Series
-        Pandas series with columns:
-        "Designator", "Number of valid annotated segments", "Mean altitude", "KDE reduction (%)", "1/3rd Octave Gain (F1)", "F1"
-    """
-    # Use regular expressions to find the information we want.
-    # Use capturing groups (parentheses in the regex) to extract just the part
-    # we are interested in, and access these with the .group(index) function.
-
-    altitude_match = re.search(r"Average altitude is: (\d+)m", s)
-    avg_altitude = float(altitude_match.group(1)) \
-        if altitude_match is not None else ""
-
-    kde_match = re.search(
-        r"Went from (\d+) to (\d+) points when normalizing point density", s)
-    points_before_kde = int(kde_match.group(1))
-    points_after_kde = int(kde_match.group(2))
-    kde_reduction = f"{100 * (1 - (points_after_kde / points_before_kde))}%"
-
-    n_annots = int(
-        re.search(r"(\d+) valid annotated segments found", s).group(1))
-
-    best_f1_match = re.search(
-        r"The best performing omni source for F-1.0 is: O_(....) \(fbeta: (.+)\)", s)
-    if best_f1_match is not None:
-        gain = int(best_f1_match.group(1)) / 10
-        f1 = float(best_f1_match.group(2))
-    else:
-        gain = None
-        f1 = None
-
-    return pd.Series({
-        "Designator": designator,
-        "Number of valid annotated segments": n_annots,
-        "Mean altitude": avg_altitude,
-        "KDE reduction (%)": kde_reduction,
-        "1/3rd Octave Gain (F1)": gain,
-        "F1": f1
-    })
-
-
-def copy_output_files(option_str, savedir, designator):
-    """
-    Copies output files from the site directory to another directory.
-    This keeps things organized, and avoids these files being overwritten
-    by future runs that use the same site directory.
-
-    Parameters
-    ----------
-    option_str: str
-        The string representing the command options for this run. E.g.,
-        "-e DENA_streamline -u DENA -s TRLA -y 2025 --cleanup"
-    savedir: str
-        Path to a directory to save files to. Files will be copied to a subdirectory
-        in savedir named with the designator.
-    designator: str
-        Unique string representing this run.
-    """
-    dst_dir = os.path.join(savedir, designator)
-    os.makedirs(dst_dir, exist_ok=True)
-    print(f"Copying output to {dst_dir}...")
-
-    # Parse command options to get project dir, unit, and site.
-    # We need these to locate the site directory where the files we want to copy are,
-    # and to figure out which files are relevant to this run that we should copy
-    argparse = ArgumentParser()
-    argparse.add_argument("-e", "--environment")
-    argparse.add_argument("-u", "--unit")
-    argparse.add_argument("-s", "--site")
-    argparse.add_argument("-y", "--year")
-    argparse.add_argument('--annotation-file')
-    # Use shlex to convert option str into a list for argparse.
-    # shlex avoids splitting on spaces that are inside quotes
-    args, _ = argparse.parse_known_args(shlex.split(option_str))
-
-    cfg.initialize(environment=args.environment)
-    site_dir = p.site_dir(cfg.read('project', 'dir'), args.unit, args.site)
-    deployment = f"{args.unit}{args.site}{args.year}"
-
-    # Get filenames we wish to copy
-    activespace_files = glob.glob(os.path.join(
-        site_dir, "Output_Data", "ACTIVESPACES", f"{deployment}_O_*.geojson"))
-    tested_pt_files = glob.glob(os.path.join(
-        site_dir, "Output_Data", "TESTED_POINTS", f"{deployment}_O_*.pkl"))
-    pr_plots = glob.glob(os.path.join(
-        site_dir, f"PrecisionRecallPlot_{deployment}*.png"))
-    # If a custom annotation file was used, copy that.
-    # Otherwise, copy the default annotations file(s)
-    if args.annotation_file is not None:
-        annotation_files = [os.path.join(site_dir, args.annotation_file)]
-    else:
-        annotation_files = p.annotation_files(
-            cfg.read('project', 'dir'), args.unit, args.site, args.year)
-
-    # Copy files
-    for src_path in activespace_files + tested_pt_files + pr_plots + annotation_files:
-        basename = os.path.basename(src_path)
-        dst_path = os.path.join(dst_dir, basename)
-        shutil.copy2(src_path, dst_path)  # copy2 to preserve metadata
+    try:
+        full_cmd = cmd + ["--results-out", str(results_path)]
+        process = subprocess.run(full_cmd, env=env)
+        if process.returncode != 0:
+            return None
+        if not results_path.exists():
+            print(
+                f"Run succeeded but no results file was written: {display_path(results_path)}",
+                flush=True,
+            )
+            return None
+        result_series, error_message = read_results_file(results_path, designator)
+        if error_message is not None:
+            print(error_message, flush=True)
+            return None
+        result_series["Model"] = AcousticModel.parse(model)
+        return result_series.reindex(RESULT_COLUMNS)
+    finally:
+        if results_path.exists():
+            results_path.unlink()
 
 
 if __name__ == "__main__":
@@ -240,15 +185,17 @@ if __name__ == "__main__":
     if args.output is None:
         name, ext = os.path.splitext(args.input)
         args.output = name + "_output.csv"
-        print(f"No output file provided, using: {args.output}")
+        print(f"No output file provided, using: {display_path(args.output)}")
 
     assert args.input.endswith(".txt")
     assert args.output.endswith(".csv")
 
+    output_csv = Path(args.output).resolve()
+
     # initialize output dataframe / load existing results
     output_df = pd.DataFrame()
-    if os.path.exists(args.output):
-        output_df = pd.read_csv(args.output)
+    if output_csv.is_file():
+        output_df = pd.read_csv(output_csv)
 
     # read generate active space commands from input file
     with open(args.input) as file:
@@ -260,21 +207,33 @@ if __name__ == "__main__":
         print(line)
         designator, options = re.split(r'\s+', line, maxsplit=1)
 
-        # check if this run has been done already, based on if the output file has a matching designator,
-        # since designators should be unique to a run
-        if not output_df.empty and designator in output_df["Designator"].values:
-            print("Done already, skipping")
+        layout, altitude_m = resolve_layer_layout(options)
+        cmd_args = parse_layer_command_options(options)
+        if layout.has_layer_outputs(
+            altitude_m,
+            cmd_args.omni_min,
+            cmd_args.omni_max,
+            cmd_args.omni_step,
+        ):
+            print(
+                f"Skipping {designator} ({layout.model}): all omni "
+                f"{cmd_args.omni_min:g}-{cmd_args.omni_max:g} dB "
+                f"(step {cmd_args.omni_step:g} dB) active-space geojson "
+                f"already in {display_path(layout.layer_dir(altitude_m))} "
+                "(delete that directory to force rerun)."
+            )
             continue
 
         # assemble and run the command
-        script_path = os.path.join(ACTIVE_SPACE_DIR, "scripts", "generate_active_space.py")
-        cmd = f"python -u -W ignore '{script_path}' {options}"
-        result_series = run_deployment(designator, cmd)
-        # if it ran with no errors, save the results
-        if result_series is not None:
-            output_df = pd.concat(
-                [output_df, result_series.to_frame().T], ignore_index=True)
-            output_df.to_csv(args.output, index=False)
+        script_path = Path(ACTIVE_SPACE_DIR) / "scripts" / "generate_active_space.py"
+        cmd = [sys.executable, "-u", "-W", "ignore", str(script_path)] + shlex.split(options)
+        result_series = run_deployment(designator, cmd, layout.model)
+        if result_series is None:
+            print(
+                f"Run failed for {designator} ({layout.model}); skipping CSV update. "
+                f"See errors above ({layout.failure_hint()})."
+            )
+            continue
 
-        # if args.savedir is not None:
-        #     copy_output_files(options, args.savedir, designator)
+        output_df = upsert_result_row(output_df, result_series)
+        output_df.to_csv(output_csv, index=False)

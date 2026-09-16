@@ -91,7 +91,7 @@ class TestConcatReplacesAppend:
         assert result["b"].tolist() == [2, 4]
 
     def test_concat_accumulation_loop(self):
-        """Simulates the accumulation loop in generate_active_space_mesh.py."""
+        """Simulates repeated pd.concat accumulation over chunked DataFrames."""
         accumulated = None
         chunks = [
             pd.DataFrame({"val": [10, 20]}),

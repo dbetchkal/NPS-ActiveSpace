@@ -9,6 +9,7 @@ Usage:
   docker/build.sh [-h]
 
 Build context is the repo root (pyproject.toml, nps_active_space/, docker/nord2000).
+Installs aam-translator from the GitHub URL pinned in pyproject.toml [aam] extra.
 First build is slow (~13 min on Apple Silicon under Rosetta).
 EOF
 }
