@@ -20,4 +20,4 @@ A full vendor install with example cases (`FortTiCase`, `Sources/`, …) is ~11 
 
 NMSim (`Nord2000batch.exe`) is NPS internal software, not open source. Do not commit binaries to a public repo without NPS approval.
 
-Omni `.src`/`.avg` tuning files live in `nps_active_space/data/tuning/` (not part of the staged executable tree).
+Omni `.src`/`.avg` tuning files live in `nps_active_space/propagation_model/nmsim/data/tuning/` (not part of the staged executable tree).
