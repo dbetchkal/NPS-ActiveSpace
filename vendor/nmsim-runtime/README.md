@@ -26,11 +26,11 @@ docker/stage_nmsim_runtime.sh /path/to/NMSim
 # or: NMSIM_SOURCE=/path/to/NMSim docker/stage_nmsim_runtime.sh
 ```
 
-Then build and run:
+Then build and smoke:
 
 ```bash
 docker/build.sh
-docker/run_activespace.sh docker/validate_active_space.py -u DENA -s TRLA -y 2025 --gains 0
+docker/smoke.sh
 ```
 
 Override the runtime location with `NMSIM_RUNTIME=/other/path docker/run_activespace.sh …`.

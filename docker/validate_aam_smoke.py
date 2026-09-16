@@ -2,7 +2,7 @@
 """AAM Wine smoke test — proves the binary runs in nps-activespace:linux.
 
 Uses noisecon.inp from the staged runtime (vendor/aam-runtime/, mounted at /opt/aam).
-Run: docker/run_activespace.sh -m aam docker/validate_aam_smoke.py
+Run: docker/smoke.sh aam
 """
 from __future__ import annotations
 
