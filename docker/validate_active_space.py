@@ -10,7 +10,7 @@ precision/recall scoring, not to run the basic active space computation step).
 
 Run inside the container, e.g.:
   docker/run_activespace.sh docker/validate_active_space.py -u DENA -s TRLA -y 2025 \
-      --gain 0 --altitude 1000 --density 12 --heading 0
+      --gains 0 --altitude 1000 --density 12 --heading 0
 """
 import argparse
 import glob

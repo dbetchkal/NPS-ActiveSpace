@@ -20,6 +20,8 @@ docker/build.sh
 cp nps_active_space/config/container_example.config nps_active_space/config/container.config
 ```
 
+`container.config` must set `project.nmsim` to the Wine shim (`/usr/local/bin/nord2000`). `/opt/nmsim` is the runtime bind-mount, not the executable path.
+
 NMSim and AAM binaries are **not redistributable** (NPS internal). Do not commit them to a public repo.
 
 ## Run (NMSim — default)
