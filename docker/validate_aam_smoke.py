@@ -1,8 +1,7 @@
 #!/usr/bin/env python
-"""AAM Wine smoke test — proves the binary runs in nps-activespace:linux.
+"""AAM Wine smoke — AAM_3.0.0.exe launches through the container shim.
 
-Uses noisecon.inp from the staged runtime (vendor/aam-runtime/, mounted at /opt/aam).
-Run: docker/smoke.sh aam
+Uses noisecon.inp from the staged runtime. Does not run the active-space pipeline.
 """
 from __future__ import annotations
 

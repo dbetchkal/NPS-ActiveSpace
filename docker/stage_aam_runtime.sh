@@ -15,7 +15,7 @@ Environment:
   AAM_EXE         executable name to copy (default: AAM_3.0.0.exe)
 
 Copies AAM_3.0.0.exe, NCfiles/, and noisecon.inp when present in the source dir
-(needed for docker/validate_aam_smoke.py). Does not copy AAM.config.
+(needed for docker/smoke.sh aam). Does not copy AAM.config.
 EOF
 }
 
