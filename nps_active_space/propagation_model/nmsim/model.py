@@ -13,6 +13,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 
+from nps_active_space.propagation_model.protocol import DEFAULT_MAX_POINTS_PER_PREDICT
 from nps_active_space.setup.elevation import get_project_setup_elevation
 from nps_active_space.setup.site_writer import write_listener_site_file
 from nps_active_space.utils.constants import IS_WINDOWS
@@ -40,7 +41,7 @@ class NmsimSiteContext:
 
 
 class NmsimPropagationModel:
-    max_points_per_run = 4000
+    max_points_per_run = DEFAULT_MAX_POINTS_PER_PREDICT
     predictions_subdir = NMSIM_PREDICTIONS_SUBDIR
 
     def __init__(self, nmsim_exe: str, root_dir: str) -> None:

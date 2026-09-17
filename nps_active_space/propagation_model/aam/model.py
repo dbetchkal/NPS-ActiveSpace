@@ -48,6 +48,7 @@ from nps_active_space.propagation_model.aam.terrain import (
     split_safe_aam_track_runs,
     terrain_dir_for_site,
 )
+from nps_active_space.propagation_model.protocol import DEFAULT_MAX_POINTS_PER_PREDICT
 from nps_active_space.utils.models import Microphone
 from nps_active_space.utils.paths import AAM_PREDICTIONS_SUBDIR, AAM_RUNS_SUBDIR, display_path
 
@@ -192,7 +193,7 @@ class AamSiteContext:
 
 
 class AamPropagationModel:
-    max_points_per_run = 400
+    max_points_per_run = DEFAULT_MAX_POINTS_PER_PREDICT
     predictions_subdir = AAM_PREDICTIONS_SUBDIR
 
     def __init__(

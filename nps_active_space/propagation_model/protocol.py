@@ -17,6 +17,11 @@ THIRD_OCTAVE_BANDS: tuple[str, ...] = (
     "2000", "2500", "3150", "4000", "5000", "6300", "8000", "10000", "12500",
 )
 
+# Generator ``predict()`` batch size. Excess mesh points are randomly dropped.
+# Independent of AAM's Fortran ``ONE TRACK`` cap (``DEFAULT_AAM_CHUNK_SIZE`` = 400);
+# AAM ``predict()`` chunks internally.
+DEFAULT_MAX_POINTS_PER_PREDICT = 4000
+
 
 class PropagationModel(Protocol):
     """Acoustic propagation backend: fixed receiver, many source points in one batch."""
