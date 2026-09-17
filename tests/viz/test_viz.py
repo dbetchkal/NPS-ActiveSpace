@@ -49,9 +49,14 @@ class TestVizCliArgs:
             "argv",
             [
                 "viz",
-                "DENATRLA2024",
                 "-e",
                 "DENA_example",
+                "-u",
+                "DENA",
+                "-s",
+                "TRLA",
+                "-y",
+                "2024",
                 "-A",
                 "-a",
             ],
@@ -82,7 +87,19 @@ class TestVizCliArgs:
         monkeypatch.setattr(
             sys,
             "argv",
-            ["viz", "DENATRLA2024", "-e", "DENA_example", "--model", "aam"],
+            [
+                "viz",
+                "-e",
+                "DENA_example",
+                "-u",
+                "DENA",
+                "-s",
+                "TRLA",
+                "-y",
+                "2024",
+                "--model",
+                "aam",
+            ],
         )
         main()
         assert captured[0][0][4] is True
@@ -105,7 +122,18 @@ class TestVizCliArgs:
         monkeypatch.setattr(
             sys,
             "argv",
-            ["viz", "DENATRLA2024", "-e", "DENA_example", "--compare"],
+            [
+                "viz",
+                "-e",
+                "DENA_example",
+                "-u",
+                "DENA",
+                "-s",
+                "TRLA",
+                "-y",
+                "2024",
+                "--compare",
+            ],
         )
         main()
         assert captured[0][0][4] is True
@@ -116,7 +144,20 @@ class TestVizCliArgs:
 
         from nps_active_space.viz.cli import main
 
-        monkeypatch.setattr(sys, "argv", ["viz", "DENATRLA2024"])
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["viz", "-u", "DENA", "-s", "TRLA", "-y", "2024"],
+        )
+        with pytest.raises(SystemExit):
+            main()
+
+    def test_requires_unit_site_year(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys
+
+        from nps_active_space.viz.cli import main
+
+        monkeypatch.setattr(sys, "argv", ["viz", "-e", "DENA_example"])
         with pytest.raises(SystemExit):
             main()
 
