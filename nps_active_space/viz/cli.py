@@ -42,20 +42,6 @@ def parse_max_tracks(value: str) -> int:
     return n
 
 
-def parse_deployment(value: str) -> tuple[str, str, int]:
-    """Parse UNIT+SITE+YEAR, e.g. DENATRLA2024."""
-    if len(value) < 9:
-        raise argparse.ArgumentTypeError(
-            f"deployment: expected UNIT+SITE+YEAR like DENATRLA2024, got {value!r}"
-        )
-    unit, site, year_s = value[:4], value[4:-4], value[-4:]
-    if len(unit) != 4 or not site or not year_s.isdigit():
-        raise argparse.ArgumentTypeError(
-            f"deployment: expected UNIT+SITE+YEAR like DENATRLA2024, got {value!r}"
-        )
-    return unit, site, int(year_s)
-
-
 def resolve_viz_plot_flags(
     *,
     active_space: bool = False,
@@ -94,14 +80,29 @@ def main() -> None:
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "deployment",
-        help="Deployment name, e.g. DENATRLA2024",
-    )
-    parser.add_argument(
         "-e",
         "--environment",
         required=True,
         help="The configuration environment to run the script in.",
+    )
+    parser.add_argument(
+        "-u",
+        "--unit",
+        required=True,
+        help="Four letter unit code. E.g. DENA",
+    )
+    parser.add_argument(
+        "-s",
+        "--site",
+        required=True,
+        help="Four letter site code. E.g. TRLA",
+    )
+    parser.add_argument(
+        "-y",
+        "--year",
+        type=int,
+        required=True,
+        help="Four digit year. E.g. 2018",
     )
     parser.add_argument(
         "-A",
@@ -184,7 +185,7 @@ def main() -> None:
     )
 
     args = parser.parse_args()
-    unit, site, year = parse_deployment(args.deployment)
+    unit, site, year = args.unit, args.site, args.year
 
     track_source = resolve_track_source_args(args, parser)
     do_active, do_annotations, do_transits, _ = resolve_viz_plot_flags(
