@@ -7,15 +7,13 @@ Stage AAM runtime into vendor/aam-runtime/ for Docker+Wine runs.
 
 Usage:
   docker/stage_aam_runtime.sh [-h] /path/to/AAM-install
-  AAM_SOURCE=/path/to/AAM docker/stage_aam_runtime.sh
 
 Environment:
-  AAM_SOURCE      source install dir (alternative to positional arg)
   AAM_RUNTIME     destination (default: ./vendor/aam-runtime)
   AAM_EXE         executable name to copy (default: AAM_3.0.0.exe)
 
 Copies AAM_3.0.0.exe, NCfiles/, and noisecon.inp when present in the source dir
-(needed for docker/smoke.sh aam). Does not copy AAM.config.
+(needed for `docker/smoke.sh aam`). Does not copy AAM.config.
 EOF
 }
 
@@ -26,7 +24,7 @@ esac
 cd "$(dirname "$0")/.."
 REPO="$(pwd)"
 DEST="${AAM_RUNTIME:-$REPO/vendor/aam-runtime}"
-SRC="${1:-${AAM_SOURCE:-}}"
+SRC="${1:-}"
 AAM_EXE="${AAM_EXE:-AAM_3.0.0.exe}"
 
 if [[ -z "$SRC" ]]; then

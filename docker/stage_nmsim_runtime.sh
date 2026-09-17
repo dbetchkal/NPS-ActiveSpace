@@ -7,10 +7,8 @@ Stage a minimal NMSim runtime into vendor/nmsim-runtime/ for Docker+Wine runs.
 
 Usage:
   docker/stage_nmsim_runtime.sh [-h] /path/to/NMSim-install
-  NMSIM_SOURCE=/path/to/NMSim docker/stage_nmsim_runtime.sh
 
 Environment:
-  NMSIM_SOURCE    source install dir (alternative to positional arg)
   NMSIM_RUNTIME   destination (default: ./vendor/nmsim-runtime)
 
 Copies Nord2000batch.exe, *.dll, and RND/ (not example cases).
@@ -24,7 +22,7 @@ esac
 cd "$(dirname "$0")/.."
 REPO="$(pwd)"
 DEST="${NMSIM_RUNTIME:-$REPO/vendor/nmsim-runtime}"
-SRC="${1:-${NMSIM_SOURCE:-}}"
+SRC="${1:-}"
 
 if [[ -z "$SRC" ]]; then
   usage >&2

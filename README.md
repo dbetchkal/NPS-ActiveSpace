@@ -38,7 +38,13 @@ consistent with observed audibility under specified environmental conditions.
 
 The repository has been tested with Python 3.12. Runtime dependencies are declared in `pyproject.toml` and installed automatically by pip (except GDAL on macOS/Linux, which requires a system library first).
 
-**NMSim on macOS / Linux:** Active space generation runs the Windows-only NMSim binary via **Docker + Wine** — see [docker/README.md](docker/README.md) (stage ~10 MB runtime locally, then `docker/build.sh`). For ground-truthing, fit, and viz on the host, follow the macOS/Linux steps below.
+**NMSim on macOS / Linux:** Active space generation uses **Docker + Wine** — full steps in [docker/README.md](docker/README.md). Ground-truthing, fit, and viz use a **local venv** on the host (steps below).
+
+**Mac/Linux at a glance:**
+
+1. **Host:** clone → GDAL/tkinter → `pip install -e ".[dev]"` → `-e DENA_example` (or your config) for ground-truthing and viz.
+2. **Docker (NMSim only):** `docker/stage_nmsim_runtime.sh` → `docker/build.sh` → `docker/smoke.sh` (no `container.config` yet).
+3. **Docker (pipeline):** copy `container_example.config` → `container.config` → `docker/run_activespace.sh … generate_active_space.py -e container …`.
 
 Bundled sample data: [example_data/README.md](example_data/README.md).
 
@@ -89,7 +95,8 @@ python -m pip install --upgrade pip
 ```
 
 Install required Python packages (including appropriate GDAL Python binding)
-```
+
+```bash
 GDAL_VERSION=$(gdal-config --version)
 pip install "GDAL==${GDAL_VERSION}"
 pip install -e ".[dev]"
@@ -120,7 +127,7 @@ python -c "import nps_active_space, geopandas, rasterio, iyore; print('NPS-Activ
 Active space generation runs the NMSIM Nord2000 physics model as an external process. NMSIM is **not** installed by pip and is **not** included in this repository.
 
 - **Windows:** Obtain the binary + required files separately (feel free to reach out to NPS-ActiveSpace maintainers) and set the path in your config.
-- **macOS / Linux:** Use [docker/README.md](docker/README.md) to stage the runtime and run the pipeline in Docker + Wine with `-e container`.
+- **macOS / Linux:** Follow [docker/README.md](docker/README.md) (`-e container` inside the container).
 
 ```text
 [project]
