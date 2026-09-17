@@ -359,10 +359,12 @@ class ActiveSpaceGenerator:
             A GeoDataFrame of 3D points, with a field "audible" = 0 or 1, representing points that have been
             tested already by the propagation model. There is no need to retest a point that has already been tested.
         max_pts: int
-            Maximum source points per batch (``propagation_model.max_points_per_run``). If len(source_pts)
-            exceeds this, points will be dropped at random (but with a fixed seed) to match this.
-            NMSim tolerates up to ~4000 per trajectory; AAM ``ONE TRACK`` is capped at 400.
-            If too many points are given in one batch, the model may fail silently and leave prediction output blank.
+            Maximum source points per ``predict()`` call (``propagation_model.max_points_per_run``).
+            If len(source_pts) exceeds this, points will be dropped at random (but with a fixed seed)
+            to match this. NMSim and AAM both use ``DEFAULT_MAX_POINTS_PER_PREDICT`` (4000). AAM's
+            Fortran ``ONE TRACK`` cap is 400 and is handled by chunking inside ``predict()``.
+            If too many points are given in one NMSim batch, the model may fail silently and leave
+            prediction output blank.
 
         Returns
         -------

@@ -29,13 +29,17 @@ from nps_active_space.propagation_model.aam.model import (
     _pad_single_point_track,
     resolve_aam_chunk_size,
 )
+from nps_active_space.propagation_model.nmsim.model import NmsimPropagationModel
 from nps_active_space.propagation_model.aam.output import poi_history_to_predictions_df
 from nps_active_space.propagation_model.aam.source import (
     AAM_TEMPLATE_NC_FILENAME,
     aam_source_id_from_omni,
     site_ncfiles_dir,
 )
-from nps_active_space.propagation_model.protocol import THIRD_OCTAVE_BANDS
+from nps_active_space.propagation_model.protocol import (
+    DEFAULT_MAX_POINTS_PER_PREDICT,
+    THIRD_OCTAVE_BANDS,
+)
 
 FIXTURES = Path(__file__).resolve().parents[2] / "active_space" / "fixtures" / "two_point_ridge"
 CRS = "EPSG:32606"
@@ -87,6 +91,15 @@ class TestAamPredictionsLayout:
 class TestAamBatching:
     def test_resolve_aam_chunk_size_default(self) -> None:
         assert resolve_aam_chunk_size() == 400
+
+    def test_max_points_per_run_matches_nmsim(self) -> None:
+        assert AamPropagationModel.max_points_per_run == DEFAULT_MAX_POINTS_PER_PREDICT
+        assert (
+            AamPropagationModel.max_points_per_run
+            == NmsimPropagationModel.max_points_per_run
+            == 4000
+        )
+        assert AamPropagationModel.max_points_per_run != resolve_aam_chunk_size()
 
     def test_order_source_pts_sorts_by_xy(self) -> None:
         pts = gpd.GeoDataFrame(
