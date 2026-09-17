@@ -95,7 +95,7 @@ pip install "GDAL==${GDAL_VERSION}"
 pip install -e ".[dev]"
 ```
 
-Use **Python 3.12** explicitly (`python3.12 -m venv .venv`). For `--model aam`, install with `pip install -e ".[dev,aam]"` (see [docker/README.md](docker/README.md)).
+Use Python 3.12 (`python3.12 -m venv .venv`). For AAM: `pip install -e ".[dev,aam]"` ([docker/README.md](docker/README.md)).
 
 **Note: Using without a clone:** you can install directly from GitHub with `pip install "NPS-ActiveSpace @ git+https://github.com/dbetchkal/NPS-ActiveSpace.git"` (on macOS/Linux, complete the GDAL steps above first). Config files go in the installed package's `config/` directory — find it with `python -c "import nps_active_space, os; print(os.path.join(nps_active_space.ACTIVE_SPACE_DIR, 'config'))"`. Run scripts using `python -m ...` from outside the repo so Python uses the installed package, not a local checkout.
 
@@ -131,7 +131,7 @@ nmsim = C:\path\to\Nord2000batch.exe
 
 On Mac/Linux see [docker/README.md](docker/README.md) and `container_example.config`.
 
-**AAM (optional):** `--model aam` with Docker `-m aam` — [docker/README.md](docker/README.md).
+**AAM:** `--model aam`; in Docker also pass `-m aam` to `run_activespace.sh`.
 
 Required for `generate_active_space.py` and `generate_3d_active_space.py`. **Not** required for ground-truthing, audible transits, or validation.
 
