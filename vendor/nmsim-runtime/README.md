@@ -1,11 +1,10 @@
 # NMSim runtime (local, not in git)
 
-The Windows NMSim binary and its runtime files are **not committed to this repository**.
-Populate **`vendor/nmsim-runtime/`** before Docker+Wine runs on Mac/Linux — see [docker/README.md](../../docker/README.md).
+The Windows NMSim binary is not in this repo. Stage a copy into `vendor/nmsim-runtime/` before Docker runs — [docker/README.md](../../docker/README.md).
 
 ## Size
 
-Minimal runtime for omni-source active-space runs (~**10 MB**):
+Typical staged copy (~10 MB):
 
 | Component | Size |
 |-----------|------|
@@ -19,9 +18,6 @@ A full vendor install with example cases (`FortTiCase`, `Sources/`, …) is ~11 
 
 ## Redistribution / licensing
 
-NMSim (`Nord2000batch.exe`) is **NPS internal / government software**, not open source.
-Do **not** commit the binaries to a public GitHub repo unless NPS legal explicitly approves
-redistribution. Size (~10 MB) is git-friendly; **licensing is the constraint**.
+NMSim (`Nord2000batch.exe`) is NPS internal software, not open source. Do not commit binaries to a public repo without NPS approval.
 
-Omni tuning sources (`.src`/`.avg`) used by the pipeline live in-repo under
-`nps_active_space/data/tuning/` and are separate from this executable runtime.
+Omni `.src`/`.avg` tuning files live in `nps_active_space/data/tuning/` (not part of the staged executable tree).
