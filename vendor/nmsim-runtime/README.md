@@ -1,11 +1,13 @@
 # NMSim runtime (local, not in git)
 
 The Windows NMSim binary and its runtime files are **not committed to this repository**.
-Populate this directory before running the Docker+Wine pipeline on Mac/Linux.
+Populate **`vendor/nmsim-runtime/`** before Docker+Wine runs on Mac/Linux.
+
+**Setup steps:** [docker/README.md](../../docker/README.md) (stage → build → smoke → pipeline).
 
 ## Size
 
-Minimal runtime needed for omni-source active-space runs (~**10 MB**):
+Minimal runtime for omni-source active-space runs (~**10 MB**):
 
 | Component | Size |
 |-----------|------|
@@ -17,23 +19,17 @@ Minimal runtime needed for omni-source active-space runs (~**10 MB**):
 
 A full vendor install with example cases (`FortTiCase`, `Sources/`, …) is ~11 MB.
 
-## Setup
+## Staging
 
-From a machine that has the NMSim install (e.g. the NPS data drive or a Windows box):
+From a machine that has the NMSim install (e.g. NPS data drive or Windows box):
 
 ```bash
 docker/stage_nmsim_runtime.sh /path/to/NMSim
-# or: NMSIM_SOURCE=/path/to/NMSim docker/stage_nmsim_runtime.sh
 ```
 
-Then build and smoke:
-
-```bash
-docker/build.sh
-docker/smoke.sh
-```
-
-Override the runtime location with `NMSIM_RUNTIME=/other/path docker/run_activespace.sh …`.
+To keep the staged copy outside `vendor/nmsim-runtime/`, set **`NMSIM_RUNTIME`** to the
+same directory when staging and when calling **`docker/run_activespace.sh`** (see
+[docker/README.md](../../docker/README.md)).
 
 ## Redistribution / licensing
 
@@ -41,5 +37,5 @@ NMSim (`Nord2000batch.exe`) is **NPS internal / government software**, not open 
 Do **not** commit the binaries to a public GitHub repo unless NPS legal explicitly approves
 redistribution. Size (~10 MB) is git-friendly; **licensing is the constraint**.
 
-Omni tuning sources (`.src`/`.avg`) used by the pipeline live in-repo at
-`nps_active_space/data/tuning/` and are separate from the NMSim executable runtime.
+Omni tuning sources (`.src`/`.avg`) used by the pipeline live in-repo under
+`nps_active_space/data/tuning/` and are separate from this executable runtime.
