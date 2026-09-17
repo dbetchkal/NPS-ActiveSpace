@@ -354,7 +354,7 @@ $ python -u -W ignore nps_active_space/scripts/plot_altitudes.py -e production -
 
 ### Generate 3D Active Space
 
-This script is used to predict active space scope in 3-dimensions. At present it represent the preferred, **primary use case** for the software. Fundamentally this script creates a `_commands.txt` file for [batch generation](#batch-generation). Omitting the `--only-prep` flag allows a user to choose to immediately run the command file for the indicated deployment. Otherwise, if `--only-prep` is included, the script saves the deployment's command file to disk for manual aggregation into a multi-deployment batch command file.
+This script is used to predict active space scope in 3-dimensions. At present it represent the preferred, **primary use case** for the software. Fundamentally this script creates a `_commands.txt` file for [batch generation](#batch-generation). Each line invokes `generate_active_space.py` (include `--model aam` on every line when fitting AAM layers). Omitting the `--only-prep` flag allows a user to choose to immediately run the command file for the indicated deployment. With `--only-prep`, the command file is saved for manual aggregation into a multi-deployment [batch](#batch-generation).
 
 *NOTE: for single-deployment scenarios omitting the `--only-prep` flag, this script proceeds to run the `generate_active_space_batch.py` and `fit_3d_active_space.py` scripts.*
 
@@ -367,6 +367,7 @@ When `-a nvspl`, ambience is precomputed once and saved under `Output_Data/AMBIE
 | `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
 | `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                          |
 | `-a`, `--ambience`      | **_default nvspl -> {nvspl, mennitt, or .pkl file path}_**<br/>The ambience type to use when running NMSIM.                                      |
+| `--model`               | **_default nmsim_**<br/>Propagation backend: `nmsim` or `aam`. Passed through to each `generate_active_space.py` line in the commands file. |
 | `--min-altitude`        | **required.**<br/>Minimum layer altitude (meters) for 3D active space. Should be a multiple of 300 meters.                                       |
 | `--max-altitude`        | **required.**<br/>Maximum layer altitude (meters) for 3D active space. Should be a multiple of 300 meters.                                       |
 | `--only-prep`           | Stop after creating the command file. Use if you want to combine several command files to run as a [batch](#batch-generation).                   |                                     
@@ -388,6 +389,8 @@ $ python -u -W ignore nps_active_space/scripts/generate_3d_active_space.py -e pr
 
 This script is used to predict active space scope in 2-dimensions.
 
+**Propagation model:** `--model nmsim` (default) or `--model aam`. On Mac/Linux, NMSim and AAM generation run in Docker — see [docker/README.md](../../docker/README.md) (`-e container`; AAM also needs `-m aam` on `docker/run_activespace.sh`).
+
 *NOTE: while improved, this script essentially preserves the legacy functionality of earlier version releases (`nps_active_space ≤v2.1.0`).*
 
 *NOTE: the Precision-Recall plot that is shown at the end of a run is automatically saved.*
@@ -403,6 +406,7 @@ Run [`project_setup.py`](#project-setup) for each deployment before generating a
 | `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                                                                                                                                        |
 | `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                                                                                                                                                 |
 | `-a`, `--ambience`      | **_default nvspl -> {nvspl, mennitt, or .pkl file path}_**<br/>The ambience type to use when running NMSIM.                                                                                                                                                             |
+| `--model`               | **_default nmsim_**<br/>Propagation backend: `nmsim` or `aam`. AAM writes under `Output_Data/aam/`; use `project.aam` in config (Wine shim in [container_example.config](../config/container_example.config)). |
 | `--headings`            | **_default [0, 120, 240]_**<br/>A list of the active space headings that should be dissolved together to make the final active space. _Ex_: `--headings 0, 90, 180, 270`                                                                                                |
 | `--omni-min`            | **_default -10.0_**<br/>The lowest gain to generate an active space for.                                                                                                           |
 | `--omni-max`            | **_default 40.0_**<br/>The highest gain to generate an active space for.                                                                                                           |
@@ -458,6 +462,7 @@ This script finds the optimal best fit for a 3-dimensional active space.
 | `-u`, `--unit`             | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                |
 | `-s`, `--site`             | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
 | `-y`, `--year`             | **required.**<br/>Which year's active space to use, YYYY. _Ex_: 2018                                                                             |
+| `--model`                  | **_default nmsim_**<br/>Propagation backend: `nmsim` or `aam`. Reads predictions from the matching `Output_Data/{model}/` tree. |
 
 Example execution:
 
