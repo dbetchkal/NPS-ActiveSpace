@@ -12,11 +12,7 @@ Usage:
 Options:
   -m, --model     acoustic model runtime to mount: nmsim (default) or aam
 
-Mounts (depends on model):
-  repo              -> /repo       (read-write)
-  NMSim runtime     -> /opt/nmsim  (read-only, when model is nmsim)
-  AAM runtime       -> /opt/aam    (read-only, when model is aam)
-  DATA_DRIVE        -> /data       (optional, read-only)
+Mounts: see nps_active_space/config/container_example.config
 
 Environment:
   ACOUSTIC_MODEL    same as -m (env wins if set before parsing; -m is clearer on CLI)
@@ -24,10 +20,7 @@ Environment:
   AAM_RUNTIME       path to AAM exe + NCfiles/ (default: ./vendor/aam-runtime)
   DATA_DRIVE        optional host data directory
 
-Examples:
-  docker/smoke.sh
-  docker/smoke.sh aam
-  docker/run_activespace.sh nps_active_space/scripts/generate_active_space.py -e container ...
+Examples: see docker/README.md
 EOF
 }
 

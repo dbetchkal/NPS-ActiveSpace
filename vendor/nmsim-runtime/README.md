@@ -1,9 +1,7 @@
 # NMSim runtime (local, not in git)
 
 The Windows NMSim binary and its runtime files are **not committed to this repository**.
-Populate **`vendor/nmsim-runtime/`** before Docker+Wine runs on Mac/Linux.
-
-**Setup steps:** [docker/README.md](../../docker/README.md) (stage → build → smoke → pipeline).
+Populate **`vendor/nmsim-runtime/`** before Docker+Wine runs on Mac/Linux — see [docker/README.md](../../docker/README.md).
 
 ## Size
 
@@ -18,18 +16,6 @@ Minimal runtime for omni-source active-space runs (~**10 MB**):
 | `RND/` (character files, `directories.ini`, …) | ~7 MB |
 
 A full vendor install with example cases (`FortTiCase`, `Sources/`, …) is ~11 MB.
-
-## Staging
-
-From a machine that has the NMSim install (e.g. NPS data drive or Windows box):
-
-```bash
-docker/stage_nmsim_runtime.sh /path/to/NMSim
-```
-
-To keep the staged copy outside `vendor/nmsim-runtime/`, set **`NMSIM_RUNTIME`** to the
-same directory when staging and when calling **`docker/run_activespace.sh`** (see
-[docker/README.md](../../docker/README.md)).
 
 ## Redistribution / licensing
 
