@@ -19,6 +19,7 @@ import iyore
 
 import nps_active_space.utils.config as cfg
 from nps_active_space.utils.helpers import get_deployment, get_logger, get_omni_sources, load_annotations, omni_to_gain
+from nps_active_space.utils import paths as p
 from nps_active_space.utils.models import Annotations, Nvspl
 from nps_active_space.utils.computation import select_optimal, ambience_from_nvspl, ambience_from_raster, normalize_point_density
 from nps_active_space.active_space import ActiveSpaceGenerator
@@ -285,7 +286,7 @@ if __name__ == '__main__':
     # --------------- INIT --------------- #
 
     cfg.initialize(environment=args.environment)
-    site_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
+    site_dir = p.site_dir(cfg.read('project', 'dir'), args.unit, args.site)
     logger = get_logger(f"ACTIVE-SPACE: {args.unit}{args.site}{args.year}")
 
     omni_sources = get_omni_sources(lower=args.omni_min, upper=args.omni_max)
@@ -294,7 +295,7 @@ if __name__ == '__main__':
 
     # Load the microphone deployment site metadata and the study area shapefile.
     mic_ = get_deployment(cfg.read('project', 'dir'), args.unit, args.site, args.year, elevation=False)
-    study_area = gpd.read_file(glob.glob(f"{site_dir}/*study*.shp")[0])
+    study_area = gpd.read_file(p.study_area_shapefile(cfg.read('project', 'dir'), args.unit, args.site))
 
     # Compute ambience
     # Load NVSPL data or the mennitt raster depending on the user input.

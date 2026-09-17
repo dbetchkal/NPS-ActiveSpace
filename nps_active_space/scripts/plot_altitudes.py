@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 import glob
 from nps_active_space.utils.helpers import load_annotations
+from nps_active_space.utils import paths as p
 import nps_active_space.utils.config as cfg
 from argparse import ArgumentParser
 import re
@@ -89,7 +90,7 @@ def plot_altitude_hist(project_dir, unit, site, year):
 
     fig.tight_layout()
 
-    fig.savefig(f"{project_dir}/{unit}{site}/Altitude_Histogram_{unit}{site}{year}.png")
+    fig.savefig(p.altitude_histogram_plot(project_dir, unit, site, year))
 
 
 if __name__ == "__main__":
@@ -119,17 +120,14 @@ if __name__ == "__main__":
         print("Plotting altitudes for all sites\n")
 
         # use glob to find all annotation files
-        annotation_files = glob.glob(f"{project_dir}/*/*saved_annotations*.geojson")
+        annotation_files = p.all_annotation_files(project_dir)
         for file in annotation_files:
-            # get unit, site, year from path name
-            site_name = os.path.basename(os.path.dirname(file))
-            unit = site_name[:4]
-            site = site_name[4:]
-            year_match = re.search(rf"{unit}{site}(\d\d\d\d)", file)
-            if year_match is None:
-                print("Failed to find the year")
+            basename = os.path.basename(file)
+            match = re.match(r"^(\w{4})(\w{4})(\d{4})", basename)
+            if not match:
+                print(f"Failed to parse deployment from {basename}")
                 continue
-            year = int(year_match.group(1))
+            unit, site, year = match.group(1), match.group(2), int(match.group(3))
 
             plot_altitude_hist(project_dir, unit, site, year)
             print("")

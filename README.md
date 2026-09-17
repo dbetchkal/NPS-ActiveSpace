@@ -38,7 +38,9 @@ consistent with observed audibility under specified environmental conditions.
 
 The repository has been tested with Python 3.12. Runtime dependencies are declared in `pyproject.toml` and installed automatically by pip (except GDAL on macOS/Linux, which requires a system library first).
 
-Clone the repository, then follow the steps for your platform. The clone includes [`example_data/`](example_data/) (~75 MB) for local development and tests (see [`example_data/README.md`](example_data/README.md)).
+macOS/Linux: run NMSim in Docker ([docker/README.md](docker/README.md)). Ground-truthing, fit, and viz use a local venv (below).
+
+Clone the repository, then follow the steps for your platform. The clone includes [`example_data/`](example_data/) (~75 MB) for local development and tests (see [example_data/README.md](example_data/README.md)).
 
 ```bash
 git clone https://github.com/dbetchkal/NPS-ActiveSpace.git
@@ -85,7 +87,8 @@ python -m pip install --upgrade pip
 ```
 
 Install required Python packages (including appropriate GDAL Python binding)
-```
+
+```bash
 GDAL_VERSION=$(gdal-config --version)
 pip install "GDAL==${GDAL_VERSION}"
 pip install -e ".[dev]"
@@ -113,12 +116,17 @@ python -c "import nps_active_space, geopandas, rasterio, iyore; print('NPS-Activ
 
 ### NMSIM (active space generation)
 
-Active space generation runs the NMSIM Nord2000 physics model as an external process. NMSIM is **not** installed by pip and is **not** included in this repository. Obtain the binary + required files separately (feel free to reach out to NPS-ActiveSpace maintainers) and set the path in your config:
+Active space generation runs the NMSIM Nord2000 physics model as an external process. NMSIM is **not** installed by pip and is **not** included in this repository.
+
+- **Windows:** Obtain the binary + required files separately (feel free to reach out to NPS-ActiveSpace maintainers) and set the path in your config.
+- **macOS / Linux:** Follow [docker/README.md](docker/README.md) (`-e container` inside the container).
 
 ```text
 [project]
 nmsim = C:\path\to\Nord2000batch.exe
 ```
+
+On Mac/Linux see [docker/README.md](docker/README.md) and `container_example.config`.
 
 Required for `generate_active_space.py`, `generate_3d_active_space.py`, and `generate_active_space_mesh.py`. **Not** required for ground-truthing, audible transits, or validation.
 
@@ -222,7 +230,7 @@ As an observer-based audibility model, each `nps_active_space` site directory (a
 
 The overarching input of `nps_active_space` is a study area. It is a required input. It must be contained within the root project directory and named similar to `UNITSITE_study_area.shp` (ESRI shapefile), where the variable geographic prefix `UNITSITE` matches the name of the project directory. It is recommended that study area geometries are saved using `NMSIM`'s native coordinate reference system (crs), NAD83 GCS North American (EPSG:4269).
 
-After their creation, the annotation outputs of `.ground_truthing` (.geojson) also belong in the root of the project directory. Clock drift correction files produced via [the `.utils\clock_drift.py` utility](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/nps_active_space/utils/clock_drift.py) also belong in the root of the project directory.
+After their creation, the annotation outputs of `.ground_truthing` (.geojson) belong in the **site directory root** (alongside the study area shapefile), e.g. `UNITSITE_A/DENATRLA2025_saved_annotations.geojson`. Clock drift correction files produced via [the `.utils\clock_drift.py` utility](https://github.com/dbetchkal/NPS-ActiveSpace/blob/main/nps_active_space/utils/clock_drift.py) also belong in the root of the project directory.
 
 ##### Within `01_ELEVATION`:
 

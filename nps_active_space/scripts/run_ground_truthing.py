@@ -12,6 +12,7 @@ from nps_active_space.utils.helpers import (
     load_DEM,
     load_studyarea,
 )
+from nps_active_space.utils import paths as p
 from nps_active_space.utils.clock_drift import correct_clock_drift
 
 
@@ -44,7 +45,7 @@ if __name__ == '__main__':
 
     # Set the various path variables.
     archive = iyore.Dataset(cfg.read('data', 'nvspl_archive'))
-    site_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
+    site_dir = p.site_dir(cfg.read('project', 'dir'), args.unit, args.site)
 
     # Load the microphone deployment site metadata and the study area shapefile.
     project_dir = cfg.read("project", "dir")

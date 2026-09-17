@@ -22,6 +22,7 @@ from warnings import warn
 
 from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.setup.site_writer import create_site_dir, write_listener_site_file
+from nps_active_space.utils.constants import IS_WINDOWS
 from nps_active_space.utils.models import Microphone
 from nps_active_space.utils.computation import (
     build_src_point_mesh,
@@ -42,6 +43,22 @@ human_hearing_threshold = pd.Series({
 })
 
 logger = logging.getLogger(__name__)
+
+
+def _nmsim_control_path(path: str) -> str:
+    """Format a filesystem path for an NMSIM control file.
+
+    On Windows, NMSIM is run natively and paths already use backslashes, so the path is
+    returned unchanged. On Linux/Mac, NMSIM runs through Wine; the (Fortran) binary derives
+    companion files (e.g. a source's `.avg`, a DEM's `.hdr`) from the *backslash* directory
+    component of the path it is given. POSIX forward-slash paths break that derivation, so
+    NMSIM falls back to its cwd and fails. Convert absolute POSIX paths to Wine drive paths
+    (``Z:`` maps to ``/`` by default) using backslash separators.
+    """
+    if IS_WINDOWS:
+        return path
+    return "Z:" + os.path.abspath(path).replace("/", "\\")
+
 
 class PolygonCreationError(Exception):
     pass
@@ -307,13 +324,13 @@ class ActiveSpaceGenerator:
         tis_directory = f"{self.root_dir}/Output_Data/TIG_TIS"
 
         with open(control_file, 'w') as nms:
-            nms.write(flt_file + "\n")
+            nms.write(_nmsim_control_path(flt_file) + "\n")
             nms.write("-\n")
-            nms.write(site_file + "\n")
-            nms.write(trajectory_file + "\n")
-            nms.write(f"{ACTIVE_SPACE_DIR}/data/default.wea" + "\n")
+            nms.write(_nmsim_control_path(site_file) + "\n")
+            nms.write(_nmsim_control_path(trajectory_file) + "\n")
+            nms.write(_nmsim_control_path(f"{ACTIVE_SPACE_DIR}/data/default.wea") + "\n")
             nms.write("-\n")
-            nms.write(omni_source_file + "\n")
+            nms.write(_nmsim_control_path(omni_source_file) + "\n")
             nms.write("{0:11.4f}   \n".format(500.0000))
             nms.write("-\n")
             nms.write("-")
@@ -321,9 +338,9 @@ class ActiveSpaceGenerator:
         # write the batch file to create a site-based analysis
         with open(batch_file, 'w') as batch:
             batch.write("open\n")
-            batch.write(control_file + "\n")
+            batch.write(_nmsim_control_path(control_file) + "\n")
             batch.write("site\n")
-            batch.write(f"{tis_directory}/{os.path.basename(trajectory_file)[:-4]}" + "\n")
+            batch.write(_nmsim_control_path(f"{tis_directory}/{os.path.basename(trajectory_file)[:-4]}") + "\n")
             batch.write("dbf: no\n")
             batch.write("hrs: 0\n")
             batch.write("min: 0\n")
@@ -623,7 +640,7 @@ class ActiveSpaceGenerator:
             process = subprocess.Popen([self.NMSIM, batch_file], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             stdout, stderr = process.communicate()
             if stderr:
-                for s in stderr.decode("utf-8").split("\r\n"):
+                for s in stderr.decode("utf-8").splitlines():
                     logger.error(s.strip())
 
             # Read NMSIM outputs and remove unneeded .trj and .tis file

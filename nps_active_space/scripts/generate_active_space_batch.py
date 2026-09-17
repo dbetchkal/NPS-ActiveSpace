@@ -1,4 +1,5 @@
 import nps_active_space.utils.config as cfg
+from nps_active_space.utils import paths as p
 from nps_active_space import ACTIVE_SPACE_DIR
 import subprocess
 import os
@@ -199,7 +200,7 @@ def copy_output_files(option_str, savedir, designator):
     args, _ = argparse.parse_known_args(shlex.split(option_str))
 
     cfg.initialize(environment=args.environment)
-    site_dir = f"{cfg.read('project', 'dir')}/{args.unit}{args.site}"
+    site_dir = p.site_dir(cfg.read('project', 'dir'), args.unit, args.site)
     deployment = f"{args.unit}{args.site}{args.year}"
 
     # Get filenames we wish to copy
@@ -214,8 +215,8 @@ def copy_output_files(option_str, savedir, designator):
     if args.annotation_file is not None:
         annotation_files = [os.path.join(site_dir, args.annotation_file)]
     else:
-        annotation_files = glob.glob(os.path.join(
-            site_dir, f"{args.unit}{args.site}{args.year}*saved_annotations*.geojson"))
+        annotation_files = p.annotation_files(
+            cfg.read('project', 'dir'), args.unit, args.site, args.year)
 
     # Copy files
     for src_path in activespace_files + tested_pt_files + pr_plots + annotation_files:
