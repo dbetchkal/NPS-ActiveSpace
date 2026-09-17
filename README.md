@@ -38,17 +38,9 @@ consistent with observed audibility under specified environmental conditions.
 
 The repository has been tested with Python 3.12. Runtime dependencies are declared in `pyproject.toml` and installed automatically by pip (except GDAL on macOS/Linux, which requires a system library first).
 
-**NMSim on macOS / Linux:** Active space generation uses **Docker + Wine** — full steps in [docker/README.md](docker/README.md). Ground-truthing, fit, and viz use a **local venv** on the host (steps below).
+**NMSim on macOS / Linux:** Active space generation uses Docker + Wine — [docker/README.md](docker/README.md). Ground-truthing, fit, and viz use a local venv on the host (steps below).
 
-**Mac/Linux at a glance:**
-
-1. **Host:** clone → GDAL/tkinter → `pip install -e ".[dev]"` → `-e DENA_example` (or your config) for ground-truthing and viz.
-2. **Docker (NMSim only):** `docker/stage_nmsim_runtime.sh` → `docker/build.sh` → `docker/smoke.sh` (no `container.config` yet).
-3. **Docker (pipeline):** copy `container_example.config` → `container.config` → `docker/run_activespace.sh … generate_active_space.py -e container …`.
-
-Bundled sample data: [example_data/README.md](example_data/README.md).
-
-Clone the repository, then follow the steps for your platform. The clone includes [`example_data/`](example_data/) (~75 MB) for local development and tests (see [`example_data/README.md`](example_data/README.md)).
+Clone the repository, then follow the steps for your platform. The clone includes [`example_data/`](example_data/) (~75 MB) for local development and tests (see [example_data/README.md](example_data/README.md)).
 
 ```bash
 git clone https://github.com/dbetchkal/NPS-ActiveSpace.git
@@ -134,7 +126,7 @@ Active space generation runs the NMSIM Nord2000 physics model as an external pro
 nmsim = C:\path\to\Nord2000batch.exe
 ```
 
-On Windows, set the path in your config as above. In Docker, `container_example.config` sets `project.nmsim` to the Wine shim (`/usr/local/bin/nord2000`); the NMSim runtime is bind-mounted at `/opt/nmsim`.
+On Mac/Linux, use Docker and `container_example.config` (see [docker/README.md](docker/README.md)).
 
 Required for `generate_active_space.py`, `generate_3d_active_space.py`, and `generate_active_space_mesh.py`. **Not** required for ground-truthing, audible transits, or validation.
 
