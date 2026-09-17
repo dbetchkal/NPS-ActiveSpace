@@ -56,8 +56,9 @@ You can visualize:
 
 - just the landscape/microphone position
 - ground-truthed annotations
-- a 3D active space (or a 2D active space if only one layer has been generated)
+- a 3D active space (or a 2D active space if only one layer has been generated), including NMSim vs AAM overlay
 - audible transits
+- raw GPS, ADSB, or AIS tracks without annotations
 - any combination of the above
 
 Make sure the data you want to visualize exist beforehand. The script won't look for data that it wasn't asked to visualize; for instance if you just finished setting up your data / directory structure, you can immediately visualize the landscape without needing to have ground-truthed tracks or generated an active space.
@@ -578,13 +579,18 @@ This script is used to visualize select geospatial objects relevant to the `nps_
 | `deployment` (no flag)     | **required.**<br/>The deployment name, e.g., DENACATH2018                                                                                        |
 | `-e`, `--environment`      | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
 | `-g`, `--gain`             | Active space gain in dB. If omitted, `viz.py` loads the fitted value from `{project_dir}/fits.csv` for the chosen `--model`.                                                                                |
-| `-s`, `--active-space`     | If included, load and plot the active space                                                                                                      |
+| `-A`, `--active-space`     | If included, load and plot the active space                                                                                                      |
 | `-a`, `--annotations`      | If included, load and plot annotations                                                                                                           |
-| `-t`, `--audible-transits` | If included, load and plot audible transits                                                                                                      |
-| `--all`                    | Load and plot all geospatial objects (shorthand for `--active-space --annotations --audible-transits`)                                           |
-| `-m`, `--max-tracks`       | **_default 500_**<br>Maximum number of annotation tracks or audible transits to show                                                             |
+| `--audible-transits`       | If included, load and plot audible transits                                                                                                      |
+| `-t`, `--track-source`     | Load and plot tracks from **{GPS, ADSB, AIS}**. Uses the same config paths as ground truthing. Not included in `--all`.                          |
+| `--model`                  | Propagation model for active-space layers: **{nmsim, aam}**. Implies `-A`. Default when plotting active space is nmsim.                          |
+| `--compare`                | Overlay NMSim (orange) and AAM (cyan) active spaces. Implies `-A`.                                                                               |
+| `--all`                    | Load and plot active space, annotations, and audible transits (does **not** include `--track-source`)                                            |
+| `-m`, `--max-tracks`       | **_default 500_**<br>Maximum number of annotation tracks, audible transits, or causal tracks to show                                             |
 | `--annotation-file`        | **_default to deployment dir_**<br/>Path to .geojson file from which to load annotations                                                         |
 | `--transits-pkl`           | **_default to deployment dir_**<br/>Path to .pkl file from which to load audible transits                                                        |
+| `--start-date`             | Track query start date (YYYY-MM-DD). **Requires `--track-source`.** Default: Jan 1 of deployment year.                                           |
+| `--end-date`               | Track query end date (YYYY-MM-DD). **Requires `--track-source`.** Default: Dec 31 of deployment year.                                           |
 | `--terraced`               | If included, render the active space as a terraced surface instead of contours                                                                   |
 | `--fill-layers`            | If included, fill the interior of each active space contour polygon                                                                              |
 
@@ -595,8 +601,26 @@ $ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production
 ```
 
 ```bash
-$ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production -g 15.0 -s -a -m 700 --terraced
+$ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production -A --model aam
 ```
+
+```bash
+$ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production -A --compare
+```
+
+```bash
+$ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production -g 15.0 -A -a -m 700 --terraced
+```
+
+```bash
+python -m nps_active_space.scripts.viz GLBALSTL2024 -e GLBA_example \
+  -t AIS --start-date 2024-05-24 --end-date 2024-05-24 -m 100
+
+python -m nps_active_space.scripts.viz DENATRLA2025 -e DENA_example \
+  -t ADSB --start-date 2025-06-23 --end-date 2025-06-23 -m 100
+```
+
+**Track plotting vs ground truthing:** viz uses the same `load_tracks` loader but draws raw point sequences (not annotation splines), does not apply clock-drift correction, and defaults to the full deployment year unless `--start-date` / `--end-date` are set. Ground truthing uses the NVSPL archive date span and drift files when present.
 
 ----
 
