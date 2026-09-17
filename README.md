@@ -38,7 +38,7 @@ consistent with observed audibility under specified environmental conditions.
 
 The repository has been tested with Python 3.12. Runtime dependencies are declared in `pyproject.toml` and installed automatically by pip (except GDAL on macOS/Linux, which requires a system library first).
 
-**NMSim on macOS / Linux:** Active space generation uses Docker + Wine — [docker/README.md](docker/README.md). Ground-truthing, fit, and viz use a local venv on the host (steps below).
+macOS/Linux: run NMSim in Docker ([docker/README.md](docker/README.md)). Ground-truthing, fit, and viz use a local venv (below).
 
 Clone the repository, then follow the steps for your platform. The clone includes [`example_data/`](example_data/) (~75 MB) for local development and tests (see [example_data/README.md](example_data/README.md)).
 
@@ -126,7 +126,7 @@ Active space generation runs the NMSIM Nord2000 physics model as an external pro
 nmsim = C:\path\to\Nord2000batch.exe
 ```
 
-On Mac/Linux, use Docker and `container_example.config` (see [docker/README.md](docker/README.md)).
+On Mac/Linux see [docker/README.md](docker/README.md) and `container_example.config`.
 
 Required for `generate_active_space.py`, `generate_3d_active_space.py`, and `generate_active_space_mesh.py`. **Not** required for ground-truthing, audible transits, or validation.
 
