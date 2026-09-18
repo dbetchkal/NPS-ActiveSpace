@@ -267,12 +267,16 @@ class Visualizer:
     def plot_compare_activespaces(
         self, terraced: bool = False, gain: float | None = None
     ) -> None:
+        if gain is not None:
+            self._status(
+                "Compare mode uses each model's fitted gain from fits.csv; ignoring -g."
+            )
         widget_row = 0
         for model, color in (
             (AcousticModel.NMSIM, self.nmsim_activespace_color),
             (AcousticModel.AAM, self.aam_activespace_color),
         ):
-            model_gain = gain if gain is not None else self._resolve_activespace_gain(model, None)
+            model_gain = self._resolve_activespace_gain(model, None)
             if model_gain is None:
                 continue
             active_3d = load_layered_activespace(
@@ -424,11 +428,12 @@ class Visualizer:
             color = self.activespace_color
         poly_actor = None
         if self.fill_layers:
-            meshes = []
-            for poly in active_to_polys(active_layer):
-                meshes.append(polygon_to_mesh(poly, elevation))
+            meshes = [
+                polygon_to_mesh(poly, elevation) for poly in active_to_polys(active_layer)
+            ]
+            if meshes:
                 poly_data = pv.PolyData().merge(meshes)
-            poly_actor = self.plotter.add_mesh(poly_data, color=color, opacity=0.5)
+                poly_actor = self.plotter.add_mesh(poly_data, color=color, opacity=0.5)
 
         line_actors = []
         for line in active_to_linestrings(active_layer):
@@ -436,8 +441,8 @@ class Visualizer:
             actor = self.plotter.add_mesh(
                 polyline,
                 color=color,
-                line_width=4,
-                render_lines_as_tubes=True,
+                point_size=2,
+                line_width=2,
             )
             line_actors.append(actor)
 
@@ -642,7 +647,7 @@ class Visualizer:
         self._add_labeled_checkbox(
             toggle_audible,
             value=True,
-            position=(10, 100),
+            position=(10, 90),
             size=25,
             color_on="deepskyblue",
             label="audible",
@@ -650,7 +655,7 @@ class Visualizer:
         self._add_labeled_checkbox(
             toggle_inaudible,
             value=True,
-            position=(10, 60),
+            position=(10, 55),
             size=25,
             color_on="red",
             label="inaudible",
@@ -795,7 +800,7 @@ class Visualizer:
         self._add_labeled_checkbox(
             toggle,
             value=True,
-            position=(10, 40),
+            position=(10, 20),
             size=25,
             color_on=color,
             label="tracks",
