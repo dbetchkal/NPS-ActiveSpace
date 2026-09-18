@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import copy
 from scipy.ndimage import median_filter
 import pickle
@@ -2494,7 +2495,7 @@ class AudibleTransitsAIS(AudibleTransits):
         warnings.filterwarnings(
             'ignore', message=".*before calling to_datetime.*")
 
-        AIS_DIR = self.paths["AIS"]
+        AIS_DIR = Path(self.paths["AIS"])
 
         mask = self.active_layer
         if self.three_dimensional_run:

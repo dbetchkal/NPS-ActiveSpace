@@ -494,7 +494,7 @@ if __name__ == '__main__':
     #  from each linestring to get the average height (in meters) of audible flight segments.
     # We just use the audible segments so that we represent the typical altitude in the local area.
     #  (some inaudible segments are very far away / at different altitudes)
-    if not args.altitude:
+    if args.altitude is None:
         logger.info("Calculating average altitude (in meters)...")
         altitude_ = infer_annotation_altitude(valid_points)
         logger.info(f"Average altitude is: {altitude_}m")
