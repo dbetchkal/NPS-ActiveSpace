@@ -67,7 +67,7 @@ Make sure the data you want to visualize exist beforehand. The script won't look
 1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#installation).
 2. Use `run_ground_truthing.py` to annotate audible track segments.
 3. Use `generate_active_space.py` to generate candidates for a single active space layer at a fixed altitude, and also fit the optimal gain.
-4. We can make use of the 3D code to process a 2D active space, since a 2D active space is equivalent to a 3D one with a single layer. Make sure only a single layer of active spaces has been generated (check `../NMSIM_project_dir/Output_Data/ACTIVESPACES`). Then use `fit_3d_active_space.py` to fit the gain in a way the rest of the 3D code expects (storing it in the `fits.csv` file in the project directory). Then follow steps 5-6 of the typical 3D active space workflow.
+4. We can make use of the 3D code to process a 2D active space, since a 2D active space is equivalent to a 3D one with a single layer. Make sure only a single layer of active spaces has been generated (check `Output_Data/{nmsim|aam}/ACTIVESPACES/` under the site project). Then use `fit_3d_active_space.py` to fit the gain in a way the rest of the 3D code expects (storing it in the `fits.csv` file in the project directory). Then follow steps 5-6 of the typical 3D active space workflow.
 
 ```mermaid
 graph LR
@@ -98,7 +98,7 @@ check_study_duration_robustness.py
 
 If you want to generate many active spaces at the same time, you can leverage the batch script to do so. This is useful for running it overnight or while you do other work.
 
-The batch runner collects per-run metrics from a JSON output written by `generate_active_space.py` (`--results-out`), then upserts a row in the output CSV keyed by **designator + model**. Failed runs are skipped (no CSV row).
+Each batch line runs `generate_active_space.py` with a temporary `--results-out` JSON file. On success, metrics are upserted into the output CSV (key **designator + model**); failed runs are skipped (no CSV row).
 
 **Resume / skip:** a layer is skipped only when its **model-scoped** `Output_Data/{nmsim|aam}/ACTIVESPACES/{deployment}_{alt}m/` folder already contains `*_O_*.geojson` files. The batch CSV is **not** used to skip layers — so an NMSim batch run does not block a later AAM run for the same altitude. Delete the layer directory to force regeneration.
 
@@ -389,8 +389,6 @@ $ python -u -W ignore nps_active_space/scripts/generate_3d_active_space.py -e pr
 
 This script is used to predict active space scope in 2-dimensions.
 
-`--model nmsim` (default) or `aam`. Mac/Linux: Docker, `-e container` ([docker/README.md](../../docker/README.md)); AAM adds `-m aam` on `run_activespace.sh`.
-
 *NOTE: while improved, this script essentially preserves the legacy functionality of earlier version releases (`nps_active_space ≤v2.1.0`).*
 
 *NOTE: the Precision-Recall plot that is shown at the end of a run is automatically saved.*
@@ -406,7 +404,7 @@ Run [`project_setup.py`](#project-setup) for each deployment before generating a
 | `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                                                                                                                                        |
 | `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                                                                                                                                                 |
 | `-a`, `--ambience`      | **_default nvspl -> {nvspl, mennitt, or .pkl file path}_**<br/>The ambience type to use when running NMSIM.                                                                                                                                                             |
-| `--model`               | `nmsim` (default) or `aam`. Output under `Output_Data/{model}/`. Wine shim paths in [container_example.config](../config/container_example.config). |
+| `--model`               | `nmsim` (default) or `aam`. Output under `Output_Data/{model}/`. Mac/Linux: Docker ([docker/README.md](../../docker/README.md)); AAM adds `-m aam` on `run_activespace.sh`. Shims: [container_example.config](../config/container_example.config). |
 | `--headings`            | **_default [0, 120, 240]_**<br/>A list of the active space headings that should be dissolved together to make the final active space. _Ex_: `--headings 0, 90, 180, 270`                                                                                                |
 | `--omni-min`            | **_default -10.0_**<br/>The lowest gain to generate an active space for.                                                                                                           |
 | `--omni-max`            | **_default 40.0_**<br/>The highest gain to generate an active space for.                                                                                                           |
@@ -434,8 +432,6 @@ $ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e produ
 This script generates active space estimates for a set of senarios provided in a `_commands.txt` file.
 
 *NOTE: this script may be run independently and also works "behind the scenes" as part of [`generate_3d_active_space.py`](#generate-3d-active-space)*
-
-Each command invokes `generate_active_space.py` with a temporary `--results-out` JSON path. On success, the JSON is read and upserted as one row in the output CSV (keyed by designator and `--model`); on failure, that run is skipped and the CSV is left unchanged.
 
 | command-line arg           | description                                                                                                                                      |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
