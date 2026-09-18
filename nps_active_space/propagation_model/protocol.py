@@ -18,8 +18,8 @@ THIRD_OCTAVE_BANDS: tuple[str, ...] = (
 )
 
 # Generator ``predict()`` batch size. Excess mesh points are randomly dropped.
-# Independent of AAM's Fortran ``ONE TRACK`` cap (``DEFAULT_AAM_CHUNK_SIZE`` = 400);
-# AAM ``predict()`` chunks internally.
+# Independent of AAM's Fortran ``ONE TRACK`` cap (``aam.config.DEFAULT_AAM_CHUNK_SIZE``);
+# AAM ``predict()`` chunks internally via ``resolve_aam_chunk_size()``.
 DEFAULT_MAX_POINTS_PER_PREDICT = 4000
 
 

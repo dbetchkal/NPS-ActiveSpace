@@ -9,11 +9,9 @@ import pandas as pd
 from aam_translator.bands import band_number_for_frequency
 from aam_translator.read_poi import PoiTimeHistory
 
-from nps_active_space.propagation_model.aam.source import aam_source_id_from_omni
 from nps_active_space.propagation_model.protocol import THIRD_OCTAVE_BANDS
 
 __all__ = [
-    "aam_source_id_from_omni",
     "poi_history_to_predictions_df",
 ]
 

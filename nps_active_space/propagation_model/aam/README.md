@@ -4,6 +4,21 @@ AAM 3.0 ([aam-translator](https://github.com/elliott-ruebush/aam-translator)) be
 
 Docker: [docker/README.md](../../../docker/README.md).
 
+## Module map
+
+| Module | Role |
+|--------|------|
+| `model.py` | `AamPropagationModel` — `prepare_site`, chunking, FPA split retry |
+| `config.py` | `AAM_CHUNK_SIZE` / `resolve_aam_chunk_size`, subprocess timeout |
+| `track.py` | Mesh snake order, single-point track padding |
+| `terrain_cache.py` | DEM warp, ELV/IMP cache, `ensure_aam_terrain` |
+| `terrain_sampling.py` | ELV bilinear sample, below-ground filter, clear-hop packing |
+| `terrain.py` | Re-exports cache + sampling (stable import path) |
+| `source.py` | Omni NetCDF cache, vendor `NCfiles/`, subprocess env |
+| `run_batch.py` | Stage `scenario.inp`, Wine/native subprocess, read POI |
+| `run_log.py` | Site log, stderr summaries, work-dir hashing |
+| `output.py` | POI history → NMSim-shaped prediction DataFrame |
+
 ## On-disk layout
 
 Terrain cache: `Input_Data/aam/terrain/{mic}/` (`.ELV`, `.IMP`, `terrain_cache.json`). Skips `write_terrain` when ELV is newer than the DEM and metadata matches.
@@ -18,6 +33,6 @@ Old `Input_Data/AAM/` layouts and flat `Output_Data/ACTIVESPACES/` still work. N
 
 ## Track batching and audibility
 
-See `AamPropagationModel.predict` in `model.py` and mesh ordering in `track.py`. Up to `DEFAULT_MAX_POINTS_PER_PREDICT` points per call; internal chunk size `AAM_CHUNK_SIZE` (default 400).
+See `AamPropagationModel.predict` in `model.py`. Pipeline: `track.order_source_pts_for_track` → ELV vertex filter → clear-hop packs (`terrain_sampling`) → `config.resolve_aam_chunk_size()` (default 400) → `run_batch.execute_aam_batch`. Generator batch cap remains `DEFAULT_MAX_POINTS_PER_PREDICT` (4000) in `protocol.py`.
 
 No 12.5 kHz in AAM POI output — `poi_history_to_predictions_df` uses `NaN` there (`output.py`).

@@ -168,7 +168,7 @@ class TestElvNorthUpIndexing:
         for i in range(nrows):
             fake[i, :] = 1000.0 * (1.0 - i / (nrows - 1)) * scale
         monkeypatch.setattr(
-            "nps_active_space.propagation_model.aam.terrain._elv_grid_values",
+            "nps_active_space.propagation_model.aam.terrain_sampling._elv_grid_values",
             lambda _path: fake,
         )
         col = ncols / 2.0
@@ -194,7 +194,7 @@ class TestElvNorthUpIndexing:
         for i in range(nrows):
             fake[i, :] = 1000.0 * (1.0 - i / (nrows - 1)) * scale
         monkeypatch.setattr(
-            "nps_active_space.propagation_model.aam.terrain._elv_grid_values",
+            "nps_active_space.propagation_model.aam.terrain_sampling._elv_grid_values",
             lambda _path: fake,
         )
         col = ncols / 2.0
@@ -250,7 +250,7 @@ class TestSplitSafeAamTrackRuns:
             crs="EPSG:32606",
         )
         monkeypatch.setattr(
-            "nps_active_space.propagation_model.aam.terrain._hop_segment_below_terrain",
+            "nps_active_space.propagation_model.aam.terrain_sampling._hop_segment_below_terrain",
             lambda *args, **kwargs: False,
         )
         runs = split_safe_aam_track_runs(terrain, pts)
@@ -272,7 +272,7 @@ class TestSplitSafeAamTrackRuns:
             return float(start.x) == 10.0
 
         monkeypatch.setattr(
-            "nps_active_space.propagation_model.aam.terrain._hop_segment_below_terrain",
+            "nps_active_space.propagation_model.aam.terrain_sampling._hop_segment_below_terrain",
             fake_hop,
         )
         runs = split_safe_aam_track_runs(terrain, pts)
@@ -300,7 +300,7 @@ class TestSplitSafeAamTrackRuns:
             return xs[0] < 1.5 < xs[1] and max(ys) < 0.5
 
         monkeypatch.setattr(
-            "nps_active_space.propagation_model.aam.terrain._hop_segment_below_terrain",
+            "nps_active_space.propagation_model.aam.terrain_sampling._hop_segment_below_terrain",
             fake_hop,
         )
         sequential = _split_sequential_hop_runs(terrain, pts)
@@ -326,7 +326,7 @@ class TestSplitSafeAamTrackRuns:
             return surface
 
         monkeypatch.setattr(
-            "nps_active_space.propagation_model.aam.terrain._terrain_surface_elevation_m",
+            "nps_active_space.propagation_model.aam.terrain_sampling._terrain_surface_elevation_m",
             ridge_at_midpoint,
         )
         assert _hop_segment_below_terrain(
@@ -334,7 +334,7 @@ class TestSplitSafeAamTrackRuns:
         ) is True
 
         monkeypatch.setattr(
-            "nps_active_space.propagation_model.aam.terrain._terrain_surface_elevation_m",
+            "nps_active_space.propagation_model.aam.terrain_sampling._terrain_surface_elevation_m",
             lambda samples, terr: np.full(len(samples), z_m, dtype=float),
         )
         assert _hop_segment_below_terrain(
