@@ -174,6 +174,18 @@ class NmsimPropagationModel:
 
         return trajectory_filename
 
+    def _instruction_file_paths(self, trajectory_file: str) -> tuple[str, str]:
+        job = os.path.basename(trajectory_file).removesuffix(".trj")
+        return (
+            p.join(self.root_dir, f"control_{job}.nms"),
+            p.join(self.root_dir, f"batch_{job}.txt"),
+        )
+
+    def _cleanup_predict_scratch(self, trajectory_file: str, tis_file: str) -> None:
+        control_file, batch_file = self._instruction_file_paths(trajectory_file)
+        for path in (trajectory_file, tis_file, control_file, batch_file):
+            Path(path).unlink(missing_ok=True)
+
     def _create_instruction_files(
         self,
         flt_file: str,
@@ -181,14 +193,7 @@ class NmsimPropagationModel:
         trajectory_file: str,
         omni_source_file: str,
     ) -> str:
-        control_file = p.join(
-            self.root_dir,
-            f"control_{os.path.basename(trajectory_file).replace('.trj', '')}.nms",
-        )
-        batch_file = p.join(
-            self.root_dir,
-            f"batch_{os.path.basename(trajectory_file).replace('.trj', '')}.txt",
-        )
+        control_file, batch_file = self._instruction_file_paths(trajectory_file)
         tis_directory = p.join(self.root_dir, NMSIM_SCRATCH_SUBDIR)
 
         with open(control_file, "w") as nms:
@@ -255,8 +260,7 @@ class NmsimPropagationModel:
         new_rows = pd.concat([traj_df, tis_df], axis=1)
 
         if cleanup:
-            os.remove(trajectory_file)
-            os.remove(tis_file)
+            self._cleanup_predict_scratch(trajectory_file, tis_file)
 
         return new_rows
 
