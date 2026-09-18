@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 import shutil
 from pathlib import Path
+
+from nps_active_space.utils.paths import display_path
 
 from aam_translator.bands import band_number_for_frequency
 
@@ -22,13 +25,80 @@ __all__ = [
     "AAM_NC_CACHE_REL",
     "AAM_TEMPLATE_NC_FILENAME",
     "aam_source_id_from_omni",
+    "aam_subprocess_env",
+    "aam_template_nc_path",
     "ensure_aam_nc_for_source",
     "omni_stem_to_aam_token",
     "read_avg_spectrum_db",
+    "resolve_aam_template_ncfiles_dir",
     "site_ncfiles_dir",
     "stage_run_ncfiles",
     "write_aam_nc",
 ]
+
+
+def _ncfiles_has_template(nc_root: Path) -> bool:
+    return (nc_root / AAM_TEMPLATE_NC_FILENAME).is_file()
+
+
+def _template_ncfiles_candidates(aam_exe: str | Path) -> list[Path]:
+    """Search order for vendor ``NCfiles/`` containing ``OMNI_200.nc``."""
+    exe = Path(aam_exe)
+    candidates: list[Path] = [
+        exe.parent / "NCfiles",
+        exe.parent.parent / "NCfiles",
+    ]
+    aam_home = os.environ.get("AAM_HOME", "").strip()
+    if aam_home:
+        candidates.insert(0, Path(aam_home) / "NCfiles")
+    return candidates
+
+
+def resolve_aam_template_ncfiles_dir(aam_exe: str | Path) -> Path:
+    """Locate vendor ``NCfiles/`` containing the read-only ``OMNI_200.nc`` template."""
+    override = os.environ.get("AAM_NC", "").strip()
+    if override:
+        nc_root = Path(override)
+        if nc_root.is_dir() and _ncfiles_has_template(nc_root):
+            return nc_root
+
+    candidates = _template_ncfiles_candidates(aam_exe)
+    for nc_root in candidates:
+        if nc_root.is_dir() and _ncfiles_has_template(nc_root):
+            return nc_root
+
+    existing = [path for path in candidates if path.is_dir()]
+    if existing:
+        tried = ", ".join(display_path(path) for path in existing)
+        raise FileNotFoundError(
+            f"AAM NCfiles/ found but missing {AAM_TEMPLATE_NC_FILENAME}: {tried}. "
+            "Set AAM_NC to the directory that contains OMNI_200.nc "
+            "(often ...\\AAM\\NCfiles, not an empty ...\\Bin\\NCfiles stub).",
+        )
+
+    exe = Path(aam_exe)
+    tried = ", ".join(display_path(path) for path in candidates)
+    raise FileNotFoundError(
+        f"AAM NCfiles/ not found for {exe}; tried {tried}. "
+        "Set AAM_NC or AAM_HOME to the NCfiles directory, or place NCfiles next to the exe "
+        "(typical layouts: ...\\Bin\\NCfiles or ...\\AAM\\NCfiles).",
+    )
+
+
+def aam_template_nc_path(aam_exe: str | Path) -> Path:
+    return resolve_aam_template_ncfiles_dir(aam_exe) / AAM_TEMPLATE_NC_FILENAME
+
+
+def aam_subprocess_env(aam_exe: str | Path, nc_root: Path) -> dict[str, str]:
+    """Env for one AAM subprocess. Points noise DB vars at the site NCfiles cache."""
+    env = os.environ.copy()
+    nc_path = str(nc_root.resolve())
+    nc = nc_path + os.sep
+    env["ROTOR_NOISE"] = nc
+    env["FWING_NOISE"] = nc
+    env["QUARRY_NOISE"] = nc
+    env["AAM_NC"] = nc_path
+    return env
 
 
 def site_ncfiles_dir(root_dir: str | Path) -> Path:

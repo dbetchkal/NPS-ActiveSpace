@@ -18,6 +18,6 @@ Old `Input_Data/AAM/` layouts and flat `Output_Data/ACTIVESPACES/` still work. N
 
 ## Track batching and audibility
 
-See `AamPropagationModel.predict` in `model.py`. Up to `DEFAULT_MAX_POINTS_PER_PREDICT` points per call; internal chunk size `AAM_CHUNK_SIZE` (default 400).
+See `AamPropagationModel.predict` in `model.py` and mesh ordering in `track.py`. Up to `DEFAULT_MAX_POINTS_PER_PREDICT` points per call; internal chunk size `AAM_CHUNK_SIZE` (default 400).
 
 No 12.5 kHz in AAM POI output — `poi_history_to_predictions_df` uses `NaN` there (`output.py`).

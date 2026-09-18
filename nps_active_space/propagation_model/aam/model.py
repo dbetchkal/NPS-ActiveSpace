@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import os
 import shutil
 import subprocess
@@ -28,13 +27,15 @@ from nps_active_space.propagation_model.aam.run_log import (
     aam_log,
     configure_aam_run_log,
     FORTRAN_FPA_SUBSCRIPT_ERROR,
+    is_fortran_fpa_subscript_error,
     log_run_batch,
     short_aam_work_dir_name,
     summarize_aam_cli_output,
     summarize_aam_error,
 )
 from nps_active_space.propagation_model.aam.source import (
-    AAM_TEMPLATE_NC_FILENAME,
+    aam_subprocess_env,
+    aam_template_nc_path,
     ensure_aam_nc_for_source,
     stage_run_ncfiles,
 )
@@ -48,18 +49,16 @@ from nps_active_space.propagation_model.aam.terrain import (
     split_safe_aam_track_runs,
     terrain_dir_for_site,
 )
+from nps_active_space.propagation_model.aam.track import (
+    order_source_pts_for_track,
+    pad_single_point_track,
+)
 from nps_active_space.propagation_model.protocol import DEFAULT_MAX_POINTS_PER_PREDICT
 from nps_active_space.utils.models import Microphone
 from nps_active_space.utils.paths import AAM_PREDICTIONS_SUBDIR, AAM_RUNS_SUBDIR, display_path
 
 AAM_RUN_TIMEOUT_S = 600
 DEFAULT_AAM_CHUNK_SIZE = 400
-# AAM 3.0.0 crashes on a 1-vertex ONE TRACK (Wine exit 152; related Fortran crash
-# whose stderr often mentions the internal array FPA; empty .POI). Pad ~1 m so a
-# leftover singleton stays two vertices. See aam-translator
-# docs/reading_aam_output.md and references/notes/aam_inp_format.md.
-SINGLE_TRACK_PAD_M = 1.0
-METERS_PER_DEG_LAT = 111_320.0
 
 
 def resolve_aam_chunk_size() -> int:
@@ -69,120 +68,6 @@ def resolve_aam_chunk_size() -> int:
     ``aam_translator.MAX_TRACK_POINTS``. Override with env ``AAM_CHUNK_SIZE``.
     """
     return max(1, int(os.environ.get("AAM_CHUNK_SIZE", str(DEFAULT_AAM_CHUNK_SIZE))))
-
-
-def _ncfiles_has_template(nc_root: Path) -> bool:
-    return (nc_root / AAM_TEMPLATE_NC_FILENAME).is_file()
-
-
-def _template_ncfiles_candidates(aam_exe: str | Path) -> list[Path]:
-    """Search order for vendor ``NCfiles/`` containing ``OMNI_200.nc``."""
-    exe = Path(aam_exe)
-    candidates: list[Path] = [
-        exe.parent / "NCfiles",
-        exe.parent.parent / "NCfiles",
-    ]
-    aam_home = os.environ.get("AAM_HOME", "").strip()
-    if aam_home:
-        candidates.insert(0, Path(aam_home) / "NCfiles")
-    return candidates
-
-
-def _resolve_aam_template_ncfiles_dir(aam_exe: str | Path) -> Path:
-    """Locate vendor ``NCfiles/`` containing the read-only ``OMNI_200.nc`` template."""
-    override = os.environ.get("AAM_NC", "").strip()
-    if override:
-        nc_root = Path(override)
-        if nc_root.is_dir() and _ncfiles_has_template(nc_root):
-            return nc_root
-
-    candidates = _template_ncfiles_candidates(aam_exe)
-    for nc_root in candidates:
-        if nc_root.is_dir() and _ncfiles_has_template(nc_root):
-            return nc_root
-
-    existing = [path for path in candidates if path.is_dir()]
-    if existing:
-        tried = ", ".join(display_path(path) for path in existing)
-        raise FileNotFoundError(
-            f"AAM NCfiles/ found but missing {AAM_TEMPLATE_NC_FILENAME}: {tried}. "
-            "Set AAM_NC to the directory that contains OMNI_200.nc "
-            "(often ...\\AAM\\NCfiles, not an empty ...\\Bin\\NCfiles stub).",
-        )
-
-    exe = Path(aam_exe)
-    tried = ", ".join(display_path(path) for path in candidates)
-    raise FileNotFoundError(
-        f"AAM NCfiles/ not found for {exe}; tried {tried}. "
-        "Set AAM_NC or AAM_HOME to the NCfiles directory, or place NCfiles next to the exe "
-        "(typical layouts: ...\\Bin\\NCfiles or ...\\AAM\\NCfiles).",
-    )
-
-
-def _aam_template_nc_path(aam_exe: str | Path) -> Path:
-    return _resolve_aam_template_ncfiles_dir(aam_exe) / AAM_TEMPLATE_NC_FILENAME
-
-
-def _aam_subprocess_env(aam_exe: str | Path, nc_root: Path) -> dict[str, str]:
-    """Env for one AAM subprocess. Points noise DB vars at the site NCfiles cache."""
-    env = os.environ.copy()
-    nc_path = str(nc_root.resolve())
-    nc = nc_path + os.sep
-    env["ROTOR_NOISE"] = nc
-    env["FWING_NOISE"] = nc
-    env["QUARRY_NOISE"] = nc
-    env["AAM_NC"] = nc_path
-    return env
-
-
-def _runs_dir_for_site(root_dir: str | Path) -> Path:
-    runs_dir = Path(root_dir) / AAM_RUNS_SUBDIR
-    runs_dir.mkdir(parents=True, exist_ok=True)
-    return runs_dir
-
-
-def _is_fortran_fpa_subscript_error(exc: BaseException) -> bool:
-    """True when ``summarize_aam_error`` classifies *exc* as a Fortran FPA subscript failure."""
-    return summarize_aam_error(str(exc)) == FORTRAN_FPA_SUBSCRIPT_ERROR
-
-
-def _pad_single_point_track(track: list[TrackPoint]) -> list[TrackPoint]:
-    """Duplicate a lone vertex ~1 m east so AAM can interpolate a track."""
-    if len(track) != 1:
-        return track
-    point = track[0]
-    cos_lat = math.cos(math.radians(point.lat))
-    meters_per_deg_lon = METERS_PER_DEG_LAT * max(abs(cos_lat), 1e-6)
-    pad = TrackPoint(
-        lon=point.lon + SINGLE_TRACK_PAD_M / meters_per_deg_lon,
-        lat=point.lat,
-        alt_m=point.alt_m,
-    )
-    return [point, pad]
-
-
-def _order_source_pts_for_track(source_pts: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """Order mesh points so consecutive ``ONE TRACK`` hops stay spatially local.
-
-    Lattice meshes sorted by ``(x, y)`` walk a column then jump from the last
-    row of column *i* to the first row of column *i+1* — a domain-width hop
-    that often clips terrain even when both endpoints are above ground.
-    Snaking *y* each column keeps that wrap to one cell.
-    """
-    if len(source_pts) <= 1:
-        return source_pts
-    ordered = source_pts.copy()
-    ordered["_sort_x"] = ordered.geometry.x
-    ordered["_sort_y"] = ordered.geometry.y
-    columns: list[pd.DataFrame] = []
-    for col_i, (_, column) in enumerate(ordered.groupby("_sort_x", sort=True)):
-        columns.append(
-            column.sort_values("_sort_y", ascending=(col_i % 2 == 0)),
-        )
-    return gpd.GeoDataFrame(
-        pd.concat(columns),
-        crs=source_pts.crs,
-    ).drop(columns=["_sort_x", "_sort_y"])
 
 
 @dataclass(frozen=True)
@@ -207,7 +92,8 @@ class AamPropagationModel:
         self.aam_shim = aam_shim
         self.receiver_agl_m = receiver_agl_m
         self._root = Path(root_dir).resolve()
-        self._runs_dir = _runs_dir_for_site(root_dir)
+        self._runs_dir = Path(root_dir) / AAM_RUNS_SUBDIR
+        self._runs_dir.mkdir(parents=True, exist_ok=True)
         configure_aam_run_log(self._root)
 
     def __setstate__(self, state: dict) -> None:
@@ -283,7 +169,7 @@ class AamPropagationModel:
         ``_predict_batch_with_fpa_split``. When every batch fails, returns an
         empty frame so the caller can mark those points inaudible.
         """
-        ordered = _order_source_pts_for_track(source_pts)
+        ordered = order_source_pts_for_track(source_pts)
         above_pts, _below_pts = self.filter_below_terrain(
             site, ordered, job_name=job_name,
         )
@@ -367,7 +253,7 @@ class AamPropagationModel:
                 heading,
             )
         except Exception as exc:
-            if not _is_fortran_fpa_subscript_error(exc) or len(source_pts) <= 2:
+            if not is_fortran_fpa_subscript_error(exc) or len(source_pts) <= 2:
                 raise
             mid = len(source_pts) // 2
             aam_log(
@@ -420,9 +306,9 @@ class AamPropagationModel:
             return pd.DataFrame()
         ordered_pts = above_pts
 
-        track = _pad_single_point_track(self._build_track(ordered_pts))
+        track = pad_single_point_track(self._build_track(ordered_pts))
         pois = self._build_pois(site)
-        template_nc = _aam_template_nc_path(self.aam_shim)
+        template_nc = aam_template_nc_path(self.aam_shim)
         source_id, cached_nc = ensure_aam_nc_for_source(
             omni_source,
             self.root_dir,
@@ -583,7 +469,7 @@ class AamPropagationModel:
             capture_output=True,
             text=True,
             timeout=AAM_RUN_TIMEOUT_S,
-            env=_aam_subprocess_env(self.aam_shim, nc_root),
+            env=aam_subprocess_env(self.aam_shim, nc_root),
         )
         combined = "\n".join(
             part for part in (proc.stderr, proc.stdout) if part

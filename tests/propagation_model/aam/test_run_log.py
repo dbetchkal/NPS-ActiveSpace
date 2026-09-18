@@ -12,6 +12,7 @@ from nps_active_space.propagation_model.aam.run_log import (
     aam_run_log_path,
     append_aam_run_summary,
     configure_aam_run_log,
+    is_fortran_fpa_subscript_error,
     log_run_batch,
     short_aam_work_dir_name,
     summarize_aam_cli_output,
@@ -115,6 +116,13 @@ class TestAamRunLog:
         assert "Unknown" not in summarize_aam_cli_output(blob)
         assert summarize_aam_error(blob) == FORTRAN_FPA_SUBSCRIPT_ERROR
         assert summarize_aam_error("empty .POI file: /tmp/scenario.POI") == "empty POI"
+
+    def test_is_fortran_fpa_subscript_error(self) -> None:
+        fpa_exc = RuntimeError(
+            "forrtl: severe (408): fort: (11): Subscript #2 of the array FPA has value 0",
+        )
+        assert is_fortran_fpa_subscript_error(fpa_exc)
+        assert not is_fortran_fpa_subscript_error(RuntimeError("below terrain"))
 
     def test_summarize_filename_path_length(self) -> None:
         blob = (
