@@ -429,7 +429,7 @@ class TestOrientationWidgets:
         assert kwargs["xlabel"] == "E"
         assert kwargs["ylabel"] == "N"
         assert kwargs["zlabel"] == "Z"
-        assert kwargs["viewport"] == (0, 0, 0.2, 0.2)
+        assert kwargs["viewport"] == (0.76, 0.03, 0.96, 0.21)
 
 
 class TestFlatSeaSurfacePolyline:

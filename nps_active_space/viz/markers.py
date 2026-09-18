@@ -17,5 +17,6 @@ def utm_orientation_axes_kwargs() -> dict:
         "xlabel": "E",
         "ylabel": "N",
         "zlabel": "Z",
-        "viewport": (0, 0, 0.2, 0.2),
+        # Bottom-right: layer checkboxes and labels occupy the lower-left in display pixels.
+        "viewport": (0.76, 0.03, 0.96, 0.21),
     }
