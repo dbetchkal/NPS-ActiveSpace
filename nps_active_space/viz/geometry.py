@@ -71,12 +71,16 @@ def create_polyline_3d(
     coords = np.array(linestring.coords)
     xy = coords[:, :2]
     if z is not None:
-        z_arr = np.atleast_1d(np.asarray(z, dtype=float))
-        if z_arr.size != coords.shape[0]:
+        z_arr = np.asarray(z, dtype=float)
+        # Python/NumPy scalars and length-1 arrays are layer altitudes (broadcast).
+        if z_arr.ndim == 0 or z_arr.size == 1:
+            coords = np.column_stack((xy, np.full(coords.shape[0], float(z_arr))))
+        elif z_arr.size == coords.shape[0]:
+            coords = np.column_stack((xy, np.reshape(z_arr, -1)))
+        else:
             raise ValueError(
                 f"z must be scalar or have one value per vertex ({coords.shape[0]}), got {z_arr.size}"
             )
-        coords = np.column_stack((xy, z_arr))
     elif coords.shape[1] == 2:
         coords = np.column_stack((xy, np.zeros(coords.shape[0])))
     assert coords.shape[1] == 3
