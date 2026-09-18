@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pyproj
+from rasterio.transform import rowcol
 from shapely.geometry import LineString
 
 from nps_active_space.utils.helpers import get_elevation
@@ -43,12 +44,17 @@ class DemElevationSampler:
         self._to_dem = pyproj.Transformer.from_crs(plot_crs, dem.crs, always_xy=True)
 
     def sample_utm_many(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
-        x = np.asarray(x, dtype=float)
-        y = np.asarray(y, dtype=float)
+        x = np.asarray(x, dtype=float).ravel()
+        y = np.asarray(y, dtype=float).ravel()
+        if x.size == 0:
+            return np.array([], dtype=float)
         dem_x, dem_y = self._to_dem.transform(x, y)
-        rows, cols = self.dem.index(dem_x, dem_y)
-        rows = np.atleast_1d(rows).astype(int)
-        cols = np.atleast_1d(cols).astype(int)
+        dem_x = np.asarray(dem_x, dtype=float).ravel()
+        dem_y = np.asarray(dem_y, dtype=float).ravel()
+        # DatasetReader.index() only supports scalar x/y; rowcol vectorizes.
+        rows, cols = rowcol(self.dem.transform, dem_x, dem_y)
+        rows = np.asarray(rows, dtype=int).ravel()
+        cols = np.asarray(cols, dtype=int).ravel()
         in_bounds = (
             (rows >= 0)
             & (rows < self.band.shape[0])

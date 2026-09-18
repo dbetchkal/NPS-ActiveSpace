@@ -370,6 +370,31 @@ class TestFormatAnnotationSummary:
         assert "1 elevated" in summary
 
 
+class TestDemElevationSampler:
+    def test_sample_utm_many_vectorized(self) -> None:
+        from rasterio.transform import from_bounds
+
+        from nps_active_space.viz.elevation import DemElevationSampler
+
+        band = np.arange(100, dtype=float).reshape(10, 10)
+        dem_transform = from_bounds(0, 0, 100, 100, 10, 10)
+
+        class _Dem:
+            crs = "epsg:32608"
+            nodata = None
+            transform = dem_transform
+
+        dem = _Dem()
+        sampler = DemElevationSampler(dem, band, plot_crs="epsg:32608")
+
+        xs = np.linspace(10, 90, 5)
+        ys = np.linspace(10, 90, 5)
+        elev = sampler.sample_utm_many(xs, ys)
+
+        assert elev.shape == (5,)
+        assert np.all(np.isfinite(elev))
+
+
 class TestAnnotationZProfile:
     def test_airborne_uses_stored_z_without_dem(self):
         line = LineString([(0, 0, 1500.0), (1, 1, 2000.0), (2, 2, 1800.0)])
