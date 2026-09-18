@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("aam_translator")
-pytest.importorskip("netCDF4")
 
 from aam_translator.bands import band_number_for_frequency
 
@@ -39,24 +38,42 @@ def template_nc() -> Path:
     return VENDOR_TEMPLATE
 
 
+@pytest.fixture
+def o_plus_000_src(tmp_path: Path) -> Path:
+    if not TUNING_O_000.is_file():
+        pytest.skip("tuning O_+000.avg missing")
+    src_dir = tmp_path / "tuning"
+    src_dir.mkdir()
+    shutil.copy2(TUNING_O_000, src_dir / "O_+000.avg")
+    src = src_dir / "O_+000.src"
+    src.write_text("placeholder\n")
+    return src
+
+
 class TestOmniStemToAamToken:
-    def test_o_plus_000(self) -> None:
-        assert omni_stem_to_aam_token("O_+000") == "OMNI_000"
-
-    def test_o_plus_200(self) -> None:
-        assert omni_stem_to_aam_token("O_+200") == "OMNI_200"
-
-    def test_o_minus_100(self) -> None:
-        assert omni_stem_to_aam_token("O_-100") == "OMNIM100"
+    @pytest.mark.parametrize(
+        ("stem", "expected"),
+        [
+            ("O_+000", "OMNI_000"),
+            ("O_+200", "OMNI_200"),
+            ("O_-100", "OMNIM100"),
+        ],
+    )
+    def test_stem_maps_to_aam_token(self, stem: str, expected: str) -> None:
+        assert omni_stem_to_aam_token(stem) == expected
 
 
 class TestAamSourceIdFromOmni:
-    def test_src_path_maps_to_omni_token(self) -> None:
-        assert aam_source_id_from_omni("/data/tuning/O_+000.src") == "OMNI_000"
-        assert aam_source_id_from_omni("/data/tuning/O_+200.avg") == "OMNI_200"
-
-    def test_nc_path_uses_stem(self) -> None:
-        assert aam_source_id_from_omni("/path/OMNI_000.nc") == "OMNI_000"
+    @pytest.mark.parametrize(
+        ("path", "expected"),
+        [
+            ("/data/tuning/O_+000.src", "OMNI_000"),
+            ("/data/tuning/O_+200.avg", "OMNI_200"),
+            ("/path/OMNI_000.nc", "OMNI_000"),
+        ],
+    )
+    def test_path_maps_to_omni_token(self, path: str, expected: str) -> None:
+        assert aam_source_id_from_omni(path) == expected
 
 
 class TestReadAvgSpectrumDb:
@@ -69,17 +86,13 @@ class TestReadAvgSpectrumDb:
 
 
 class TestEnsureAamNcForSource:
-    def test_src_avg_writes_cache(self, tmp_path: Path, template_nc: Path) -> None:
-        if not TUNING_O_000.is_file():
-            pytest.skip("tuning O_+000.avg missing")
-        src_dir = tmp_path / "tuning"
-        src_dir.mkdir()
-        avg = src_dir / "O_+000.avg"
-        shutil.copy2(TUNING_O_000, avg)
-        src = src_dir / "O_+000.src"
-        src.write_text("placeholder\n")
-
-        token, cached = ensure_aam_nc_for_source(src, tmp_path, template_nc)
+    def test_src_avg_writes_cache(
+        self,
+        tmp_path: Path,
+        template_nc: Path,
+        o_plus_000_src: Path,
+    ) -> None:
+        token, cached = ensure_aam_nc_for_source(o_plus_000_src, tmp_path, template_nc)
         assert token == "OMNI_000"
         assert cached == site_ncfiles_dir(tmp_path) / "OMNI_000.nc"
         assert cached.is_file()
@@ -88,21 +101,13 @@ class TestEnsureAamNcForSource:
         self,
         tmp_path: Path,
         template_nc: Path,
+        o_plus_000_src: Path,
     ) -> None:
-        if not TUNING_O_000.is_file():
-            pytest.skip("tuning O_+000.avg missing")
-        src_dir = tmp_path / "tuning"
-        src_dir.mkdir()
-        avg = src_dir / "O_+000.avg"
-        shutil.copy2(TUNING_O_000, avg)
-        src = src_dir / "O_+000.src"
-        src.write_text("placeholder\n")
-
-        ensure_aam_nc_for_source(src, tmp_path, template_nc)
+        ensure_aam_nc_for_source(o_plus_000_src, tmp_path, template_nc)
         cached = site_ncfiles_dir(tmp_path) / "OMNI_000.nc"
         first_mtime = cached.stat().st_mtime
         time.sleep(0.01)
-        ensure_aam_nc_for_source(src, tmp_path, template_nc)
+        ensure_aam_nc_for_source(o_plus_000_src, tmp_path, template_nc)
         assert cached.stat().st_mtime == first_mtime
 
     def test_nc_pass_through_copies(self, tmp_path: Path, template_nc: Path) -> None:
@@ -200,6 +205,7 @@ class TestAamSubprocessEnv:
 
 class TestWriteAamNc:
     def test_writes_radius(self, tmp_path: Path, template_nc: Path) -> None:
+        pytest.importorskip("netCDF4")
         from netCDF4 import Dataset
 
         levels = {14: 56.0}

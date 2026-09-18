@@ -72,3 +72,8 @@ nps_active_space = [
     "propagation_model/nmsim/data/**/*",
     "img/*",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: multiprocess or heavy integration tests",
+]

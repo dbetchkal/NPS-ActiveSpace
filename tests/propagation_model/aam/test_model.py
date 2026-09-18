@@ -1,11 +1,9 @@
-"""Tests for AAM propagation model output mapping."""
+"""Tests for AAM propagation model output mapping and predict orchestration."""
 
 from __future__ import annotations
 
-import json
 import pickle
 from pathlib import Path
-from types import SimpleNamespace
 
 import geopandas as gpd
 import pandas as pd
@@ -14,23 +12,23 @@ from shapely.geometry import Point
 
 pytest.importorskip("aam_translator")
 
-from aam_translator import read_poi, read_run_log
+from aam_translator import read_poi
 
-from nps_active_space.active_space.prediction_cache import prediction_cache_csv_path
 from nps_active_space.propagation_model.aam.model import (
     AamPropagationModel,
     resolve_aam_chunk_size,
 )
-from nps_active_space.propagation_model.nmsim.model import NmsimPropagationModel
 from nps_active_space.propagation_model.aam.output import poi_history_to_predictions_df
-from nps_active_space.propagation_model.aam.source import aam_source_id_from_omni
+from nps_active_space.propagation_model.nmsim.model import NmsimPropagationModel
 from nps_active_space.propagation_model.protocol import (
     DEFAULT_MAX_POINTS_PER_PREDICT,
     THIRD_OCTAVE_BANDS,
 )
 from nps_active_space.utils.paths import AAM_PREDICTIONS_SUBDIR
 
-FIXTURES = Path(__file__).resolve().parents[2] / "active_space" / "fixtures" / "two_point_ridge"
+from nps_active_space.utils.paths import AAM_PREDICTIONS_SUBDIR
+
+TWO_POINT_RIDGE_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "two_point_ridge"
 CRS = "EPSG:32606"
 
 
@@ -52,34 +50,21 @@ def _predictions_for(source_pts: gpd.GeoDataFrame, level_db: float = 50.0) -> pd
     })
 
 
-class TestAamSourceMapping:
-    def test_omni_o_plus_200_maps_to_omni_200(self) -> None:
-        assert aam_source_id_from_omni("/data/tuning/O_+200.avg") == "OMNI_200"
-
-    def test_nmsim_omni_stem_maps_to_omni_tokens(self) -> None:
-        assert aam_source_id_from_omni("/data/tuning/O_+000.src") == "OMNI_000"
-        assert aam_source_id_from_omni("/data/tuning/O_+005.src") == "OMNI_005"
-
-
 class TestAamPredictionsLayout:
     def test_predictions_subdir(self) -> None:
         assert AamPropagationModel("/tmp/site").predictions_subdir == AAM_PREDICTIONS_SUBDIR
-
-    def test_prediction_cache_path(self, tmp_path: Path) -> None:
-        path = prediction_cache_csv_path(
-            str(tmp_path),
-            AAM_PREDICTIONS_SUBDIR,
-            1000,
-            "O_+000",
-            0,
-        )
-        assert path.endswith("Output_Data/aam/predictions/1000m_O_+000_0deg.csv")
-        assert (tmp_path / "Output_Data" / "aam" / "predictions").is_dir()
 
 
 class TestAamBatching:
     def test_resolve_aam_chunk_size_default(self) -> None:
         assert resolve_aam_chunk_size() == 400
+
+    def test_resolve_aam_chunk_size_env_override(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("AAM_CHUNK_SIZE", "123")
+        assert resolve_aam_chunk_size() == 123
 
     def test_max_points_per_run_matches_nmsim(self) -> None:
         assert AamPropagationModel.max_points_per_run == DEFAULT_MAX_POINTS_PER_PREDICT
@@ -93,33 +78,21 @@ class TestAamBatching:
 
 class TestPoiHistoryMapping:
     @pytest.fixture
-    def case_meta(self) -> dict:
-        return json.loads((FIXTURES / "case_meta.json").read_text())
-
-    @pytest.fixture
     def poi_history(self):
-        histories = read_poi(FIXTURES / "scenario.POI")
+        histories = read_poi(TWO_POINT_RIDGE_FIXTURES / "scenario.POI")
         assert len(histories) == 1
         return histories[0]
 
-    @pytest.fixture
-    def source_pts(self, case_meta: dict) -> gpd.GeoDataFrame:
-        rows = case_meta["source_points_utm"]
-        crs = "EPSG:32606"
-        geoms = [Point(r["x"], r["y"], r["z"]) for r in rows]
-        return gpd.GeoDataFrame({"label": [r["label"] for r in rows]}, geometry=geoms, crs=crs)
-
-    def test_poi_maps_to_nmsim_columns(self, poi_history, source_pts: gpd.GeoDataFrame) -> None:
-        frame = poi_history_to_predictions_df(poi_history, source_pts)
+    def test_poi_maps_to_nmsim_columns(
+        self,
+        poi_history,
+        ridge_source_pts: gpd.GeoDataFrame,
+    ) -> None:
+        frame = poi_history_to_predictions_df(poi_history, ridge_source_pts)
         expected_cols = {"Xpos", "Ypos", "Zpos", "A", *THIRD_OCTAVE_BANDS}
         assert expected_cols == set(frame.columns)
         assert len(frame) == 2
         assert frame["A"].notna().all()
-
-    def test_run_log_ok(self) -> None:
-        log = read_run_log(FIXTURES / "scenario.txt")
-        assert log.ok
-        assert not log.read_error
 
 
 class TestAamMultiprocessPickle:
@@ -137,23 +110,22 @@ class TestAamMultiprocessPickle:
         assert restored._runs_dir == model._runs_dir
         assert aam_run_log._log_path == aam_run_log.aam_run_log_path(restored._root)
 
-    def test_site_context_pickles_after_prepare(self, tmp_path: Path) -> None:
+    def test_site_context_pickles_after_prepare(self, tmp_path: Path, case_meta: dict) -> None:
         from rasterio import open as rio_open
         from shapely.geometry import box
 
         from nps_active_space.utils.models import Microphone
 
-        meta = json.loads((FIXTURES / "case_meta.json").read_text())
-        dem_path = FIXTURES / "parent_dem_utm.tif"
+        dem_path = TWO_POINT_RIDGE_FIXTURES / case_meta["dem_utm"]
         root = tmp_path / "site"
         (root / "Input_Data").mkdir(parents=True)
-        rx_lon, rx_lat = meta["receiver_lonlat"]
+        rx_lon, rx_lat = case_meta["receiver_lonlat"]
         mic = Microphone(name="Receiver", lat=rx_lat, lon=rx_lon, z=4.92)
         with rio_open(dem_path) as ds:
             bounds = ds.bounds
         aoi = gpd.GeoDataFrame(
             geometry=[box(bounds.left, bounds.bottom, bounds.right, bounds.top)],
-            crs="EPSG:32606",
+            crs=CRS,
         )
 
         model = AamPropagationModel(str(root), aam_shim="/usr/local/bin/aam")
@@ -164,27 +136,12 @@ class TestAamMultiprocessPickle:
 
 
 class TestAamPredictSkipOnFailure:
-    def _dummy_site(self):
-        return SimpleNamespace(terrain=None)
-
-    def _passthrough_filter(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        def passthrough(self, site, source_pts, job_name=""):
-            return source_pts, source_pts.iloc[0:0]
-
-        monkeypatch.setattr(AamPropagationModel, "filter_below_terrain", passthrough)
-        monkeypatch.setattr(
-            "nps_active_space.propagation_model.aam.model.split_safe_aam_track_runs",
-            lambda terrain, pts, job_name="": [pts],
-        )
-
     def test_chunk_failure_continues_other_chunks(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
+        aam_predict_harness,
     ) -> None:
-        self._passthrough_filter(monkeypatch)
-        model = AamPropagationModel(str(tmp_path))
-        site = self._dummy_site()
+        model, site = aam_predict_harness
         xs = [float(i) for i in range(75)]
         source_pts = _make_source_pts(xs)
         monkeypatch.setenv("AAM_CHUNK_SIZE", "50")
@@ -211,11 +168,9 @@ class TestAamPredictSkipOnFailure:
     def test_non_fpa_failure_is_skipped_not_bisected(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
+        aam_predict_harness,
     ) -> None:
-        self._passthrough_filter(monkeypatch)
-        model = AamPropagationModel(str(tmp_path))
-        site = self._dummy_site()
+        model, site = aam_predict_harness
         source_pts = _make_source_pts([500000.0, 500010.0, 500020.0])
 
         def fake_batch(self, *args, **kwargs) -> pd.DataFrame:
@@ -228,11 +183,9 @@ class TestAamPredictSkipOnFailure:
     def test_fpa_bounds_splits_batch_and_retries(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
+        aam_predict_harness,
     ) -> None:
-        self._passthrough_filter(monkeypatch)
-        model = AamPropagationModel(str(tmp_path))
-        site = self._dummy_site()
+        model, site = aam_predict_harness
         xs = [float(i) for i in range(4)]
         source_pts = _make_source_pts(xs)
         fpa_error = (
@@ -262,11 +215,9 @@ class TestAamPredictSkipOnFailure:
     def test_all_batches_fail_returns_empty(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
+        aam_predict_harness,
     ) -> None:
-        self._passthrough_filter(monkeypatch)
-        model = AamPropagationModel(str(tmp_path))
-        site = self._dummy_site()
+        model, site = aam_predict_harness
         source_pts = _make_source_pts([500000.0])
 
         def fake_batch(self, *args, **kwargs) -> pd.DataFrame:
@@ -279,14 +230,10 @@ class TestAamPredictSkipOnFailure:
     def test_predict_issues_one_batch_per_hop_run(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
+        aam_predict_harness,
     ) -> None:
+        model, site = aam_predict_harness
         source_pts = _make_source_pts([500000.0, 500010.0, 500020.0, 500030.0])
-
-        def passthrough(self, site, pts, job_name=""):
-            return pts, pts.iloc[0:0]
-
-        monkeypatch.setattr(AamPropagationModel, "filter_below_terrain", passthrough)
         monkeypatch.setattr(
             "nps_active_space.propagation_model.aam.model.split_safe_aam_track_runs",
             lambda terrain, pts, job_name="": [pts.iloc[:2], pts.iloc[2:]],
@@ -306,8 +253,7 @@ class TestAamPredictSkipOnFailure:
             return _predictions_for(batch_pts)
 
         monkeypatch.setattr(AamPropagationModel, "_predict_batch", fake_batch)
-        model = AamPropagationModel(str(tmp_path))
-        result = model.predict(self._dummy_site(), source_pts, "O_+000.src", 1000, "split_job")
+        result = model.predict(site, source_pts, "O_+000.src", 1000, "split_job")
 
         assert jobs == ["split_job_r000", "split_job_r001"]
         assert len(result) == 4

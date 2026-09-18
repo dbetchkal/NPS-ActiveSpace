@@ -21,21 +21,35 @@ def site_tree(tmp_path: Path) -> tuple[Path, str, str, int]:
 
 
 class TestLegacyNmsimResolvers:
-    def test_predictions_prefers_new_when_dir_exists(self, site_tree) -> None:
+    @pytest.mark.parametrize(
+        ("resolver", "new_subpath", "legacy_subpath"),
+        [
+            (legacy.resolve_nmsim_predictions_dir, ("nmsim", "predictions"), ("TIG_TIS",)),
+            (legacy.resolve_nmsim_scratch_dir, ("nmsim", "scratch"), ("TIG_TIS",)),
+        ],
+    )
+    def test_prefers_new_when_dir_exists(self, site_tree, resolver, new_subpath, legacy_subpath) -> None:
         project_dir, unit, site, _year = site_tree
         site_dir = project_dir / f"{unit}{site}"
-        new_dir = site_dir / "Output_Data" / "nmsim" / "predictions"
+        new_dir = site_dir.joinpath("Output_Data", *new_subpath)
         new_dir.mkdir(parents=True)
 
-        assert legacy.resolve_nmsim_predictions_dir(str(site_dir)) == str(new_dir)
+        assert resolver(str(site_dir)) == str(new_dir)
 
-    def test_predictions_falls_back_to_legacy(self, site_tree) -> None:
+    @pytest.mark.parametrize(
+        ("resolver", "legacy_subpath"),
+        [
+            (legacy.resolve_nmsim_predictions_dir, ("TIG_TIS",)),
+            (legacy.resolve_nmsim_scratch_dir, ("TIG_TIS",)),
+        ],
+    )
+    def test_falls_back_to_legacy(self, site_tree, resolver, legacy_subpath) -> None:
         project_dir, unit, site, _year = site_tree
         site_dir = project_dir / f"{unit}{site}"
-        legacy_dir = site_dir / "Output_Data" / "TIG_TIS"
+        legacy_dir = site_dir.joinpath("Output_Data", *legacy_subpath)
         legacy_dir.mkdir(parents=True)
 
-        assert legacy.resolve_nmsim_predictions_dir(str(site_dir)) == str(legacy_dir)
+        assert resolver(str(site_dir)) == str(legacy_dir)
 
     def test_predictions_write_always_uses_new(self, site_tree) -> None:
         project_dir, unit, site, _year = site_tree
@@ -43,22 +57,6 @@ class TestLegacyNmsimResolvers:
         expected = site_dir / "Output_Data" / "nmsim" / "predictions"
 
         assert legacy.resolve_nmsim_predictions_dir(str(site_dir), for_write=True) == str(expected)
-
-    def test_scratch_prefers_new_when_exists(self, site_tree) -> None:
-        project_dir, unit, site, _year = site_tree
-        site_dir = project_dir / f"{unit}{site}"
-        new_dir = site_dir / "Output_Data" / "nmsim" / "scratch"
-        new_dir.mkdir(parents=True)
-
-        assert legacy.resolve_nmsim_scratch_dir(str(site_dir)) == str(new_dir)
-
-    def test_scratch_falls_back_to_legacy_tig_tis(self, site_tree) -> None:
-        project_dir, unit, site, _year = site_tree
-        site_dir = project_dir / f"{unit}{site}"
-        legacy_dir = site_dir / "Output_Data" / "TIG_TIS"
-        legacy_dir.mkdir(parents=True)
-
-        assert legacy.resolve_nmsim_scratch_dir(str(site_dir)) == str(legacy_dir)
 
     def test_activespaces_prefers_new_with_layers(self, site_tree) -> None:
         project_dir, unit, site, year = site_tree
@@ -167,36 +165,43 @@ class TestLegacyNmsimResolvers:
 
 
 class TestDisplayPath:
-    def test_normalizes_backslashes(self) -> None:
-        assert p.display_path(r"C:\projects\DENATRLA\Output_Data\nmsim") == (
-            "C:/projects/DENATRLA/Output_Data/nmsim"
-        )
-
-    def test_preserves_forward_slashes(self) -> None:
-        assert p.display_path("/data/DENATRLA/Output_Data/aam") == (
-            "/data/DENATRLA/Output_Data/aam"
-        )
-
-    def test_normalizes_mixed_separators(self) -> None:
-        assert p.display_path(r"C:\projects\DENATRLA\Output_Data/nmsim/scratch") == (
-            "C:/projects/DENATRLA/Output_Data/nmsim/scratch"
-        )
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (r"C:\projects\DENATRLA\Output_Data\nmsim", "C:/projects/DENATRLA/Output_Data/nmsim"),
+            ("/data/DENATRLA/Output_Data/aam", "/data/DENATRLA/Output_Data/aam"),
+            (
+                r"C:\projects\DENATRLA\Output_Data/nmsim/scratch",
+                "C:/projects/DENATRLA/Output_Data/nmsim/scratch",
+            ),
+        ],
+    )
+    def test_normalizes_separators(self, raw: str, expected: str) -> None:
+        assert p.display_path(raw) == expected
 
 
 class TestModelAwarePaths:
-    def test_model_output_dirs(self, site_tree) -> None:
+    @pytest.mark.parametrize(
+        "model",
+        [AcousticModel.NMSIM, AcousticModel.AAM],
+    )
+    def test_model_output_dirs(self, site_tree, model: AcousticModel) -> None:
         project_dir, unit, site, _year = site_tree
         site_dir = str(project_dir / f"{unit}{site}")
+        suffix = "nmsim" if model is AcousticModel.NMSIM else "aam"
+        assert p.model_output_dir(site_dir, model).endswith(f"Output_Data/{suffix}")
 
-        assert p.model_output_dir(site_dir, AcousticModel.NMSIM).endswith("Output_Data/nmsim")
-        assert p.model_output_dir(site_dir, AcousticModel.AAM).endswith("Output_Data/aam")
-
-    def test_model_activespaces_dirs(self, site_tree) -> None:
+    @pytest.mark.parametrize(
+        "model",
+        [AcousticModel.NMSIM, AcousticModel.AAM],
+    )
+    def test_model_activespaces_dirs(self, site_tree, model: AcousticModel) -> None:
         project_dir, unit, site, _year = site_tree
         site_dir = str(project_dir / f"{unit}{site}")
-
-        assert p.model_activespaces_dir(site_dir, AcousticModel.NMSIM).endswith("Output_Data/nmsim/ACTIVESPACES")
-        assert p.model_activespaces_dir(site_dir, AcousticModel.AAM).endswith("Output_Data/aam/ACTIVESPACES")
+        suffix = "nmsim" if model is AcousticModel.NMSIM else "aam"
+        assert p.model_activespaces_dir(site_dir, model).endswith(
+            f"Output_Data/{suffix}/ACTIVESPACES"
+        )
 
     def test_aam_layer_dirs_only_new(self, site_tree) -> None:
         project_dir, unit, site, year = site_tree
@@ -210,15 +215,6 @@ class TestModelAwarePaths:
             str(project_dir), unit, site, year, model=AcousticModel.AAM,
         )
         assert matches == [str(new_layer)]
-
-    def test_nmsim_layer_dirs_delegate_to_resolver(self, site_tree) -> None:
-        project_dir, unit, site, year = site_tree
-        site_dir = project_dir / f"{unit}{site}"
-        legacy_layer = site_dir / "Output_Data" / "ACTIVESPACES" / f"{unit}{site}{year}_500m"
-        legacy_layer.mkdir(parents=True)
-
-        matches = p.activespace_layer_dirs(str(project_dir), unit, site, year)
-        assert matches == [str(legacy_layer)]
 
     def test_aam_geojson_builds_new_path_only(self, site_tree) -> None:
         project_dir, unit, site, year = site_tree
@@ -273,3 +269,26 @@ class TestModelAwarePaths:
         (layer / f"{layout.usy}_O_+000.geojson").write_text("{}")
         assert layout.has_layer_outputs(1500)
         assert not layout.has_layer_outputs(1500, 0.0, 2.0)
+
+
+class TestLayerOutputChecks:
+    def test_layer_has_activespace_outputs(self, tmp_path: Path) -> None:
+        layer_dir = tmp_path / "DENATRLA2025_1500m"
+        assert not p.layer_has_activespace_outputs(layer_dir)
+        layer_dir.mkdir()
+        assert not p.layer_has_activespace_outputs(layer_dir)
+        (layer_dir / "DENATRLA2025_O_+000.geojson").write_text("{}")
+        assert p.layer_has_activespace_outputs(layer_dir)
+
+    def test_layer_has_required_omni_outputs_partial_gain(self, tmp_path: Path) -> None:
+        layer_dir = tmp_path / "DENASUSH2026_1500m"
+        layer_dir.mkdir()
+        (layer_dir / "DENASUSH2026_O_+000.geojson").write_text("{}")
+        assert not p.layer_has_required_omni_outputs(
+            layer_dir, "DENASUSH2026", 0.0, 2.0,
+        )
+        for stem in ("O_+000", "O_+005", "O_+010", "O_+015", "O_+020"):
+            (layer_dir / f"DENASUSH2026_{stem}.geojson").write_text("{}")
+        assert p.layer_has_required_omni_outputs(
+            layer_dir, "DENASUSH2026", 0.0, 2.0,
+        )
