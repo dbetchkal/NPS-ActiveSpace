@@ -12,6 +12,13 @@ from shapely.geometry import LineString, MultiLineString, Point, box
 from nps_active_space.ground_truthing.load_tracks import LoadedTracks
 from nps_active_space.utils.enums import AcousticModel, TrackSource
 from nps_active_space.utils.models import Tracks
+from nps_active_space.viz.active_space_plot import ActiveSpacePlotter
+from nps_active_space.viz.polyline_builders import TrackPolylineBuilder
+from nps_active_space.viz.scene import ScenePlotter
+from nps_active_space.viz.session import VizSession
+from nps_active_space.viz.style import VizStyle
+from nps_active_space.viz.tracks_plot import TracksPlotter
+from nps_active_space.viz.widgets import PlotWidgets
 from nps_active_space.viz import (
     Visualizer,
     annotation_z_profile,
@@ -525,6 +532,40 @@ class TestTrackPointsToLinestring:
         assert line.coords[1] == pytest.approx((1.0, 0.0, 1500.0))
 
 
+def _attach_viz_plotters(vis: Visualizer) -> Visualizer:
+    """Wire composed plotters for Visualizer instances built with __new__."""
+    style = VizStyle()
+    session = VizSession(
+        unit=vis.unit,
+        site=vis.site,
+        year=vis.year,
+        deployment=f"{vis.unit}{vis.site}{vis.year}",
+        project_dir=vis.project_dir,
+        crs=vis.crs,
+        study_area=getattr(
+            vis,
+            "study_area",
+            gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)], crs=vis.crs),
+        ),
+        plotter=vis.plotter,
+        logger=vis.logger,
+        style=style,
+        fill_layers=getattr(vis, "fill_layers", False),
+        max_tracks=getattr(vis, "max_tracks", 1000),
+        to_wgs84=MagicMock(),
+        dem_sampler=getattr(vis, "_dem_sampler", None),
+        dem=getattr(vis, "dem", None),
+    )
+    vis._session = session
+    vis._widgets = PlotWidgets(session)
+    vis._scene = ScenePlotter(session)
+    vis._polylines = TrackPolylineBuilder(session)
+    vis._tracks = TracksPlotter(session, vis._widgets, vis._scene, vis._polylines)
+    vis._active_space = ActiveSpacePlotter(session, vis._widgets)
+    vis.study_area = session.study_area
+    return vis
+
+
 class TestPlotTracksSourceRouting:
     @staticmethod
     def _stub_visualizer() -> Visualizer:
@@ -539,12 +580,13 @@ class TestPlotTracksSourceRouting:
         )
         vis.plotter = MagicMock()
         vis.logger = MagicMock()
-        vis._dem_sampler = MagicMock()
-        vis.dem = MagicMock()
         vis.sea_surface_offset_m = 5.0
         vis.sea_surface_densify_step_m = 100.0
         vis.vessel_track_color = "magenta"
         vis.flight_track_color = "yellow"
+        vis = _attach_viz_plotters(vis)
+        vis.dem = MagicMock()
+        vis._dem_sampler = MagicMock()
         return vis
 
     @staticmethod
@@ -590,11 +632,11 @@ class TestPlotTracksSourceRouting:
         monkeypatch.setattr(vis, "_annotation_polyline", flight)
         monkeypatch.setattr(vis, "_add_track_line", lambda polyline, *, color: MagicMock())
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.get_deployment",
+            "nps_active_space.viz.tracks_plot.get_deployment",
             lambda *args, **kwargs: MagicMock(lat=58.4, lon=-136.0),
         )
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.load_tracks",
+            "nps_active_space.viz.tracks_plot.load_tracks",
             lambda *args, **kwargs: self._loaded_tracks(flight=use_flight_tracks),
         )
 
@@ -613,11 +655,11 @@ class TestPlotTracksSourceRouting:
         calls: list[dict] = []
         monkeypatch.setattr(vis, "_add_track_line", lambda polyline, *, color: MagicMock())
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.get_deployment",
+            "nps_active_space.viz.tracks_plot.get_deployment",
             lambda *args, **kwargs: MagicMock(lat=58.4, lon=-136.0),
         )
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.load_tracks",
+            "nps_active_space.viz.tracks_plot.load_tracks",
             lambda *args, **kwargs: calls.append(kwargs) or self._loaded_tracks(flight=True),
         )
 
@@ -633,11 +675,11 @@ class TestPlotTracksSourceRouting:
         calls: list[dict] = []
         monkeypatch.setattr(vis, "_add_track_line", lambda polyline, *, color: MagicMock())
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.get_deployment",
+            "nps_active_space.viz.tracks_plot.get_deployment",
             lambda *args, **kwargs: MagicMock(lat=58.4, lon=-136.0),
         )
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.load_tracks",
+            "nps_active_space.viz.tracks_plot.load_tracks",
             lambda *args, **kwargs: calls.append(kwargs) or self._loaded_tracks(flight=True),
         )
 
@@ -649,13 +691,13 @@ class TestPlotTracksSourceRouting:
     def test_missing_config_reports_config_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         vis = self._stub_visualizer()
         messages: list[str] = []
-        vis._status = lambda msg: messages.append(msg)
+        vis._session.status = lambda msg: messages.append(msg)
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.get_deployment",
+            "nps_active_space.viz.tracks_plot.get_deployment",
             lambda *args, **kwargs: MagicMock(lat=58.4, lon=-136.0),
         )
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.load_tracks",
+            "nps_active_space.viz.tracks_plot.load_tracks",
             lambda *args, **kwargs: (_ for _ in ()).throw(NoOptionError("adsb", "data")),
         )
 
@@ -668,13 +710,13 @@ class TestPlotTracksSourceRouting:
     ) -> None:
         vis = self._stub_visualizer()
         messages: list[str] = []
-        vis._status = lambda msg: messages.append(msg)
+        vis._session.status = lambda msg: messages.append(msg)
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.get_deployment",
+            "nps_active_space.viz.tracks_plot.get_deployment",
             lambda *args, **kwargs: MagicMock(lat=58.4, lon=-136.0),
         )
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.load_tracks",
+            "nps_active_space.viz.tracks_plot.load_tracks",
             lambda *args, **kwargs: (_ for _ in ()).throw(
                 KeyError("MXAK AIS CSV lacks 'TIME' column")
             ),
@@ -695,8 +737,6 @@ class TestAamActiveSpaceViz:
         vis.project_dir = "/proj"
         vis.crs = "epsg:32608"
         vis.fill_layers = False
-        vis._legend_models = []
-        vis._master_toggle_count = 0
         vis.logger = MagicMock()
         vis._status = vis.logger.info
         vis.plotter = MagicMock()
@@ -704,7 +744,7 @@ class TestAamActiveSpaceViz:
         vis.aam_activespace_color = "cyan"
         vis.activespace_color = "orange"
         vis.vessel_track_color = "magenta"
-        return vis
+        return _attach_viz_plotters(vis)
 
     def test_model_display_names(self) -> None:
         assert Visualizer._model_display_name(AcousticModel.AAM) == "AAM"
@@ -724,17 +764,19 @@ class TestAamActiveSpaceViz:
             layer_dirs = {500: "/layer"}
             activespaces = {500: gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)])}
 
-        monkeypatch.setattr(vis, "_resolve_activespace_gain", lambda model, gain: 12.0)
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.load_layered_activespace",
+            vis._active_space, "resolve_gain", lambda model, gain: 12.0,
+        )
+        monkeypatch.setattr(
+            "nps_active_space.viz.active_space_plot.load_layered_activespace",
             lambda *args, **kwargs: loaded_models.append(kwargs["model"]) or _Active(),
         )
-        monkeypatch.setattr(vis, "plot_contoured_activespace", lambda *args, **kwargs: 0)
+        monkeypatch.setattr(vis._active_space, "plot_contoured", lambda *args, **kwargs: 0)
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.p.site_dir", lambda *args, **kwargs: "/site"
+            "nps_active_space.viz.active_space_plot.p.site_dir", lambda *args, **kwargs: "/site"
         )
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.p.model_activespaces_dir",
+            "nps_active_space.viz.active_space_plot.p.model_activespaces_dir",
             lambda *args, **kwargs: "/as",
         )
 
@@ -753,12 +795,14 @@ class TestAamActiveSpaceViz:
             layer_dirs = {500: "/layer"}
             activespaces = {500: gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)])}
 
-        monkeypatch.setattr(vis, "_resolve_activespace_gain", lambda model, gain: 10.0)
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.load_layered_activespace",
+            vis._active_space, "resolve_gain", lambda model, gain: 10.0,
+        )
+        monkeypatch.setattr(
+            "nps_active_space.viz.active_space_plot.load_layered_activespace",
             lambda *args, **kwargs: loaded_models.append(kwargs["model"]) or _Active(),
         )
-        monkeypatch.setattr(vis, "plot_contoured_activespace", lambda *args, **kwargs: 1)
+        monkeypatch.setattr(vis._active_space, "plot_contoured", lambda *args, **kwargs: 1)
 
         vis.plot_compare_activespaces()
 
@@ -779,12 +823,12 @@ class TestAamActiveSpaceViz:
             gain_args.append(gain)
             return 10.0
 
-        monkeypatch.setattr(vis, "_resolve_activespace_gain", _resolve)
+        monkeypatch.setattr(vis._active_space, "resolve_gain", _resolve)
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.load_layered_activespace",
+            "nps_active_space.viz.active_space_plot.load_layered_activespace",
             lambda *args, **kwargs: _Active(),
         )
-        monkeypatch.setattr(vis, "plot_contoured_activespace", lambda *args, **kwargs: 1)
+        monkeypatch.setattr(vis._active_space, "plot_contoured", lambda *args, **kwargs: 1)
 
         vis.plot_compare_activespaces(gain=5.0)
 
@@ -797,20 +841,20 @@ class TestAamActiveSpaceViz:
         vis.fill_layers = True
         active = gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)])
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.active_to_polys", lambda _active: []
+            "nps_active_space.viz.active_space_plot.active_to_polys", lambda _active: []
         )
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.active_to_linestrings",
+            "nps_active_space.viz.active_space_plot.active_to_linestrings",
             lambda _active: [LineString([(0, 0), (1, 1)])],
         )
         monkeypatch.setattr(vis, "_add_labeled_checkbox", lambda *args, **kwargs: MagicMock())
         poly_mesh_calls: list[object] = []
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.polygon_to_mesh",
+            "nps_active_space.viz.active_space_plot.polygon_to_mesh",
             lambda *args, **kwargs: poly_mesh_calls.append(args) or MagicMock(),
         )
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.create_polyline_3d",
+            "nps_active_space.viz.active_space_plot.create_polyline_3d",
             lambda *args, **kwargs: MagicMock(),
         )
 
@@ -823,11 +867,11 @@ class TestAamActiveSpaceViz:
     ) -> None:
         vis = self._stub_visualizer()
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.resolve_3d_fit_gain",
+            "nps_active_space.viz.active_space_plot.resolve_3d_fit_gain",
             lambda *args, **kwargs: 7.5,
         )
         monkeypatch.setattr(
-            "nps_active_space.viz.visualizer.p.fits_csv", lambda _proj: "/proj/fits.csv"
+            "nps_active_space.viz.active_space_plot.p.fits_csv", lambda _proj: "/proj/fits.csv"
         )
         assert vis._resolve_activespace_gain(AcousticModel.NMSIM, None) == 7.5
 
