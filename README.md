@@ -83,7 +83,8 @@ Create virtual environment with updated `pip`
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
+python -m pip install --upgrade pip wheel
+pip install "setuptools<84"
 ```
 
 Install required Python packages (including appropriate GDAL Python binding)
@@ -92,6 +93,7 @@ Install required Python packages (including appropriate GDAL Python binding)
 GDAL_VERSION=$(gdal-config --version)
 pip install "GDAL==${GDAL_VERSION}"
 pip install -e ".[dev]"
+# For --model aam: pip install -e ".[dev,aam]"
 ```
 
 **Note: Using without a clone:** you can install directly from GitHub with `pip install "NPS-ActiveSpace @ git+https://github.com/dbetchkal/NPS-ActiveSpace.git"` (on macOS/Linux, complete the GDAL steps above first). Config files go in the installed package's `config/` directory — find it with `python -c "import nps_active_space, os; print(os.path.join(nps_active_space.ACTIVE_SPACE_DIR, 'config'))"`. Run scripts using `python -m ...` from outside the repo so Python uses the installed package, not a local checkout.
@@ -114,21 +116,22 @@ See [`nps_active_space/scripts/README.md`](nps_active_space/scripts/README.md) f
 python -c "import nps_active_space, geopandas, rasterio, iyore; print('NPS-ActiveSpace OK')"
 ```
 
-### NMSIM (active space generation)
+---
 
-Active space generation runs the NMSIM Nord2000 physics model as an external process. NMSIM is **not** installed by pip and is **not** included in this repository.
+Active space generation runs an external propagation binary (NMSim Nord2000 or AAM). Neither is installed by pip or shipped in this repo.
 
-- **Windows:** Obtain the binary + required files separately (feel free to reach out to NPS-ActiveSpace maintainers) and set the path in your config.
-- **macOS / Linux:** Follow [docker/README.md](docker/README.md) (`-e container` inside the container).
+- **Windows:** Set `project.nmsim` or `project.aam` in your config (see `template.config`).
+- **macOS / Linux:** [docker/README.md](docker/README.md) (`-e container`; stage runtimes under `vendor/`).
 
 ```text
 [project]
 nmsim = C:\path\to\Nord2000batch.exe
+aam = C:\path\to\AAM_3.0.0.exe
 ```
 
-On Mac/Linux see [docker/README.md](docker/README.md) and `container_example.config`.
+**AAM:** [docker/README.md](docker/README.md) · [scripts/README.md](nps_active_space/scripts/README.md) (`--model aam`).
 
-Required for `generate_active_space.py`, `generate_3d_active_space.py`, and `generate_active_space_mesh.py`. **Not** required for ground-truthing, audible transits, or validation.
+Required for `generate_active_space.py` and `generate_3d_active_space.py`. **Not** required for ground-truthing, audible transits, or validation.
 
 ### Configuration
 

@@ -14,6 +14,26 @@ class TrackSource(StrEnum):
     AIS = 'AIS'
 
 
+class AcousticModel(StrEnum):
+    """Propagation backend for active-space generation, fit, and viz."""
+
+    NMSIM = "nmsim"
+    AAM = "aam"
+
+    @classmethod
+    def parse(cls, value: str | AcousticModel) -> AcousticModel:
+        """Parse a CLI, env, or CSV model name."""
+        if isinstance(value, cls):
+            return value
+        try:
+            return cls(str(value).strip().lower())
+        except ValueError as exc:
+            names = ", ".join(repr(member.value) for member in cls)
+            raise ValueError(
+                f"Unknown acoustic model {value!r}; expected {names}"
+            ) from exc
+
+
 class SourceElevationUnits(StrEnum):
     """Vertical units of a source DEM raster before conversion to meters."""
 

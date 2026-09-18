@@ -9,6 +9,8 @@ import rasterio
 from affine import Affine
 
 from nps_active_space.setup import NMSIM_DST_CRS
+from nps_active_space.setup.elevation import GRIDFLOAT_NODATA, NODATA_INT16, write_gridfloat
+from nps_active_space.setup.site_writer import create_site_dir
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_PROJECT_DIR = REPO_ROOT / "example_data" / "site_projects"
@@ -46,3 +48,53 @@ def write_source_dem(
         nodata=-9999.0,
     ) as ds:
         ds.write(data, 1)
+
+
+def write_project_setup_elevation_artifacts(
+    site_dir: Path,
+    *,
+    utm_suffix: str = "6",
+    bounds_4269: tuple[float, float, float, float] = STUDY_BOUNDS_4269,
+    elevation_m: int = 1524,
+) -> tuple[Path, Path]:
+    """
+    Write minimal ``elevation_m_nad83_utm*.tif`` / ``.flt`` / ``.hdr`` under a site directory.
+
+    Faster than ``setup_site`` when tests only need the artifact trio that
+    ``get_project_setup_elevation`` discovers.
+    """
+    create_site_dir(site_dir)
+    elev_dir = site_dir / "Input_Data" / "01_ELEVATION"
+    base = elev_dir / f"elevation_m_nad83_utm{utm_suffix}"
+    tif_path = base.with_suffix(".tif")
+    minx, _, _, maxy = bounds_4269
+    cellsize_deg = 0.02
+    width = 2
+    height = 2
+    transform = Affine(cellsize_deg, 0.0, minx, 0.0, -cellsize_deg, maxy)
+    data = np.full((height, width), elevation_m, dtype=np.int16)
+
+    with rasterio.open(
+        tif_path,
+        "w",
+        driver="GTiff",
+        height=height,
+        width=width,
+        count=1,
+        dtype="int16",
+        crs=NMSIM_DST_CRS,
+        transform=transform,
+        nodata=int(NODATA_INT16),
+    ) as ds:
+        ds.write(data, 1)
+
+    write_gridfloat(
+        base,
+        data,
+        transform,
+        width,
+        height,
+        NODATA_INT16,
+        GRIDFLOAT_NODATA,
+    )
+    return tif_path, base.with_suffix(".flt")

@@ -36,7 +36,7 @@ WORKDIR /repo
 COPY pyproject.toml README.md LICENSE.md ./
 COPY nps_active_space/ ./nps_active_space/
 RUN pip install --no-cache-dir "GDAL==$(gdal-config --version)" \
- && pip install --no-cache-dir -e .
+ && pip install --no-cache-dir -e ".[aam]"
 
 # ---- Wine shims (binaries are bind-mounted at run time) ----
 COPY docker/nord2000 /usr/local/bin/nord2000

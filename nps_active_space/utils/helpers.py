@@ -16,7 +16,6 @@ import rasterio.plot
 from pyproj import Transformer
 from shapely.geometry import box
 
-from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.utils.models import Adsb, EarlyAdsb, Microphone, Annotations
 from nps_active_space.setup.site_decoder import decode_sit_geographic_coords, read_sit_file
 from nps_active_space.setup.site_writer import (
@@ -24,7 +23,8 @@ from nps_active_space.setup.site_writer import (
     deployment_sit_name,
     sit_file_path,
 )
-from nps_active_space.utils.computation import NMSIM_bbox_utm
+from nps_active_space.utils.computation import study_area_utm_crs
+from nps_active_space.utils.enums import AcousticModel
 from nps_active_space.utils import paths as p
 from tqdm import tqdm
 
@@ -65,22 +65,52 @@ def omni_to_gain(omni_source: str) -> float:
     Converts an omni source name to the corresponding gain.
     Pure omni strings ("O_+125") or paths "directory/O_+125.src" can be passed, since regex is used.
     """
+    if omni_source is None:
+        raise ValueError("omni_source is None; no optimal omni source was selected.")
     match = re.search(r"O_([+-]\d\d\d)", omni_source)
+    if match is None:
+        raise ValueError(f"Could not parse omni source gain from: {omni_source!r}")
     return int(match.group(1)) / 10
 
 
-def load_layered_activespace(project_dir, unit, site, year, gain=None, crs="epsg:4326"):
+def load_layered_activespace(
+    project_dir,
+    unit,
+    site,
+    year,
+    gain=None,
+    crs="epsg:4326",
+    model: AcousticModel = AcousticModel.NMSIM,
+):
     from nps_active_space.active_space import LayeredActiveSpace
 
     layer_dirs = {}
-    for dir in p.activespace_layer_dirs(project_dir, unit, site, year):
+    for dir in p.activespace_layer_dirs(project_dir, unit, site, year, model=model):
         altitude = int(os.path.basename(dir).split("_")[1].split("m")[0])
         layer_dirs[altitude] = dir
+    if not layer_dirs:
+        site_dir_path = p.site_dir(project_dir, unit, site)
+        activespaces_root = p.model_activespaces_dir(site_dir_path, model)
+        logging.getLogger(__name__).warning(
+            "No active space layers under %s for %s (%s)",
+            activespaces_root,
+            p.deployment_id(unit, site, year),
+            model,
+        )
     study_area = load_studyarea(project_dir, unit, site, year)
     return LayeredActiveSpace(p.deployment_id(unit, site, year), layer_dirs, study_area, gain, crs)
 
 
-def load_activespace(project_dir, unit, site, year, gain, altitude_m=None, crs=None):
+def load_activespace(
+    project_dir,
+    unit,
+    site,
+    year,
+    gain,
+    altitude_m=None,
+    crs=None,
+    model: AcousticModel = AcousticModel.NMSIM,
+):
     """
     Load in the active space for a given unit, site, year, and gain
 
@@ -110,7 +140,7 @@ def load_activespace(project_dir, unit, site, year, gain, altitude_m=None, crs=N
 
     # pick middle altitude if no altitude provided
     if altitude_m is None:
-        altitude_dirs = p.activespace_layer_dirs(project_dir, unit, site, year)
+        altitude_dirs = p.activespace_layer_dirs(project_dir, unit, site, year, model=model)
         altitudes = []
         for dir in altitude_dirs:
             altitudes.append(int(os.path.basename(dir).split("_")[1].split("m")[0]))
@@ -121,7 +151,9 @@ def load_activespace(project_dir, unit, site, year, gain, altitude_m=None, crs=N
     # read activespace
     sign = "-" if gain < 0 else "+"
     gain_string = str(np.abs(int(10*gain))).zfill(3)
-    path = p.activespace_geojson(project_dir, unit, site, year, altitude_m, sign, gain_string)
+    path = p.activespace_geojson(
+        project_dir, unit, site, year, altitude_m, sign, gain_string, model=model,
+    )
     active_space = gpd.read_file(path)
 
     if crs is not None:
@@ -247,7 +279,7 @@ def get_deployment(project_dir: str, unit: str, site: str, year: int, elevation:
 
     # get lat/lon so we can initialize a Microphone object, need to get crs of the .SIT file first
     study_area = load_studyarea(project_dir, unit, site, year)
-    mic_crs = NMSIM_bbox_utm(study_area)
+    mic_crs = study_area_utm_crs(study_area)
     lon, lat = decode_sit_geographic_coords(
         x,
         y,
@@ -526,7 +558,7 @@ def get_logger(name: str, verbose: bool = False, logfile: str = None, make_log_b
     return logger
 
 
-def get_omni_sources(lower: float, upper: float) -> List[str]:
+def get_omni_sources(lower: float, upper: float, step_db: float = 0.5) -> List[str]:
     """
     Get a list of omni source files for tuning NMSim within a specific gain range.
     Source files are provided in the data directory for gains between -30 and +50.
@@ -541,6 +573,8 @@ def get_omni_sources(lower: float, upper: float) -> List[str]:
         The lowest gain omni source file to pull.
     upper : float
         The high gain omni source file to pull
+    step_db : float, default 0.5
+        Spacing between omni gains in dB (must be a positive multiple of 0.5).
 
     Returns
     -------
@@ -555,18 +589,22 @@ def get_omni_sources(lower: float, upper: float) -> List[str]:
         30 <= lower <= 50 and upper >= lower, "Bounds must be ordered and between [-30, 50]."
     assert upper % .5 == 0, "Invalid upper limit. Value must be divisible by 0.5."
     assert lower % .5 == 0, "Invalid lower limit. Value must be divisible by 0.5."
-
-    _TUNING_DIR = (
-        Path(__file__).resolve().parents[1]
-        / "propagation_model"
-        / "nmsim"
-        / "data"
-        / "tuning"
+    assert step_db > 0, "omni step must be positive"
+    step_units = int(round(step_db * 10))
+    assert step_units >= 1 and step_units % 5 == 0, (
+        "omni step must be a positive multiple of 0.5 dB"
     )
+    lower_units = int(round(lower * 10))
+    upper_units = int(round(upper * 10))
+    assert lower_units % step_units == 0 and upper_units % step_units == 0, (
+        f"omni-min/max must align to omni-step ({step_db} dB)"
+    )
+
+    _TUNING_DIR = Path(__file__).resolve().parents[1] / "propagation_model" / "nmsim" / "data" / "tuning"
     omni_source_dir = str(_TUNING_DIR)
     omni_sources = []
 
-    for i in range(int(lower*10), int(upper*10+5), 5):
+    for i in range(lower_units, upper_units + step_units, step_units):
         if i < 0:
             omni_sources.append(os.path.join(omni_source_dir, f"O_{i:04}.src"))
         elif i >= 0:
@@ -588,7 +626,8 @@ def estimate_line_count(filename, sample_size=1024 * 1024):
 
 
 def plot_activespace_fit(project_dir, unit, site, year, gain, altitude_m=None,
-                         ax=None, dem=None, mic=None, active=None, annotations=None):
+                         ax=None, dem=None, mic=None, active=None, annotations=None,
+                         model: AcousticModel = AcousticModel.NMSIM):
     import matplotlib.pyplot as plt
 
     if ax is None:
@@ -599,7 +638,7 @@ def plot_activespace_fit(project_dir, unit, site, year, gain, altitude_m=None,
     if mic is None:
         mic = get_deployment(project_dir, unit, site, year)
     if active is None:
-        active = load_activespace(project_dir, unit, site, year, gain, altitude_m)
+        active = load_activespace(project_dir, unit, site, year, gain, altitude_m, model=model)
     if annotations is None:
         annotations = load_annotations(project_dir, unit, site, year)
     

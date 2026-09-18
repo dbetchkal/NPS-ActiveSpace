@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import geopandas as gpd
@@ -18,10 +19,43 @@ NODATA_INT16 = np.int16(32767)
 GRIDFLOAT_NODATA = np.float32(-32768.0)
 NMSIM_DST_CRS = "EPSG:4269"  # NAD 83 - https://epsg.io/4269
 
+logger = logging.getLogger(__name__)
+
 
 def parse_source_elevation_units(units: str) -> SourceElevationUnits:
     """Validate and normalize a ``dem_elevation_units`` config value."""
     return SourceElevationUnits.parse_config_value(units)
+
+
+def get_project_setup_elevation(site_dir: str | Path) -> tuple[Path, Path]:
+    """
+    Return meter GeoTIFF and GridFloat paths produced by ``project_setup`` / ``setup_site``.
+
+    Raises ``FileNotFoundError`` when the expected artifacts are missing.
+    """
+    elev_dir = Path(site_dir) / "Input_Data" / "01_ELEVATION"
+    tif_paths = sorted(elev_dir.glob("elevation_m_nad83_utm*.tif"))
+    if not tif_paths:
+        raise FileNotFoundError(
+            f"No project_setup elevation GeoTIFF found in {elev_dir}. "
+            "Expected elevation_m_nad83_utm*.tif with matching .flt and .hdr. "
+            "Run project_setup for this site before generate_active_space."
+        )
+    if len(tif_paths) > 1:
+        logger.warning(
+            "Multiple project_setup elevation TIFFs found in %s; using %s",
+            elev_dir,
+            tif_paths[0].name,
+        )
+    tif_path = tif_paths[0]
+    flt_path = tif_path.with_suffix(".flt")
+    hdr_path = tif_path.with_suffix(".hdr")
+    if not flt_path.is_file() or not hdr_path.is_file():
+        raise FileNotFoundError(
+            f"project_setup elevation GridFloat not found for {tif_path.name} in {elev_dir}. "
+            "Expected matching .flt and .hdr siblings. Re-run project_setup for this site."
+        )
+    return tif_path, flt_path
 
 
 def _to_meters_elevation(values: np.ndarray, source_units: SourceElevationUnits) -> np.ndarray:
