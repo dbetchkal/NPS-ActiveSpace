@@ -12,7 +12,7 @@ import geopandas as gpd
 from pyproj import Transformer
 from shapely.geometry import Point
 
-from nps_active_space.utils.computation import NMSIM_bbox_utm, coords_to_utm
+from nps_active_space.utils.computation import study_area_utm_crs, coords_to_utm
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +101,7 @@ def _utm_epsg_candidates_for_study_area(study_area: gpd.GeoDataFrame) -> list[st
     """UTM EPSG codes that may span the study-area bbox, with project zone first."""
     study_nad83 = study_area if study_area.crs.to_epsg() == 4269 else study_area.to_crs(4269)
     minx, miny, maxx, maxy = study_nad83.total_bounds
-    project_utm = NMSIM_bbox_utm(study_area)
+    project_utm = study_area_utm_crs(study_area)
     candidates: list[str] = []
 
     for lon, lat in ((minx, miny), (minx, maxy), (maxx, miny), (maxx, maxy)):
@@ -153,7 +153,7 @@ def diagnose_sit_coords(
 
     Returns ``(status, lon, lat, project_utm, decoded_utm)``.
     """
-    project_utm = NMSIM_bbox_utm(study_area)
+    project_utm = study_area_utm_crs(study_area)
     decoded = _decode_sit_lonlat(easting_m, northing_m, study_area)
     if decoded is not None:
         lon, lat, decoded_utm = decoded
@@ -171,7 +171,7 @@ def project_zone_utm_coords(
     study_area: gpd.GeoDataFrame,
 ) -> tuple[float, float]:
     """Project WGS84 lon/lat to the NMSIM project UTM zone for ``study_area``."""
-    project_utm = NMSIM_bbox_utm(study_area)
+    project_utm = study_area_utm_crs(study_area)
     easting_m, northing_m = Transformer.from_crs(
         "EPSG:4326", project_utm, always_xy=True
     ).transform(lon, lat)

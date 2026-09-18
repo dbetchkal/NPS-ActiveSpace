@@ -20,10 +20,18 @@ NMSIM_SITE_SUBFOLDERS = [
     "Input_Data/07_WEATHER",
     "Input_Data/08_TREES",
     "Output_Data",
-    "Output_Data/ASCII",
-    "Output_Data/IMAGES",
-    "Output_Data/SITE",
-    "Output_Data/TIG_TIS",
+    "Output_Data/nmsim/predictions",
+    "Output_Data/nmsim/scratch",
+    "Output_Data/nmsim/ACTIVESPACES",
+    "Output_Data/nmsim/TESTED_POINTS",
+    "Output_Data/nmsim/PRECISION_RECALL",
+    "Output_Data/aam/predictions",
+    "Output_Data/aam/runs",
+    "Output_Data/aam/ACTIVESPACES",
+    "Output_Data/aam/TESTED_POINTS",
+    "Output_Data/aam/PRECISION_RECALL",
+    "Input_Data/aam",
+    "Input_Data/aam/terrain",
 ]
 
 

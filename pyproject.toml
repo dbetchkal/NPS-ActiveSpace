@@ -32,7 +32,7 @@ dependencies = [
     "numpy==2.3.1",
     "pandas>=2.2,<3",
     "pillow>=11.3.0",
-    "pyvista>=0.46.3",
+    "pyvista>=0.48",
     "scipy==1.16.0",
     "shapely>=2.1.1",
     "SQLAlchemy>=2.0.41",
@@ -49,6 +49,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+aam = [
+    "aam-translator @ git+https://github.com/elliott-ruebush/aam-translator.git@v0.2.1",
+    "netCDF4>=1.7.0",
+]
 dev = [
     "pytest>=8.0",
 ]
@@ -67,4 +71,9 @@ nps_active_space = [
     "config/*_example.config",
     "propagation_model/nmsim/data/**/*",
     "img/*",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: multiprocess or heavy integration tests",
 ]

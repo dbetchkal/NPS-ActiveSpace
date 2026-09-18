@@ -15,7 +15,7 @@ from nps_active_space.setup import NMSIM_DST_CRS, setup_site
 from nps_active_space.setup.elevation import NODATA_INT16, create_elevation_tif, write_gridfloat
 from nps_active_space.setup.site_decoder import parse_sit_coords_line
 from nps_active_space.setup.site_writer import create_site_file
-from nps_active_space.utils.computation import NMSIM_bbox_utm, coords_to_utm
+from nps_active_space.utils.computation import study_area_utm_crs, coords_to_utm
 from nps_active_space.utils.enums import SourceElevationUnits
 from nps_active_space.utils.helpers import get_deployment, load_studyarea
 from fixtures import (
@@ -36,7 +36,7 @@ class TestExampleDenatrlaArtifacts:
         mic = get_deployment(str(EXAMPLE_PROJECT_DIR), "DENA", "TRLA", 2025, elevation=False)
 
         assert study_area.crs.to_epsg() == 4269
-        assert mic.crs == NMSIM_bbox_utm(study_area)
+        assert mic.crs == study_area_utm_crs(study_area)
 
     def test_elevation_tif_is_nad83_geographic_not_utm(self):
         tif_path = (
