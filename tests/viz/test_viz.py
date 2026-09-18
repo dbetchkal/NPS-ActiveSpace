@@ -188,6 +188,38 @@ class TestParseExistingFile:
             parse_existing_file(str(tmp_path / "missing.geojson"), arg_name="--transits-pkl")
 
 
+class TestResolveVizAnnotationFile:
+    def test_resolves_basename_under_site_dir(self, tmp_path: Path) -> None:
+        from nps_active_space.viz.cli import resolve_viz_annotation_file
+
+        project_dir = tmp_path / "proj"
+        site = project_dir / "DENATRLA"
+        site.mkdir(parents=True)
+        annot = site / "DENATRLA2025_saved_annotations.geojson"
+        annot.write_text("{}")
+
+        resolved = resolve_viz_annotation_file(
+            str(project_dir), "DENA", "TRLA", "DENATRLA2025_saved_annotations.geojson"
+        )
+        assert Path(resolved) == annot.resolve()
+
+    def test_absolute_path(self, tmp_path: Path) -> None:
+        from nps_active_space.viz.cli import resolve_viz_annotation_file
+
+        annot = tmp_path / "custom.geojson"
+        annot.write_text("{}")
+        resolved = resolve_viz_annotation_file(
+            str(tmp_path / "proj"), "DENA", "TRLA", str(annot)
+        )
+        assert Path(resolved) == annot.resolve()
+
+    def test_missing_raises(self, tmp_path: Path) -> None:
+        from nps_active_space.viz.cli import resolve_viz_annotation_file
+
+        with pytest.raises(argparse.ArgumentTypeError, match="also looked in"):
+            resolve_viz_annotation_file(str(tmp_path), "DENA", "TRLA", "nope.geojson")
+
+
 class TestResolveVizPlotFlags:
     def test_annotation_file_implies_annotations(self):
         flags = resolve_viz_plot_flags(annotation_file="/tmp/a.geojson")
@@ -707,6 +739,59 @@ class TestAamActiveSpaceViz:
 
         assert loaded_models == [AcousticModel.NMSIM, AcousticModel.AAM]
         assert vis._legend_models == [("NMSim", "orange"), ("AAM", "cyan")]
+
+    def test_plot_compare_ignores_explicit_gain(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vis = self._stub_visualizer()
+        gain_args: list[float | None] = []
+
+        class _Active:
+            layer_dirs = {500: "/layer"}
+            activespaces = {500: gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)])}
+
+        def _resolve(model: AcousticModel, gain: float | None) -> float:
+            gain_args.append(gain)
+            return 10.0
+
+        monkeypatch.setattr(vis, "_resolve_activespace_gain", _resolve)
+        monkeypatch.setattr(
+            "nps_active_space.viz.visualizer.load_layered_activespace",
+            lambda *args, **kwargs: _Active(),
+        )
+        monkeypatch.setattr(vis, "plot_contoured_activespace", lambda *args, **kwargs: 1)
+
+        vis.plot_compare_activespaces(gain=5.0)
+
+        assert gain_args == [None, None]
+
+    def test_fill_layers_skips_empty_polygons(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vis = self._stub_visualizer()
+        vis.fill_layers = True
+        active = gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)])
+        monkeypatch.setattr(
+            "nps_active_space.viz.visualizer.active_to_polys", lambda _active: []
+        )
+        monkeypatch.setattr(
+            "nps_active_space.viz.visualizer.active_to_linestrings",
+            lambda _active: [LineString([(0, 0), (1, 1)])],
+        )
+        monkeypatch.setattr(vis, "_add_labeled_checkbox", lambda *args, **kwargs: MagicMock())
+        poly_mesh_calls: list[object] = []
+        monkeypatch.setattr(
+            "nps_active_space.viz.visualizer.polygon_to_mesh",
+            lambda *args, **kwargs: poly_mesh_calls.append(args) or MagicMock(),
+        )
+        monkeypatch.setattr(
+            "nps_active_space.viz.visualizer.create_polyline_3d",
+            lambda *args, **kwargs: MagicMock(),
+        )
+
+        vis.plot_active_layer(active, elevation=500.0, i=0)
+
+        assert poly_mesh_calls == []
 
     def test_resolve_gain_uses_fitted_value(
         self, monkeypatch: pytest.MonkeyPatch

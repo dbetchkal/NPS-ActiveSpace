@@ -4,6 +4,8 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
+from nps_active_space.utils import config as cfg
+from nps_active_space.utils import paths as p
 from nps_active_space.utils.enums import AcousticModel, TrackSource
 from nps_active_space.viz.visualizer import Visualizer
 
@@ -25,6 +27,22 @@ def parse_existing_file(path: str, *, arg_name: str) -> str:
     if not file_path.is_file():
         raise argparse.ArgumentTypeError(f"{arg_name}: file not found: {path}")
     return path
+
+
+def resolve_viz_annotation_file(
+    project_dir: str, unit: str, site: str, path: str
+) -> str:
+    """Resolve --annotation-file (absolute, cwd-relative, or basename under site dir)."""
+    file_path = Path(path)
+    if file_path.is_file():
+        return str(file_path.resolve())
+    site_path = Path(p.site_dir(project_dir, unit, site)) / path
+    if site_path.is_file():
+        return str(site_path.resolve())
+    site_dir_path = p.site_dir(project_dir, unit, site)
+    raise argparse.ArgumentTypeError(
+        f"--annotation-file: file not found: {path} (also looked in {site_dir_path})"
+    )
 
 
 def parse_max_tracks(value: str) -> int:
@@ -155,8 +173,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--annotation-file",
-        type=lambda p: parse_existing_file(p, arg_name="--annotation-file"),
-        help="Path to .geojson annotations (implies -a).",
+        metavar="PATH",
+        help=(
+            "Annotations .geojson (implies -a). Absolute path, path relative to cwd, "
+            "or basename under the site directory (same as generate_active_space)."
+        ),
     )
     parser.add_argument(
         "--transits-pkl",
@@ -187,6 +208,14 @@ def main() -> None:
     args = parser.parse_args()
     unit, site, year = args.unit, args.site, args.year
 
+    annotation_file = args.annotation_file
+    if annotation_file is not None:
+        cfg.initialize(args.environment)
+        project_dir = cfg.read("project", "dir")
+        annotation_file = resolve_viz_annotation_file(
+            project_dir, unit, site, annotation_file
+        )
+
     track_source = resolve_track_source_args(args, parser)
     do_active, do_annotations, do_transits, _ = resolve_viz_plot_flags(
         active_space=args.active_space,
@@ -194,7 +223,7 @@ def main() -> None:
         audible_transits=args.audible_transits,
         track_source=track_source,
         plot_all=args.all,
-        annotation_file=args.annotation_file,
+        annotation_file=annotation_file,
         transits_pkl=args.transits_pkl,
         compare=args.compare,
         model=args.model,
@@ -210,7 +239,7 @@ def main() -> None:
         do_annotations,
         do_transits,
         track_source,
-        args.annotation_file,
+        annotation_file,
         args.transits_pkl,
         args.start_date,
         args.end_date,
