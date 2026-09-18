@@ -427,6 +427,13 @@ class TestCreatePolyline3d:
         with pytest.raises(ValueError, match="one value per vertex"):
             create_polyline_3d(line, z=np.array([1.0, 2.0]))
 
+    @pytest.mark.parametrize("altitude", [2100, np.int64(2100), np.array(2100.0)])
+    def test_scalar_layer_altitude_broadcasts(self, altitude):
+        line = LineString([(0, 0), (1, 0), (2, 0)])
+        poly = create_polyline_3d(line, z=altitude)
+        assert poly.n_points == 3
+        assert np.all(poly.points[:, 2] == pytest.approx(2100.0))
+
 
 class TestTrackPointsToLinestring:
     def test_builds_line_from_points(self):
