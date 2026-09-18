@@ -64,7 +64,7 @@ class Visualizer:
     inaudible_annotation_color = "red"
     audible_transits_color = "purple"
     vessel_track_color = "magenta"
-    flight_track_color = "yellow"
+    flight_track_color = "indigo"
     z_scale_toggle_color = "black"
     sea_surface_offset_m = 5.0
     sea_surface_densify_step_m = 100.0
