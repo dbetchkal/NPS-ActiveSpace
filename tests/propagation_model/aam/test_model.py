@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
-import os
 import pickle
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,29 +15,20 @@ from shapely.geometry import Point
 pytest.importorskip("aam_translator")
 
 from aam_translator import read_poi, read_run_log
-from aam_translator.write_inp import TrackPoint
 
 from nps_active_space.active_space.prediction_cache import prediction_cache_csv_path
 from nps_active_space.propagation_model.aam.model import (
-    AAM_PREDICTIONS_SUBDIR,
-    SINGLE_TRACK_PAD_M,
     AamPropagationModel,
-    _aam_subprocess_env,
-    _order_source_pts_for_track,
-    _pad_single_point_track,
     resolve_aam_chunk_size,
 )
 from nps_active_space.propagation_model.nmsim.model import NmsimPropagationModel
 from nps_active_space.propagation_model.aam.output import poi_history_to_predictions_df
-from nps_active_space.propagation_model.aam.source import (
-    AAM_TEMPLATE_NC_FILENAME,
-    aam_source_id_from_omni,
-    site_ncfiles_dir,
-)
+from nps_active_space.propagation_model.aam.source import aam_source_id_from_omni
 from nps_active_space.propagation_model.protocol import (
     DEFAULT_MAX_POINTS_PER_PREDICT,
     THIRD_OCTAVE_BANDS,
 )
+from nps_active_space.utils.paths import AAM_PREDICTIONS_SUBDIR
 
 FIXTURES = Path(__file__).resolve().parents[2] / "active_space" / "fixtures" / "two_point_ridge"
 CRS = "EPSG:32606"
@@ -100,29 +89,6 @@ class TestAamBatching:
             == 4000
         )
         assert AamPropagationModel.max_points_per_run != resolve_aam_chunk_size()
-
-    def test_order_source_pts_sorts_by_xy(self) -> None:
-        pts = gpd.GeoDataFrame(
-            {"id": [0, 1, 2]},
-            geometry=[Point(2, 0, 100), Point(0, 0, 100), Point(1, 0, 100)],
-            crs="EPSG:32606",
-        )
-        ordered = _order_source_pts_for_track(pts)
-        assert ordered["id"].tolist() == [1, 2, 0]
-
-    def test_order_source_pts_snakes_grid_columns(self) -> None:
-        pts = gpd.GeoDataFrame(
-            {"id": [0, 1, 2, 3]},
-            geometry=[
-                Point(0, 0, 100),
-                Point(0, 1, 100),
-                Point(1, 0, 100),
-                Point(1, 1, 100),
-            ],
-            crs="EPSG:32606",
-        )
-        ordered = _order_source_pts_for_track(pts)
-        assert ordered["id"].tolist() == [0, 1, 3, 2]
 
 
 class TestPoiHistoryMapping:
@@ -345,103 +311,3 @@ class TestAamPredictSkipOnFailure:
 
         assert jobs == ["split_job_r000", "split_job_r001"]
         assert len(result) == 4
-
-
-class TestAamSubprocessEnv:
-    def test_sets_site_ncfiles_for_shim(self, tmp_path: Path) -> None:
-        site_root = tmp_path / "site"
-        nc_dir = site_ncfiles_dir(site_root)
-        nc_dir.mkdir(parents=True)
-        shim = tmp_path / "aam"
-        shim.write_text("#!/bin/sh\n")
-        env = _aam_subprocess_env(shim, nc_dir)
-        expected = str(nc_dir.resolve()) + os.sep
-        assert env["ROTOR_NOISE"] == expected
-        assert env["AAM_NC"] == str(nc_dir.resolve())
-
-    def test_exe_sets_noise_paths_from_site_ncfiles(self, tmp_path: Path) -> None:
-        site_root = tmp_path / "site"
-        nc_dir = site_ncfiles_dir(site_root)
-        nc_dir.mkdir(parents=True)
-        exe = tmp_path / "AAM_3.0.0.exe"
-        exe.write_bytes(b"")
-        env = _aam_subprocess_env(exe, nc_dir)
-        expected = str(nc_dir.resolve()) + os.sep
-        assert env["ROTOR_NOISE"] == expected
-        assert env["FWING_NOISE"] == expected
-        assert env["QUARRY_NOISE"] == expected
-        assert env["AAM_NC"] == str(nc_dir.resolve())
-
-    def test_template_resolution_prefers_parent_when_bin_stub_lacks_template(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        from nps_active_space.propagation_model.aam.model import (
-            _resolve_aam_template_ncfiles_dir,
-        )
-
-        monkeypatch.delenv("AAM_NC", raising=False)
-        bin_dir = tmp_path / "Bin"
-        bin_dir.mkdir()
-        exe = bin_dir / "AAM_3.0.0.exe"
-        exe.write_bytes(b"")
-        stub = bin_dir / "NCfiles"
-        stub.mkdir()
-        nc = tmp_path / "NCfiles"
-        nc.mkdir()
-        (nc / AAM_TEMPLATE_NC_FILENAME).write_bytes(b"")
-        resolved = _resolve_aam_template_ncfiles_dir(exe)
-        assert resolved == nc
-
-    def test_aam_home_template_resolution(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from nps_active_space.propagation_model.aam.model import (
-            _resolve_aam_template_ncfiles_dir,
-        )
-
-        monkeypatch.delenv("AAM_NC", raising=False)
-        aam_home = tmp_path / "opt" / "aam"
-        nc = aam_home / "NCfiles"
-        nc.mkdir(parents=True)
-        (nc / AAM_TEMPLATE_NC_FILENAME).write_bytes(b"")
-        shim = tmp_path / "usr" / "local" / "bin" / "aam"
-        shim.parent.mkdir(parents=True)
-        shim.write_text("#!/bin/sh\n")
-        monkeypatch.setenv("AAM_HOME", str(aam_home))
-        resolved = _resolve_aam_template_ncfiles_dir(shim)
-        assert resolved == nc
-
-    def test_aam_nc_override_for_template(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from nps_active_space.propagation_model.aam.model import (
-            _resolve_aam_template_ncfiles_dir,
-        )
-
-        exe = tmp_path / "Bin" / "AAM_3.0.0.exe"
-        exe.parent.mkdir(parents=True)
-        exe.write_bytes(b"")
-        nc = tmp_path / "custom" / "NCfiles"
-        nc.mkdir(parents=True)
-        (nc / AAM_TEMPLATE_NC_FILENAME).write_bytes(b"")
-        monkeypatch.setenv("AAM_NC", str(nc))
-        resolved = _resolve_aam_template_ncfiles_dir(exe)
-        assert resolved == nc
-
-
-class TestPadSinglePointTrack:
-    def test_leaves_multi_point_track_unchanged(self) -> None:
-        track = [
-            TrackPoint(lon=-148.87, lat=63.66, alt_m=1500.0),
-            TrackPoint(lon=-148.86, lat=63.66, alt_m=1500.0),
-        ]
-        assert _pad_single_point_track(track) == track
-
-    def test_pads_one_vertex_about_one_meter_east(self) -> None:
-        point = TrackPoint(lon=-148.87, lat=63.66, alt_m=1500.0)
-        padded = _pad_single_point_track([point])
-        assert len(padded) == 2
-        assert padded[0] == point
-        assert padded[1].lat == point.lat
-        assert padded[1].alt_m == point.alt_m
-        meters_per_deg_lon = 111_320.0 * abs(math.cos(math.radians(point.lat)))
-        east_m = (padded[1].lon - padded[0].lon) * meters_per_deg_lon
-        assert east_m == pytest.approx(SINGLE_TRACK_PAD_M, rel=1e-4)

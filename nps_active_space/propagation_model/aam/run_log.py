@@ -107,6 +107,11 @@ def summarize_aam_error(message: str) -> str:
     return text[:160]
 
 
+def is_fortran_fpa_subscript_error(exc: BaseException) -> bool:
+    """True when ``summarize_aam_error`` classifies *exc* as a Fortran FPA subscript failure."""
+    return summarize_aam_error(str(exc)) == FORTRAN_FPA_SUBSCRIPT_ERROR
+
+
 def short_aam_work_dir_name(job_name: str) -> str:
     """Short ``runs/`` subdirectory name so ``ROTOR_NOISE`` paths stay under AAM's 140-char FILENAME cap.
 
