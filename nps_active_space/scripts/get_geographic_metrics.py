@@ -10,6 +10,13 @@ from nps_active_space.active_space.active_space_setup import resolve_3d_fit_gain
 import nps_active_space.utils.config as cfg
 
 
+def filter_geo_metric_tracks(tracks: pd.DataFrame, track_source: str) -> pd.DataFrame:
+    """Return tracks to include when computing geographic metrics."""
+    if track_source in ("GPS", "ADSB"):
+        return tracks[tracks["aircraft_type"] == "Fixed-wing"]
+    return tracks
+
+
 def get_optimal_3d_gain(project_dir, unit, site, year, model: AcousticModel = AcousticModel.NMSIM):
     """Get optimal 3D gain from the project fits.csv file."""
     gain = resolve_3d_fit_gain(project_dir, unit, site, year, model=model)
@@ -56,15 +63,17 @@ def get_geographic_metrics(
     project_dir = cfg.read("project", "dir")
     nvspl_archive = cfg.read("data", "nvspl_archive")
 
-    # process track source
     adsb_dir = None
+    ais_path = None
     match track_source:
         case TrackSource.ADSB:
             adsb_dir = cfg.read("data", "adsb")
         case TrackSource.AIS:
-            raise NotImplementedError('Code for AIS is not ready yet.')
-    
-    obs_periods = get_obs_periods(unit, site, year, nvspl_archive, adsb_dir)
+            ais_path = cfg.read("data", "ais")
+
+    obs_periods = get_obs_periods(
+        unit, site, year, nvspl_archive, adsb_dir=adsb_dir, ais_path=ais_path
+    )
     print(f"Time periods with acoustic and causal data:\n{obs_periods}")
 
     
@@ -90,8 +99,7 @@ def get_geographic_metrics(
     listener = AudibleTransits.from_pickle(transits_pkl)
     study_year = str(pd.Timestamp(listener.study_start).year)
     assert study_year == year, f"Audible transits study year ({study_year}) doesn't match 'year' argument ({year})."
-    tracks = listener.tracks
-    tracks = tracks[tracks["aircraft_type"] == "Fixed-wing"]
+    tracks = filter_geo_metric_tracks(listener.tracks, track_source)
     # close excess figures
     plt.close(listener.overflights_fig)
     plt.close(listener.transits_fig)

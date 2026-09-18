@@ -92,7 +92,8 @@ def load_layered_activespace(
         site_dir_path = p.site_dir(project_dir, unit, site)
         activespaces_root = p.model_activespaces_dir(site_dir_path, model)
         logging.getLogger(__name__).warning(
-            "No active space layers under %s for %s (%s)",
+            "No active space layers under %s for %s (%s). "
+            "Rerun generate_3d_active_space.py with --force-rerun or batch with --force.",
             activespaces_root,
             p.deployment_id(unit, site, year),
             model,

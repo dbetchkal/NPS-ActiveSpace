@@ -77,6 +77,9 @@ if __name__ == "__main__":
     parser.add_argument("--only-prep", action="store_true",
                           help="Stop after creating the commands file; don't run generate_active_space_batch.py. " \
                                "This is useful if you want to combine several command files into a single one to run at once, e.g. overnight.")
+    parser.add_argument("--force-rerun", action="store_true",
+                          help="Rerun all batch commands even if they appear in the batch output CSV "
+                               "(use after deleting failed or empty active space outputs).")
 
     # generate_active_space.py arguments that this script needs to know about
     parser.add_argument('-e', '--environment', required=True,
@@ -176,8 +179,11 @@ if __name__ == "__main__":
 
     print("Running generate_active_space_batch.py on the commands file\n")
     batch_script = os.path.join(os.path.dirname(__file__), "generate_active_space_batch.py")
+    batch_cmd = [sys.executable, batch_script, cmds_file]
+    if args.force_rerun:
+        batch_cmd.append("--force")
     batch_process = subprocess.run(
-        [sys.executable, batch_script, cmds_file],
+        batch_cmd,
         check=False,
     )
     if batch_process.returncode != 0:
