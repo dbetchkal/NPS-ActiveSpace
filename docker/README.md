@@ -4,7 +4,7 @@ NMSim is Windows-only. On Mac/Linux it runs in a container (Python 3.12 + GDAL) 
 
 Install [Docker Desktop](https://docs.docker.com/get-started/get-docker/). On Apple Silicon, turn on Rosetta for amd64 images.
 
-Binaries are not in git. See [vendor/nmsim-runtime/README.md](../vendor/nmsim-runtime/README.md).
+Binaries are not in git. See [vendor/nmsim-runtime/README.md](../vendor/nmsim-runtime/README.md) and [vendor/aam-runtime/README.md](../vendor/aam-runtime/README.md).
 
 ## Setup
 
@@ -34,11 +34,12 @@ Use `/repo/...` paths in the config. Mounts and shims: [container_example.config
 | Variable | Purpose |
 |----------|---------|
 | `NMSIM_RUNTIME` | Staged NMSim tree (default `vendor/nmsim-runtime/`). Same path for `stage_nmsim_runtime.sh` and `run_activespace.sh`. |
+| `AAM_RUNTIME` | Staged AAM tree (default `vendor/aam-runtime/`). Same path for `stage_aam_runtime.sh`; mount with `-m aam`. |
 | `DATA_DRIVE` | Optional host directory mounted read-only at `/data`. |
 
 ## AAM
 
-`docker/build.sh` installs the `[aam]` extra. On the host: `pip install -e ".[dev,aam]"`.
+`docker/build.sh` installs the `[aam]` extra (host venv: see root README Installation).
 
 Stage AAM, then use `-m aam` and `--model aam`:
 

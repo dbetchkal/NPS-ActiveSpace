@@ -2,7 +2,7 @@
 
 AAM 3.0 ([aam-translator](https://github.com/elliott-ruebush/aam-translator)) behind `PropagationModel`. One fixed mic, many source points; input decks use `COMPUTEPOI` with one POI. Reading POI files: [reading_aam_output.md](https://github.com/elliott-ruebush/aam-translator/blob/main/docs/reading_aam_output.md).
 
-Docker: [docker/README.md](../../../docker/README.md) (`-m aam`, `--model aam`).
+Docker: [docker/README.md](../../../docker/README.md).
 
 ## On-disk layout
 

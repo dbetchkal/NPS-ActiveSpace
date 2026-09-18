@@ -29,6 +29,7 @@ vendor/nmsim-runtime/*
 
 # AAM runtime (not redistributable — see docker/README.md)
 vendor/aam-runtime/*
+!vendor/aam-runtime/README.md
 !vendor/aam-runtime/.gitkeep
 
 # Generated Index
