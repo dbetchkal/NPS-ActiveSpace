@@ -173,11 +173,17 @@ class NmsimPropagationModel:
 
         return trajectory_filename
 
+    def _nmsim_scratch_dir(self) -> str:
+        scratch_dir = p.join(self.root_dir, NMSIM_SCRATCH_SUBDIR)
+        os.makedirs(scratch_dir, exist_ok=True)
+        return scratch_dir
+
     def _control_and_batch_paths(self, trajectory_file: str) -> tuple[str, str]:
         job = Path(trajectory_file).stem
+        scratch_dir = self._nmsim_scratch_dir()
         return (
-            p.join(self.root_dir, f"control_{job}.nms"),
-            p.join(self.root_dir, f"batch_{job}.txt"),
+            p.join(scratch_dir, f"control_{job}.nms"),
+            p.join(scratch_dir, f"batch_{job}.txt"),
         )
 
     def _cleanup_predict_scratch(self, trajectory_file: str, tis_file: str) -> None:

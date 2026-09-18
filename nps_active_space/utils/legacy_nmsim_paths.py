@@ -27,7 +27,7 @@ def _deployment_id(unit: str, site: str, year) -> str:
 
 
 def is_standard_altitude_layer_dir(layer_dir: str, usy: str) -> bool:
-    """True for ``DENATRLA2025_1000m``; false for experiment dirs like ``DENATRLA2025_1000m_aam``."""
+    """True for ``DENATRLA2025_1000m``; false for non-standard suffix dirs."""
     name = os.path.basename(layer_dir)
     return re.fullmatch(f"{re.escape(usy)}_\\d+m", name) is not None
 

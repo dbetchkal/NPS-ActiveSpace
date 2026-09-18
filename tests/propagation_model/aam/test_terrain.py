@@ -343,35 +343,14 @@ class TestSplitSafeAamTrackRuns:
 
 
 class TestTerrainDirForSite:
-    def test_falls_back_to_legacy_flat_terrain_suffix(self, tmp_path: Path) -> None:
-        legacy = tmp_path / "Input_Data" / "AAM" / "terrain_mic1"
-        legacy.mkdir(parents=True)
-
-        assert terrain_dir_for_site(tmp_path, "_mic1") == legacy
-
     def test_creates_canonical_when_missing(self, tmp_path: Path) -> None:
         expected = tmp_path / "Input_Data" / "aam" / "terrain" / "mic1"
         assert terrain_dir_for_site(tmp_path, "_mic1") == expected
         assert expected.is_dir()
 
-    @pytest.mark.skipif(
-        os.name == "nt" or os.uname().sysname == "Darwin",
-        reason="case-insensitive filesystem collapses Input_Data/aam and Input_Data/AAM",
-    )
-    def test_prefers_canonical_lowercase_path(self, tmp_path: Path) -> None:
-        canonical = tmp_path / "Input_Data" / "aam" / "terrain" / "mic1"
-        canonical.mkdir(parents=True)
-        legacy = tmp_path / "Input_Data" / "AAM" / "terrain" / "mic1"
-        legacy.mkdir(parents=True)
+    def test_returns_existing_canonical(self, tmp_path: Path) -> None:
+        expected = tmp_path / "Input_Data" / "aam" / "terrain" / "mic1"
+        expected.mkdir(parents=True)
+        (expected / "scenario.elv").write_text("")
 
-        assert terrain_dir_for_site(tmp_path, "_mic1") == canonical
-
-    @pytest.mark.skipif(
-        os.name == "nt" or os.uname().sysname == "Darwin",
-        reason="case-insensitive filesystem collapses Input_Data/aam and Input_Data/AAM",
-    )
-    def test_falls_back_to_legacy_uppercase_terrain_dir(self, tmp_path: Path) -> None:
-        legacy = tmp_path / "Input_Data" / "AAM" / "terrain" / "mic1"
-        legacy.mkdir(parents=True)
-
-        assert terrain_dir_for_site(tmp_path, "_mic1") == legacy
+        assert terrain_dir_for_site(tmp_path, "_mic1") == expected

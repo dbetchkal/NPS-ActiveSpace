@@ -25,7 +25,7 @@ Terrain cache: `Input_Data/aam/terrain/{mic}/` (`.ELV`, `.IMP`, `terrain_cache.j
 
 Omni NetCDF: `Input_Data/aam/NCfiles/` (generated, not committed). Other paths under `Output_Data/aam/` — see `nps_active_space.utils.paths`.
 
-Old `Input_Data/AAM/` layouts and flat `Output_Data/ACTIVESPACES/` still work. NMSim predictions live under `Output_Data/nmsim/predictions/`. Remove stale `Output_Data/TIG_TIS/` if you mixed early AAM and NMSim runs.
+NMSim legacy flat `Output_Data/ACTIVESPACES/` and `Output_Data/TIG_TIS/` are still read for older NMSim-only sites; new runs use `Output_Data/nmsim/`. Remove stale `TIG_TIS/` if an old tree was mixed with the new layout.
 
 ## Omni NetCDF
 
