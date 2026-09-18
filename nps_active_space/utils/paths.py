@@ -334,10 +334,6 @@ def precision_recall_dir(site_dir_path: str, model: AcousticModel) -> str:
     return join(model_output_dir(site_dir_path, model), "PRECISION_RECALL")
 
 
-def site_fits_csv(site_dir_path: str) -> str:
-    return join(site_dir_path, "fits.csv")
-
-
 def tested_points_dir(
     site_dir_path: str,
     unit: str,

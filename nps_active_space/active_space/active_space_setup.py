@@ -163,46 +163,6 @@ def resolve_3d_fit_gain(
     return float(rows.iloc[-1]["1/3rd Octave Gain (F1)"])
 
 
-def upsert_site_fit(
-    site_dir: str,
-    designator: str,
-    model: AcousticModel,
-    altitude_m: int,
-    density: int,
-    beta: float,
-    best_omni: str,
-    max_fbeta: float,
-    precision: float,
-    recall: float,
-) -> str:
-    """Upsert a per-layer fit row into site ``fits.csv`` (legacy/debug; production uses project ``fits.csv``)."""
-    csv_path = p.site_fits_csv(site_dir)
-    row = {
-        "Designator": designator,
-        "Model": model,
-        "Altitude_m": altitude_m,
-        "Density": density,
-        "1/3rd Octave Gain (F1)": omni_stem_to_gain_db(best_omni),
-        f"F{beta}": max_fbeta,
-        "Precision": precision,
-        "Recall": recall,
-        "Best_omni": best_omni,
-    }
-    df = pd.DataFrame([row])
-    if os.path.exists(csv_path):
-        existing = pd.read_csv(csv_path)
-        mask = (
-            (existing["Designator"] == designator)
-            & (existing["Model"] == model)
-            & (existing["Altitude_m"] == altitude_m)
-        )
-        existing = existing[~mask]
-        df = pd.concat([existing, df], ignore_index=True)
-    os.makedirs(site_dir, exist_ok=True)
-    df.to_csv(csv_path, index=False)
-    return csv_path
-
-
 def upsert_project_fit(
     project_dir: str,
     designator: str,

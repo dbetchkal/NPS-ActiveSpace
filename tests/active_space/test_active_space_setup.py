@@ -15,7 +15,6 @@ from nps_active_space.active_space.active_space_setup import (
     resolve_aam_exe,
     resolve_acoustic_model,
     upsert_project_fit,
-    upsert_site_fit,
 )
 from nps_active_space.utils.enums import AcousticModel
 
@@ -66,73 +65,6 @@ class TestOmniStemToGainDb:
 
     def test_negative_gain(self):
         assert omni_stem_to_gain_db("O_-050") == -5.0
-
-
-class TestUpsertSiteFit:
-    def test_writes_and_replaces_same_model_row(self, tmp_path):
-        site_dir = tmp_path / "DENATRLA"
-        site_dir.mkdir()
-        csv_path = upsert_site_fit(
-            str(site_dir),
-            "DENATRLA2025",
-            AcousticModel.AAM,
-            1000,
-            10,
-            1.0,
-            "O_+005",
-            0.6,
-            0.5,
-            0.7,
-        )
-        assert csv_path.endswith("fits.csv")
-        df = pd.read_csv(csv_path)
-        assert len(df) == 1
-        assert df.iloc[0]["Model"] == "aam"
-
-        upsert_site_fit(
-            str(site_dir),
-            "DENATRLA2025",
-            AcousticModel.AAM,
-            1000,
-            10,
-            1.0,
-            "O_+010",
-            0.7,
-            0.6,
-            0.8,
-        )
-        df = pd.read_csv(csv_path)
-        assert len(df) == 1
-        assert df.iloc[0]["Best_omni"] == "O_+010"
-
-    def test_keeps_other_model_rows(self, tmp_path):
-        site_dir = tmp_path / "DENATRLA"
-        site_dir.mkdir()
-        upsert_site_fit(
-            str(site_dir), "DENATRLA2025", AcousticModel.NMSIM, 1000, 48, 1.0,
-            "O_+020", 0.5, 0.4, 0.6,
-        )
-        upsert_site_fit(
-            str(site_dir), "DENATRLA2025", AcousticModel.AAM, 1000, 10, 1.0,
-            "O_+005", 0.6, 0.5, 0.7,
-        )
-        df = pd.read_csv(site_dir / "fits.csv")
-        assert set(df["Model"]) == {"nmsim", "aam"}
-
-    def test_keeps_rows_for_different_altitudes_same_model(self, tmp_path):
-        site_dir = tmp_path / "DENATRLA"
-        site_dir.mkdir()
-        upsert_site_fit(
-            str(site_dir), "DENATRLA2025", AcousticModel.NMSIM, 1000, 48, 1.0,
-            "O_+005", 0.6, 0.5, 0.7,
-        )
-        upsert_site_fit(
-            str(site_dir), "DENATRLA2025", AcousticModel.NMSIM, 1300, 48, 1.0,
-            "O_+010", 0.7, 0.6, 0.8,
-        )
-        df = pd.read_csv(site_dir / "fits.csv")
-        assert len(df) == 2
-        assert set(df["Altitude_m"]) == {1000, 1300}
 
 
 class TestUpsertProjectFit:

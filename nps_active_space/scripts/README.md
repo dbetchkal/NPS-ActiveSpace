@@ -66,8 +66,8 @@ Make sure the data you want to visualize exist beforehand. The script won't look
 
 1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#installation).
 2. Use `run_ground_truthing.py` to annotate audible track segments.
-3. Use `generate_active_space.py` to generate candidates for a single active space layer at a fixed altitude, and also fit the optimal gain.
-4. We can make use of the 3D code to process a 2D active space, since a 2D active space is equivalent to a 3D one with a single layer. Make sure only a single layer of active spaces has been generated (check `Output_Data/{nmsim|aam}/ACTIVESPACES/` under the site project). Then use `fit_3d_active_space.py` to fit the gain in a way the rest of the 3D code expects (storing it in the `fits.csv` file in the project directory). Then follow steps 5-6 of the typical 3D active space workflow.
+3. Use `generate_active_space.py` to generate omni geojson for a single altitude layer (per-layer precision–recall plots on disk; does **not** write project `fits.csv`).
+4. We can make use of the 3D code to process a 2D active space, since a 2D active space is equivalent to a 3D one with a single layer. Make sure only a single layer of active spaces has been generated (check `Output_Data/{nmsim|aam}/ACTIVESPACES/` under the site project). Then use `fit_3d_active_space.py` to fit the optimal 3D gain into `{project_dir}/fits.csv`. Then follow steps 5-6 of the typical 3D active space workflow.
 
 ```mermaid
 graph LR
@@ -98,7 +98,9 @@ check_study_duration_robustness.py
 
 If you want to generate many active spaces at the same time, you can leverage the batch script to do so. This is useful for running it overnight or while you do other work.
 
-Each batch line runs `generate_active_space.py` with a temporary `--results-out` JSON file. On success, metrics are upserted into the output CSV (key **designator + model**); failed runs are skipped (no CSV row).
+Each batch line runs `generate_active_space.py` with a temporary `--results-out` JSON file. On success, metrics are upserted into the batch **output CSV** you pass to `-o` (key **designator + model**); failed runs are skipped (no CSV row). That file is a per-layer run log—not `{project_dir}/fits.csv`.
+
+**Project `fits.csv`:** only `fit_3d_active_space.py` writes `{project_dir}/fits.csv` (one fitted 3D gain row per deployment + `--model`). `viz.py` and `get_geographic_metrics.py` read that file for default gain when you omit `-g`.
 
 **Resume / skip:** a layer is skipped only when its **model-scoped** `Output_Data/{nmsim|aam}/ACTIVESPACES/{deployment}_{alt}m/` folder already contains `*_O_*.geojson` files. The batch CSV is **not** used to skip layers — so an NMSim batch run does not block a later AAM run for the same altitude. Delete the layer directory to force regeneration.
 
@@ -448,7 +450,7 @@ python -u -W ignore nps_active_space/scripts/generate_active_space_batch.py DENA
 
 ### Fit 3D Active Space
 
-This script finds the optimal best fit for a 3-dimensional active space. 
+This script finds the optimal best fit for a 3-dimensional active space and upserts the result into **`{project_dir}/fits.csv`** (keyed by deployment designator and `--model`). Re-run after regenerating layers or when adding an AAM row alongside NMSim.
 
 *NOTE: this script may be run independently and also works "behind the scenes" as part of [`generate_3d_active_space.py`](#generate-3d-active-space)*
 
@@ -575,7 +577,7 @@ This script is used to visualize select geospatial objects relevant to the `nps_
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `deployment` (no flag)     | **required.**<br/>The deployment name, e.g., DENACATH2018                                                                                        |
 | `-e`, `--environment`      | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
-| `-g`, `--gain`             | Active space gain, if not the optimal default found in `fits.csv`                                                                                |
+| `-g`, `--gain`             | Active space gain in dB. If omitted, `viz.py` loads the fitted value from `{project_dir}/fits.csv` for the chosen `--model`.                                                                                |
 | `-s`, `--active-space`     | If included, load and plot the active space                                                                                                      |
 | `-a`, `--annotations`      | If included, load and plot annotations                                                                                                           |
 | `-t`, `--audible-transits` | If included, load and plot audible transits                                                                                                      |
