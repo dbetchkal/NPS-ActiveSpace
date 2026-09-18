@@ -25,7 +25,6 @@ NMSIM_PREDICTIONS_SUBDIR = f"{NMSIM_OUTPUT_SUBDIR}/predictions"
 NMSIM_SCRATCH_SUBDIR = f"{NMSIM_OUTPUT_SUBDIR}/scratch"
 AAM_MODEL_SLUG = "aam"
 AAM_INPUT_SUBDIR = f"Input_Data/{AAM_MODEL_SLUG}"
-AAM_INPUT_SUBDIR_LEGACY = "Input_Data/AAM"
 AAM_TERRAIN_SUBDIR = f"{AAM_INPUT_SUBDIR}/terrain"
 AAM_OUTPUT_SUBDIR = f"Output_Data/{AAM_MODEL_SLUG}"
 AAM_PREDICTIONS_SUBDIR = f"{AAM_OUTPUT_SUBDIR}/predictions"
@@ -254,9 +253,11 @@ class SiteModelPaths:
         return [
             join(self.site_dir, "control*"),
             join(self.site_dir, "batch*"),
+            join(self.scratch_dir, "control*"),
+            join(self.scratch_dir, "batch*"),
             join(self.trajectory_dir, "*.trj"),
             join(self.site_dir, LEGACY_PREDICTIONS_SUBDIR, "*.tis"),
-            join(self.site_dir, NMSIM_SCRATCH_SUBDIR, "*.tis"),
+            join(self.scratch_dir, "*.tis"),
         ]
 
 

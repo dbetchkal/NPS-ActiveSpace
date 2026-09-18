@@ -29,8 +29,9 @@ class TestNmsimPredictScratchCleanup:
         model = _model(tmp_path)
         trj, _ = _job_files(tmp_path)
         control, batch = model._control_and_batch_paths(str(trj))
-        assert Path(control) == tmp_path / "control_TRLA_1000m_mesh1.nms"
-        assert Path(batch) == tmp_path / "batch_TRLA_1000m_mesh1.txt"
+        scratch = tmp_path / NMSIM_SCRATCH_SUBDIR
+        assert Path(control) == scratch / "control_TRLA_1000m_mesh1.nms"
+        assert Path(batch) == scratch / "batch_TRLA_1000m_mesh1.txt"
 
     def test_cleanup_removes_trj_tis_control_and_batch(self, tmp_path: Path) -> None:
         model = _model(tmp_path)
