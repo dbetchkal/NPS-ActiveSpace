@@ -82,9 +82,9 @@ class NmsimPropagationModel:
         heading: int | None = None,
     ) -> pd.DataFrame:
         crs = source_pts.crs.to_string().lower()
-        trajectory_filename = self._create_trajectory_file(source_pts, crs, job_name, heading)
+        trajectory_file = self._create_trajectory_file(source_pts, crs, job_name, heading)
         batch_file = self._create_instruction_files(
-            site.flt_file, site.site_file, trajectory_filename, omni_source,
+            site.flt_file, site.site_file, trajectory_file, omni_source,
         )
         process = subprocess.Popen(
             [self.nmsim_exe, batch_file], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -93,11 +93,10 @@ class NmsimPropagationModel:
         if stderr:
             for line in stderr.decode("utf-8").splitlines():
                 logger.error(line.strip())
-        return self._postprocess_trj_tis(
-            trajectory_filename,
-            p.join(self.root_dir, NMSIM_SCRATCH_SUBDIR, f"{job_name}.tis"),
-            cleanup=True,
-        )
+        tis_file = p.join(self.root_dir, NMSIM_SCRATCH_SUBDIR, f"{Path(trajectory_file).stem}.tis")
+        predictions = self._read_trj_tis(trajectory_file, tis_file)
+        self._cleanup_predict_scratch(trajectory_file, tis_file)
+        return predictions
 
     def _create_site_file(self, mic: Microphone, dem_file: str) -> str:
         return str(write_listener_site_file(
@@ -174,15 +173,15 @@ class NmsimPropagationModel:
 
         return trajectory_filename
 
-    def _instruction_file_paths(self, trajectory_file: str) -> tuple[str, str]:
-        job = os.path.basename(trajectory_file).removesuffix(".trj")
+    def _control_and_batch_paths(self, trajectory_file: str) -> tuple[str, str]:
+        job = Path(trajectory_file).stem
         return (
             p.join(self.root_dir, f"control_{job}.nms"),
             p.join(self.root_dir, f"batch_{job}.txt"),
         )
 
     def _cleanup_predict_scratch(self, trajectory_file: str, tis_file: str) -> None:
-        control_file, batch_file = self._instruction_file_paths(trajectory_file)
+        control_file, batch_file = self._control_and_batch_paths(trajectory_file)
         for path in (trajectory_file, tis_file, control_file, batch_file):
             Path(path).unlink(missing_ok=True)
 
@@ -193,8 +192,8 @@ class NmsimPropagationModel:
         trajectory_file: str,
         omni_source_file: str,
     ) -> str:
-        control_file, batch_file = self._instruction_file_paths(trajectory_file)
-        tis_directory = p.join(self.root_dir, NMSIM_SCRATCH_SUBDIR)
+        control_file, batch_file = self._control_and_batch_paths(trajectory_file)
+        tis_output = p.join(self.root_dir, NMSIM_SCRATCH_SUBDIR, Path(trajectory_file).stem)
 
         with open(control_file, "w") as nms:
             nms.write(nmsim_control_path(flt_file) + "\n")
@@ -212,14 +211,7 @@ class NmsimPropagationModel:
             batch.write("open\n")
             batch.write(nmsim_control_path(control_file) + "\n")
             batch.write("site\n")
-            batch.write(
-                nmsim_control_path(
-                    p.join(
-                        tis_directory,
-                        os.path.basename(trajectory_file)[:-4],
-                    ),
-                ) + "\n",
-            )
+            batch.write(nmsim_control_path(tis_output) + "\n")
             batch.write("dbf: no\n")
             batch.write("hrs: 0\n")
             batch.write("min: 0\n")
@@ -227,12 +219,7 @@ class NmsimPropagationModel:
 
         return batch_file
 
-    def _postprocess_trj_tis(
-        self,
-        trajectory_file: str,
-        tis_file: str,
-        cleanup: bool = True,
-    ) -> pd.DataFrame:
+    def _read_trj_tis(self, trajectory_file: str, tis_file: str) -> pd.DataFrame:
         traj_df = pd.read_fwf(trajectory_file, header=14, widths=[16, 14] + [15] * 7)
         traj_df = traj_df.drop(
             ["time(s)", "heading", "climbANG", "Vel", "power", "rol"], axis=1,
@@ -257,12 +244,7 @@ class NmsimPropagationModel:
         assert len(traj_df) == len(tis_df), (
             f"# trajectory points ({len(traj_df)}) is not equal to # tis points ({len(tis_df)})"
         )
-        new_rows = pd.concat([traj_df, tis_df], axis=1)
-
-        if cleanup:
-            self._cleanup_predict_scratch(trajectory_file, tis_file)
-
-        return new_rows
+        return pd.concat([traj_df, tis_df], axis=1)
 
     def filter_below_terrain(
         self,
