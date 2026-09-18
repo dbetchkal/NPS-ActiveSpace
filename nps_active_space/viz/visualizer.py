@@ -142,12 +142,12 @@ class Visualizer:
     def _add_track_line(
         self, polyline: pv.PolyData, *, color: str, line_width: int = 2
     ):
-        """Add a track/annotation polyline that reads clearly over the DEM."""
+        """Add a causal track polyline over the DEM (plain lines, not tubes)."""
         return self.plotter.add_mesh(
             polyline,
             color=color,
             line_width=line_width,
-            render_lines_as_tubes=True,
+            render_lines_as_tubes=False,
             point_size=2,
         )
 
