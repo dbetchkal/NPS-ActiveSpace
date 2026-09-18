@@ -33,6 +33,14 @@ class TestQueryAisMxak:
             check_dtype=False,
         )
 
+    def test_accepts_string_directory_path(self, mxak_fixture_day: MxakAis):
+        queried = query_ais_mxak(str(AIS_DIR), "2025-01-07", "2025-01-07")
+        assert_frame_equal(
+            _tabular(queried, METADATA_COLS),
+            _tabular(mxak_fixture_day, METADATA_COLS),
+            check_dtype=False,
+        )
+
     def test_date_filter_excludes_other_days(self):
         with pytest.raises(AssertionError, match="No AIS data loaded"):
             query_ais_mxak(AIS_DIR, "2025-01-08", "2025-01-08")

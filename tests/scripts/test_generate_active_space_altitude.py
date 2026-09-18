@@ -40,3 +40,13 @@ class TestInferAnnotationAltitude:
 
         with pytest.raises(ValueError, match="pass -l/--altitude explicitly"):
             infer_annotation_altitude(valid_points)
+
+
+class TestAltitudeCli:
+    def test_zero_altitude_flag_is_kept(self):
+        from nps_active_space.scripts.generate_active_space import build_parser
+
+        args = build_parser().parse_args(
+            ["-e", "test", "-u", "GLBA", "-s", "LSTL", "-y", "2024", "-l", "0"]
+        )
+        assert args.altitude == 0

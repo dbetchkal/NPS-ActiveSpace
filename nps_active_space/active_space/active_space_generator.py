@@ -18,6 +18,10 @@ from nps_active_space.active_space.prediction_cache import (
     predict_with_cache,
     prediction_cache_csv_path,
 )
+from nps_active_space.active_space.source_clearance import (
+    apply_surface_clearance_m,
+    with_point_z,
+)
 from nps_active_space.propagation_model.protocol import PropagationModel
 from nps_active_space.setup.elevation import get_project_setup_elevation
 from nps_active_space.setup.site_writer import create_site_dir
@@ -388,6 +392,10 @@ class ActiveSpaceGenerator:
     ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
         """Determines which source points are aboveground / underground.
 
+        Near-surface points (at sea level or ground) are lifted just above the
+        DEM so NMSim/AAM do not treat them as buried. Deeply buried points
+        (land cells on a 0 m vessel layer) stay underground.
+
         Parameters
         ----------
         source_pts: gpd.GeoDataFrame
@@ -404,23 +412,34 @@ class ActiveSpaceGenerator:
         assert self._site_context is not None, "prepare_site must run before propagation predict"
         dem_path = self._site_context.dem_file
 
-        aboveground_indices = []
-        underground_indices = []  # underground or no DEM data
         with rasterio.open(dem_path) as dem:
             proj = Transformer.from_crs(crs, dem.crs, always_xy=True)
-            xs = source_pts.geometry.x
-            ys = source_pts.geometry.y
-            zs = source_pts.geometry.z
-            xs, ys = proj.transform(xs, ys)
+            xs, ys = proj.transform(
+                source_pts.geometry.x.to_numpy(),
+                source_pts.geometry.y.to_numpy(),
+            )
             proj_pts = np.stack([xs, ys], axis=1)
-            elevs = list(dem.sample(proj_pts))
-            for i in range(len(source_pts)):
-                if elevs[i] is None or elevs[i] == dem.nodata or zs.iloc[i] < elevs[i]:
-                    underground_indices.append(i)
-                else:
-                    aboveground_indices.append(i)
+            samples = list(dem.sample(proj_pts))
+            nodata = dem.nodata
 
-        return source_pts.iloc[aboveground_indices], source_pts.iloc[underground_indices]
+        surface_m = np.empty(len(source_pts), dtype=float)
+        for i, sample in enumerate(samples):
+            if sample is None:
+                surface_m[i] = np.nan
+                continue
+            elev_m = float(np.asarray(sample).ravel()[0])
+            if nodata is not None and elev_m == nodata:
+                surface_m[i] = np.nan
+            else:
+                surface_m[i] = elev_m
+
+        z_cleared_m, is_underground = apply_surface_clearance_m(
+            source_pts.geometry.z.to_numpy(),
+            surface_m,
+        )
+        cleared_pts = with_point_z(source_pts, z_cleared_m)
+        underground = pd.Series(is_underground, index=source_pts.index)
+        return cleared_pts.loc[~underground].copy(), cleared_pts.loc[underground].copy()
 
     @staticmethod
     def _source_pts_near_audibility_boundary(

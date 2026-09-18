@@ -49,6 +49,15 @@ docker/run_activespace.sh -m aam nps_active_space/scripts/generate_active_space.
   -e container --model aam -u DENA -s TRLA -y 2025 -l 1000
 ```
 
+Sea-level source mesh + one predict (no annotations):
+
+```bash
+export NMSIM_RUNTIME=/path/to/nmsim-runtime   # if not under ./vendor/
+export AAM_RUNTIME=/path/to/aam-runtime
+docker/run_activespace.sh docker/validate_sea_level_sources.py --model nmsim
+docker/run_activespace.sh -m aam docker/validate_sea_level_sources.py --model aam
+```
+
 [propagation_model/aam/README.md](../nps_active_space/propagation_model/aam/README.md) · [scripts/README.md](../nps_active_space/scripts/README.md)
 
 Under Wine, `run_activespace.sh` sets `AAM_PARALLEL_N=2` (do not set it in your config).

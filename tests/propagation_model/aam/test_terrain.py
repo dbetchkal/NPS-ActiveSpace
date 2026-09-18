@@ -14,6 +14,7 @@ pytest.importorskip("aam_translator")
 
 from aam_translator.constants import FT_PER_M
 
+from nps_active_space.active_space.source_clearance import SOURCE_SURFACE_CLEARANCE_M
 from nps_active_space.propagation_model.aam.terrain import (
     AAM_BELOW_SURFACE_TOLERANCE_M,
     _bilinear_sample_grid,
@@ -104,6 +105,30 @@ class TestSplitBelowAamTerrain:
         above, below = split_below_aam_terrain(ridge_terrain, source_pts)
         assert len(above) == 1
         assert len(below) == 0
+
+    def test_at_surface_is_lifted_not_filtered(
+        self,
+        terrain,
+        center_utm: tuple[float, float, float],
+    ) -> None:
+        x_m, y_m, _ = center_utm
+        probe = gpd.GeoDataFrame(
+            {"id": [0]},
+            geometry=[Point(x_m, y_m, 0.0)],
+            crs="EPSG:26906",
+        )
+        surface_m = float(_terrain_surface_elevation_m(probe, terrain)[0])
+        source_pts = gpd.GeoDataFrame(
+            {"id": [0]},
+            geometry=[Point(x_m, y_m, surface_m)],
+            crs="EPSG:26906",
+        )
+        above, below = split_below_aam_terrain(terrain, source_pts)
+        assert len(above) == 1
+        assert len(below) == 0
+        assert above.geometry.iloc[0].z == pytest.approx(
+            surface_m + SOURCE_SURFACE_CLEARANCE_M,
+        )
 
 
 def _utm_probe_at_elv_ij(ridge_terrain, col: float, row_south: float) -> gpd.GeoDataFrame:

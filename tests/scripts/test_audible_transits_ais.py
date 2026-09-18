@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -115,12 +116,13 @@ class TestLoadTracksFromDatabaseAis:
             loaded = listener.load_tracks_from_database(buffer=1000)
 
         query_mock.assert_called_once_with(
-            listener.paths["AIS"],
+            Path(listener.paths["AIS"]),
             "2025-01-07",
             "2025-01-07",
             mask=listener.active_layer,
             mask_buffer_distance=1000,
         )
+        assert isinstance(query_mock.call_args.args[0], Path)
         assert list(loaded.columns) == [
             "track_id",
             "point_dt",

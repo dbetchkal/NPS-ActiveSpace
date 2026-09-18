@@ -13,6 +13,11 @@ from aam_translator import read_nmbgf_grid
 from aam_translator.constants import FT_PER_M
 from aam_translator.context import TerrainResult
 
+from nps_active_space.active_space.source_clearance import (
+    SOURCE_SURFACE_CLEARANCE_M,
+    apply_surface_clearance_m,
+    with_point_z,
+)
 from nps_active_space.propagation_model.aam.run_log import aam_log
 from nps_active_space.utils.paths import display_path
 
@@ -29,20 +34,32 @@ def split_below_aam_terrain(
     *,
     job_name: str = "",
 ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
-    """Split points that are at or below the AAM ELV terrain surface."""
+    """Split points that are deeply below the AAM ELV surface.
+
+    Near-surface sources (sea level / ground) are lifted to ELV + clearance
+    rather than dropped. Deeply buried points stay filtered.
+    """
     if len(source_pts) == 0:
         return source_pts, source_pts.iloc[0:0]
 
     surface_m = _terrain_surface_elevation_m(source_pts, terrain)
     z_m = source_pts.geometry.z.to_numpy()
-    agl_m = z_m - surface_m
-    invalid = np.isnan(surface_m)
-    below = invalid | (agl_m <= AAM_BELOW_SURFACE_TOLERANCE_M)
+    z_cleared_m, is_underground = apply_surface_clearance_m(z_m, surface_m)
+    source_pts = with_point_z(source_pts, z_cleared_m)
 
-    n_below = int(below.sum())
+    n_below = int(is_underground.sum())
+    n_lifted = int((~is_underground & (z_cleared_m > z_m + 1e-6)).sum())
+    label = f"{job_name}: " if job_name else ""
+    if n_lifted > 0:
+        aam_log(
+            "filter",
+            f"{label}lifted {n_lifted}/{len(source_pts)} near-surface sources "
+            f"to ELV+{SOURCE_SURFACE_CLEARANCE_M:g}m",
+        )
     if n_below > 0:
-        deficits_m = -agl_m[below & ~invalid]
-        label = f"{job_name}: " if job_name else ""
+        agl_m = z_m - surface_m
+        invalid = np.isnan(surface_m)
+        deficits_m = -agl_m[is_underground & ~invalid]
         if len(deficits_m) > 0:
             aam_log(
                 "filter",
@@ -57,8 +74,8 @@ def split_below_aam_terrain(
                 "(no AAM terrain sample / nodata)",
             )
 
-    above = source_pts.loc[~below].copy()
-    below_pts = source_pts.loc[below].copy()
+    above = source_pts.loc[~is_underground].copy()
+    below_pts = source_pts.loc[is_underground].copy()
     return above, below_pts
 
 
