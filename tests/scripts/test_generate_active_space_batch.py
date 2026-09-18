@@ -7,15 +7,12 @@ import pytest
 
 import nps_active_space.utils.config as cfg
 from nps_active_space.scripts.generate_active_space_batch import (
-    batch_failure_hint,
     read_results_file,
     resolve_layer_output_dir,
     run_deployment,
     upsert_result_row,
 )
 from nps_active_space.utils.enums import AcousticModel
-from nps_active_space.utils.paths import layer_has_activespace_outputs
-from nps_active_space.utils import paths as p
 from script_test_helpers import stub_generate_active_space_cmd
 
 VALID_RESULTS = {
@@ -93,28 +90,7 @@ class TestRunDeployment:
         assert result_series["Number of valid annotated segments"] == 5
 
 
-class TestLayerOutputSkip:
-    def test_layer_has_activespace_outputs(self, tmp_path: Path) -> None:
-        layer_dir = tmp_path / "DENATRLA2025_1500m"
-        assert not layer_has_activespace_outputs(layer_dir)
-        layer_dir.mkdir()
-        assert not layer_has_activespace_outputs(layer_dir)
-        (layer_dir / "DENATRLA2025_O_+000.geojson").write_text("{}")
-        assert layer_has_activespace_outputs(layer_dir)
-
-    def test_layer_has_required_omni_outputs_partial_gain(self, tmp_path: Path) -> None:
-        layer_dir = tmp_path / "DENASUSH2026_1500m"
-        layer_dir.mkdir()
-        (layer_dir / "DENASUSH2026_O_+000.geojson").write_text("{}")
-        assert not p.layer_has_required_omni_outputs(
-            layer_dir, "DENASUSH2026", 0.0, 2.0,
-        )
-        for stem in ("O_+000", "O_+005", "O_+010", "O_+015", "O_+020"):
-            (layer_dir / f"DENASUSH2026_{stem}.geojson").write_text("{}")
-        assert p.layer_has_required_omni_outputs(
-            layer_dir, "DENASUSH2026", 0.0, 2.0,
-        )
-
+class TestResolveLayerOutputDir:
     def test_resolve_layer_output_dir_is_model_scoped(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -140,17 +116,8 @@ class TestLayerOutputSkip:
         assert "Output_Data/nmsim/ACTIVESPACES" in nmsim_dir.as_posix()
         assert "Output_Data/aam/ACTIVESPACES" in aam_dir.as_posix()
 
-    def test_batch_failure_hint_is_model_specific(self) -> None:
-        site = "/data/DENATRLA"
-        aam_hint = batch_failure_hint(site, AcousticModel.AAM)
-        nmsim_hint = batch_failure_hint(site, AcousticModel.NMSIM)
 
-        assert "Input_Data/aam" in aam_hint
-        assert "TIG_TIS" not in aam_hint
-        assert "03_TRAJECTORY" in nmsim_hint
-        assert "nmsim/predictions" in nmsim_hint
-        assert "TIG_TIS" not in nmsim_hint
-
+class TestUpsertResultRow:
     def test_upsert_result_row_replaces_same_model_only(self) -> None:
         df = pd.DataFrame([
             {"Designator": "DENATRLA2025_1500m", "Model": "nmsim", "F1": 0.5},

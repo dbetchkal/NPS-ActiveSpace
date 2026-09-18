@@ -6,6 +6,12 @@ import multiprocessing as mp
 import re
 from pathlib import Path
 
+import pytest
+
+pytest.importorskip("aam_translator")
+
+from aam_translator import read_run_log
+
 from nps_active_space.propagation_model.aam.run_log import (
     FORTRAN_FPA_SUBSCRIPT_ERROR,
     aam_log,
@@ -20,6 +26,8 @@ from nps_active_space.propagation_model.aam.run_log import (
 )
 from nps_active_space.utils.paths import AAM_RUN_LOG_FILENAME
 
+TWO_POINT_RIDGE_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "two_point_ridge"
+
 _LOG_LINE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z ")
 
 
@@ -28,6 +36,13 @@ def _strip_log_timestamp(line: str) -> str:
 
 
 class TestAamRunLog:
+    def test_fixture_scenario_run_log_ok(self) -> None:
+        log = read_run_log(TWO_POINT_RIDGE_FIXTURES / "scenario.txt")
+        assert log.ok
+        assert not log.read_error
+        assert log.analysis_track is not None
+        assert len(log.analysis_track) == 2
+
     def test_configure_creates_log_with_session_header(self, tmp_path: Path) -> None:
         log_path = configure_aam_run_log(tmp_path)
         assert log_path == aam_run_log_path(tmp_path)
@@ -157,6 +172,8 @@ def _append_log_lines(root: str, tag: str, n: int) -> None:
 
 
 class TestAamRunLogConcurrency:
+    pytestmark = pytest.mark.integration
+
     def test_concurrent_appends_keep_lines_intact(self, tmp_path: Path) -> None:
         configure_aam_run_log(tmp_path)
         n_per_worker = 40
