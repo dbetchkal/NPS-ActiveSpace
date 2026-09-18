@@ -43,7 +43,6 @@ example_data/faa/MASTER_index.json
 example_data/site_projects/*/Output_Data/
 example_data/site_projects/fits.csv
 example_data/site_projects/*/fits_aam_validate.csv
-example_data/site_projects/*/fits_validate.csv
 
 # GDAL / generate-time elevation intermediates (not project_setup artifacts)
 example_data/site_projects/*/Input_Data/01_ELEVATION/elevation.tif
@@ -66,9 +65,11 @@ example_data/site_projects/*/*_commands_output.csv
 example_data/site_projects/*/precision_recall_3d_f1_*.png
 example_data/site_projects/*/Altitude_Histogram_*.png
 
-# NMSim control files written at the site root during runs
+# NMSim scratch at site root (legacy) and under Output_Data/nmsim/scratch/
 example_data/site_projects/*/control*
 example_data/site_projects/*/batch*
+example_data/site_projects/*/Output_Data/nmsim/scratch/control*
+example_data/site_projects/*/Output_Data/nmsim/scratch/batch*
 
 # Docker validation run logs and platform-compare JSON
 docker/*.log

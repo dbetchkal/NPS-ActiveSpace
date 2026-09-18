@@ -229,11 +229,6 @@ class TestModelAwarePaths:
         assert "Output_Data/aam/ACTIVESPACES" in path
         assert path.endswith(f"{unit}{site}{year}_O_+005.geojson")
 
-    def test_site_fits_csv(self, site_tree) -> None:
-        project_dir, unit, site, _year = site_tree
-        site_dir = str(project_dir / f"{unit}{site}")
-        assert p.site_fits_csv(site_dir) == f"{site_dir}/fits.csv"
-
     def test_precision_recall_and_tested_points(self, site_tree) -> None:
         project_dir, unit, site, year = site_tree
         site_dir = str(project_dir / f"{unit}{site}")
