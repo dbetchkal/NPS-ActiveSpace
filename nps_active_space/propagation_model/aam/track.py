@@ -8,15 +8,15 @@ import geopandas as gpd
 import pandas as pd
 from aam_translator.write_inp import TrackPoint
 
-# AAM 3.0.0 crashes on a 1-vertex ONE TRACK (Wine exit 152; related Fortran crash
-# whose stderr often mentions the internal array FPA; empty .POI). Pad ~1 m so a
-# leftover singleton stays two vertices. See aam-translator
-# docs/reading_aam_output.md and references/notes/aam_inp_format.md.
+# AAM 3.0.0 aborts when ``ONE TRACK`` has only one vertex (native Windows or Wine;
+# Fortran subscript error on internal array FPA; empty ``.POI`` — see
+# ``run_log.summarize_aam_error``). Chunking can leave a lone mesh point as a singleton
+# track; pad ~1 m east so AAM always gets two vertices. aam-translator notes:
+# https://github.com/elliott-ruebush/aam-translator/blob/main/docs/reading_aam_output.md
+# https://github.com/elliott-ruebush/aam-translator/blob/main/references/notes/aam_inp_format.md
 SINGLE_TRACK_PAD_M = 1.0
-METERS_PER_DEG_LAT = 111_320.0
 
 __all__ = [
-    "METERS_PER_DEG_LAT",
     "SINGLE_TRACK_PAD_M",
     "order_source_pts_for_track",
     "pad_single_point_track",
@@ -29,7 +29,8 @@ def pad_single_point_track(track: list[TrackPoint]) -> list[TrackPoint]:
         return track
     point = track[0]
     cos_lat = math.cos(math.radians(point.lat))
-    meters_per_deg_lon = METERS_PER_DEG_LAT * max(abs(cos_lat), 1e-6)
+    # Spherical-Earth scale for this pad only (~111.32 km/° lat); not a package geodesy constant.
+    meters_per_deg_lon = 111_320.0 * max(abs(cos_lat), 1e-6)
     pad = TrackPoint(
         lon=point.lon + SINGLE_TRACK_PAD_M / meters_per_deg_lon,
         lat=point.lat,
