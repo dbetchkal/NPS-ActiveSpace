@@ -58,7 +58,7 @@ def NMSIM_bbox_utm(study_area: gpd.GeoDataFrame) -> str:
 
     Returns
     -------
-    UTM zone projection name (e.g.  'epsg:26905' for UTM 5N) that aligns with the westernmost extent of a study area.
+    UTM zone projection name (e.g.  'epsg:32605' for UTM 5N) that aligns with the westernmost extent of a study area.
     """
     if study_area.crs.to_epsg() != 4269:
         study_area = study_area.to_crs(epsg='4269')
@@ -73,7 +73,8 @@ def NMSIM_bbox_utm(study_area: gpd.GeoDataFrame) -> str:
 
 def coords_to_utm(lat: float, lon: float) -> tuple[str, int]:
     """
-    Takes the latitude and longitude of a point and outputs the EPSG code corresponding to the UTM zone of the point.
+    Takes the latitude and longitude of a point and outputs a text string and an EPSG code corresponding to the UTM zone of the point.
+    Uses the World Geodetic System 1984 (WGS84) as the horizontal datum.
 
     Parameters
     ----------
@@ -85,7 +86,9 @@ def coords_to_utm(lat: float, lon: float) -> tuple[str, int]:
     Returns
     -------
     utm_proj : str
-        UTM zone projection name (e.g.  'epsg:26905' for UTM 5N)
+        UTM zone projection name (e.g.  'epsg:32605' for UTM 5N)
+    utm_zone : int
+        UTM zone number (1--60)
 
     Notes
     -----
@@ -94,8 +97,8 @@ def coords_to_utm(lat: float, lon: float) -> tuple[str, int]:
     # 6 degrees per zone; add 180 because zone 1 starts at 180 W.
     utm_zone = int((lon + 180) // 6 + 1)
 
-    # 269 = northern hemisphere, 327 = southern hemisphere
-    utm_proj = 'epsg:269{:02d}'.format(utm_zone) if lat > 0 else 'epsg:327{:02d}'.format(utm_zone)
+    # 326 = northern hemisphere, 327 = southern hemisphere
+    utm_proj = 'epsg:326{:02d}'.format(utm_zone) if lat > 0 else 'epsg:327{:02d}'.format(utm_zone)
     return utm_proj, utm_zone
 
 

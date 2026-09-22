@@ -197,8 +197,8 @@ class TestSetupSiteIntegration:
 
         message = str(exc_info.value)
         assert "project_setup" in message
-        assert "epsg:26906" in message
-        assert "epsg:26905" in message
+        assert "epsg:32606" in message
+        assert "epsg:32605" in message
         assert f"-u {unit} -s {site} -y {year}" in message
         assert (
             f"--studyarea-sw {DENABULL_STUDYAREA_SW[0]:.8f} {DENABULL_STUDYAREA_SW[1]:.8f}" in message
