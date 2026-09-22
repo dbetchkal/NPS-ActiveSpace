@@ -47,24 +47,24 @@ class TestContiguousRegions:
 
 class TestCoordsToUtm:
     def test_denali_alaska(self):
-        result = coords_to_utm(63.07, -151.01)
-        assert result == "epsg:26905"
+        result, _ = coords_to_utm(63.07, -151.01)
+        assert result == "epsg:32605"
 
     def test_new_york(self):
-        result = coords_to_utm(40.71, -74.01)
-        assert result == "epsg:26918"
+        result, _ = coords_to_utm(40.71, -74.01)
+        assert result == "epsg:32618"
 
     def test_southern_hemisphere(self):
-        result = coords_to_utm(-33.87, 151.21)
+        result, _ = coords_to_utm(-33.87, 151.21)
         assert result == "epsg:32756"
 
     def test_prime_meridian(self):
-        result = coords_to_utm(51.48, -0.01)
-        assert result == "epsg:26930"
+        result, _ = coords_to_utm(51.48, -0.01)
+        assert result == "epsg:32630"
 
     def test_zone_boundary(self):
-        result = coords_to_utm(45.0, -126.0)
-        assert result == "epsg:26910"
+        result, _ = coords_to_utm(45.0, -126.0)
+        assert result == "epsg:32610"
 
 
 class TestBarometricPressure:
