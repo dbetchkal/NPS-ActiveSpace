@@ -10,6 +10,7 @@ import geopandas as gpd
 import pandas as pd
 
 from nps_active_space.utils.ais.reader import MxakAis
+from nps_active_space.utils.computation import coords_to_utm
 
 
 def query_ais_mxak(
@@ -32,7 +33,7 @@ def query_ais_mxak(
     mask : gpd.GeoDataFrame, default None
         Geopandas.GeoDataFrame instance to spatially filter query results.
     mask_buffer_distance : int, default None
-        If provided, buffer ``mask`` by this distance (meters) in Alaska Albers before clipping.
+        If provided, buffer ``mask`` by this distance (meters) in an equal-area projection before clipping.
 
     Returns
     -------
@@ -41,8 +42,9 @@ def query_ais_mxak(
     """
     if mask is not None:
         if mask_buffer_distance:
-            ak_albers_mask = mask.to_crs(epsg=3338)
-            mask.geometry = ak_albers_mask.buffer(mask_buffer_distance).to_crs(epsg=4326)
+            centroid = mask.to_crs(epsg=4326).union_all().centroid
+            equal_area_crs = coords_to_utm(centroid.y, centroid.x)
+            mask.geometry = mask.to_crs(equal_area_crs).buffer(mask_buffer_distance).to_crs(epsg=4326)
         mask = mask.to_crs("epsg:4326")
 
     all_files = sorted(ais_path.glob("*.csv"))

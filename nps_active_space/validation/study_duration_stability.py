@@ -79,7 +79,7 @@ def fit_varying_n_tracks(project_dir, unit, site, year):
     logger.info(f"Using {mid_layer}m for areas")
     for gain in tqdm(model.all_activespaces, desc="Computing areas"):
         active = model.all_activespaces[gain][mid_layer]
-        active_equal_area = active.to_crs("epsg:3338")  # albers AK equal area
+        active_equal_area = active.to_crs(utm_zone)
         areas[gain] = active_equal_area.area.item() / 1e6  # square km
 
     # Precompute whether each point is within each active space. This avoids doing a ton of redundant computation later

@@ -27,7 +27,7 @@ from nps_active_space.setup.site_writer import (
     deployment_sit_name,
     sit_file_path,
 )
-from nps_active_space.utils.computation import NMSIM_bbox_utm
+from nps_active_space.utils.computation import NMSIM_bbox_utm, coords_to_utm
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
@@ -328,8 +328,9 @@ def query_tracks(engine: 'Engine', start_date: str, end_date: str,
         if mask.crs.to_epsg() != 4326:  # If mask is not already in WGS84, project it.
             mask = mask.to_crs(epsg='4326')
         if mask_buffer_distance:
-            ak_albers_mask = mask.to_crs(epsg=3338)
-            mask.geometry = ak_albers_mask.buffer(
+            centroid = mask.to_crs(epsg=4326).union_all().centroid
+            equal_area_crs = coords_to_utm(centroid.y, centroid.x)
+            mask.geometry = mask.to_crs(equal_area_crs).buffer(
                 mask_buffer_distance).to_crs(epsg=4326)
         # Spatial filter uses internally-generated WKT from the mask geometry,
         # not external user input, so literal interpolation is acceptable here.
@@ -384,8 +385,9 @@ def query_adsb(adsb_path: str,  start_date: str, end_date: str,
         # if not mask.crs.to_epsg() == 4326:  # If mask is not already in WGS84, project it.
         #     mask = mask.to_crs(epsg='4326')
         if mask_buffer_distance:
-            ak_albers_mask = mask.to_crs(epsg=3338)
-            mask.geometry = ak_albers_mask.buffer(
+            centroid = mask.to_crs(epsg=4326).union_all().centroid
+            equal_area_crs = coords_to_utm(centroid.y, centroid.x)
+            mask.geometry = mask.to_crs(equal_area_crs).buffer(
                 mask_buffer_distance).to_crs(epsg=4326)
         mask = mask.to_crs("epsg:4326")
 
