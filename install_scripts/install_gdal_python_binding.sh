@@ -10,7 +10,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Keep in sync with pyproject.toml [project.dependencies] numpy pin.
 NUMPY_VERSION="2.3.1"
 
-EXTRAS="dev"
+EXTRAS="dev,aam"
 SKIP_EDITABLE=false
 NO_VENV_CHECK=false
 SET_INCLUDE_PATHS=false
@@ -23,7 +23,7 @@ Build and pip-install GDAL==$(gdal-config --version) (PyPI has no Linux/macOS wh
 then pip install -e ".[<extras>]" from the repo root.
 
 Options:
-  --extras EXTRAS       Optional dependency group(s), comma-separated (default: dev)
+  --extras EXTRAS       Optional dependency group(s), comma-separated (default: dev,aam)
   --gdal-only           Skip editable install of NPS-ActiveSpace
   --no-venv-check       Allow running without VIRTUAL_ENV (e.g. GitHub Actions)
   --set-include-paths   Export C/C++ include paths for Debian-style /usr/include/gdal

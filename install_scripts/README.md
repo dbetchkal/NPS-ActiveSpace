@@ -4,4 +4,4 @@ Dev-environment bootstrap at the repo root. These are **not** the scientific wor
 
 | Script | Purpose |
 |--------|---------|
-| [`install_gdal_python_binding.sh`](install_gdal_python_binding.sh) | macOS/Linux: build PyPI `GDAL` against system `libgdal`, then `pip install -e ".[…]"` |
+| [`install_gdal_python_binding.sh`](install_gdal_python_binding.sh) | macOS/Linux: build PyPI `GDAL` against system `libgdal`, then `pip install -e ".[dev,aam]"` (recommended) |

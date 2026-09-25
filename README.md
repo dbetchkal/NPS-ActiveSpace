@@ -58,9 +58,10 @@ python -m venv .venv
 python -m pip install --upgrade pip
 ```
 
-Install required Python packages
+Install required Python packages (recommended dev install includes AAM deps and pytest):
+
 ```bat
-pip install -e ".[dev]"
+pip install -e ".[dev,aam]"
 ```
 
 > **Ground-truthing GUI:** `run_ground_truthing.py` uses tkinter. Include "tcl/tk and IDLE" when installing from [python.org](https://www.python.org/downloads/). Verify with `python -c "import tkinter; print('ok')"`.
@@ -73,25 +74,29 @@ Install [GDAL](https://gdal.org/en/stable/) as a system library first
 # macOS (Homebrew)
 brew install gdal
 
-# Linux (Debian/Ubuntu) — libgdal-dev for GDAL headers; python3.12-dev + build-essential
-# to compile the PyPI GDAL bindings (there are no Linux wheels on PyPI).
+# Linux (Debian/Ubuntu) — GDAL headers + compiler + Python headers for PyPI GDAL build
 sudo apt-get install gdal-bin libgdal-dev python3.12-dev build-essential
+
+# Linux (Fedora)
+sudo dnf install gdal gdal-devel python3-devel gcc-c++
+
+# Linux (RHEL / CentOS Stream) — enable CodeReady Builder (CRB) if gcc-c++ is unavailable
+sudo dnf install gdal gdal-devel python3.12-devel gcc-c++
 ```
 
 > **Ground-truthing GUI:** also install tkinter — macOS: `brew install python-tk@3.12` · Linux: `sudo apt-get install python3.12-tk`
 
-Create a virtual environment, then run the GDAL bootstrap script from the repo root (PyPI builds GDAL from source on macOS/Linux; it must match the system library from `gdal-config`). You may see setuptools **license metadata warnings** from GDAL’s own `pyproject.toml` during the build — those are packaging deprecations, not a failed license check.
+Create a virtual environment, then run the GDAL bootstrap script from the repo root.
 
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-./install_scripts/install_gdal_python_binding.sh
-# For --model aam: ./install_scripts/install_gdal_python_binding.sh --extras dev,aam
+./install_scripts/install_gdal_python_binding.sh --extras dev,aam
 ```
 
-If the compiler cannot find GDAL headers (e.g. `cpl_port.h`), re-run with `--set-include-paths` or set `CPLUS_INCLUDE_PATH` / `C_INCLUDE_PATH` to `/usr/include/gdal` (see `install_scripts/install_gdal_python_binding.sh --help`).
+Use `--extras dev` instead if you only need NMSim propagation (no `--model aam`).
 
-Fedora/RHEL: install `gdal-devel`, `python3-devel`, and `gcc-c++`, then use the same script once `gdal-config` is on your `PATH`.
+If the compiler cannot find GDAL headers (e.g. `cpl_port.h`), re-run with `--set-include-paths` or set `CPLUS_INCLUDE_PATH` / `C_INCLUDE_PATH` to `/usr/include/gdal` (see `install_scripts/install_gdal_python_binding.sh --help`).
 
 **Note: Using without a clone:** you can install directly from GitHub with `pip install "NPS-ActiveSpace @ git+https://github.com/dbetchkal/NPS-ActiveSpace.git"` (on macOS/Linux, complete the GDAL steps above first). Config files go in the installed package's `config/` directory — find it with `python -c "import nps_active_space, os; print(os.path.join(nps_active_space.ACTIVE_SPACE_DIR, 'config'))"`. Run scripts using `python -m ...` from outside the repo so Python uses the installed package, not a local checkout.
 
