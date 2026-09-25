@@ -73,28 +73,25 @@ Install [GDAL](https://gdal.org/en/stable/) as a system library first
 # macOS (Homebrew)
 brew install gdal
 
-# Linux (Debian/Ubuntu)
-sudo apt-get install gdal-bin libgdal-dev
+# Linux (Debian/Ubuntu) — libgdal-dev for GDAL headers; python3.12-dev + build-essential
+# to compile the PyPI GDAL bindings (there are no Linux wheels on PyPI).
+sudo apt-get install gdal-bin libgdal-dev python3.12-dev build-essential
 ```
 
 > **Ground-truthing GUI:** also install tkinter — macOS: `brew install python-tk@3.12` · Linux: `sudo apt-get install python3.12-tk`
 
-Create virtual environment with updated `pip`
+Create a virtual environment, then run the GDAL bootstrap script from the repo root (PyPI builds GDAL from source on macOS/Linux; it must match the system library from `gdal-config`). You may see setuptools **license metadata warnings** from GDAL’s own `pyproject.toml` during the build — those are packaging deprecations, not a failed license check.
+
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip wheel
-pip install "setuptools<84"
+./install_scripts/install_gdal_python_binding.sh
+# For --model aam: ./install_scripts/install_gdal_python_binding.sh --extras dev,aam
 ```
 
-Install required Python packages (including appropriate GDAL Python binding)
+If the compiler cannot find GDAL headers (e.g. `cpl_port.h`), re-run with `--set-include-paths` or set `CPLUS_INCLUDE_PATH` / `C_INCLUDE_PATH` to `/usr/include/gdal` (see `install_scripts/install_gdal_python_binding.sh --help`).
 
-```bash
-GDAL_VERSION=$(gdal-config --version)
-pip install "GDAL==${GDAL_VERSION}"
-pip install -e ".[dev]"
-# For --model aam: pip install -e ".[dev,aam]"
-```
+Fedora/RHEL: install `gdal-devel`, `python3-devel`, and `gcc-c++`, then use the same script once `gdal-config` is on your `PATH`.
 
 **Note: Using without a clone:** you can install directly from GitHub with `pip install "NPS-ActiveSpace @ git+https://github.com/dbetchkal/NPS-ActiveSpace.git"` (on macOS/Linux, complete the GDAL steps above first). Config files go in the installed package's `config/` directory — find it with `python -c "import nps_active_space, os; print(os.path.join(nps_active_space.ACTIVE_SPACE_DIR, 'config'))"`. Run scripts using `python -m ...` from outside the repo so Python uses the installed package, not a local checkout.
 

@@ -6,7 +6,7 @@ If you're interested in making a larger-scale change, please consider creating a
 
 ## Setup
 
-Install as described in the [README](README.md#installation). Use `pip install -e ".[dev]"` to include test tools.
+Install as described in the [README](README.md#installation). On macOS/Linux, after system GDAL and a venv, run `./install_scripts/install_gdal_python_binding.sh` (includes `pip install -e ".[dev]"`). On Windows, `pip install -e ".[dev]"` after creating a venv.
 
 ## Workflow
 
