@@ -50,23 +50,23 @@ def study_area_utm_crs(study_area: gpd.GeoDataFrame) -> str:
     """
     Return the UTM EPSG code for a study area's project coordinate system.
 
-    Uses the westernmost corner of the study-area bounding box in NAD83 (EPSG:4269),
-    matching the NMSim project convention for aligning elevation and site files.
-    The same CRS is used for AAM active-space runs so meshes, GDAL DEM sampling,
-    and ``project_setup`` elevation artifacts share one zone per deployment.
+    Uses the westernmost corner of the study-area bounding box in WGS84 (EPSG:4326),
+    matching GDAL and elevation workflows that sample in WGS84 UTM. The same CRS is
+    used for NMSim and AAM active-space runs so meshes, DEM sampling, and
+    ``project_setup`` elevation artifacts share one zone per deployment.
 
     Parameters
     ----------
     study_area : gpd.GeoDataFrame
-        Study area polygon(s). Reprojected to NAD83 when needed.
+        Study area polygon(s). Reprojected to WGS84 when needed.
 
     Returns
     -------
     str
-        UTM zone projection name (e.g. ``epsg:32605`` for UTM 5N) that aligns with the westernmost extent of a study area.
+        UTM zone projection name (e.g. ``epsg:32605`` for UTM zone 5N, WGS84) that aligns with the westernmost extent of a study area.
     """
-    if study_area.crs.to_epsg() != 4269:
-        study_area = study_area.to_crs(epsg='4269')
+    if study_area.crs.to_epsg() != 4326:
+        study_area = study_area.to_crs(epsg='4326')
     study_area_bbox = study_area.geometry.iloc[0].bounds  # (minx, miny, maxx, maxy)
     lat = study_area_bbox[3]  # maxy
     lon = study_area_bbox[0]  # minx
@@ -91,7 +91,7 @@ def coords_to_utm(lat: float, lon: float) -> tuple[str, int]:
     Returns
     -------
     utm_proj : str
-        UTM zone projection name (e.g.  'epsg:32605' for UTM 5N)
+        UTM zone projection name (e.g. ``epsg:32605`` for WGS84 UTM zone 5N)
     utm_zone : int
         UTM zone number (1--60)
 
@@ -102,7 +102,7 @@ def coords_to_utm(lat: float, lon: float) -> tuple[str, int]:
     # 6 degrees per zone; add 180 because zone 1 starts at 180 W.
     utm_zone = int((lon + 180) // 6 + 1)
 
-    # 326 = northern hemisphere, 327 = southern hemisphere
+    # 326 = WGS84 northern hemisphere UTM, 327 = WGS84 southern hemisphere UTM
     utm_proj = 'epsg:326{:02d}'.format(utm_zone) if lat > 0 else 'epsg:327{:02d}'.format(utm_zone)
     return utm_proj, utm_zone
 
