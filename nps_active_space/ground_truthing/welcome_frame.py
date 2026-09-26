@@ -1,9 +1,9 @@
 import tkinter as tk
 from PIL import Image, ImageTk
 
-from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.ground_truthing.frame_base import _AppFrame
 from nps_active_space.ground_truthing.annotation_frames import _AnnotationLoadFrame
+from nps_active_space.ground_truthing.window_icon import nps_logo_paths
 
 
 class _WelcomeFrame(_AppFrame):
@@ -33,12 +33,14 @@ class _WelcomeFrame(_AppFrame):
             bg='ivory2',
             command=lambda: self.master.switch_frame(_AnnotationLoadFrame)
         )
-        im = Image.open(f"{ACTIVE_SPACE_DIR}/img/flat-four-color.png").resize((138, 181))
-        nps_logo = ImageTk.PhotoImage(im)
-        label = tk.Label(self, image=nps_logo, bg='ivory2')
-        label.image = nps_logo  # NOTE: This re-definition is required for windows machines.
+        png_path, _ = nps_logo_paths()
+        if png_path.is_file():
+            im = Image.open(png_path).resize((138, 181))
+            nps_logo = ImageTk.PhotoImage(im)
+            label = tk.Label(self, image=nps_logo, bg='ivory2')
+            label.image = nps_logo  # NOTE: This re-definition is required for windows machines.
+            label.place(relx=0.5, rely=0.3, anchor='center')
 
         # Place widgets.
-        label.place(relx=0.5, rely=0.3, anchor='center')
         frame_label.place(relx=0.5, rely=0.55, anchor='center')
         continue_button.place(relx=0.9, rely=0.9, anchor='center')
