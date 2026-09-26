@@ -108,7 +108,7 @@ class TestSplitBelowAamTerrain:
 
     def test_at_surface_is_lifted_not_filtered(
         self,
-        terrain,
+        ridge_terrain,
         center_utm: tuple[float, float, float],
     ) -> None:
         x_m, y_m, _ = center_utm
@@ -117,13 +117,13 @@ class TestSplitBelowAamTerrain:
             geometry=[Point(x_m, y_m, 0.0)],
             crs="EPSG:26906",
         )
-        surface_m = float(_terrain_surface_elevation_m(probe, terrain)[0])
+        surface_m = float(_terrain_surface_elevation_m(probe, ridge_terrain)[0])
         source_pts = gpd.GeoDataFrame(
             {"id": [0]},
             geometry=[Point(x_m, y_m, surface_m)],
             crs="EPSG:26906",
         )
-        above, below = split_below_aam_terrain(terrain, source_pts)
+        above, below = split_below_aam_terrain(ridge_terrain, source_pts)
         assert len(above) == 1
         assert len(below) == 0
         assert above.geometry.iloc[0].z == pytest.approx(

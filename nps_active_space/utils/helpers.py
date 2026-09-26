@@ -313,7 +313,7 @@ def create_overflights_engine(db: dict[str, str]) -> "Engine":
     """SQLAlchemy engine for the overflights PostgreSQL database."""
     return sqlalchemy.create_engine(
         URL.create(
-            drivername="postgresql",
+            drivername="postgresql+psycopg2",
             username=db["username"],
             password=db["password"],
             host=db["host"],

@@ -16,7 +16,26 @@ RUN = REPO / "docker" / "run_activespace.sh"
 
 
 def _docker_available() -> bool:
-    return shutil.which("docker") is not None
+    if shutil.which("docker") is None:
+        return False
+    probe = subprocess.run(
+        ["docker", "info"],
+        capture_output=True,
+        timeout=30,
+    )
+    return probe.returncode == 0
+
+
+def _vendor_runtime_ready(model: str, vendor_root: Path) -> bool:
+    if model == "nmsim":
+        runtime = vendor_root / "vendor" / "nmsim-runtime"
+        return (
+            (runtime / "Nord2000batch.exe").is_file()
+            and (runtime / "RND" / "directories.ini").is_file()
+        )
+    runtime = vendor_root / "vendor" / "aam-runtime"
+    aam_exe = os.environ.get("AAM_EXE", "AAM_3.0.0.exe")
+    return (runtime / aam_exe).is_file() and (runtime / "NCfiles").is_dir()
 
 
 @pytest.mark.integration
@@ -26,6 +45,11 @@ def test_sea_level_sources_in_docker(model: str) -> None:
         pytest.skip("docker not available")
     if not (REPO / VALIDATE).is_file() or not RUN.is_file():
         pytest.skip("docker validate script missing")
+    if not _vendor_runtime_ready(model, VENDOR_ROOT):
+        pytest.skip(
+            f"vendor {model} runtime not staged under {VENDOR_ROOT / 'vendor'} "
+            "(see docker/README.md)"
+        )
 
     env = os.environ.copy()
     env.setdefault("NMSIM_RUNTIME", str(VENDOR_ROOT / "vendor" / "nmsim-runtime"))

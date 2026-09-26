@@ -30,4 +30,4 @@ jobs:
         run: ./install_scripts/install_gdal_python_binding.sh --no-venv-check
 
       - name: Run tests
-        run: pytest tests/ -v
+        run: pytest tests/ -v -m "not integration"
