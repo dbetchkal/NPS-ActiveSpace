@@ -9,11 +9,11 @@ import tkinter as tk
 from rasterio.io import DatasetReader
 from tkinter import messagebox
 
-from nps_active_space import ACTIVE_SPACE_DIR
 from nps_active_space.utils.enums import TrackSource
 from nps_active_space.utils.models import Annotations
 from nps_active_space.ground_truthing.frame_base import _AppFrame
 from nps_active_space.ground_truthing.welcome_frame import _WelcomeFrame
+from nps_active_space.ground_truthing.window_icon import apply_window_icon
 
 if TYPE_CHECKING:
     from nps_active_space.utils.models import Microphone, Nvspl, Tracks
@@ -110,7 +110,7 @@ class _App(tk.Tk):
 
         # Set app features.
         self.title('NPS Active Space: Ground Truthing Module')
-        self.iconbitmap(f"{ACTIVE_SPACE_DIR}/img/flat-four-color.ico")
+        apply_window_icon(self)
         self.geometry('1200x600')
 
         # Create app menu.

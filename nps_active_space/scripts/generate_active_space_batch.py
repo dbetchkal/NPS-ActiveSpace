@@ -177,6 +177,11 @@ if __name__ == "__main__":
                                         "whitespace, then followed by the options for the generate_active_space.py script."
                                         "An example line is this: DENATRLA2025  -e DENA_streamline -u DENA -s TRLA -y 2025 --cleanup")
     argparse.add_argument("-o", "--output", help="Path to output .csv file")
+    argparse.add_argument(
+        "--force",
+        action="store_true",
+        help="Rerun all commands even if their layer geojson outputs already exist.",
+    )
     # argparse.add_argument("-s", "--savedir", help="Parent directory to copy the output files to. Output files are the active spaces,"
     #                                               "the annotations used, and the precision-recall plot. A subdirectory named with"
     #                                               "the designator will contain the files.")
@@ -209,18 +214,21 @@ if __name__ == "__main__":
 
         layout, altitude_m = resolve_layer_layout(options)
         cmd_args = parse_layer_command_options(options)
-        if layout.has_layer_outputs(
-            altitude_m,
-            cmd_args.omni_min,
-            cmd_args.omni_max,
-            cmd_args.omni_step,
+        if (
+            not args.force
+            and layout.has_layer_outputs(
+                altitude_m,
+                cmd_args.omni_min,
+                cmd_args.omni_max,
+                cmd_args.omni_step,
+            )
         ):
             print(
                 f"Skipping {designator} ({layout.model}): all omni "
                 f"{cmd_args.omni_min:g}-{cmd_args.omni_max:g} dB "
                 f"(step {cmd_args.omni_step:g} dB) active-space geojson "
                 f"already in {display_path(layout.layer_dir(altitude_m))} "
-                "(delete that directory to force rerun)."
+                "(delete that directory or pass --force to rerun)."
             )
             continue
 

@@ -12,5 +12,12 @@ class TestCreateOverflightsEngine:
                 "name": "overflights",
             }
         )
+        assert engine.url.drivername == "postgresql+psycopg2"
+        assert engine.url.username == "user@domain"
+        assert engine.url.password == "p@ssword"
+        assert engine.url.host == "10.0.0.1"
+        assert engine.url.port == 5432
+        assert engine.url.database == "overflights"
         url = engine.url.render_as_string(hide_password=False)
-        assert url == "postgresql://user%40domain:p%40ssword@10.0.0.1:5432/overflights"
+        assert "user%40domain" in url
+        assert "p%40ssword" in url
