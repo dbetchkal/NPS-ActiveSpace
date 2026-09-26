@@ -556,7 +556,14 @@ def get_omni_sources(lower: float, upper: float) -> List[str]:
     assert upper % .5 == 0, "Invalid upper limit. Value must be divisible by 0.5."
     assert lower % .5 == 0, "Invalid lower limit. Value must be divisible by 0.5."
 
-    omni_source_dir = os.path.join(ACTIVE_SPACE_DIR, "data", "tuning")
+    _TUNING_DIR = (
+        Path(__file__).resolve().parents[1]
+        / "propagation_model"
+        / "nmsim"
+        / "data"
+        / "tuning"
+    )
+    omni_source_dir = str(_TUNING_DIR)
     omni_sources = []
 
     for i in range(int(lower*10), int(upper*10+5), 5):
