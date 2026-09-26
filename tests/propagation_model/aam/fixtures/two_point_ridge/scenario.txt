@@ -1,0 +1,162 @@
+REM Tier 4 COMPUTEPOI 2 source snapshots (matched O_+200.avg; hop 5833 kn / 1.0s)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+COMPUTEPOI                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+DIAGNOSTICS                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
+TERRAIN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+scenario.elv                                                                                                                                                                                                                                                    
+scenario.imp                                                                                                                                                                                                                                                    
+SETUP PARA                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+     300.0000000000000000     300.0000000000000000      0.0000000
+         0.0000         0.0000         4.9000
+     30000.0000     16500.0000
+        40.0000     60000.0000       200.0000         0.0000
+FLATO
+    1
+      0.0000000      0.0000000      0.0000000
+    0
+    0
+ONE TRACK                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
+Reciprocal two-point (west, east)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+      2.0000000
+     10008.2600      11114.0000       1327.6000          0.0000          0.0000       5833.2998          0.0000          0.0000          0.0000         90.0000
+     19849.4500      11402.8200       1327.6000          0.0000          0.0000       5833.2998          0.0000          0.0000          0.0000         90.0000
+POI                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
+  1
+ Receiver        15102.12     5353.70    4.92
+END                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
+                    ***** ADVANCED ACOUSTIC MODEL *****
+                      Version 3.0.0  Dec. 2020  Volpe     
+                            SETUP PARAMETERS
+     Number of tracks = 1
+     Lower Left  Corner of Grid in feet (X Y pair) =        0.,        0.
+     Upper Right Corner of Grid in feet (X Y pair) =    30000.,    16500.
+     Airport Reference point (MSL) =    0. feet
+     Elevation of grid relative to ground level = 4.90 feet
+     Grid spacing in X =      300. feet 
+     Grid spacing in Y =      300. feet 
+     Grid Size (iX,iY) =    0     0
+     Threshold cutoff level =   40.0 dB
+     Cutoff distance =    60000. feet
+     Flow resistance factor =      200.
+     Vehicle ID =flato
+
+
+                           TRACK SPECIFICATIONS
+      Track Name ==>RECIPROCAL TWO-POINT
+                                               Turn     Turn                                             Nacelle
+          X           Y            Z          Angle    Radius     Speed      Yaw      Attack     Roll     Angle
+        (feet)      (feet)       (feet)     (degree)   (feet)    (knots)   (degree)  (degree)  (degree)  (degree)
+         10008.26    11114.00     1327.60       0.0        0.     5833.        0.        0.        0.       90.
+         19849.45    11402.82     1327.60       0.0        0.     5833.        0.        0.        0.       90.
+
+
+
+
+                       POINTS OF INTEREST
+     Number of Points of Interest =    1
+     Name                X            Y            Z
+                     (feet)       (feet)       (feet)
+     Receiver        15102.        5354.           5.
+ 
+
+ Input file= scenario.inp                                                                                                                                                                                                                                                    
+ Elevation file= scenario.elv                                                                                                                                                                                                                                                    
+ Impedance file= scenario.imp                                                                                                                                                                                                                                                    
+ Terrain Information
+ Title= AAM elevation grid                                                      
+                                                                             
+                                                     
+ UTM Zone=    0
+ LowerLeft =           0.00           0.00
+ Spacing =          98.43          98.43
+ Grid Size =  305  169
+ UpperRight =       30019.69       16633.86
+ ELV file (X,Y) in FEET
+ Terrain Values: LL, UR=  1.5414283E-43  9.5804349E-23
+ 
+ Impedance Information
+ Title= AAM impedance grid                                                      
+                                                                             
+                                                     
+ UTM Zone=    0
+ LowerLeft =           0.00           0.00
+ Spacing =          98.43          98.43
+ Grid Size =  305  169
+ UpperRight =       30019.69       16633.86
+ IMP file (X,Y) in FEET
+ Impedance Values: LL, UR=   200.0000       200.0000    
+ 
+NCFiles Environment Path ROTOR_NOISE
+Z:\work\NCfiles\                                                                                                                                                                                                                                                
+
+
+                          NETCDF FILES (UNSORTED)
+       Number    Rotor-   Sequence  Flight-    Pylon     Speed     Effective
+                  craft    Number    Path-     Angle    (Knots)     Weight  
+                  Type               Angle   (Degrees)             (pounds) 
+                                   (Degrees)
+          1       flato     200        0.0      90.0        0.       5000.
+
+
+     NETCDF FILES (SORTED)     Path to .NC Z:\work\NCfiles\
+     Number  Rotor Run     Flight Nacl  Effective  Speed Climb  Broad Narr Pure Cent  Cent  Cent  Doppler 
+             craft Number  Path   Tilt   Weight    Knots Rate   Band  Band Tone X     Y     Z     State   
+             Type          Angle  Angle  (lbs)           ft/min                 ft    ft    ft    F=Moving
+                           Deg.   Deg.                                                            T=Stat. 
+       1    flato   200     0.00   90.0   5000.     0.0     0.0    1    0    0   0.0   0.0   0.0  F
+ 
+
+
+                         FLIGHT TRACK AND OPERATIONAL PARAMETERS
+
+     Track Profile Name >RECIPROCAL TWO-POINT (WEST, EAST                                                                    
+                                                                                                  Nacelle   Cumulative
+     T              X              Y               Z       Speed      Yaw      Attack     Roll     Angle     Distance
+    (sec)         (feet)         (feet)         (ft MSL)  (knots)   (degree)  (degree)  (degree)  (degree)    (feet)
+     0.000        10008.3        11114.0      1327.6     *****        0.        0.        0.       90.        0.
+     1.000        19849.5        11402.8      1327.6     *****        0.        0.        0.       90.     9845.
+
+
+
+
+ Interpolated Track for analysis.    2 points   Note: beta(0=E,90=N) head(0=N,90=E)
+          time           Xft           Yft         Z-MSL           ang           rad           spd           yaw        attack          roll          nacl          beta         gamma      EulCalc         QSAM           vX           vY           vZ           aX           aY           aZ     gammadot
+        0.0000     10008.260     11114.000      1327.600         0.000         0.000      5833.300         0.000         0.000         0.000        90.000         1.681         0.000           0          0.00       0.0000       0.0000       0.0000       0.0000       0.0000       0.0000       0.0000
+        1.0000     19849.450     11402.820      1327.600         0.000         0.000      5833.300         0.000         0.000         0.000        90.000         1.681         0.000           0          0.00       0.0000       0.0000       0.0000       0.0000       0.0000       0.0000       0.0000
+ 
+ Track ID=RECIPROCAL TWO-POINT (WEST, EAST                  
+  MSL (ft) Track for analysis            2  points
+        time           Xft           Yft         Z-MSL           ang           rad           spd           yaw        attack          roll         power       tvector          beta         gamma       EulCalc          QSAM      ACconfig      hold
+      0.0000     10008.260     11114.000      1327.600         0.000         0.000      5833.300         0.000         0.000         0.000         0.000         0.000         1.681         0.000            0           0.00         00         0.00
+      1.0000     19849.450     11402.820      1327.600         0.000         0.000      5833.300         0.000         0.000         0.000         0.000         0.000         1.681         0.000            0           0.00         00         0.00
+
+
+                                    TIME HISTORIES OF THE NOISE LEVELS AT THE OBSERVER POSITION
+                             FOR POINTS OF INTEREST >Receiver       FOR OPERATION >RECIPROCAL TWO-POINT (WEST, EAST                            
+                             OBSERVER     1    (    15102.1,    5353.7,       4.9 )
+
+              Observer            Overall           C-Weighted           A-Weighted        Perceived Noise      Tone-Corrected          Free-Field
+                Time                SPL                 SPL                  SPL             Level (PNL)          Level (PNLT)              SPL
+               (sec)               (dB)               (dB(C))              (dB(A))             (PNdB)               (PNdB)                 (dB)
+                6.99               73.98               70.86                59.13               69.07                72.40                69.94
+                7.99               48.56               42.08                17.38               12.13                15.46                69.94
+
+
+
+
+
+                                        POINT OF INTEREST RESULTS
+     NAME      X         Y         Z       LmaxA      LmaxC     Lmax      SEL       SEL       SEL      EPNL      PNLMX
+            (feet)    (feet)    (feet)     (dBA)      (dBC)     (dB)     (dBA)     (dBC)   (Overall)   (dB)      (dB)
+Receiver     15102.     5354.        5.     59.1      70.9      74.0      56.1      67.9      71.0      59.4      72.4
+
+
+     NETCDF FILES USED IN THE CALCULATIONS
+     Number Filename      Flight-   Pylon     Speed     Effective
+                          Path-     Angle    (Knots)     Weight
+                          Angle    (Degrees)             (lbs)
+                         (Degrees)
+     1       flato200      0.0      90.00         0.0     5000.
+
+
+     Start Date 22-08-2026     Start Time 00:52:22.29
+     Stop Date  22-08-2026     Stop Time  00:52:22.82

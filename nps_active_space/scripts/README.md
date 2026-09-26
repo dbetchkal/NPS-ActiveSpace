@@ -66,8 +66,8 @@ Make sure the data you want to visualize exist beforehand. The script won't look
 
 1. Follow installation and data setup steps [here](https://github.com/dbetchkal/NPS-ActiveSpace/tree/v3_docs?tab=readme-ov-file#installation).
 2. Use `run_ground_truthing.py` to annotate audible track segments.
-3. Use `generate_active_space.py` to generate candidates for a single active space layer at a fixed altitude, and also fit the optimal gain.
-4. We can make use of the 3D code to process a 2D active space, since a 2D active space is equivalent to a 3D one with a single layer. Make sure only a single layer of active spaces has been generated (check `../NMSIM_project_dir/Output_Data/ACTIVESPACES`). Then use `fit_3d_active_space.py` to fit the gain in a way the rest of the 3D code expects (storing it in the `fits.csv` file in the project directory). Then follow steps 5-6 of the typical 3D active space workflow.
+3. Use `generate_active_space.py` to generate omni geojson for a single altitude layer (per-layer precision–recall plots on disk; does **not** write project `fits.csv`).
+4. We can make use of the 3D code to process a 2D active space, since a 2D active space is equivalent to a 3D one with a single layer. Make sure only a single layer of active spaces has been generated (check `Output_Data/{nmsim|aam}/ACTIVESPACES/` under the site project). Then use `fit_3d_active_space.py` to fit the optimal 3D gain into `{project_dir}/fits.csv`. Then follow steps 5-6 of the typical 3D active space workflow.
 
 ```mermaid
 graph LR
@@ -97,6 +97,12 @@ check_study_duration_robustness.py
 ## Batch Generation
 
 If you want to generate many active spaces at the same time, you can leverage the batch script to do so. This is useful for running it overnight or while you do other work.
+
+Each batch line runs `generate_active_space.py` with a temporary `--results-out` JSON file. On success, metrics are upserted into the batch **output CSV** you pass to `-o` (key **designator + model**); failed runs are skipped (no CSV row). That file is a per-layer run log—not `{project_dir}/fits.csv`.
+
+**Project `fits.csv`:** only `fit_3d_active_space.py` writes `{project_dir}/fits.csv` (one fitted 3D gain row per deployment + `--model`). `viz.py` and `get_geographic_metrics.py` read that file for default gain when you omit `-g`.
+
+**Resume / skip:** a layer is skipped only when its **model-scoped** `Output_Data/{nmsim|aam}/ACTIVESPACES/{deployment}_{alt}m/` folder already contains `*_O_*.geojson` files. The batch CSV is **not** used to skip layers — so an NMSim batch run does not block a later AAM run for the same altitude. Delete the layer directory to force regeneration.
 
 ### Batch 3D Active Space
 
@@ -350,9 +356,11 @@ $ python -u -W ignore nps_active_space/scripts/plot_altitudes.py -e production -
 
 ### Generate 3D Active Space
 
-This script is used to predict active space scope in 3-dimensions. At present it represent the preferred, **primary use case** for the software. Fundamentally this script creates a `_commands.txt` file for [batch generation](#batch-generation). Omitting the `--only-prep` flag allows a user to choose to immediately run the command file for the indicated deployment. Otherwise, if `--only-prep` is included, the script saves the deployment's command file to disk for manual aggregation into a multi-deployment batch command file.
+This script is used to predict active space scope in 3-dimensions. At present it represent the preferred, **primary use case** for the software. Fundamentally this script creates a `_commands.txt` file for [batch generation](#batch-generation). Each line invokes `generate_active_space.py` (include `--model aam` on every line when fitting AAM layers). Omitting the `--only-prep` flag allows a user to choose to immediately run the command file for the indicated deployment. With `--only-prep`, the command file is saved for manual aggregation into a multi-deployment [batch](#batch-generation).
 
 *NOTE: for single-deployment scenarios omitting the `--only-prep` flag, this script proceeds to run the `generate_active_space_batch.py` and `fit_3d_active_space.py` scripts.*
+
+When `-a nvspl`, ambience is precomputed once and saved under `Output_Data/AMBIENCE/` as a `.pkl` referenced in the commands file.
 
 | command-line arg        | description                                                                                                                                      |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -361,6 +369,7 @@ This script is used to predict active space scope in 3-dimensions. At present it
 | `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
 | `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                          |
 | `-a`, `--ambience`      | **_default nvspl -> {nvspl, mennitt, or .pkl file path}_**<br/>The ambience type to use when running NMSIM.                                      |
+| `--model`               | `nmsim` (default) or `aam`. Written into each `generate_active_space.py` line in the commands file. |
 | `--min-altitude`        | **required.**<br/>Minimum layer altitude (meters) for 3D active space. Should be a multiple of 300 meters.                                       |
 | `--max-altitude`        | **required.**<br/>Maximum layer altitude (meters) for 3D active space. Should be a multiple of 300 meters.                                       |
 | `--only-prep`           | Stop after creating the command file. Use if you want to combine several command files to run as a [batch](#batch-generation).                   |                                     
@@ -386,6 +395,10 @@ This script is used to predict active space scope in 2-dimensions.
 
 *NOTE: the Precision-Recall plot that is shown at the end of a run is automatically saved.*
 
+#### Prerequisites
+
+Run [`project_setup.py`](#project-setup) for each deployment before generating active spaces.
+
 | command-line arg        | description                                                                                                                                                                                                                                                             |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-e`, `--environment`   | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                                                                                                                                           |
@@ -393,13 +406,16 @@ This script is used to predict active space scope in 2-dimensions.
 | `-s`, `--site`          | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                                                                                                                                        |
 | `-y`, `--year`          | **required.**<br/>The deployment year, YYYY. _Ex_: 2018                                                                                                                                                                                                                 |
 | `-a`, `--ambience`      | **_default nvspl -> {nvspl, mennitt, or .pkl file path}_**<br/>The ambience type to use when running NMSIM.                                                                                                                                                             |
+| `--model`               | `nmsim` (default) or `aam`. Output under `Output_Data/{model}/`. Mac/Linux: Docker ([docker/README.md](../../docker/README.md)); AAM adds `-m aam` on `run_activespace.sh`. Shims: [container_example.config](../config/container_example.config). |
 | `--headings`            | **_default [0, 120, 240]_**<br/>A list of the active space headings that should be dissolved together to make the final active space. _Ex_: `--headings 0, 90, 180, 270`                                                                                                |
-| `--omni-min`            | **_default -10.0_**<br/>The lowest gain to generate an active space for. Active spaces will be generated for all gains between `--omni-min` and `--omni-max`.                                                                                                           |
-| `--omni-max`            | **_default 40.0_**<br/>The highest gain to generate an active space for. Active spaces will be generated for all gains between `--omni-min` and `--omni-max`.                                                                                                           |
+| `--omni-min`            | **_default -10.0_**<br/>The lowest gain to generate an active space for.                                                                                                           |
+| `--omni-max`            | **_default 40.0_**<br/>The highest gain to generate an active space for.                                                                                                           |
+| `--omni-step`           | **_default 0.5_**<br/>Spacing between omni gains in dB (multiple of 0.5). Use 5 for a coarse ladder (e.g. -10 to +40 in 11 steps). `fit_3d_active_space.py` discovers whatever gains exist on disk. |
 | `-l`, `--altitude`      | Use this flag to generate the active spaces at a particular altitude (in meters). _Ex_: `-l 1524` generates active spaces at 1524 meters or 5000 feet.<br/>If not passed, the average altitude of the valid, audible ground-truthed tracks will be calculated and used. |
 | `-b`, `--beta`          | **_default 1.0_**<br/>the beta value to use when calculating the f-beta for each active space.<br/>https://en.wikipedia.org/wiki/F-score#F%CE%B2_score)                                                                                                                 |
-| `--cleanup`             | If this flag is added, all intermediary control and batch files will be deleted upon script completion.                                                                                                                                                                 |
+| `--cleanup-nmsim-scratch`, `--cleanup` | **NMSim only.** After the run, delete scratch files (`Output_Data/nmsim/scratch/` control/batch/tis, legacy site-root control/batch, `.trj`). Does **not** remove prediction CSV caches, ACTIVESPACES geojson, or AAM `Output_Data/aam/`. No effect when `--model aam`. |
 | `--annotation-file`     | If provided, basename of GEOJSON annotations file to use instead of the default. File should be in the site directory.                                                                                                                                                  |
+| `--results-out`         | Optional path to write structured run results as JSON. Keys match the [batch output CSV columns](#generate-active-space-batch) (`Number of valid annotated segments`, `Mean altitude`, `KDE reduction (%)`, `1/3rd Octave Gain (F1)`, `F1`). Used internally by `generate_active_space_batch.py`. |
 
 Example executions:
 
@@ -409,16 +425,6 @@ $ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e produ
 
 ```bash
 $ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e production -u DENA -s TRLA -y 2017  -a mennitt --headings 0 --omni-min -5 --omni-max 10.5 -l 3658 -b .5
-```
-
-If you would like the command output to be shown in the console and saved to a text file add the following after your command:
-
-```bash
-<command> | Tee-Object -FilePath "C:\Path\To\Output.txt"
-```
-
-```bash
-$ python -u -W ignore nps_active_space/scripts/generate_active_space.py -e production -u DENA -s MOOS -y 2018 --cleanup | Tee-Object -FilePath "C:\Path\To\active_space_output_DENAMOOS2018.txt"
 ```
 
 ----
@@ -444,7 +450,7 @@ python -u -W ignore nps_active_space/scripts/generate_active_space_batch.py DENA
 
 ### Fit 3D Active Space
 
-This script finds the optimal best fit for a 3-dimensional active space. 
+This script finds the optimal best fit for a 3-dimensional active space and upserts the result into **`{project_dir}/fits.csv`** (keyed by deployment designator and `--model`). Re-run after regenerating layers or when adding an AAM row alongside NMSim.
 
 *NOTE: this script may be run independently and also works "behind the scenes" as part of [`generate_3d_active_space.py`](#generate-3d-active-space)*
 
@@ -454,6 +460,7 @@ This script finds the optimal best fit for a 3-dimensional active space.
 | `-u`, `--unit`             | **required.**<br/>The 4 letter NPS unit code. _Ex_: Denali = DENA                                                                                |
 | `-s`, `--site`             | **required.**<br/>The 4 letter site code. _Ex_: Cathedral = CATH                                                                                 |
 | `-y`, `--year`             | **required.**<br/>Which year's active space to use, YYYY. _Ex_: 2018                                                                             |
+| `--model`                  | `nmsim` (default) or `aam`. Reads `Output_Data/{model}/`. |
 
 Example execution:
 
@@ -570,7 +577,7 @@ This script is used to visualize select geospatial objects relevant to the `nps_
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `deployment` (no flag)     | **required.**<br/>The deployment name, e.g., DENACATH2018                                                                                        |
 | `-e`, `--environment`      | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                    |
-| `-g`, `--gain`             | Active space gain, if not the optimal default found in `fits.csv`                                                                                |
+| `-g`, `--gain`             | Active space gain in dB. If omitted, `viz.py` loads the fitted value from `{project_dir}/fits.csv` for the chosen `--model`.                                                                                |
 | `-s`, `--active-space`     | If included, load and plot the active space                                                                                                      |
 | `-a`, `--annotations`      | If included, load and plot annotations                                                                                                           |
 | `-t`, `--audible-transits` | If included, load and plot audible transits                                                                                                      |
@@ -592,33 +599,6 @@ $ python -u -W ignore nps_active_space/scripts/viz.py DENATRLA2024 -e production
 ```
 
 ----
-
-### Generate Active Space Mesh
-
-NOTE: *deprecated as of v3.0.0; documentation included here for backwards compatability. This script was used to generate active space predictions over a spatial grid spanning the study area.*
-
-| command-line arg      | description                                                                                                                                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-e`, `--environment` | **required.**<br/>The configuration environment to use. _Ex_: To use `production.config` pass `-e production`                                                                   |
-| `-n`, `--name`        | **required.**<br/>Name of the directory where intermediary and output files will be stored. _Ex_: `-n DENAFULL`                                                                 |
-| `-s`, `--study-area`  | **required.**<br/>Absolute path to the shapefile of the study area. _Ex_: `-s C:/Users/yourname/Desktop/DENA.shp`                                                               |
-| `--headings`          | **_default [0, 120, 240]_**<br/>A list of the active space headings that should be dissolved together to make the final active space. _Ex_: `--headings 0, 90, 180, 270`        |
-| `--omni-source`       | **_default 0_**<br/>Gain to generate the mesh with.                                                                                                                             |
-| `--mesh-spacing`      | **_default 1_**<br/>How far apart, in km, mesh square centroids should be.                                                                                                      |
-| `--mesh-size`         | **_default 25_**<br/>How large, in km, each mesh square should be. Mesh squares will be mesh-size x mesh-size.                                                                  |
-| `-l`, `--altitude`    | **_default 3658_**<br/>Use this flag to generate the active spaces at a particular altitude (in meters). _Ex_: `-l 1524` generates active spaces at 1524 meters or 5000 feet.   |
-| `--cleanup`           | If this flag is added, all intermediary control and batch files will be deleted upon script completion.                                                                         |
-
-Example executions:
-
-```bash
-$ python -u -W ignore nps_active_space/scripts/generate_active_space_mesh.py -e production -n DENAFULL -s C:/Users/yourname/Desktop/DENA.shp --cleanup
-```
-
-```bash
-$ python -u -W ignore nps_active_space/scripts/generate_active_space_mesh.py -e production -n DENAFULL -s C:/Users/yourname/Desktop/DENA.shp --headings 0 180 --omni-source -12.5 --mesh-spacing 10 --mesh-size 20 -l 1524
-```
-
 
 # Other Notes
 

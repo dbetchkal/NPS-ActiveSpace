@@ -3,15 +3,15 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import math
+import time
+from pathlib import Path
 from typing import Iterable, TYPE_CHECKING
 
 import geopandas as gpd
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import os
 import rasterio
-from osgeo import gdal
 from scipy import interpolate
 from scipy.spatial import KDTree
 from shapely.geometry import Point
@@ -26,6 +26,10 @@ __all__ = [
     'audibility_to_interval',
     'ambience_from_nvspl',
     'ambience_from_raster',
+    'compute_ambience_from_nvspl_archive',
+    'compute_ambience_from_nvspl_files',
+    'is_usable_spectral_ambience',
+    'load_spectral_ambience_pickle',
     'audible_time_delay',
     'barometric_pressure',
     'build_src_point_mesh',
@@ -34,33 +38,35 @@ __all__ = [
     'compute_fbeta',
     'contiguous_regions',
     'coords_to_utm',
-    'create_overlapping_mesh',
     'expected_Lp',
     'interpolate_spline',
-    'NMSIM_bbox_utm',
+    'study_area_utm_crs',
     'normalize_point_density',
-    'project_raster',
     'round_points'
 ]
 
 
-def NMSIM_bbox_utm(study_area: gpd.GeoDataFrame) -> str:
+def study_area_utm_crs(study_area: gpd.GeoDataFrame) -> str:
     """
-    NMSIM references an entire project to the westernmost extent of the elevation (or landcover) file.
-    Given that, return the UTM Zone the project will eventually use. NMSIM uses NAD83 as its geographic
-    coordinate system, so the study area will be projected into NAD83 before calculating the UTM zone.
+    Return the UTM EPSG code for a study area's project coordinate system.
+
+    Uses the westernmost corner of the study-area bounding box in WGS84 (EPSG:4326),
+    matching GDAL and elevation workflows that sample in WGS84 UTM. The same CRS is
+    used for NMSim and AAM active-space runs so meshes, DEM sampling, and
+    ``project_setup`` elevation artifacts share one zone per deployment.
 
     Parameters
     ----------
     study_area : gpd.GeoDataFrame
-        A study area (Polygon) to find the UTM zone of the westernmost extent for.
+        Study area polygon(s). Reprojected to WGS84 when needed.
 
     Returns
     -------
-    UTM zone projection name (e.g.  'epsg:32605' for UTM 5N) that aligns with the westernmost extent of a study area.
+    str
+        UTM zone projection name (e.g. ``epsg:32605`` for UTM zone 5N, WGS84) that aligns with the westernmost extent of a study area.
     """
-    if study_area.crs.to_epsg() != 4269:
-        study_area = study_area.to_crs(epsg='4269')
+    if study_area.crs.to_epsg() != 4326:
+        study_area = study_area.to_crs(epsg='4326')
     study_area_bbox = study_area.geometry.iloc[0].bounds  # (minx, miny, maxx, maxy)
     lat = study_area_bbox[3]  # maxy
     lon = study_area_bbox[0]  # minx
@@ -85,7 +91,7 @@ def coords_to_utm(lat: float, lon: float) -> tuple[str, int]:
     Returns
     -------
     utm_proj : str
-        UTM zone projection name (e.g.  'epsg:32605' for UTM 5N)
+        UTM zone projection name (e.g. ``epsg:32605`` for WGS84 UTM zone 5N)
     utm_zone : int
         UTM zone number (1--60)
 
@@ -96,7 +102,7 @@ def coords_to_utm(lat: float, lon: float) -> tuple[str, int]:
     # 6 degrees per zone; add 180 because zone 1 starts at 180 W.
     utm_zone = int((lon + 180) // 6 + 1)
 
-    # 326 = northern hemisphere, 327 = southern hemisphere
+    # 326 = WGS84 northern hemisphere UTM, 327 = WGS84 southern hemisphere UTM
     utm_proj = 'epsg:326{:02d}'.format(utm_zone) if lat > 0 else 'epsg:327{:02d}'.format(utm_zone)
     return utm_proj, utm_zone
 
@@ -297,49 +303,6 @@ def build_src_point_mesh(area: gpd.GeoDataFrame, density: int = 48, altitude: in
     return gpd.GeoDataFrame(geometry=geom, crs=area.crs)
 
 
-def create_overlapping_mesh(area: gpd.GeoDataFrame, spacing: int = 1,
-                            mesh_size: int = 25) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
-    """
-    Create a mesh of polygons as close to size mesh_size x mesh_size as possible over a specific area.
-
-    Parameters
-    ----------
-    area : gpd.GeoDataFrame
-        The area to cover with the mesh. CRS should be a geographic coordinate system that uses D.d.
-    spacing : int, default 1 km
-        Distance apart receiver points should be in kilometers
-    mesh_size : int, default 25 km
-        The target size in kilometers of a mesh square (mesh_size x mesh_size)
-
-    Returns
-    -------
-    An overlapping mesh of squares that cover the requested area.
-    A GeoDataFrame of the center points used to create the mesh squares.
-    """
-    equal_area_crs,_ = coords_to_utm(area.centroid.iat[0].y, area.centroid.iat[0].x)
-    area_m = area.to_crs(equal_area_crs)
-
-    minx, miny, maxx, maxy = area_m.total_bounds
-    x = np.linspace(minx, maxx, math.ceil((maxx-minx)/(spacing*1000)))
-    y = np.linspace(miny, maxy, math.ceil((maxy-miny)/(spacing*1000)))
-    x_ind, y_ind = np.meshgrid(x, y)
-
-    # np.ravel linearly indexes an array into a row.
-    mesh_points = [Point(point[0], point[1]) for point in np.array([np.ravel(x_ind), np.ravel(y_ind)]).T]
-    mesh_points = gpd.GeoDataFrame({'geometry': mesh_points}, geometry='geometry', crs=equal_area_crs)
-
-    # Only keep points that fall within the study area.
-    mesh_points = gpd.sjoin(mesh_points, area_m, predicate='within')[['geometry']]
-
-    # Create mesh around points.
-    mesh = mesh_points.buffer(mesh_size*1000, cap_style=3)
-
-    mesh.reset_index(drop=True, inplace=True)
-    mesh_points.reset_index(drop=True, inplace=True)
-
-    return mesh.to_crs(area.crs), mesh_points.to_crs(area.crs)
-
-
 def project_raster(input_raster: str, output_raster: str, crs: str) -> None:
     """
     Project a raster to a new crs
@@ -353,6 +316,8 @@ def project_raster(input_raster: str, output_raster: str, crs: str) -> None:
     crs : crs
         The CRS to project the input raster to. Of the format: 'epsg:XXXX...'
     """
+    from osgeo import gdal
+
     gdal.Warp(output_raster, input_raster, dstSRS=crs)
 
 
@@ -380,6 +345,85 @@ def ambience_from_raster(ambience_src: str, mic: 'Microphone') -> float:
     return Lx
 
 
+def _ensure_ambience_logger() -> None:
+    """Attach a console handler so ambience messages show during tqdm NVSPL reads.
+
+    NVSPL loading runs under tqdm progress bars; child loggers do not reach the root
+    handler by default. We attach one handler to this module logger once and set
+    ``propagate=False`` so INFO timing lines render on the tqdm stream without
+    duplicating messages from the application root logger.
+    """
+    if logger.handlers:
+        return
+    from nps_active_space.utils.helpers import _TqdmStream
+
+    handler = logging.StreamHandler(stream=_TqdmStream)
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+
+def _log_ambience_progress(message: str) -> None:
+    _ensure_ambience_logger()
+    logger.info(message)
+
+
+def compute_ambience_from_nvspl_files(
+    nvspl_files: list[str],
+    quantile: int = 90,
+    broadband: bool = False,
+) -> pd.Series:
+    """Load NVSPL files and compute ambience, logging incremental timing."""
+    from nps_active_space.utils.models import Nvspl
+
+    if not nvspl_files:
+        raise ValueError("No NVSPL files provided for ambience calculation")
+
+    t0 = time.perf_counter()
+    _log_ambience_progress(f"Loading {len(nvspl_files)} NVSPL files...")
+    nvspl = Nvspl(nvspl_files)
+    t_read = time.perf_counter()
+    _log_ambience_progress(
+        f"Loaded {len(nvspl):,} NVSPL rows in {t_read - t0:.1f} s; computing L{quantile} ambience..."
+    )
+
+    ambience = ambience_from_nvspl(nvspl, quantile, broadband=broadband)
+    t_done = time.perf_counter()
+    l1000 = ambience.get("1000")
+    l1000_str = f"{l1000:.1f}" if pd.notna(l1000) else "NaN"
+    _log_ambience_progress(
+        f"Ambience quantiles finished in {t_done - t_read:.1f} s "
+        f"(total {t_done - t0:.1f} s); 1000 Hz = {l1000_str} dB"
+    )
+    return ambience
+
+
+def compute_ambience_from_nvspl_archive(
+    nvspl_archive: str,
+    unit: str,
+    site: str,
+    year: str | int,
+    quantile: int = 90,
+    broadband: bool = False,
+) -> pd.Series:
+    """List NVSPL files from an iyore archive and compute ambience with timing logs."""
+    import iyore
+
+    t0 = time.perf_counter()
+    _log_ambience_progress(f"Listing NVSPL files for {unit}{site}{year} in archive...")
+    archive = iyore.Dataset(nvspl_archive)
+    nvspl_files = [
+        e.path for e in archive.nvspl(unit=unit, site=site, year=str(year))
+    ]
+    t_list = time.perf_counter()
+    _log_ambience_progress(
+        f"Found {len(nvspl_files)} NVSPL files (listing took {t_list - t0:.1f} s)"
+    )
+    return compute_ambience_from_nvspl_files(nvspl_files, quantile, broadband)
+
+
 def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50,
                         low_hz: float = "12.5", high_hz: float = "20000", broadband: bool = False) -> float | pd.Series:
     """
@@ -402,15 +446,70 @@ def ambience_from_nvspl(ambience_src: 'Nvspl', quantile: int = 50,
     -------
     Lx
     """
-    # filter out high wind periods
-    low_wind = ambience_src.loc[ambience_src["WindSpeed"] <= 5.0, :]
+    n_total = len(ambience_src)
+    if "WindSpeed" not in ambience_src.columns:
+        _log_ambience_progress(
+            "NVSPL WindSpeed column absent after load; skipping wind filter for ambience."
+        )
+        ambience_rows = ambience_src
+    else:
+        wind = pd.to_numeric(ambience_src["WindSpeed"], errors="coerce")
+        if wind.notna().any():
+            # Include rows with missing wind — sites without a wind sensor should not be dropped entirely.
+            ambience_rows = ambience_src.loc[wind.le(5.0) | wind.isna(), :]
+            if ambience_rows.empty:
+                _log_ambience_progress(
+                    "No NVSPL rows with WindSpeed <= 5 m/s; using all rows for ambience."
+                )
+                ambience_rows = ambience_src
+            else:
+                _log_ambience_progress(
+                    f"Wind filter (<= 5 m/s or missing): {len(ambience_rows):,} / {n_total:,} rows retained"
+                )
+        else:
+            _log_ambience_progress(
+                "NVSPL WindSpeed is missing or all NaN; skipping wind filter for ambience."
+            )
+            ambience_rows = ambience_src
 
     if broadband:
-        Lx = low_wind.loc[:, 'dbA'].quantile(1 - (quantile / 100))
+        Lx = ambience_rows.loc[:, "dbA"].quantile(1 - (quantile / 100))
     else:
-        Lx = low_wind.loc[:, low_hz:high_hz].quantile(1 - (quantile / 100))
+        Lx = ambience_rows.loc[:, low_hz:high_hz].quantile(1 - (quantile / 100))
+
+    if isinstance(Lx, pd.Series) and not Lx.notna().any():
+        raise ValueError(
+            "Computed NVSPL ambience is all NaN. Check NVSPL archive coverage and band columns."
+        )
 
     return Lx
+
+
+def is_usable_spectral_ambience(ambience: pd.Series) -> bool:
+    """Return True when spectral ambience has at least one finite band in the audibility range."""
+    for label, value in ambience.items():
+        try:
+            band_hz = float(label)
+        except (TypeError, ValueError):
+            continue
+        if 12.5 <= band_hz <= 20000 and pd.notna(value):
+            return True
+    return False
+
+
+def load_spectral_ambience_pickle(path: str | Path) -> pd.Series | None:
+    """
+    Load spectral ambience from a pickle when the file exists and bands are usable.
+
+    Returns None when ``path`` is missing or the Series has no finite audibility bands.
+    """
+    pickle_path = Path(path)
+    if not pickle_path.is_file():
+        return None
+    ambience = pd.read_pickle(pickle_path)
+    if not is_usable_spectral_ambience(ambience):
+        return None
+    return ambience
 
 
 def compute_fbeta(valid_points: gpd.GeoDataFrame, active_space: gpd.GeoDataFrame,
@@ -705,15 +804,20 @@ def select_optimal(unit: str, site: str, year: int,
         if verbose:
             logger.info(f"omni: {omni} --> F-{beta_}: {fbeta:0.3f} precision: {precision:0.3f} recall: {recall:0.3f}")
         
-        if fbeta > max_fbeta:
+        if fbeta > max_fbeta or best_omni is None:
             max_fbeta = fbeta
             best_omni = omni
             best_recall = recall
             best_precision = precision
 
         detection_results.sort_values("gain", ascending=True, inplace=True) # it makes sense to plot (and return) the object sorted by gain
+
+    if detection_results.empty:
+        logger.warning("select_optimal received no active space polygons to evaluate.")
     
     if plot:
+        import matplotlib.pyplot as plt
+
         # create Precision-Recall Plot.
         fig, ax = plt.subplots()
         ax.plot(detection_results["Recall"], detection_results["Precision"], ls="-", lw=0.2, marker="o", ms=2, color="k")
@@ -759,7 +863,7 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
 
     # convert to UTM because we are doing distance-based processing
     orig_crs = points.crs  # remember this so we can project back later
-    crs = NMSIM_bbox_utm(study_area)
+    crs = study_area_utm_crs(study_area)
     if points.crs != crs:
         points = points.to_crs(crs)
     
@@ -805,6 +909,8 @@ def normalize_point_density(points: gpd.GeoDataFrame, study_area: gpd.GeoDataFra
     logger.info(f"Went from {n_before} to {len(points)} points when normalizing point density")
 
     if visualize:
+        import matplotlib.pyplot as plt
+
         # run it again to visualize the difference
         new_pos = np.stack([points.geometry.x, points.geometry.y], axis=1)
         new_grid_densities = FFTKDE(bw=bandwidth).fit(new_pos).evaluate(grid)
