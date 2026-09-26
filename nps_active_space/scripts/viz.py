@@ -8,6 +8,7 @@ import rasterio
 import pyproj
 from shapely.geometry import box, Polygon, MultiPolygon, LineString, MultiLineString
 from nps_active_space.utils.helpers import get_deployment, load_annotations, load_DEM, load_layered_activespace, load_studyarea
+from nps_active_space.utils import paths as p
 from nps_active_space.scripts.run_audible_transits import AudibleTransits
 from nps_active_space.utils.models import Annotations
 from nps_active_space.utils.computation import NMSIM_bbox_utm
@@ -147,17 +148,21 @@ class Visualizer():
         self.plot_point(mic.x, mic.y, mic.z, self.mic_color)
 
     def plot_activespace(self, terraced=False, gain=None):
-        csv_3d_fits = f"{self.project_dir}/fits.csv"
-        fit_results = pd.read_csv(csv_3d_fits, index_col="Designator")
+        csv_3d_fits = p.fits_csv(self.project_dir)
 
         if gain is not None:
             print(f"Using gain {gain}dB")
-        elif self.deployment in fit_results.index:
-            gain = float(fit_results.loc[unit+site+year, "1/3rd Octave Gain (F1)"])
+        elif os.path.exists(csv_3d_fits):
+            fit_results = pd.read_csv(csv_3d_fits, index_col="Designator")
+            if self.deployment in fit_results.index:
+                gain = float(fit_results.loc[self.deployment, "1/3rd Octave Gain (F1)"])
+            else:
+                print(f"No fitted active space gain found in {csv_3d_fits}, skipping active space.")
+                return
         else:
-            print(f"No fitted active space gain found in {csv_3d_fits}, skipping active space.")
+            print(f"No gain specified and {csv_3d_fits} not found, skipping active space.")
             return
-        
+
         # load activespace and plot the version specified by the user
         active_3d = load_layered_activespace(self.project_dir, self.unit, self.site, self.year,
                                              gain, self.crs)

@@ -4,22 +4,19 @@ import os
 from pathlib import Path
 from typing import List, Optional, TYPE_CHECKING, Union
 import pandas as pd
-import matplotlib.pyplot as plt
 
 import geopandas as gpd
 import numpy as np
+import re
 import sqlalchemy
 from sqlalchemy import text
 from sqlalchemy.engine import URL
-from tqdm import tqdm
-import re
 import rasterio
 import rasterio.plot
 from pyproj import Transformer
 from shapely.geometry import box
 
 from nps_active_space import ACTIVE_SPACE_DIR
-from nps_active_space.active_space import LayeredActiveSpace
 from nps_active_space.utils.models import Adsb, EarlyAdsb, Microphone, Annotations
 from nps_active_space.setup.site_decoder import decode_sit_geographic_coords, read_sit_file
 from nps_active_space.setup.site_writer import (
@@ -28,6 +25,8 @@ from nps_active_space.setup.site_writer import (
     sit_file_path,
 )
 from nps_active_space.utils.computation import NMSIM_bbox_utm
+from nps_active_space.utils import paths as p
+from tqdm import tqdm
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
@@ -71,14 +70,14 @@ def omni_to_gain(omni_source: str) -> float:
 
 
 def load_layered_activespace(project_dir, unit, site, year, gain=None, crs="epsg:4326"):
-    prefix = os.path.join(project_dir, f"{unit}{site}", "Output_Data", "ACTIVESPACES")
+    from nps_active_space.active_space import LayeredActiveSpace
+
     layer_dirs = {}
-    output_dirs = glob.glob(os.path.join(prefix, f"{unit}{site}{year}_*m"))
-    for dir in output_dirs:
+    for dir in p.activespace_layer_dirs(project_dir, unit, site, year):
         altitude = int(os.path.basename(dir).split("_")[1].split("m")[0])
         layer_dirs[altitude] = dir
     study_area = load_studyarea(project_dir, unit, site, year)
-    return LayeredActiveSpace(unit+site+year, layer_dirs, study_area, gain, crs)
+    return LayeredActiveSpace(p.deployment_id(unit, site, year), layer_dirs, study_area, gain, crs)
 
 
 def load_activespace(project_dir, unit, site, year, gain, altitude_m=None, crs=None):
@@ -109,11 +108,9 @@ def load_activespace(project_dir, unit, site, year, gain, altitude_m=None, crs=N
         A dataframe containing the geometry of the active space. Can be a single polygon or a multipolygon.
     """
 
-    prefix = os.path.join(project_dir, unit + site, "Output_Data", "ACTIVESPACES")
-
     # pick middle altitude if no altitude provided
     if altitude_m is None:
-        altitude_dirs = glob.glob(os.path.join(prefix, f"{unit}{site}{year}_*m"))
+        altitude_dirs = p.activespace_layer_dirs(project_dir, unit, site, year)
         altitudes = []
         for dir in altitude_dirs:
             altitudes.append(int(os.path.basename(dir).split("_")[1].split("m")[0]))
@@ -124,8 +121,7 @@ def load_activespace(project_dir, unit, site, year, gain, altitude_m=None, crs=N
     # read activespace
     sign = "-" if gain < 0 else "+"
     gain_string = str(np.abs(int(10*gain))).zfill(3)
-    usy = f"{unit}{site}{year}"
-    path = os.path.join(prefix, f"{usy}_{altitude_m}m", f"{usy}_O_{sign}{gain_string}.geojson")
+    path = p.activespace_geojson(project_dir, unit, site, year, altitude_m, sign, gain_string)
     active_space = gpd.read_file(path)
 
     if crs is not None:
@@ -154,11 +150,10 @@ def load_DEM(project_dir: str, unit: str, site: str):
         A rasterio Dataset object for reading the DEM data
     """
 
-    dem_glob = os.path.join(
-        project_dir, unit + site, "Input_Data", "01_ELEVATION", "elevation_m_nad83_utm*.tif"
-    )
     raster_path = _glob_path_or_raise(
-        dem_glob,
+        os.path.join(
+            project_dir, unit + site, "Input_Data", "01_ELEVATION", "elevation_m_nad83_utm*.tif"
+        ),
         description=(
             f"elevation DEM for {unit}{site} "
             f"(expected GeoTIFF in Input_Data/01_ELEVATION/elevation_m_nad83_utm*.tif)"
@@ -201,11 +196,8 @@ def load_studyarea(project_dir: str, unit: str, site: str, year: int, crs: str =
         A dataframe containing the geometry of the study area. A single polygon.
     """
 
-    study_glob = os.path.join(
-        project_dir, unit + site, f"{unit}{site}*study*area*.shp"
-    )
     study_area_path = _glob_path_or_raise(
-        study_glob,
+        os.path.join(project_dir, unit + site, f"{unit}{site}*study*area*.shp"),
         description=f"study area shapefile for {unit}{site}{year}",
     )
     study_area = gpd.read_file(study_area_path)
@@ -438,7 +430,7 @@ def load_annotations(project_dir: str, unit: str, site: str, year: str, only_val
         An Annotations object containing the loaded annotations.
     """
     # Verify that annotation files exist for the unit/site location. If they do exist, load them into memory.
-    annotation_files = glob.glob(f"{project_dir}/{unit}{site}/{unit}{site}{year}*saved_annotations*.geojson")
+    annotation_files = p.annotation_files(project_dir, unit, site, year)
     print("Found these annotation files:", list(map(lambda f: os.path.basename(f), annotation_files)))
     if len(annotation_files) == 0:
         return gpd.GeoDataFrame()
@@ -590,6 +582,8 @@ def estimate_line_count(filename, sample_size=1024 * 1024):
 
 def plot_activespace_fit(project_dir, unit, site, year, gain, altitude_m=None,
                          ax=None, dem=None, mic=None, active=None, annotations=None):
+    import matplotlib.pyplot as plt
+
     if ax is None:
         fig, ax = plt.subplots()
 
