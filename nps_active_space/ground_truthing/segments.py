@@ -46,7 +46,7 @@ def collapse_audible_ranges(ranges: list[AudibleRange]) -> list[AudibleRange]:
 def build_annotation_segments(
     track_id: str,
     points: gpd.GeoDataFrame,
-    audible_ranges: list[AudibleRange] = [],
+    audible_ranges: list[AudibleRange] | None = None,
     valid: bool = True,
     note: str | None = None,
 ) -> gpd.GeoDataFrame:
@@ -61,11 +61,14 @@ def build_annotation_segments(
         Track and spline points to annotate.
     valid : bool, default True
         If the track was valid.
-    audible_ranges: list of [datetime, datetime], default []
-        Periods of time when the track was audible. If an empty list, everything was inaudible.        
+    audible_ranges: list of [datetime, datetime], default None
+        Periods of time when the track was audible. If None or empty, everything was inaudible.
     note: str, default None
         Any note to be added to all points passed for annotation.
     """
+    if audible_ranges is None:
+        audible_ranges = []
+
     # Convert points to WGS84 to avoid geopandas bug mentioned in Track model :(
     if 'z' not in points.columns:
         points['z'] = points.geometry.z
