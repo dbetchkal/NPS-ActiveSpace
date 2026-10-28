@@ -1586,6 +1586,10 @@ class Srcid():
                 else:
                     frames.append(self._join_srcID_rows(pieces))
 
+            # seldomly there are no events spanning two NVSPL files
+            if not frames:
+                return src.copy()
+            
             # here are all the joined data
             merged_breaks = pd.concat(frames)
 
