@@ -13,4 +13,4 @@ class TestCreateOverflightsEngine:
             }
         )
         url = engine.url.render_as_string(hide_password=False)
-        assert url == "postgresql://user%40domain:p%40ssword@10.0.0.1:5432/overflights"
+        assert url == "postgresql+psycopg2://user%40domain:p%40ssword@10.0.0.1:5432/overflights"
