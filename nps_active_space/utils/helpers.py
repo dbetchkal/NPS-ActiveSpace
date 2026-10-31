@@ -584,6 +584,8 @@ def estimate_line_count(filename, sample_size=1024 * 1024):
     newlines = sample.count(b'\n')
     if not newlines:
         return 0
+    if file_size < sample_size:
+        return newlines
     return int((file_size / sample_size) * newlines)
 
 
